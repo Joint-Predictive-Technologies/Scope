@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scope — Political & Insider Activity Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,700&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0c0b09;
+      --bg2:       #111009;
+      --bg3:       #181610;
+      --border:    #2a2620;
+      --border2:   #3a3428;
+      --cream:     #e8e0cc;
+      --cream2:    #c8bfa8;
+      --muted:     #7a7060;
+      --amber:     #c8922a;
+      --amber2:    #e8aa3a;
+      --red:       #c0392b;
+      --green:     #2a8a4a;
+      --mono:      'IBM Plex Mono', monospace;
+      --serif:     'Playfair Display', Georgia, serif;
+      --sans:      'Inter', system-ui, sans-serif;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--cream);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── TICKER TAPE ── */
+    .ticker-wrap {
+      background: var(--amber);
+      color: #0c0b09;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      overflow: hidden;
+      height: 26px;
+      display: flex;
+      align-items: center;
+    }
+    .ticker-track {
+      display: flex;
+      animation: ticker 40s linear infinite;
+      white-space: nowrap;
+    }
+    .ticker-track span {
+      padding: 0 28px;
+      border-right: 1px solid rgba(0,0,0,0.2);
+    }
+    @keyframes ticker {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    /* ── NAV ── */
+    nav {
+      border-bottom: 1px solid var(--border);
+      padding: 0 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 60px;
+      position: sticky;
+      top: 0;
+      background: rgba(12,11,9,0.97);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+    .nav-brand {
+      font-family: var(--serif);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--amber2);
+      text-transform: uppercase;
+    }
+    .nav-brand span {
+      font-size: 10px;
+      font-family: var(--mono);
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      display: block;
+      margin-top: -4px;
+    }
+    .nav-links {
+      display: flex;
+      gap: 32px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--cream); }
+    .nav-cta {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--bg);
+      background: var(--amber);
+      border: none;
+      padding: 8px 18px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .nav-cta:hover { background: var(--amber2); }
+
+    /* ── HERO ── */
+    .hero {
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      min-height: 520px;
+    }
+    .hero-left {
+      padding: 72px 56px 72px 40px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .hero-eyebrow {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 20px;
+    }
+    h1 {
+      font-family: var(--serif);
+      font-size: clamp(36px, 4vw, 54px);
+      font-weight: 900;
+      line-height: 1.08;
+      color: var(--cream);
+      margin-bottom: 28px;
+    }
+    h1 em {
+      font-style: italic;
+      color: var(--amber2);
+    }
+    .hero-pitch {
+      font-size: 15px;
+      line-height: 1.75;
+      color: var(--cream2);
+      max-width: 480px;
+      margin-bottom: 36px;
+    }
+    .hero-pitch strong { color: var(--cream); font-weight: 500; }
+    .hero-actions {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .btn-primary {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: var(--amber);
+      color: #0c0b09;
+      border: none;
+      padding: 12px 24px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-primary:hover { background: var(--amber2); }
+    .btn-ghost {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border2);
+      padding: 12px 24px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-ghost:hover { color: var(--cream); border-color: var(--cream2); }
+
+    .hero-right {
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      background: var(--bg2);
+    }
+    .terminal-box {
+      background: #0a0904;
+      border: 1px solid var(--border2);
+      padding: 24px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.8;
+    }
+    .terminal-header {
+      font-size: 10px;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--amber);
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .t-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 5px 0;
+      border-bottom: 1px solid rgba(42,38,32,0.5);
+    }
+    .t-row:last-child { border-bottom: none; }
+    .t-rule { color: var(--muted); font-size: 10px; }
+    .t-entity { color: var(--cream); }
+    .t-tag {
+      font-size: 10px;
+      padding: 2px 8px;
+      letter-spacing: 0.05em;
+    }
+    .t-tag.buy  { background: rgba(42,138,74,0.2); color: #5aba7a; }
+    .t-tag.sell { background: rgba(192,57,43,0.2); color: #e06050; }
+    .t-tag.cluster { background: rgba(200,146,42,0.2); color: var(--amber2); }
+    .t-tag.cross { background: rgba(100,80,200,0.2); color: #a090e0; }
+    .t-time { color: var(--muted); font-size: 10px; }
+
+    /* ── DIVIDER ── */
+    .section-divider {
+      padding: 14px 40px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .section-divider-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--amber);
+      white-space: nowrap;
+    }
+    .divider-line {
+      height: 1px;
+      background: var(--border);
+      flex: 1;
+    }
+
+    /* ── RULES ── */
+    .rules-section {
+      padding: 0;
+    }
+    .rules-header {
+      padding: 56px 40px 40px;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 40px;
+      align-items: end;
+    }
+    .rules-header h2 {
+      font-family: var(--serif);
+      font-size: clamp(28px, 3vw, 42px);
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .rules-header h2 em {
+      font-style: italic;
+      color: var(--amber2);
+    }
+    .rules-header p {
+      color: var(--cream2);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .rules-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .rule-card {
+      padding: 32px 40px;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      transition: background 0.2s;
+      position: relative;
+    }
+    .rule-card:nth-child(2n) { border-right: none; }
+    .rule-card:hover { background: var(--bg3); }
+
+    /* Rule 10 special — full width */
+    .rule-card.marquee {
+      grid-column: 1 / -1;
+      border-right: none;
+      background: linear-gradient(135deg, var(--bg2) 0%, rgba(100,80,200,0.04) 100%);
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 32px;
+      align-items: start;
+    }
+    .rule-card.marquee:hover { background: linear-gradient(135deg, var(--bg3) 0%, rgba(100,80,200,0.07) 100%); }
+
+    .rule-num {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--amber);
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+    }
+    .rule-title {
+      font-family: var(--serif);
+      font-size: 19px;
+      font-weight: 600;
+      color: var(--cream);
+      margin-bottom: 10px;
+      line-height: 1.3;
+    }
+    .rule-trigger {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .rule-trigger strong { color: var(--amber); }
+    .rule-desc {
+      font-size: 13px;
+      color: var(--cream2);
+      line-height: 1.65;
+    }
+    .rule-badges {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      padding: 3px 10px;
+      border: 1px solid;
+    }
+    .badge.fast   { color: #5aba7a; border-color: rgba(90,186,122,0.3); }
+    .badge.slow   { color: #a090e0; border-color: rgba(160,144,224,0.3); }
+    .badge.domain-a { color: var(--amber2); border-color: rgba(200,146,42,0.3); }
+    .badge.domain-b { color: #60b0e0; border-color: rgba(96,176,224,0.3); }
+    .badge.domain-c { color: #e0a060; border-color: rgba(224,160,96,0.3); }
+    .badge.marquee-badge { color: #c090f0; border-color: rgba(192,144,240,0.3); }
+
+    /* Rule 10 big num */
+    .marquee-num {
+      font-family: var(--serif);
+      font-size: 96px;
+      font-weight: 900;
+      color: rgba(100,80,200,0.12);
+      line-height: 1;
+      user-select: none;
+    }
+
+    /* ── PRINCIPLES ── */
+    .principles {
+      border-top: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .principle-item {
+      padding: 40px;
+      border-right: 1px solid var(--border);
+    }
+    .principle-item:last-child { border-right: none; }
+    .principle-icon {
+      font-family: var(--mono);
+      font-size: 22px;
+      color: var(--amber);
+      margin-bottom: 16px;
+    }
+    .principle-title {
+      font-family: var(--serif);
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 10px;
+    }
+    .principle-desc {
+      font-size: 13px;
+      color: var(--cream2);
+      line-height: 1.7;
+    }
+
+    /* ── STATUS ── */
+    .status-bar {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 40px;
+      display: flex;
+      gap: 40px;
+      background: var(--bg2);
+    }
+    .status-item { display: flex; flex-direction: column; gap: 4px; }
+    .status-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .status-value {
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--cream);
+    }
+    .status-value.live::before {
+      content: '● ';
+      color: #5aba7a;
+      font-size: 10px;
+    }
+    .status-value.pending::before {
+      content: '◌ ';
+      color: var(--amber);
+      font-size: 10px;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      padding: 40px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .footer-brand {
+      font-family: var(--serif);
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--amber2);
+      text-transform: uppercase;
+    }
+    .footer-disclaimer {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      max-width: 480px;
+      line-height: 1.6;
+      text-align: right;
+    }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; }
+      .hero-left { border-right: none; border-bottom: 1px solid var(--border); }
+      .rules-grid { grid-template-columns: 1fr; }
+      .rule-card { border-right: none; }
+      .rule-card.marquee { grid-template-columns: 1fr; }
+      .rules-header { grid-template-columns: 1fr; }
+      .principles { grid-template-columns: 1fr; }
+      .principle-item { border-right: none; border-bottom: 1px solid var(--border); }
+      .status-bar { flex-wrap: wrap; }
+      footer { flex-direction: column; gap: 20px; text-align: center; }
+      .footer-disclaimer { text-align: center; }
+      nav { padding: 0 20px; }
+      .nav-links { display: none; }
+      .hero-left { padding: 48px 20px; }
+      .hero-right { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TICKER TAPE -->
+<div class="ticker-wrap">
+  <div class="ticker-track">
+    <span>RULE 1 · STOCK Act Filing · Sen. Jane Smith · $NVDA · BUY · $15k–$50k · 2d delay</span>
+    <span>RULE 3 · Truth Social · "$TSLA will be bigger than anyone imagines" · FAST PATH</span>
+    <span>RULE 2 · Cluster · $LMT · 5 members · 4-day window · NET LONG</span>
+    <span>RULE 10 · Cross-reference · $META · Rule 1 + Rule 5 within 22h · HIGH SIGNAL</span>
+    <span>RULE 7 · Polymarket · "Fed cuts by July" +8.4pp · 24h window</span>
+    <span>RULE 6 · Form 4 · CEO $AMZN · 3.2× historical avg · DEVIATION</span>
+    <span>RULE 1 · STOCK Act Filing · Sen. Jane Smith · $NVDA · BUY · $15k–$50k · 2d delay</span>
+    <span>RULE 3 · Truth Social · "$TSLA will be bigger than anyone imagines" · FAST PATH</span>
+    <span>RULE 2 · Cluster · $LMT · 5 members · 4-day window · NET LONG</span>
+    <span>RULE 10 · Cross-reference · $META · Rule 1 + Rule 5 within 22h · HIGH SIGNAL</span>
+    <span>RULE 7 · Polymarket · "Fed cuts by July" +8.4pp · 24h window</span>
+    <span>RULE 6 · Form 4 · CEO $AMZN · 3.2× historical avg · DEVIATION</span>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-brand">
+    Scope
+    <span>Political &amp; Insider Activity Terminal</span>
+  </div>
+  <ul class="nav-links">
+    <li><a href="#rules">The 10 Rules</a></li>
+    <li><a href="#about">About</a></li>
+    <li><a href="#status">Build Status</a></li>
+  </ul>
+  <button class="nav-cta">Request Access</button>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-left">
+    <p class="hero-eyebrow">v0.1 — Rule 1 Live · Senate PTR Ingestion Active</p>
+    <h1>The markets move<br/>before the <em>news</em> does.</h1>
+    <p class="hero-pitch">
+      Scope is a research terminal for macro and event-driven investors who already do
+      their own thinking but cannot watch every corner of the internet at once.
+      It watches <strong>congressional trades, executive social media, hearing schedules,
+      regulatory filings, and prediction-market positioning</strong> — and surfaces
+      signal-bearing events with LLM-generated context against your watchlist.
+      <br/><br/>
+      <strong>You keep the judgment. Scope keeps the watch.</strong>
+    </p>
+    <div class="hero-actions">
+      <button class="btn-primary">Request Early Access</button>
+      <button class="btn-ghost">Read the Spec →</button>
+    </div>
+  </div>
+  <div class="hero-right">
+    <div class="terminal-box">
+      <div class="terminal-header">● Live Feed — Rule Engine Output</div>
+
+      <div class="t-row">
+        <span class="t-rule">RULE 10</span>
+        <span class="t-entity">$META · Cross-source alert</span>
+        <span class="t-tag cross">HIGH SIGNAL</span>
+        <span class="t-time">4m ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 01</span>
+        <span class="t-entity">$NVDA · Sen. J. Smith</span>
+        <span class="t-tag buy">BUY $15k–50k</span>
+        <span class="t-time">18m ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 05</span>
+        <span class="t-entity">$AMZN · Sen. Warren</span>
+        <span class="t-tag sell">TECH ANTITRUST</span>
+        <span class="t-time">1h ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 02</span>
+        <span class="t-entity">$LMT · 5 members · 4d</span>
+        <span class="t-tag cluster">CLUSTER BUY</span>
+        <span class="t-time">3h ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 07</span>
+        <span class="t-entity">Polymarket · Fed July</span>
+        <span class="t-tag buy">+8.4pp 24h</span>
+        <span class="t-time">5h ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 03</span>
+        <span class="t-entity">$TSLA · Truth Social</span>
+        <span class="t-tag buy">MENTION</span>
+        <span class="t-time">6h ago</span>
+      </div>
+      <div class="t-row">
+        <span class="t-rule">RULE 06</span>
+        <span class="t-entity">$AMZN · CEO Form 4</span>
+        <span class="t-tag sell">3.2× AVG DEV</span>
+        <span class="t-time">Yesterday</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- STATUS BAR -->
+<div id="status" class="status-bar">
+  <div class="status-item">
+    <span class="status-label">Senate PTR Ingestion</span>
+    <span class="status-value live">Live</span>
+  </div>
+  <div class="status-item">
+    <span class="status-label">House PTR Ingestion</span>
+    <span class="status-value pending">Index only — PDF parser pending</span>
+  </div>
+  <div class="status-item">
+    <span class="status-label">Rules Active</span>
+    <span class="status-value">1 of 10</span>
+  </div>
+  <div class="status-item">
+    <span class="status-label">Database</span>
+    <span class="status-value live">SQLite (Postgres port: planned)</span>
+  </div>
+  <div class="status-item">
+    <span class="status-label">Build Phase</span>
+    <span class="status-value">Phase Zero — v0.1</span>
+  </div>
+</div>
+
+<!-- RULES SECTION -->
+<section id="rules" class="rules-section">
+  <div class="rules-header">
+    <h2>Ten rules.<br/>One <em>corroboration</em> layer.</h2>
+    <p>
+      Each rule is a concrete "if this, then surface that" unit. The product ships these ten on day one.
+      Expanding the rule library is the long-term work. Rule 10 — cross-source corroboration — is what
+      justifies the product existing. Any individual rule can be replicated. The layer that knits them
+      together cannot.
+    </p>
+  </div>
+
+  <div class="rules-grid">
+
+    <!-- Rule 1 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 01</p>
+      <h3 class="rule-title">STOCK Act New Filing</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> New PTR appears on house.gov or senate.gov</p>
+      <p class="rule-desc">
+        Member name, ticker, buy/sell, amount band, filing date vs. transaction date with delay flag,
+        direct link to source. Cross-referenced against your watchlist and the member's prior trades
+        in the same ticker.
+      </p>
+      <div class="rule-badges">
+        <span class="badge fast">⚡ Fast path</span>
+        <span class="badge domain-a">Domain A — Insider</span>
+      </div>
+    </div>
+
+    <!-- Rule 2 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 02</p>
+      <h3 class="rule-title">Cluster Trade Detection</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> 3+ congressional members file in the same ticker within 7 days</p>
+      <p class="rule-desc">
+        Ticker, full member list, aggregate direction, time-clustering chart. Cross-referenced against
+        news events in that ticker during the window. Requires aggregation — slow path.
+      </p>
+      <div class="rule-badges">
+        <span class="badge slow">◎ Slow path</span>
+        <span class="badge domain-a">Domain A — Insider</span>
+      </div>
+    </div>
+
+    <!-- Rule 3 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 03</p>
+      <h3 class="rule-title">Trump Truth Social Ticker Mention</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> New post mentions a company name, ticker, or sector keyword</p>
+      <p class="rule-desc">
+        Post text, identified entities, sentiment label, premarket/intraday price reaction.
+        Cross-referenced against prior posts mentioning the same entity and historical price
+        reaction data.
+      </p>
+      <div class="rule-badges">
+        <span class="badge fast">⚡ Fast path</span>
+        <span class="badge domain-b">Domain B — Political</span>
+      </div>
+    </div>
+
+    <!-- Rule 4 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 04</p>
+      <h3 class="rule-title">Senate Hearing — Public Company Witness</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> Committee schedules hearing with public-company executives</p>
+      <p class="rule-desc">
+        Company, hearing topic, committee, date, witness list. Prior hearings for the same company,
+        stock reaction history, and options IV change since announcement. Lead time is days —
+        analysis matters more than speed here.
+      </p>
+      <div class="rule-badges">
+        <span class="badge slow">◎ Slow path</span>
+        <span class="badge domain-b">Domain B — Political</span>
+      </div>
+    </div>
+
+    <!-- Rule 5 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 05</p>
+      <h3 class="rule-title">Watched Senator or Rep Posts on Policy</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> One of ~40 tracked accounts posts matching a sector-policy keyword set</p>
+      <p class="rule-desc">
+        Post, identified sector, prior pattern of this author influencing the sector. Think Warren on
+        banks, Cruz on energy, Hawley on tech antitrust. Fast for the post itself; contextualized
+        version follows 10 minutes later.
+      </p>
+      <div class="rule-badges">
+        <span class="badge fast">⚡ Fast path</span>
+        <span class="badge slow">◎ + Context</span>
+        <span class="badge domain-b">Domain B — Political</span>
+      </div>
+    </div>
+
+    <!-- Rule 6 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 06</p>
+      <h3 class="rule-title">Executive Insider Trade — Deviation Flag</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> Form 4 exceeds threshold AND deviates from executive's historical pattern</p>
+      <p class="rule-desc">
+        Executive, company, transaction, deviation flag with explanation. Cross-referenced against
+        recent material company news and upcoming earnings date. Pattern detection requires history
+        lookup — slow path.
+      </p>
+      <div class="rule-badges">
+        <span class="badge slow">◎ Slow path</span>
+        <span class="badge domain-a">Domain A — Insider</span>
+      </div>
+    </div>
+
+    <!-- Rule 7 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 07</p>
+      <h3 class="rule-title">Polymarket Significant Position Move</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> Volume or price move &gt;X% on a politics/policy/geopolitics market</p>
+      <p class="rule-desc">
+        Market question, price move, volume, related public-equity tickers where mappable. Large
+        position movements flagged separately from price movements. Cross-referenced against
+        news during the movement window.
+      </p>
+      <div class="rule-badges">
+        <span class="badge fast">⚡ Fast path</span>
+        <span class="badge domain-c">Domain C — Prediction Markets</span>
+      </div>
+    </div>
+
+    <!-- Rule 8 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 08</p>
+      <h3 class="rule-title">Federal Register Sector-Impact Rule</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> New rule proposal published in Federal Register affecting a tracked sector</p>
+      <p class="rule-desc">
+        LLM-generated rule summary, affected sectors, comment period dates, historical pattern of
+        similar proposals. ETF and key ticker reactions cross-referenced with prior rules
+        and their outcomes.
+      </p>
+      <div class="rule-badges">
+        <span class="badge slow">◎ Slow path</span>
+        <span class="badge domain-b">Domain B — Political</span>
+      </div>
+    </div>
+
+    <!-- Rule 9 -->
+    <div class="rule-card">
+      <p class="rule-num">RULE 09</p>
+      <h3 class="rule-title">Lobbying Disclosure Spike</h3>
+      <p class="rule-trigger"><strong>TRIGGER:</strong> Company's quarterly lobbying spend (LD-2) increases &gt;50% year-over-year</p>
+      <p class="rule-desc">
+        Company, spend delta, issues lobbied, recent regulatory context. Cross-referenced against
+        pending legislation touching those issues. A company doubling its lobbying spend is
+        rarely random.
+      </p>
+      <div class="rule-badges">
+        <span class="badge slow">◎ Slow path</span>
+        <span class="badge domain-b">Domain B — Political</span>
+      </div>
+    </div>
+
+    <!-- Rule 10 — full width marquee -->
+    <div class="rule-card marquee">
+      <div class="marquee-num">10</div>
+      <div>
+        <p class="rule-num">RULE 10 — THE MARQUEE FEATURE</p>
+        <h3 class="rule-title">Cross-Source Corroboration Alert</h3>
+        <p class="rule-trigger"><strong>TRIGGER:</strong> Two or more of the above rules fire on the same ticker within a 48-hour window</p>
+        <p class="rule-desc" style="max-width:680px;">
+          Combined timeline of all events. LLM-generated narrative: "why this is interesting."
+          This is the rule that justifies the product existing. Any individual rule above can be
+          replicated by a competitor. The value is in the corroboration layer that knits them together.
+          <br/><br/>
+          The user-customizable version of Rule 10 — where you define what "interesting" means across
+          your own thesis — is what the eventual moat looks like.
+        </p>
+        <div class="rule-badges">
+          <span class="badge slow">◎ Slow path</span>
+          <span class="badge marquee-badge">★ Cross-reference engine</span>
+          <span class="badge domain-a">All Domains</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- DIVIDER -->
+<div class="section-divider">
+  <span class="section-divider-label">Positioning</span>
+  <div class="divider-line"></div>
+</div>
+
+<!-- PRINCIPLES -->
+<section id="about" class="principles">
+  <div class="principle-item">
+    <div class="principle-icon">⌖</div>
+    <h4 class="principle-title">A scope, not a gun</h4>
+    <p class="principle-desc">
+      Scope is a research-augmentation tool, not a signal or advice product. The shooter aims;
+      the scope sees. No buy/sell recommendations. No "if you'd followed Pelosi" marketing.
+      No AI predictions. The LLM is used for summarization, entity extraction,
+      and contextualization — not prediction.
+    </p>
+  </div>
+  <div class="principle-item">
+    <div class="principle-icon">◈</div>
+    <h4 class="principle-title">Fast where speed is the point</h4>
+    <p class="principle-desc">
+      A pure-speed product loses to professional terminals on infrastructure. A pure-context product
+      loses to the user's own careful reading. The hybrid says: fast path for STOCK Act filings and
+      Truth Social posts; slow path with LLM context for hearings and cross-references.
+    </p>
+  </div>
+  <div class="principle-item">
+    <div class="principle-icon">◉</div>
+    <h4 class="principle-title">Thesis-driven filtering</h4>
+    <p class="principle-desc">
+      Older tools do keyword matching. Scope does semantic matching against a user's stated worldview.
+      Type what you're watching for in natural language — "rate cuts in Q3, semiconductor export
+      controls, Brazil political risk" — and the relevance engine filters accordingly.
+      This is genuinely new in this category.
+    </p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-brand">Scope</div>
+  <p class="footer-disclaimer">
+    Scope is an information aggregation and research tool. It is not investment advice and does not
+    provide personalized recommendations. All data sourced from public filings and open sources.
+    © 2026 Scope. All rights reserved.
+  </p>
+</footer>
+
+</body>
+</html>
