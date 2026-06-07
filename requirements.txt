@@ -1,25 +1,2 @@
-# HTTP + scraping
-requests>=2.31.0
-beautifulsoup4>=4.12.0
-lxml>=4.9.0
-
-# PDF parsing (Rule 1 — House PTR PDFs)
-pdfplumber>=0.10.0
-pytesseract>=0.3.10       # OCR fallback for scanned PDFs
-
-# LLM layer (Rules 2–10 slow path)
-anthropic>=0.25.0
-
-# Database (Postgres port — not needed for SQLite dev)
-# psycopg[binary]>=3.1.0
-# sqlalchemy>=2.0.0
-
-# Scheduling (run on cron for now; uncomment if switching to daemon)
-# apscheduler>=3.10.0
-
-# Notifications
-# python-telegram-bot>=20.0
-
-# Dev / test
-pytest>=8.0.0
-pytest-mock>=3.12.0
+python-dotenv
+requests

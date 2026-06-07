@@ -1,0 +1,71 @@
+CREATE TABLE IF NOT EXISTS members (
+    bioguide_id TEXT PRIMARY KEY,
+    full_name   TEXT NOT NULL,
+    party       TEXT,
+    state       TEXT,
+    chamber     TEXT,
+    district    TEXT,
+    is_current  INTEGER DEFAULT 1,
+    url         TEXT,
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tickers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol       TEXT NOT NULL UNIQUE,
+    company_name TEXT,
+    cik          TEXT
+);
+
+CREATE TABLE IF NOT EXISTS filings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    source           TEXT,
+    member_id        TEXT REFERENCES members(bioguide_id),
+    doc_id           TEXT UNIQUE,
+    filing_date      TEXT,
+    report_type      TEXT,
+    extraction_status TEXT DEFAULT 'pending',
+    raw_url          TEXT,
+    ingested_at      TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS transactions (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    filing_id          INTEGER REFERENCES filings(id),
+    member_id          TEXT REFERENCES members(bioguide_id),
+    ticker_id          INTEGER REFERENCES tickers(id),
+    raw_ticker_string  TEXT,
+    raw_description    TEXT,
+    transaction_type   TEXT,
+    amount_band        TEXT,
+    transaction_date   TEXT,
+    filing_date        TEXT,
+    created_at         TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    rule       TEXT,
+    headline   TEXT,
+    severity   TEXT,
+    tags       TEXT,
+    ticker     TEXT,
+    member_id  TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS ingestion_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT,
+    started_at   TEXT,
+    finished_at  TEXT,
+    filings_seen INTEGER DEFAULT 0,
+    errors       INTEGER DEFAULT 0,
+    notes        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS watchlist (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol   TEXT NOT NULL UNIQUE,
+    added_at TEXT DEFAULT (datetime('now'))
+);
