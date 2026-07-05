@@ -107,7 +107,7 @@ def clean_symbol(symbol: str | None) -> str:
 def clean_member(row) -> str:
     full_name = row["full_name"]
 
-    if not full_name:
+    if full_name is None:
         return "Unknown Member"
 
     party = row["party"] or ""
@@ -158,7 +158,7 @@ def fetch_alerts(conn, days: int, watchlist_only: bool, watchlist: set[str]):
             members.chamber
         FROM alerts
         LEFT JOIN members
-            ON members.bioguide_id = alerts.member_id
+            ON alerts.member_id = members.bioguide_id
         WHERE datetime(alerts.created_at) >= datetime('now', ?)
         ORDER BY datetime(alerts.created_at) DESC;
         """,
