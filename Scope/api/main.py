@@ -48,6 +48,23 @@ def _alert_count() -> int:
         return -1
 
 
+def _hours_since_last_alert() -> float:
+    import sqlite3
+    from datetime import datetime, timezone
+    default_db = CODE_DIR / "data" / "jpt.db"
+    db_path = os.getenv("DATABASE_PATH") or str(default_db)
+    try:
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT MAX(created_at) FROM alerts").fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return float("inf")
+        last = datetime.fromisoformat(row[0]).replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - last).total_seconds() / 3600
+    except Exception:
+        return float("inf")
+
+
 def _run_rules(rules: list[str]) -> dict[str, str]:
     results = {}
     for rule in rules:
@@ -65,15 +82,18 @@ async def _refresh_loop():
     """Background task: re-run all live rules every REFRESH_INTERVAL_HOURS."""
     while True:
         await asyncio.sleep(REFRESH_INTERVAL_HOURS * 3600)
-        print(f"[scheduler] running live rules …", flush=True)
+        print("[scheduler] running live rules …", flush=True)
         await asyncio.to_thread(_run_rules, LIVE_RULES)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if _alert_count() == 0:
-        print("[startup] DB empty — seeding now …", flush=True)
+    hours_stale = _hours_since_last_alert()
+    if hours_stale >= REFRESH_INTERVAL_HOURS:
+        print(f"[startup] data is {hours_stale:.1f}h old — refreshing now …", flush=True)
         await asyncio.to_thread(_run_rules, LIVE_RULES)
+    else:
+        print(f"[startup] data is fresh ({hours_stale:.1f}h old) — skipping seed", flush=True)
     asyncio.create_task(_refresh_loop())
     yield
 
