@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import sys
 import os
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.routers import alerts, chat, members, tickers
 
+STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(
     title="Scope Political Intelligence API",
@@ -38,6 +42,14 @@ app.include_router(members.router, prefix="/members", tags=["Members"])
 app.include_router(tickers.router, prefix="/tickers", tags=["Tickers"])
 
 
-@app.get("/", tags=["Health"])
-def root():
-    return {"status": "ok", "service": "Scope API"}
+@app.get("/", response_class=HTMLResponse, include_in_schema=False)
+def home():
+    return FileResponse(STATIC_DIR / "index.html")
+
+@app.get("/feed", response_class=HTMLResponse, include_in_schema=False)
+def feed():
+    return FileResponse(STATIC_DIR / "alerts.html")
+
+@app.get("/ask", response_class=HTMLResponse, include_in_schema=False)
+def ask():
+    return FileResponse(STATIC_DIR / "chat.html")

@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; display: flex; flex-direction: column; }
+
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; flex-shrink: 0; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .chat-layout { flex: 1; display: flex; flex-direction: column; max-width: 800px; margin: 0 auto; width: 100%; padding: 0 1.5rem; overflow: hidden; }
+
+    .chat-header { padding: 2rem 0 1.2rem; flex-shrink: 0; }
+    .chat-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+    .chat-title { font-family: 'Playfair Display', serif; font-size: 1.7rem; font-weight: 700; color: var(--cream); }
+
+    /* SUGGESTIONS */
+    .suggestions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.2rem; flex-shrink: 0; }
+    .chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; background: var(--bg2); border: 1px solid var(--border2); color: var(--cream2); padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap; }
+    .chip:hover { border-color: var(--amber); color: var(--amber); }
+
+    /* MESSAGES */
+    #messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1.2rem; padding-bottom: 1rem; scroll-behavior: smooth; }
+    .msg { display: flex; gap: 0.8rem; align-items: flex-start; }
+    .msg-avatar { width: 28px; height: 28px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; font-weight: 500; flex-shrink: 0; margin-top: 2px; }
+    .msg.user .msg-avatar { background: rgba(200,146,42,0.2); color: var(--amber); border: 1px solid rgba(200,146,42,0.3); }
+    .msg.bot  .msg-avatar { background: var(--bg2); color: var(--cream2); border: 1px solid var(--border); }
+    .msg-body { flex: 1; }
+    .msg-sender { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
+    .msg-text { font-size: 0.88rem; line-height: 1.65; color: var(--cream); }
+    .msg.user .msg-text { color: var(--cream2); }
+    .msg-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-top: 0.3rem; }
+    .thinking { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
+    .thinking-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: bounce 1.2s ease-in-out infinite; }
+    .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
+    .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce { 0%,80%,100% { transform: translateY(0); } 40% { transform: translateY(-5px); } }
+
+    /* INPUT */
+    .input-area { flex-shrink: 0; padding: 1rem 0 1.4rem; border-top: 1px solid var(--border); }
+    .input-row { display: flex; gap: 0.7rem; align-items: flex-end; }
+    #user-input {
+      flex: 1; background: var(--bg2); border: 1px solid var(--border); color: var(--cream);
+      font-family: Inter, sans-serif; font-size: 0.88rem; padding: 10px 14px;
+      border-radius: 6px; outline: none; resize: none; min-height: 42px; max-height: 120px;
+      line-height: 1.5; transition: border-color 0.2s;
+    }
+    #user-input:focus { border-color: var(--amber); }
+    #user-input::placeholder { color: var(--muted); }
+    #send-btn {
+      font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+      background: var(--amber); color: var(--bg); border: none; padding: 10px 18px;
+      border-radius: 6px; cursor: pointer; font-weight: 500; height: 42px; white-space: nowrap;
+      transition: background 0.2s;
+    }
+    #send-btn:hover:not(:disabled) { background: var(--amber2); }
+    #send-btn:disabled { opacity: 0.4; cursor: default; }
+    .input-hint { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-top: 0.5rem; }
+
+    @media (max-width: 600px) { .suggestions { display: none; } }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/ask" class="active">Chat</a>
+    <a href="/docs">API</a>
+  </div>
+  <a href="/feed" class="nav-cta">Live Feed →</a>
+</nav>
+
+<div class="chat-layout">
+  <div class="chat-header">
+    <div class="chat-tag">AI Analyst</div>
+    <div class="chat-title">Ask the Intelligence</div>
+  </div>
+
+  <div class="suggestions">
+    <div class="chip" onclick="ask('What are the most critical alerts right now?')">Most critical alerts</div>
+    <div class="chip" onclick="ask('What is happening with defense stocks?')">Defense stocks</div>
+    <div class="chip" onclick="ask('Any congressional trading activity worth noting?')">Congressional trading</div>
+    <div class="chip" onclick="ask('What insider trades stand out this month?')">Insider trades</div>
+    <div class="chip" onclick="ask('Are there any corroborated signals across multiple rules?')">Corroborated signals</div>
+  </div>
+
+  <div id="messages">
+    <div class="msg bot">
+      <div class="msg-avatar">SC</div>
+      <div class="msg-body">
+        <div class="msg-sender">Scope Analyst</div>
+        <div class="msg-text">I have access to the live Scope database — congressional trading disclosures, SEC insider filings, Federal Register proposals, lobbying records, and Polymarket signals. Ask me anything about recent political and insider activity.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-row">
+      <textarea id="user-input" placeholder="Ask about a ticker, sector, or recent signal…" rows="1"></textarea>
+      <button id="send-btn" onclick="sendMsg()">Send</button>
+    </div>
+    <div class="input-hint">Grounded in live data · Powered by Groq Llama 3.3</div>
+  </div>
+</div>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const inputEl    = document.getElementById('user-input');
+  const sendBtn    = document.getElementById('send-btn');
+
+  function addMsg(role, text, meta) {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    div.innerHTML = `
+      <div class="msg-avatar">${role === 'user' ? 'YOU' : 'SC'}</div>
+      <div class="msg-body">
+        <div class="msg-sender">${role === 'user' ? 'You' : 'Scope Analyst'}</div>
+        <div class="msg-text">${text}</div>
+        ${meta ? `<div class="msg-meta">${meta}</div>` : ''}
+      </div>`;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  function addThinking() {
+    const div = document.createElement('div');
+    div.className = 'msg bot';
+    div.id = 'thinking';
+    div.innerHTML = `
+      <div class="msg-avatar">SC</div>
+      <div class="msg-body">
+        <div class="msg-sender">Scope Analyst</div>
+        <div class="thinking"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div>
+      </div>`;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function ask(question) {
+    inputEl.value = question;
+    await sendMsg();
+  }
+
+  async function sendMsg() {
+    const q = inputEl.value.trim();
+    if (!q) return;
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    sendBtn.disabled = true;
+
+    addMsg('user', q);
+    addThinking();
+
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: q, days: 30 }),
+      });
+      const data = await res.json();
+      document.getElementById('thinking')?.remove();
+      if (data.error) {
+        addMsg('bot', 'Error: ' + data.error);
+      } else {
+        addMsg('bot', data.answer, `${data.context_alerts} signal${data.context_alerts !== 1 ? 's' : ''} referenced`);
+      }
+    } catch {
+      document.getElementById('thinking')?.remove();
+      addMsg('bot', 'Could not reach the Scope API. Please try again.');
+    }
+
+    sendBtn.disabled = false;
+    inputEl.focus();
+  }
+
+  // Auto-resize textarea
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
+  });
+  inputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMsg(); }
+  });
+</script>
+</body>
+</html>

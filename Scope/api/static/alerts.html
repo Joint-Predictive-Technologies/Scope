@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alerts — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-header { margin-bottom: 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); }
+
+    /* FILTERS */
+    .filters { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 2rem; align-items: center; }
+    .filter-select, .filter-input {
+      font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em;
+      background: var(--bg2); border: 1px solid var(--border); color: var(--cream2);
+      padding: 7px 12px; border-radius: 4px; outline: none; appearance: none;
+    }
+    .filter-select:focus, .filter-input:focus { border-color: var(--amber); color: var(--cream); }
+    .filter-input { width: 140px; }
+    .filter-input::placeholder { color: var(--muted); }
+    .filter-btn {
+      font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
+      background: var(--amber); color: var(--bg); border: none; padding: 7px 16px; border-radius: 4px;
+      cursor: pointer; font-weight: 500;
+    }
+    .filter-btn:hover { background: var(--amber2); }
+    .filter-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: auto; }
+
+    /* ALERT CARDS */
+    #alerts-list { display: flex; flex-direction: column; gap: 1px; }
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1.1rem 1.4rem; transition: border-color 0.15s; cursor: pointer; }
+    .alert-card:hover { border-color: var(--border2); }
+    .alert-card.expanded { border-color: var(--amber); }
+    .alert-top { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
+    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+    .badge-ticker { background: transparent; color: var(--amber); border: 1px solid rgba(200,146,42,0.25); font-size: 0.65rem; }
+    .alert-headline { font-size: 0.88rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+    .alert-detail { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
+    .alert-card.expanded .alert-detail { display: block; }
+    .detail-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+
+    .empty { text-align: center; padding: 4rem 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
+    .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
+    .loading span { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed" class="active">Alerts</a>
+    <a href="/ask">Chat</a>
+    <a href="/docs">API</a>
+  </div>
+  <a href="/ask" class="nav-cta">Ask AI →</a>
+</nav>
+
+<div class="page">
+  <div class="page-header">
+    <div class="page-tag">Live Signal Feed</div>
+    <div class="page-title">Active Alerts</div>
+  </div>
+
+  <div class="filters">
+    <select class="filter-select" id="f-severity">
+      <option value="">All severity</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+    </select>
+    <select class="filter-select" id="f-rule">
+      <option value="">All rules</option>
+      <option value="RULE_02">RULE_02 — Clusters</option>
+      <option value="RULE_06">RULE_06 — Insider</option>
+      <option value="RULE_07">RULE_07 — Polymarket</option>
+      <option value="RULE_08">RULE_08 — Fed Register</option>
+      <option value="RULE_09">RULE_09 — Lobbying</option>
+      <option value="RULE_10">RULE_10 — Corroboration</option>
+    </select>
+    <select class="filter-select" id="f-days">
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
+    <input class="filter-input" id="f-ticker" placeholder="Ticker (e.g. NVDA)" />
+    <button class="filter-btn" onclick="load()">Filter</button>
+    <span class="filter-count" id="result-count"></span>
+  </div>
+
+  <div id="alerts-list"><div class="loading"><span>Loading alerts…</span></div></div>
+</div>
+
+<script>
+  function timeAgo(ts) {
+    const d = new Date(ts + 'Z');
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
+
+  function renderAlerts(data) {
+    const list = document.getElementById('alerts-list');
+    document.getElementById('result-count').textContent = data.length + ' result' + (data.length !== 1 ? 's' : '');
+    if (!data.length) { list.innerHTML = '<div class="empty">No alerts found for this filter.</div>'; return; }
+    list.innerHTML = data.map((a, i) => `
+      <div class="alert-card" onclick="toggle(${i})" id="card-${i}">
+        <div class="alert-top">
+          <span class="badge badge-${a.severity}">${a.severity}</span>
+          <span class="badge badge-rule">${a.rule}</span>
+          ${a.ticker ? `<span class="badge badge-ticker">${a.ticker.split(' ')[0]}</span>` : ''}
+          <span class="alert-headline">${a.headline}</span>
+          <span class="alert-time">${timeAgo(a.created_at)}</span>
+        </div>
+        ${a.detail ? `
+        <div class="alert-detail">
+          <div class="detail-label">AI Analysis</div>
+          ${a.detail}
+        </div>` : a.tags ? `
+        <div class="alert-detail">
+          <div class="detail-label">Tags</div>
+          ${a.tags}
+        </div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  function toggle(i) {
+    const card = document.getElementById('card-' + i);
+    card.classList.toggle('expanded');
+  }
+
+  function load() {
+    const sev    = document.getElementById('f-severity').value;
+    const rule   = document.getElementById('f-rule').value;
+    const days   = document.getElementById('f-days').value;
+    const ticker = document.getElementById('f-ticker').value.trim();
+    const list   = document.getElementById('alerts-list');
+    list.innerHTML = '<div class="loading"><span>Loading…</span></div>';
+
+    let url = `/alerts?days=${days}&limit=200`;
+    if (sev)    url += `&severity=${sev}`;
+    if (rule)   url += `&rule=${rule}`;
+    if (ticker) url += `&ticker=${encodeURIComponent(ticker)}`;
+
+    fetch(url)
+      .then(r => r.json())
+      .then(renderAlerts)
+      .catch(() => { list.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>'; });
+  }
+
+  load();
+  document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+</script>
+</body>
+</html>

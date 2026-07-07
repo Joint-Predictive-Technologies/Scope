@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scope — Political Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
+    /* NAV */
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; transition: background 0.2s; }
+    .nav-cta:hover { background: var(--amber2); }
+
+    /* TICKER TAPE */
+    .tape { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 7px 0; overflow: hidden; white-space: nowrap; }
+    .tape-inner { display: inline-flex; gap: 3rem; animation: scroll 40s linear infinite; }
+    .tape-item { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.04em; }
+    .tape-item span { color: var(--amber); margin-right: 4px; }
+    .tape-item.up .val { color: var(--green); }
+    .tape-item.down .val { color: var(--red); }
+    @keyframes scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+    /* HERO */
+    .hero { max-width: 1100px; margin: 0 auto; padding: 6rem 2rem 4rem; display: grid; grid-template-columns: 1fr 1fr; gap: 4rem; align-items: center; }
+    .hero-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1.2rem; }
+    .hero h1 { font-family: 'Playfair Display', serif; font-size: 3.2rem; font-weight: 900; line-height: 1.12; color: var(--cream); margin-bottom: 1.4rem; }
+    .hero h1 em { color: var(--amber); font-style: normal; }
+    .hero p { font-size: 1rem; line-height: 1.7; color: var(--cream2); max-width: 420px; margin-bottom: 2.4rem; }
+    .hero-actions { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .btn-primary { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 12px 24px; border-radius: 4px; text-decoration: none; font-weight: 500; transition: background 0.2s; }
+    .btn-primary:hover { background: var(--amber2); }
+    .btn-secondary { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--border2); color: var(--cream2); padding: 12px 24px; border-radius: 4px; text-decoration: none; transition: border-color 0.2s, color 0.2s; }
+    .btn-secondary:hover { border-color: var(--amber); color: var(--amber); }
+
+    /* TERMINAL */
+    .terminal { background: var(--bg2); border: 1px solid var(--border2); border-radius: 8px; overflow: hidden; }
+    .terminal-bar { background: var(--bg3); padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--border); }
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #c0392b; } .dot-y { background: #e67e22; } .dot-g { background: #27ae60; }
+    .terminal-title { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: 6px; }
+    .terminal-body { padding: 20px; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; line-height: 1.8; }
+    .t-line { display: flex; gap: 1rem; margin-bottom: 4px; }
+    .t-prompt { color: var(--amber); flex-shrink: 0; }
+    .t-text { color: var(--cream2); }
+    .t-text .hi { color: var(--amber2); }
+    .t-text .ok { color: var(--green); }
+    .t-text .warn { color: #e67e22; }
+    .t-text .crit { color: var(--red); }
+    .t-spacer { height: 8px; }
+    #t-live { animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    /* SIGNAL GRID */
+    .section { max-width: 1100px; margin: 0 auto; padding: 4rem 2rem; }
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
+    .section-title { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--cream); margin-bottom: 2.4rem; }
+    .rules-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+    .rule-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1.4rem; transition: border-color 0.2s; cursor: default; }
+    .rule-card:hover { border-color: var(--border2); }
+    .rule-card.featured { grid-column: 1 / -1; background: linear-gradient(135deg, var(--bg2) 0%, #1a1508 100%); border-color: var(--amber); }
+    .rule-id { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.1em; color: var(--amber); margin-bottom: 0.5rem; }
+    .rule-name { font-family: 'Playfair Display', serif; font-size: 1.05rem; font-weight: 600; color: var(--cream); margin-bottom: 0.5rem; }
+    .rule-desc { font-size: 0.82rem; color: var(--cream2); line-height: 1.55; }
+    .rule-status { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 3px; margin-top: 0.8rem; }
+    .status-live { background: rgba(42,138,74,0.15); color: var(--green); border: 1px solid rgba(42,138,74,0.3); }
+
+    /* LIVE STATS */
+    .stats-bar { background: var(--bg2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .stats-inner { max-width: 1100px; margin: 0 auto; padding: 1.4rem 2rem; display: flex; gap: 3rem; align-items: center; }
+    .stat { text-align: center; }
+    .stat-val { font-family: 'Playfair Display', serif; font-size: 1.8rem; font-weight: 700; color: var(--amber); }
+    .stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+    .stats-divider { width: 1px; height: 36px; background: var(--border); }
+
+    /* FOOTER */
+    footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
+
+    @media (max-width: 900px) {
+      .hero { grid-template-columns: 1fr; gap: 2.4rem; }
+      .hero h1 { font-size: 2.2rem; }
+      .rules-grid { grid-template-columns: 1fr; }
+      .rule-card.featured { grid-column: auto; }
+      .stats-inner { flex-wrap: wrap; gap: 1.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- TICKER TAPE -->
+<div class="tape">
+  <div class="tape-inner" id="tape">
+    <span class="tape-item up"><span>RULE_02</span> Congressional Cluster — NVDA <span class="val">↑</span></span>
+    <span class="tape-item down"><span>RULE_06</span> Insider Sale — KYMR $45.3M <span class="val">↓</span></span>
+    <span class="tape-item up"><span>RULE_08</span> Fed Register — Stablecoin Rule <span class="val">↑</span></span>
+    <span class="tape-item down"><span>RULE_06</span> Insider Sale — FLEX $34.2M <span class="val">↓</span></span>
+    <span class="tape-item up"><span>RULE_10</span> Corroboration — TSM <span class="val">★</span></span>
+    <span class="tape-item down"><span>RULE_09</span> Lobbying Spike — +167% YoY <span class="val">↑</span></span>
+    <span class="tape-item up"><span>RULE_07</span> Polymarket Move — Defense +12pp <span class="val">↑</span></span>
+    <!-- duplicate for seamless loop -->
+    <span class="tape-item up"><span>RULE_02</span> Congressional Cluster — NVDA <span class="val">↑</span></span>
+    <span class="tape-item down"><span>RULE_06</span> Insider Sale — KYMR $45.3M <span class="val">↓</span></span>
+    <span class="tape-item up"><span>RULE_08</span> Fed Register — Stablecoin Rule <span class="val">↑</span></span>
+    <span class="tape-item down"><span>RULE_06</span> Insider Sale — FLEX $34.2M <span class="val">↓</span></span>
+    <span class="tape-item up"><span>RULE_10</span> Corroboration — TSM <span class="val">★</span></span>
+    <span class="tape-item down"><span>RULE_09</span> Lobbying Spike — +167% YoY <span class="val">↑</span></span>
+    <span class="tape-item up"><span>RULE_07</span> Polymarket Move — Defense +12pp <span class="val">↑</span></span>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/" class="active">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/ask">Chat</a>
+    <a href="/docs">API</a>
+  </div>
+  <a href="/feed" class="nav-cta">Live Feed →</a>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div>
+    <div class="hero-tag">Political Intelligence Platform</div>
+    <h1>Where <em>power</em> moves before markets do</h1>
+    <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, and Senate lobbying records — and synthesizes them into actionable signals.</p>
+    <div class="hero-actions">
+      <a href="/feed" class="btn-primary">View Live Alerts</a>
+      <a href="/ask" class="btn-secondary">Ask the Analyst</a>
+    </div>
+  </div>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot dot-r"></div><div class="dot dot-y"></div><div class="dot dot-g"></div>
+      <span class="terminal-title">scope — live signal feed</span>
+    </div>
+    <div class="terminal-body" id="term-body">
+      <div class="t-line"><span class="t-prompt">$</span><span class="t-text">scope run --all-rules</span></div>
+      <div class="t-spacer"></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_02  congressional cluster</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_06  SEC Form 4 insider trades</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_07  Polymarket movements</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_08  Federal Register rules</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_09  lobbying spend spikes</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="hi">★</span> RULE_10  corroboration + LLM</span></div>
+      <div class="t-spacer"></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text" id="t-live"><span class="crit">●</span> <span id="alert-count">—</span> alerts active · <span id="crit-count">—</span> critical</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- LIVE STATS -->
+<div class="stats-bar">
+  <div class="stats-inner">
+    <div class="stat"><div class="stat-val" id="stat-total">—</div><div class="stat-label">Total Alerts</div></div>
+    <div class="stats-divider"></div>
+    <div class="stat"><div class="stat-val" id="stat-critical">—</div><div class="stat-label">Critical</div></div>
+    <div class="stats-divider"></div>
+    <div class="stat"><div class="stat-val" id="stat-high">—</div><div class="stat-label">High</div></div>
+    <div class="stats-divider"></div>
+    <div class="stat"><div class="stat-val" id="stat-rules">6</div><div class="stat-label">Active Rules</div></div>
+    <div class="stats-divider"></div>
+    <div class="stat"><div class="stat-val" id="stat-tickers">—</div><div class="stat-label">Tickers Tracked</div></div>
+  </div>
+</div>
+
+<!-- RULES GRID -->
+<div class="section">
+  <div class="section-label">Signal Architecture</div>
+  <div class="section-title">Six rules. One picture.</div>
+  <div class="rules-grid">
+    <div class="rule-card">
+      <div class="rule-id">RULE_02</div>
+      <div class="rule-name">Congressional Clusters</div>
+      <div class="rule-desc">Fires when 3+ members of Congress trade the same ticker within a 7-day window.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_06</div>
+      <div class="rule-name">SEC Form 4 Insider Trades</div>
+      <div class="rule-desc">Detects executive trades that are 2× or more above their historical average.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_07</div>
+      <div class="rule-name">Polymarket Movements</div>
+      <div class="rule-desc">Monitors politically-linked prediction markets for moves above 10pp in 24h.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_08</div>
+      <div class="rule-name">Federal Register</div>
+      <div class="rule-desc">Scans new proposed regulations for sector keywords that map to tracked equities.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_09</div>
+      <div class="rule-name">Lobbying Spikes</div>
+      <div class="rule-desc">Flags companies whose quarterly lobbying spend has jumped >50% year-over-year.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+    <div class="rule-card featured">
+      <div class="rule-id">RULE_10 — Marquee Signal</div>
+      <div class="rule-name">Cross-Source Corroboration</div>
+      <div class="rule-desc">Fires when 2+ independent rules converge on the same ticker within 48 hours. Generates a plain-English analyst narrative via LLM explaining why the convergence matters for investors.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
+  </div>
+</div>
+
+<footer>© 2026 Joint Predictive Technologies · Scope Political Intelligence · <a href="/docs" style="color:var(--amber);text-decoration:none;">API Docs</a></footer>
+
+<script>
+  fetch('/alerts?days=30&limit=500')
+    .then(r => r.json())
+    .then(data => {
+      if (!Array.isArray(data)) return;
+      const total = data.length;
+      const crit  = data.filter(a => a.severity === 'CRITICAL').length;
+      const high  = data.filter(a => a.severity === 'HIGH').length;
+      const tickers = new Set(data.map(a => a.ticker).filter(Boolean)).size;
+      document.getElementById('stat-total').textContent    = total;
+      document.getElementById('stat-critical').textContent = crit;
+      document.getElementById('stat-high').textContent     = high;
+      document.getElementById('stat-tickers').textContent  = tickers;
+      document.getElementById('alert-count').textContent   = total + ' alerts';
+      document.getElementById('crit-count').textContent    = crit + ' critical';
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     tags       TEXT,
     ticker     TEXT,
     member_id  TEXT,
+    detail     TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 );
 
