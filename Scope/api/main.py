@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sys
 import os
+import asyncio
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,15 @@ from api.routers import alerts, chat, members, tickers
 STATIC_DIR = Path(__file__).parent / "static"
 CODE_DIR   = Path(__file__).resolve().parent.parent
 
+LIVE_RULES = [
+    "rule_06_form4.py",
+    "rule_07_polymarket.py",
+    "rule_08_federal_register.py",
+    "rule_09_lobbying.py",
+    "scripts/rule_10_corroboration.py",
+]
+REFRESH_INTERVAL_HOURS = 4
+
 
 def _alert_count() -> int:
     import sqlite3
@@ -38,23 +48,33 @@ def _alert_count() -> int:
         return -1
 
 
-def _auto_seed():
-    """Run RULE_08 + RULE_09 to populate the DB when it's empty on Railway."""
-    print("[startup] DB empty — seeding with RULE_08 + RULE_09 …", flush=True)
-    for rule in ["rule_08_federal_register.py", "rule_09_lobbying.py"]:
+def _run_rules(rules: list[str]) -> dict[str, str]:
+    results = {}
+    for rule in rules:
         r = subprocess.run(
             [sys.executable, rule, "--emit-alerts"],
             capture_output=True, text=True,
             cwd=str(CODE_DIR),
         )
-        status = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
-        print(f"[startup] {rule}: {status}", flush=True)
+        results[rule] = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
+        print(f"[rules] {rule}: {results[rule]}", flush=True)
+    return results
+
+
+async def _refresh_loop():
+    """Background task: re-run all live rules every REFRESH_INTERVAL_HOURS."""
+    while True:
+        await asyncio.sleep(REFRESH_INTERVAL_HOURS * 3600)
+        print(f"[scheduler] running live rules …", flush=True)
+        await asyncio.to_thread(_run_rules, LIVE_RULES)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if _alert_count() == 0:
-        _auto_seed()
+        print("[startup] DB empty — seeding now …", flush=True)
+        await asyncio.to_thread(_run_rules, LIVE_RULES)
+    asyncio.create_task(_refresh_loop())
     yield
 
 
@@ -109,21 +129,13 @@ def health():
 
 @app.get("/admin/refresh", tags=["Admin"])
 def admin_refresh(key: str = ""):
-    """Populate the DB by running RULE_06, RULE_08, RULE_09. Pass ?key=ADMIN_KEY."""
+    """Manually trigger all live rules. Pass ?key=ADMIN_KEY."""
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key or key != admin_key:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
-    import subprocess, sys
-    results = {}
-    for rule in ["rule_08_federal_register.py", "rule_09_lobbying.py"]:
-        r = subprocess.run(
-            [sys.executable, rule, "--emit-alerts"],
-            capture_output=True, text=True,
-            cwd=str(Path(__file__).parent.parent),
-        )
-        results[rule] = "ok" if r.returncode == 0 else r.stderr[-300:]
-    return {"status": "done", "results": results}
+    results = _run_rules(LIVE_RULES)
+    return {"status": "done", "alert_count": _alert_count(), "results": results}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
