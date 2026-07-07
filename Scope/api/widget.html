@@ -99,8 +99,7 @@
 </div>
 
 <script>
-  // ← Change this to your Railway URL after deployment
-  const API_BASE = "http://localhost:8000";
+  const API_BASE = "https://scope-production-1c3a.up.railway.app";
 
   // Load recent alerts
   fetch(`${API_BASE}/alerts?days=7&limit=10&severity=HIGH`)
