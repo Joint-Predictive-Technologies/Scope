@@ -90,8 +90,8 @@ async def _refresh_loop():
 async def lifespan(app: FastAPI):
     hours_stale = _hours_since_last_alert()
     if hours_stale >= REFRESH_INTERVAL_HOURS:
-        print(f"[startup] data is {hours_stale:.1f}h old — refreshing now …", flush=True)
-        await asyncio.to_thread(_run_rules, LIVE_RULES)
+        print(f"[startup] data is {hours_stale:.1f}h old — background refresh starting …", flush=True)
+        asyncio.create_task(asyncio.to_thread(_run_rules, LIVE_RULES))
     else:
         print(f"[startup] data is fresh ({hours_stale:.1f}h old) — skipping seed", flush=True)
     asyncio.create_task(_refresh_loop())
