@@ -70,6 +70,25 @@ def health():
     }
 
 
+@app.get("/admin/refresh", tags=["Admin"])
+def admin_refresh(key: str = ""):
+    """Populate the DB by running RULE_06, RULE_08, RULE_09. Pass ?key=ADMIN_KEY."""
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or key != admin_key:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
+    import subprocess, sys
+    results = {}
+    for rule in ["rule_08_federal_register.py", "rule_09_lobbying.py"]:
+        r = subprocess.run(
+            [sys.executable, rule, "--emit-alerts"],
+            capture_output=True, text=True,
+            cwd=str(Path(__file__).parent.parent),
+        )
+        results[rule] = "ok" if r.returncode == 0 else r.stderr[-300:]
+    return {"status": "done", "results": results}
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home():
     return FileResponse(STATIC_DIR / "index.html")
