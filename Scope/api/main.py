@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import sys
 import os
+import subprocess
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -16,16 +18,51 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.routers import alerts, chat, members, tickers
 
 STATIC_DIR = Path(__file__).parent / "static"
+CODE_DIR   = Path(__file__).resolve().parent.parent
+
+
+def _alert_count() -> int:
+    import sqlite3
+    default_db = CODE_DIR / "data" / "jpt.db"
+    db_path = os.getenv("DATABASE_PATH") or str(default_db)
+    try:
+        conn = sqlite3.connect(db_path)
+        n = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+        conn.close()
+        return n
+    except Exception:
+        return -1
+
+
+def _auto_seed():
+    """Run RULE_08 + RULE_09 to populate the DB when it's empty on Railway."""
+    print("[startup] DB empty — seeding with RULE_08 + RULE_09 …", flush=True)
+    for rule in ["rule_08_federal_register.py", "rule_09_lobbying.py"]:
+        r = subprocess.run(
+            [sys.executable, rule, "--emit-alerts"],
+            capture_output=True, text=True,
+            cwd=str(CODE_DIR),
+        )
+        status = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
+        print(f"[startup] {rule}: {status}", flush=True)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if _alert_count() == 0:
+        _auto_seed()
+    yield
+
 
 app = FastAPI(
     title="Scope Political Intelligence API",
     description="Real-time alerts on congressional trading, insider activity, lobbying, and regulatory proposals.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
