@@ -54,7 +54,8 @@ def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """
     load_dotenv()
 
-    path = db_path or os.getenv("DATABASE_PATH") or "data/jpt.db"
+    default = Path(__file__).resolve().parent / "data" / "jpt.db"
+    path = db_path or os.getenv("DATABASE_PATH") or str(default)
     db_file = Path(path)
 
     db_file.parent.mkdir(parents=True, exist_ok=True)
