@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Chat — Scope</title>
+  <title>Ask Scope — Political Intelligence</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
   <style>
@@ -18,12 +18,17 @@
     html, body { height: 100%; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; display: flex; flex-direction: column; }
 
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; flex-shrink: 0; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
-    .nav-links { display: flex; gap: 2rem; align-items: center; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; flex-shrink: 0; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
-    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
 
     .chat-layout { flex: 1; display: flex; flex-direction: column; max-width: 800px; margin: 0 auto; width: 100%; padding: 0 1.5rem; overflow: hidden; }
 
@@ -33,7 +38,7 @@
 
     /* SUGGESTIONS */
     .suggestions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.2rem; flex-shrink: 0; }
-    .chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; background: var(--bg2); border: 1px solid var(--border2); color: var(--cream2); padding: 6px 12px; border-radius: 20px; cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap; }
+    .chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; letter-spacing: 0.03em; background: var(--bg2); border: 1px solid var(--border2); color: var(--cream2); padding: 6px 11px; border-radius: 20px; cursor: pointer; transition: border-color 0.15s, color 0.15s; white-space: nowrap; }
     .chip:hover { border-color: var(--amber); color: var(--amber); }
 
     /* MESSAGES */
@@ -44,7 +49,7 @@
     .msg.bot  .msg-avatar { background: var(--bg2); color: var(--cream2); border: 1px solid var(--border); }
     .msg-body { flex: 1; }
     .msg-sender { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
-    .msg-text { font-size: 0.88rem; line-height: 1.65; color: var(--cream); }
+    .msg-text { font-size: 0.88rem; line-height: 1.65; color: var(--cream); white-space: pre-wrap; }
     .msg.user .msg-text { color: var(--cream2); }
     .msg-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-top: 0.3rem; }
     .thinking { display: flex; gap: 4px; align-items: center; padding: 4px 0; }
@@ -81,36 +86,40 @@
 
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <div class="nav-links">
-    <a href="/">Home</a>
+  <button class="hamburger" id="ham-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/ask" class="active">Ask Scope</a>
     <a href="/feed">Alerts</a>
-    <a href="/members-list">Members</a>
-    <a href="/watchlist">Watchlist</a>
-    <a href="/ask" class="active">Chat</a>
   </div>
-  <a href="/feed" class="nav-cta">Live Feed →</a>
 </nav>
 
 <div class="chat-layout">
   <div class="chat-header">
-    <div class="chat-tag">AI Analyst</div>
-    <div class="chat-title">Ask the Intelligence</div>
+    <div class="chat-tag">AI Political Intelligence Analyst</div>
+    <div class="chat-title">Ask Scope</div>
   </div>
 
   <div class="suggestions">
-    <div class="chip" onclick="ask('What are the most critical alerts right now?')">Most critical alerts</div>
-    <div class="chip" onclick="ask('What is happening with defense stocks?')">Defense stocks</div>
-    <div class="chip" onclick="ask('Any congressional trading activity worth noting?')">Congressional trading</div>
-    <div class="chip" onclick="ask('What insider trades stand out this month?')">Insider trades</div>
-    <div class="chip" onclick="ask('Are there any corroborated signals across multiple rules?')">Corroborated signals</div>
+    <div class="chip" onclick="ask('Why is NVDA getting so much congressional attention?')">Why NVDA?</div>
+    <div class="chip" onclick="ask('Show all senators buying defense stocks this year')">Senate defense buys</div>
+    <div class="chip" onclick="ask('What changed overnight in the political landscape?')">What changed overnight?</div>
+    <div class="chip" onclick="ask('Which tickers have the most corroborated signals right now?')">Most corroborated tickers</div>
+    <div class="chip" onclick="ask('Compare lobbying activity for AI companies vs defense')">AI vs defense lobbying</div>
+    <div class="chip" onclick="ask('Any unusual insider buying in the last 7 days?')">Unusual insider buying</div>
+    <div class="chip" onclick="ask('What government contracts has Palantir received recently?')">Palantir contracts</div>
   </div>
 
   <div id="messages">
     <div class="msg bot">
       <div class="msg-avatar">SC</div>
       <div class="msg-body">
-        <div class="msg-sender">Scope Analyst</div>
-        <div class="msg-text">I have access to the live Scope database — congressional trading disclosures, SEC insider filings, Federal Register proposals, lobbying records, and Polymarket signals. Ask me anything about recent political and insider activity.</div>
+        <div class="msg-sender">Scope</div>
+        <div class="msg-text">I have access to the live Scope database — congressional trading disclosures, SEC insider filings, Federal Register proposals, lobbying records, Polymarket signals, and government contracts. Ask me anything about recent political and alternative data signals.</div>
       </div>
     </div>
   </div>
@@ -120,11 +129,15 @@
       <textarea id="user-input" placeholder="Ask about a ticker, sector, or recent signal…" rows="1"></textarea>
       <button id="send-btn" onclick="sendMsg()">Send</button>
     </div>
-    <div class="input-hint">Grounded in live data · Powered by Groq Llama 3.3</div>
+    <div class="input-hint">Grounded in live data · Powered by Groq Llama 3.3 · AI SUMMARY — not investment advice</div>
   </div>
 </div>
 
 <script>
+  document.getElementById('ham-btn').addEventListener('click', () => {
+    document.getElementById('nav-links').classList.toggle('open');
+  });
+
   const messagesEl = document.getElementById('messages');
   const inputEl    = document.getElementById('user-input');
   const sendBtn    = document.getElementById('send-btn');
@@ -135,7 +148,7 @@
     div.innerHTML = `
       <div class="msg-avatar">${role === 'user' ? 'YOU' : 'SC'}</div>
       <div class="msg-body">
-        <div class="msg-sender">${role === 'user' ? 'You' : 'Scope Analyst'}</div>
+        <div class="msg-sender">${role === 'user' ? 'You' : 'Scope'}</div>
         <div class="msg-text">${text}</div>
         ${meta ? `<div class="msg-meta">${meta}</div>` : ''}
       </div>`;
@@ -151,7 +164,7 @@
     div.innerHTML = `
       <div class="msg-avatar">SC</div>
       <div class="msg-body">
-        <div class="msg-sender">Scope Analyst</div>
+        <div class="msg-sender">Scope</div>
         <div class="thinking"><div class="thinking-dot"></div><div class="thinking-dot"></div><div class="thinking-dot"></div></div>
       </div>`;
     messagesEl.appendChild(div);
@@ -184,7 +197,8 @@
       if (data.error) {
         addMsg('bot', 'Error: ' + data.error);
       } else {
-        addMsg('bot', data.answer, `${data.context_alerts} signal${data.context_alerts !== 1 ? 's' : ''} referenced`);
+        addMsg('bot', data.answer,
+          `${data.context_alerts} signal${data.context_alerts !== 1 ? 's' : ''} referenced · AI SUMMARY · Groq Llama 3.3`);
       }
     } catch {
       document.getElementById('thinking')?.remove();
@@ -195,7 +209,6 @@
     inputEl.focus();
   }
 
-  // Auto-resize textarea
   inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
     inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';

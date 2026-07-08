@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lobbying Activity — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #e55b4d; --green: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
+
+    .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; }
+
+    .filters { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .filter-input, .filter-select { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
+    .filter-input:focus, .filter-select:focus { border-color: var(--amber); color: var(--cream); }
+    .filter-input::placeholder { color: var(--muted); }
+    .filter-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .filter-btn:hover { background: var(--amber2); }
+    .filter-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: auto; }
+
+    .card-list { display: flex; flex-direction: column; gap: 1px; }
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.3rem; cursor: pointer; transition: border-color 0.15s; }
+    .alert-card:hover { border-color: var(--border2); }
+    .alert-card.expanded { border-color: var(--amber); }
+    .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
+    .badge-CRITICAL { background: rgba(229,91,77,0.15); color: var(--red); border: 1px solid rgba(229,91,77,0.3); }
+    .badge-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-source { background: transparent; color: var(--muted); border: 1px solid var(--border2); font-size: 0.58rem; }
+    .ticker-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); border: 1px solid rgba(200,146,42,0.25); padding: 2px 7px; border-radius: 3px; flex-shrink: 0; text-decoration: none; }
+    .ticker-chip:hover { background: rgba(200,146,42,0.1); }
+    .alert-headline { font-size: 0.86rem; color: var(--cream); flex: 1; min-width: 200px; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); flex-shrink: 0; cursor: help; }
+    .alert-detail { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.6; display: none; }
+    .alert-card.expanded .alert-detail { display: block; }
+    .verify-link { display: inline-block; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; text-decoration: none; }
+    .verify-link:hover { background: rgba(200,146,42,0.1); }
+
+    .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <button class="hamburger" id="ham-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying" class="active">Lobbying</a>
+    <a href="/ask">Ask Scope</a>
+    <a href="/feed">Alerts</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-eyebrow">Senate LDA · RULE_09</div>
+  <div class="page-title">Lobbying Activity</div>
+  <div class="page-sub">Companies with quarterly lobbying spend up &gt;50% year-over-year. Source: Senate Lobbying Disclosure Act database.</div>
+
+  <div class="filters">
+    <input class="filter-input" id="f-ticker" placeholder="Ticker (e.g. MSFT)" style="width:130px" />
+    <select class="filter-select" id="f-severity">
+      <option value="">All severity</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+    </select>
+    <select class="filter-select" id="f-days">
+      <option value="7">7 days</option>
+      <option value="30" selected>30 days</option>
+      <option value="90">90 days</option>
+    </select>
+    <button class="filter-btn" onclick="load()">Filter</button>
+    <span class="filter-count" id="result-count"></span>
+  </div>
+
+  <div class="card-list" id="alerts-list"><div class="loading">Loading lobbying alerts…</div></div>
+</div>
+
+<script>
+  document.getElementById('ham-btn').addEventListener('click', () => {
+    document.getElementById('nav-links').classList.toggle('open');
+  });
+
+  function timeAgo(ts) {
+    if (!ts) return '';
+    const d = new Date(ts.includes('Z') ? ts : ts + 'Z');
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 60) return 'just now';
+    if (s < 3600) return Math.floor(s/60) + 'm ago';
+    if (s < 86400) return Math.floor(s/3600) + 'h ago';
+    return Math.floor(s/86400) + 'd ago';
+  }
+  function exactTime(ts) {
+    return ts ? new Date(ts.includes('Z') ? ts : ts + 'Z').toLocaleString() : '';
+  }
+
+  async function load() {
+    const ticker   = document.getElementById('f-ticker').value.trim();
+    const severity = document.getElementById('f-severity').value;
+    const days     = document.getElementById('f-days').value;
+    const el       = document.getElementById('alerts-list');
+    el.innerHTML   = '<div class="loading">Loading…</div>';
+
+    let url = `/alerts?rule=RULE_09&days=${days}&limit=200`;
+    if (ticker)   url += `&ticker=${encodeURIComponent(ticker)}`;
+    if (severity) url += `&severity=${severity}`;
+
+    const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+    document.getElementById('result-count').textContent = data.length + ' alerts';
+
+    if (!data.length) {
+      el.innerHTML = '<div class="empty">No lobbying alerts for this filter.</div>';
+      return;
+    }
+    el.innerHTML = data.map(a => {
+      const t = a.ticker ? a.ticker.replace(/\$/g,'').split(' ')[0] : null;
+      const tChip = t ? `<a href="/ticker/${t}" class="ticker-chip" onclick="event.stopPropagation()">${t}</a>` : '';
+      return `
+        <div class="alert-card" onclick="this.classList.toggle('expanded')">
+          <div class="alert-top">
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            ${tChip}
+            <span class="badge badge-source">SOURCE: Senate LDA</span>
+            <span class="alert-headline">${a.headline}</span>
+            <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
+          </div>
+          <div class="alert-detail">
+            ${a.detail ? `<div>${a.detail}</div>` : ''}
+            <a href="https://lda.senate.gov/filings/public/filing/search/" target="_blank" rel="noopener" class="verify-link">Verify → Senate LDA</a>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  load();
+  document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+</script>
+</body>
+</html>

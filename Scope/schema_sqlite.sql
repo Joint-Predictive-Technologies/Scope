@@ -127,3 +127,22 @@ CREATE TABLE IF NOT EXISTS telegram_pushes (
     alert_id  INTEGER PRIMARY KEY,
     pushed_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS contracts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_name TEXT NOT NULL,
+    ticker         TEXT,
+    amount         REAL,
+    agency         TEXT,
+    award_date     TEXT,
+    description    TEXT,
+    ingested_at    TEXT DEFAULT (datetime('now')),
+    UNIQUE(recipient_name, award_date)
+);
+
+CREATE TABLE IF NOT EXISTS daily_briefs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    date          TEXT UNIQUE,
+    content_json  TEXT,
+    generated_at  TEXT DEFAULT (datetime('now'))
+);

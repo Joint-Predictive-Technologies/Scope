@@ -17,12 +17,17 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
 
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
-    .nav-links { display: flex; gap: 2rem; align-items: center; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
-    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
 
     .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
     .page-header { margin-bottom: 1.5rem; }
@@ -74,7 +79,11 @@
     .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
     .ticker-link:hover { background: rgba(200,146,42,0.1); }
     .alert-headline { font-size: 0.88rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
-    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); flex-shrink: 0; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); flex-shrink: 0; cursor: help; }
+    .badge-source { background: transparent; color: var(--muted); border: 1px solid var(--border2); font-size: 0.58rem; }
+    .badge-source a { color: inherit; text-decoration: none; }
+    .badge-source a:hover { color: var(--amber); }
+    .ai-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; letter-spacing: 0.06em; color: var(--muted); margin-top: 0.4rem; }
 
     /* VOTE + COMMENT BUTTONS */
     .vote-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; }
@@ -129,15 +138,16 @@
 <body>
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <div class="nav-links">
-    <a href="/">Home</a>
+  <button class="hamburger" id="ham-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/ask">Ask Scope</a>
     <a href="/feed" class="active">Alerts</a>
-    <a href="/members-list">Members</a>
-    <a href="/sectors">Sectors</a>
-    <a href="/backtest">Backtest</a>
-    <a href="/ask">Chat</a>
   </div>
-  <a href="/ask" class="nav-cta">Ask AI →</a>
 </nav>
 
 <div class="page">
@@ -172,6 +182,7 @@
       <option value="RULE_08">RULE_08 — Fed Register</option>
       <option value="RULE_09">RULE_09 — Lobbying</option>
       <option value="RULE_10">RULE_10 — Corroboration</option>
+      <option value="RULE_11">RULE_11 — Gov Contracts</option>
       <option value="RULE_ANOMALY">RULE_ANOMALY — Attention Spike</option>
     </select>
     <select class="filter-select" id="f-cap" onchange="onCapChange()">
@@ -201,6 +212,10 @@
 </div>
 
 <script>
+  document.getElementById('ham-btn').addEventListener('click', () => {
+    document.getElementById('nav-links').classList.toggle('open');
+  });
+
   // ── Session ID ─────────────────────────────────────────────────────────────
   const SESSION_ID = (() => {
     let id = localStorage.getItem('scope_sid');
@@ -232,6 +247,24 @@
     if (s < 3600) return Math.floor(s/60) + 'm ago';
     if (s < 86400) return Math.floor(s/3600) + 'h ago';
     return Math.floor(s/86400) + 'd ago';
+  }
+  function exactTime(ts) {
+    if (!ts) return '';
+    return new Date(ts + 'Z').toLocaleString();
+  }
+  function sourceInfo(rule, ticker) {
+    const t = (ticker||'').replace(/\$/g,'').split(' ')[0];
+    if (['RULE_01','RULE_01B','RULE_02'].includes(rule))
+      return { label: 'House Clerk', url: 'https://disclosures-clerk.house.gov' };
+    if (rule === 'RULE_06')
+      return { label: 'SEC EDGAR', url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${t}&type=4&dateb=&owner=include&count=40` };
+    if (rule === 'RULE_07') return { label: 'Polymarket', url: 'https://polymarket.com' };
+    if (rule === 'RULE_08') return { label: 'Federal Register', url: 'https://federalregister.gov' };
+    if (rule === 'RULE_09') return { label: 'Senate LDA', url: 'https://lda.senate.gov' };
+    if (rule === 'RULE_10') return { label: 'Cross-reference', url: null };
+    if (rule === 'RULE_11') return { label: 'USASpending.gov', url: 'https://usaspending.gov' };
+    if (rule === 'RULE_ANOMALY') return { label: 'Internal signal', url: null };
+    return { label: 'Source', url: null };
   }
   function escHtml(s) {
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -451,6 +484,13 @@
         inlineDelay = delayBadge(r01b.delay);
       }
 
+      const src = sourceInfo(a.rule, a.ticker);
+      const srcChip = src.url
+        ? `<span class="badge badge-source"><a href="${src.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SOURCE: ${src.label}</a></span>`
+        : `<span class="badge badge-source">SOURCE: ${src.label}</span>`;
+      const aiLabel = (a.rule === 'RULE_10' || a.rule === 'RULE_ANOMALY')
+        ? `<span class="ai-label">AI SUMMARY · Groq Llama 3.3</span>` : '';
+
       // Build detail HTML
       let detailHtml = '';
 
@@ -482,7 +522,8 @@
       if (memberLink)
         detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
       if (url)
-        detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
+        detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
+      if (aiLabel) detailHtml += aiLabel;
 
       // Comment thread — pinned open for RULE_10
       const threadOpen = a.rule === 'RULE_10';
@@ -497,9 +538,10 @@
             <span class="badge badge-rule">${a.rule}</span>
             ${tickerBadge}
             ${inlineDelay}
+            ${srcChip}
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
             <span class="alert-headline">${a.headline}</span>
-            <span class="alert-time">${timeAgo(a.created_at)}</span>
+            <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
             <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>
             <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
           </div>

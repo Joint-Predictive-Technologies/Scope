@@ -24,6 +24,7 @@ from api.routers import (
     alerts, chat, members, tickers,
     filter as filter_router,
     social, backtest, sectors, digest,
+    brief, contracts, congress,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -37,6 +38,7 @@ LIVE_RULES = [
     "scripts/rule_01b_first_touch.py",
     "scripts/rule_anomaly.py",
     "scripts/rule_10_corroboration.py",
+    "scripts/rule_11_contracts.py",
     "scripts/telegram_bot.py",
 ]
 REFRESH_INTERVAL_HOURS = 4
@@ -125,10 +127,13 @@ app.include_router(chat.router,          prefix="/chat",     tags=["Chat"])
 app.include_router(members.router,       prefix="/members",  tags=["Members"])
 app.include_router(tickers.router,       prefix="/tickers",  tags=["Tickers"])
 app.include_router(filter_router.router, prefix="/filter",   tags=["Filter"])
-app.include_router(social.router,        prefix="/social",   tags=["Social"])
-app.include_router(backtest.router,      prefix="/backtest", tags=["Backtest"])
-app.include_router(sectors.router,       prefix="/sectors",  tags=["Sectors"])
-app.include_router(digest.router,        prefix="/digest",   tags=["Digest"])
+app.include_router(social.router,        prefix="/social",    tags=["Social"])
+app.include_router(backtest.router,      prefix="/backtest",  tags=["Backtest"])
+app.include_router(sectors.router,       prefix="/sectors",   tags=["Sectors"])
+app.include_router(digest.router,        prefix="/digest",    tags=["Digest"])
+app.include_router(brief.router,         prefix="/brief",     tags=["Brief"])
+app.include_router(contracts.router,     prefix="/contracts", tags=["Contracts"])
+app.include_router(congress.router,      prefix="/congress",  tags=["Congress"])
 
 
 @app.get("/health", tags=["Health"])
@@ -209,3 +214,23 @@ def sectors_page():
 @app.get("/digest", response_class=HTMLResponse, include_in_schema=False)
 def digest_page():
     return FileResponse(STATIC_DIR / "digest.html")
+
+@app.get("/brief", response_class=HTMLResponse, include_in_schema=False)
+def brief_page():
+    return FileResponse(STATIC_DIR / "brief.html")
+
+@app.get("/contracts", response_class=HTMLResponse, include_in_schema=False)
+def contracts_page():
+    return FileResponse(STATIC_DIR / "contracts.html")
+
+@app.get("/congress", response_class=HTMLResponse, include_in_schema=False)
+def congress_page():
+    return FileResponse(STATIC_DIR / "congress.html")
+
+@app.get("/insiders", response_class=HTMLResponse, include_in_schema=False)
+def insiders_page():
+    return FileResponse(STATIC_DIR / "insiders.html")
+
+@app.get("/lobbying", response_class=HTMLResponse, include_in_schema=False)
+def lobbying_page():
+    return FileResponse(STATIC_DIR / "lobbying.html")
