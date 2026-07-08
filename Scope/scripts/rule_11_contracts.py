@@ -251,5 +251,6 @@ def run(dry_run: bool = False) -> None:
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="RULE_11 — Government Contracts")
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--emit-alerts", action="store_true", help="no-op; alerts always emitted")
     args = p.parse_args()
     run(dry_run=args.dry_run)
