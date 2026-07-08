@@ -29,7 +29,7 @@
     .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
     .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); }
 
-    /* THESIS FILTER */
+    /* THESIS */
     .thesis-row { display: flex; gap: 0.6rem; margin-bottom: 1.2rem; }
     .thesis-input { flex: 1; font-family: Inter, sans-serif; font-size: 0.85rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 9px 14px; border-radius: 4px; outline: none; }
     .thesis-input:focus { border-color: var(--amber); }
@@ -65,10 +65,8 @@
     .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
     .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
     .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
-    .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+    .badge-rule  { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
     .badge-score { background: rgba(42,138,74,0.15); color: #4dc47a; border: 1px solid rgba(42,138,74,0.3); }
-
-    /* DELAY BADGES */
     .delay-ok      { background: rgba(100,100,100,0.15); color: #9a9080; border: 1px solid rgba(100,100,100,0.25); }
     .delay-late    { background: rgba(230,126,34,0.15);  color: #e67e22; border: 1px solid rgba(230,126,34,0.3); }
     .delay-overdue { background: rgba(192,57,43,0.18);   color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
@@ -76,18 +74,49 @@
     .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
     .ticker-link:hover { background: rgba(200,146,42,0.1); }
     .alert-headline { font-size: 0.88rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
-    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); flex-shrink: 0; }
+
+    /* VOTE + COMMENT BUTTONS */
+    .vote-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; }
+    .vote-btn:hover { border-color: var(--amber); color: var(--amber2); }
+    .vote-btn.voted { border-color: var(--amber); color: var(--amber); }
+    .comment-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; }
+    .comment-btn:hover { border-color: #6ab0e0; color: #6ab0e0; }
+
+    /* EXPANDED DETAIL */
     .alert-detail { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
     .alert-card.expanded .alert-detail { display: block; }
-    .detail-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+    .detail-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; margin-top: 0.7rem; }
+    .detail-label:first-child { margin-top: 0; }
     .member-link { color: var(--cream2); text-decoration: none; border-bottom: 1px solid var(--border2); transition: color 0.15s; }
     .member-link:hover { color: var(--amber); }
     .verify-link { display: inline-block; margin-top: 0.7rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 4px 12px; border-radius: 3px; }
     .verify-link:hover { background: rgba(200,146,42,0.1); }
 
+    /* HISTORICAL CONTEXT */
+    .context-section { margin-top: 0.7rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; }
+    .context-first { color: #4dc47a; }
+    .context-prior { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: center; }
+    .ctx-up   { color: #4dc47a; }
+    .ctx-down { color: #e55b4d; }
+
     /* PRICE ACTION + SOCIAL */
     .price-action { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; margin-top: 0.5rem; }
     .social-flag  { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; margin-top: 0.3rem; }
+
+    /* COMMENT THREAD */
+    .comment-thread { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .comment-list { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 0.8rem; }
+    .comment-item { background: var(--bg3); border-radius: 4px; padding: 0.6rem 0.9rem; }
+    .comment-header { display: flex; gap: 0.8rem; align-items: center; margin-bottom: 0.3rem; }
+    .comment-anon { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--amber); }
+    .comment-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); }
+    .comment-body-text { font-size: 0.8rem; color: var(--cream2); line-height: 1.5; }
+    .comment-box { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+    .comment-input { flex: 1; font-family: Inter, sans-serif; font-size: 0.8rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 7px 10px; border-radius: 4px; outline: none; resize: none; }
+    .comment-input:focus { border-color: var(--amber); }
+    .comment-submit { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 7px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; align-self: flex-end; }
+    .comment-submit:hover { background: var(--amber2); }
 
     .empty { text-align: center; padding: 4rem 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
     .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
@@ -104,7 +133,8 @@
     <a href="/">Home</a>
     <a href="/feed" class="active">Alerts</a>
     <a href="/members-list">Members</a>
-    <a href="/watchlist">Watchlist</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
     <a href="/ask">Chat</a>
   </div>
   <a href="/ask" class="nav-cta">Ask AI →</a>
@@ -142,6 +172,7 @@
       <option value="RULE_08">RULE_08 — Fed Register</option>
       <option value="RULE_09">RULE_09 — Lobbying</option>
       <option value="RULE_10">RULE_10 — Corroboration</option>
+      <option value="RULE_ANOMALY">RULE_ANOMALY — Attention Spike</option>
     </select>
     <select class="filter-select" id="f-cap" onchange="onCapChange()">
       <option value="">All market caps</option>
@@ -149,6 +180,10 @@
       <option value="small">Small-cap ($300M–$2B)</option>
       <option value="mid">Mid-cap ($2B–$10B)</option>
       <option value="excl-large">Excl. large-cap (&lt;$10B)</option>
+    </select>
+    <select class="filter-select" id="f-sort" onchange="onSortChange()">
+      <option value="recent">Most recent</option>
+      <option value="votes">Most upvoted</option>
     </select>
     <select class="filter-select" id="f-days">
       <option value="7">Last 7 days</option>
@@ -159,25 +194,37 @@
     <button class="filter-btn" onclick="load()">Filter</button>
     <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()">⊙ Watchlist</button>
     <span class="filter-count" id="result-count"></span>
-    <span class="cap-loading" id="cap-loading" style="display:none">fetching cap data…</span>
+    <span class="cap-loading" id="cap-loading" style="display:none">fetching cap…</span>
   </div>
 
   <div id="alerts-list"><div class="loading"><span>Loading alerts…</span></div></div>
 </div>
 
 <script>
+  // ── Session ID ─────────────────────────────────────────────────────────────
+  const SESSION_ID = (() => {
+    let id = localStorage.getItem('scope_sid');
+    if (!id) {
+      id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      localStorage.setItem('scope_sid', id);
+    }
+    return id;
+  })();
+
+  // ── State ──────────────────────────────────────────────────────────────────
   let watchlistOnly = false;
   let thesisData    = null;
-  let allLoaded     = [];   // latest server result, pre-cap-filter
-  let capCache      = {};   // symbol → market_cap (integer or null)
-  let memberMap     = {};   // full_name → bioguide_id
+  let allLoaded     = [];
+  let capCache      = {};
+  let socialCache   = {};   // alert_id → {votes, mine, comments}
+  let memberMap     = {};
 
-  // Preload member lookup table for RULE_02 tag links
   fetch('/members?limit=5000')
     .then(r => r.json())
     .then(list => { list.forEach(m => { memberMap[m.full_name] = m.bioguide_id; }); })
     .catch(() => {});
 
+  // ── Utils ──────────────────────────────────────────────────────────────────
   function timeAgo(ts) {
     const d = new Date(ts + 'Z');
     const s = Math.floor((Date.now() - d) / 1000);
@@ -186,27 +233,26 @@
     if (s < 86400) return Math.floor(s/3600) + 'h ago';
     return Math.floor(s/86400) + 'd ago';
   }
-
+  function escHtml(s) {
+    return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
   function sourceUrl(a) {
     const rule = a.rule, tags = a.tags || '';
     const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
-    if (rule === 'RULE_02' || rule === 'RULE_01' || rule === 'RULE_01B')
+    if (['RULE_01','RULE_01B','RULE_02'].includes(rule))
       return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
     if (rule === 'RULE_06')
       return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
     if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length-1].trim()}`; }
-    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
+    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1]||'')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
     if (rule === 'RULE_10') return ticker ? `/feed?ticker=${ticker}` : null;
     return null;
   }
-
   function firstTicker(raw) {
     if (!raw) return null;
     return raw.replace(/\$/g, '').split(' ')[0].trim() || null;
   }
-
-  // Parse "LastName, First,LastName, First" from RULE_02 tags
   function parseMemberNames(tags) {
     const parts = tags.split(',');
     const names = [];
@@ -218,24 +264,17 @@
     if (cur) names.push(cur.trim());
     return names.filter(n => n.length > 2);
   }
-
   function memberTagLinks(tags) {
-    const names = parseMemberNames(tags);
-    return names.map(name => {
+    return parseMemberNames(tags).map(name => {
       const id = memberMap[name];
-      return id
-        ? `<a href="/member/${id}" class="member-link" onclick="event.stopPropagation()">${name}</a>`
-        : name;
+      return id ? `<a href="/member/${id}" class="member-link" onclick="event.stopPropagation()">${name}</a>` : name;
     }).join(', ');
   }
-
-  // Parse RULE_01B pipe-separated tags: name|tx_type|delay|tx_date|filed_date
   function parseR01bTags(tags) {
     if (!tags) return {};
     const p = tags.split('|');
     return { name: p[0], txType: p[1], delay: p[2], txDate: p[3], filedDate: p[4] };
   }
-
   function delayBadge(delay) {
     if (delay == null || delay === '?' || delay === 'null') return '';
     const d = parseInt(delay);
@@ -245,25 +284,134 @@
     return `<span class="badge delay-ok">Filed ${d}d</span>`;
   }
 
+  // ── Social ─────────────────────────────────────────────────────────────────
+  async function loadSocialBatch(ids) {
+    if (!ids.length) return;
+    try {
+      const r = await fetch(`/social/batch?ids=${ids.join(',')}&session_id=${SESSION_ID}`);
+      const d = await r.json();
+      for (const [id, data] of Object.entries(d)) {
+        socialCache[id] = data;
+      }
+      ids.forEach(id => updateSocialUI(id));
+    } catch {}
+  }
+  function updateSocialUI(alertId) {
+    const data = socialCache[String(alertId)] || {votes:0, mine:false, comments:0};
+    const vBtn = document.getElementById(`vote-${alertId}`);
+    const vCnt = document.getElementById(`vc-${alertId}`);
+    const cCnt = document.getElementById(`cc-${alertId}`);
+    if (vBtn) vBtn.classList.toggle('voted', data.mine);
+    if (vCnt) vCnt.textContent = data.votes;
+    if (cCnt) cCnt.textContent = data.comments;
+  }
+  async function toggleVote(e, alertId) {
+    e.stopPropagation();
+    try {
+      const r = await fetch(`/social/${alertId}/vote`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: SESSION_ID})
+      });
+      const d = await r.json();
+      if (!socialCache[String(alertId)]) socialCache[String(alertId)] = {votes:0, mine:false, comments:0};
+      socialCache[String(alertId)].votes = d.count;
+      socialCache[String(alertId)].mine  = d.voted;
+      updateSocialUI(alertId);
+    } catch {}
+  }
+
+  // ── Comment thread ─────────────────────────────────────────────────────────
+  async function toggleComments(e, alertId) {
+    e.stopPropagation();
+    const thread = document.getElementById(`thread-${alertId}`);
+    if (!thread) return;
+    const wasHidden = thread.style.display === 'none' || !thread.style.display;
+    thread.style.display = wasHidden ? 'block' : 'none';
+    if (wasHidden && !thread.dataset.loaded) {
+      thread.dataset.loaded = '1';
+      thread.innerHTML = '<div style="color:var(--muted);font-size:0.72rem">Loading…</div>';
+      const comments = await fetch(`/social/${alertId}/comments`).then(r=>r.json()).catch(()=>[]);
+      renderCommentList(alertId, thread, comments);
+    }
+  }
+  function renderCommentList(alertId, thread, comments) {
+    const listHtml = comments.length
+      ? comments.map(c => `
+        <div class="comment-item">
+          <div class="comment-header">
+            <span class="comment-anon">anon-${c.anon_id}</span>
+            <span class="comment-time">${timeAgo(c.created_at)}</span>
+          </div>
+          <div class="comment-body-text">${escHtml(c.body)}</div>
+        </div>`).join('')
+      : '<div style="color:var(--muted);font-size:0.72rem;margin-bottom:0.5rem">No comments yet.</div>';
+    thread.innerHTML = `
+      <div class="comment-list">${listHtml}</div>
+      <div class="comment-box">
+        <textarea class="comment-input" id="ci-${alertId}" placeholder="Add a comment…" rows="2"
+          onclick="event.stopPropagation()"></textarea>
+        <button class="comment-submit" onclick="submitComment(event, ${alertId})">Post</button>
+      </div>`;
+  }
+  async function submitComment(e, alertId) {
+    e.stopPropagation();
+    const input = document.getElementById(`ci-${alertId}`);
+    const body = input.value.trim();
+    if (!body) return;
+    try {
+      await fetch(`/social/${alertId}/comment`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: SESSION_ID, body})
+      });
+      // Reload thread
+      const comments = await fetch(`/social/${alertId}/comments`).then(r=>r.json()).catch(()=>[]);
+      const thread = document.getElementById(`thread-${alertId}`);
+      if (thread) renderCommentList(alertId, thread, comments);
+      // Update count
+      if (!socialCache[String(alertId)]) socialCache[String(alertId)] = {votes:0, mine:false, comments:0};
+      socialCache[String(alertId)].comments++;
+      updateSocialUI(alertId);
+    } catch {}
+  }
+
+  // ── Historical context (lazy on expand) ───────────────────────────────────
+  async function loadContext(el) {
+    if (!el || el.dataset.loaded) return;
+    el.dataset.loaded = '1';
+    const alertId = el.dataset.aid;
+    try {
+      const r = await fetch(`/alerts/${alertId}/context`);
+      const d = await r.json();
+      if (!d.has_prior) {
+        el.innerHTML = `<span class="context-first">★ First time ${d.rule} has fired on ${d.ticker}</span>`;
+      } else {
+        const dateStr = new Date(d.prior_date + 'Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+        let retHtml = '';
+        if (d.return_30d != null) {
+          const pct = d.return_30d.toFixed(1);
+          const cls = d.return_30d >= 0 ? 'ctx-up' : 'ctx-down';
+          retHtml = `· <span class="${cls}">${d.return_30d>=0?'+':''}${pct}% in 30d after</span>`;
+        }
+        el.innerHTML = `<span style="color:var(--muted)">Prior signal: ${dateStr}</span> ${retHtml}`;
+      }
+    } catch { el.innerHTML = ''; }
+  }
+
+  // ── Price action (lazy on expand) ─────────────────────────────────────────
   async function loadPriceAction(el) {
     if (!el || el.dataset.loaded) return;
     el.dataset.loaded = '1';
     const { sym, start, end } = el.dataset;
-    if (!sym || !start || !end || start === 'undefined' || end === 'undefined') {
-      el.innerHTML = '';
-      return;
-    }
+    if (!sym || !start || !end || start === 'undefined') { el.innerHTML = ''; return; }
     try {
       const r = await fetch(`/tickers/${sym}/price-action?start=${start}&end=${end}`);
       const d = await r.json();
       if (d.pct_change != null) {
-        const pct   = d.pct_change.toFixed(1);
+        const pct = d.pct_change.toFixed(1);
         const arrow = d.pct_change >= 0 ? '📈' : '📉';
         const color = d.pct_change >= 0 ? '#4dc47a' : '#e55b4d';
-        el.innerHTML = `<span style="color:${color}">${arrow} ${d.pct_change >= 0 ? '+' : ''}${pct}% during disclosure window</span>`;
-      } else {
-        el.innerHTML = '<span style="color:var(--muted)">Price data unavailable</span>';
-      }
+        el.innerHTML = `<span style="color:${color}">${arrow} ${d.pct_change>=0?'+':''}${pct}% during disclosure window</span>`;
+      } else { el.innerHTML = '<span style="color:var(--muted)">Price data unavailable</span>'; }
     } catch { el.innerHTML = ''; }
   }
 
@@ -276,20 +424,16 @@
       const r = await fetch(`/tickers/${sym}/meta`);
       const d = await r.json();
       capCache[sym] = d.market_cap;
-      if (d.social_spike) {
-        el.innerHTML = '<span style="color:#e67e22">⚡ High social activity on Stocktwits</span>';
-      }
+      if (d.social_spike) el.innerHTML = '<span style="color:#e67e22">⚡ High social activity on Stocktwits</span>';
     } catch {}
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   function renderAlerts(data) {
     const list = document.getElementById('alerts-list');
     document.getElementById('result-count').textContent =
       data.length + ' result' + (data.length !== 1 ? 's' : '');
-    if (!data.length) {
-      list.innerHTML = '<div class="empty">No alerts found for this filter.</div>';
-      return;
-    }
+    if (!data.length) { list.innerHTML = '<div class="empty">No alerts found for this filter.</div>'; return; }
 
     list.innerHTML = data.map((a, i) => {
       const url    = sourceUrl(a);
@@ -301,29 +445,33 @@
         ? `<a href="/member/${a.member_id}" class="member-link" onclick="event.stopPropagation()">${a.full_name}</a>`
         : (a.full_name || '');
 
-      // RULE_01B specific parsing
-      let r01b = null;
-      let inlineDelay = '';
+      let r01b = null, inlineDelay = '';
       if (a.rule === 'RULE_01B' && a.tags) {
         r01b = parseR01bTags(a.tags);
         inlineDelay = delayBadge(r01b.delay);
       }
 
+      // Build detail HTML
       let detailHtml = '';
+
+      // Historical context (lazy placeholder)
+      detailHtml += `<div class="detail-label">Historical Context</div>
+        <div class="context-section" id="ctx-${a.id}" data-aid="${a.id}" style="color:var(--muted)">Loading…</div>`;
+
       if (a.relevance_score != null)
-        detailHtml += `<div class="detail-label">Thesis Relevance</div><div style="color:#4dc47a;font-family:IBM Plex Mono,monospace;font-size:0.8rem;margin-bottom:0.5rem">${a.relevance_score}/10</div>`;
+        detailHtml += `<div class="detail-label">Thesis Relevance</div>
+          <div style="color:#4dc47a;font-family:IBM Plex Mono,monospace;font-size:0.8rem">${a.relevance_score}/10</div>`;
 
       if (a.detail)
         detailHtml += `<div class="detail-label">Analysis</div><div>${a.detail}</div>`;
 
       if (a.rule === 'RULE_02' && a.tags) {
-        detailHtml += `<div style="margin-top:0.5rem"><span style="font-family:IBM Plex Mono,monospace;font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber)">Members</span><div style="margin-top:0.3rem;font-size:0.82rem">${memberTagLinks(a.tags)}</div></div>`;
+        detailHtml += `<div class="detail-label">Members</div>
+          <div style="font-size:0.82rem">${memberTagLinks(a.tags)}</div>`;
       } else if (a.rule === 'RULE_01B' && r01b) {
-        // price action (lazy)
         if (ticker && r01b.txDate && r01b.filedDate) {
           detailHtml += `<div class="price-action" data-sym="${ticker}" data-start="${r01b.txDate}" data-end="${r01b.filedDate}" style="color:var(--muted)">Loading price action…</div>`;
         }
-        // social spike flag (lazy)
         if (ticker) {
           detailHtml += `<div class="social-flag" data-sym="${ticker}"></div>`;
         }
@@ -336,8 +484,14 @@
       if (url)
         detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
 
+      // Comment thread — pinned open for RULE_10
+      const threadOpen = a.rule === 'RULE_10';
+      detailHtml += `<div class="comment-thread" id="thread-${a.id}" style="display:${threadOpen?'block':'none'}">
+        <div style="color:var(--muted);font-size:0.72rem">Loading…</div>
+      </div>`;
+
       return `
-        <div class="alert-card" onclick="toggle(${i})" id="card-${i}">
+        <div class="alert-card" onclick="toggle(${i},${a.id})" id="card-${i}">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>
@@ -346,24 +500,41 @@
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
             <span class="alert-headline">${a.headline}</span>
             <span class="alert-time">${timeAgo(a.created_at)}</span>
+            <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>
+            <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
           </div>
-          ${detailHtml ? `<div class="alert-detail">${detailHtml}</div>` : ''}
+          <div class="alert-detail">${detailHtml}</div>
         </div>`;
     }).join('');
+
+    // Batch-load social data after render
+    const ids = data.map(a => a.id);
+    loadSocialBatch(ids);
+
+    // For RULE_10 alerts: pre-load comment threads
+    data.filter(a => a.rule === 'RULE_10').forEach(a => {
+      const thread = document.getElementById(`thread-${a.id}`);
+      if (thread && !thread.dataset.loaded) {
+        thread.dataset.loaded = '1';
+        fetch(`/social/${a.id}/comments`).then(r=>r.json()).then(comments => {
+          renderCommentList(a.id, thread, comments);
+        }).catch(()=>{});
+      }
+    });
   }
 
-  function toggle(i) {
+  function toggle(i, alertId) {
     const card = document.getElementById('card-' + i);
     if (!card) return;
     card.classList.toggle('expanded');
     if (card.classList.contains('expanded')) {
+      loadContext(card.querySelector('.context-section'));
       loadPriceAction(card.querySelector('.price-action'));
       loadSocialFlag(card.querySelector('.social-flag'));
     }
   }
 
   // ── Market cap filtering ──────────────────────────────────────────────────
-
   function capCategory(mc) {
     if (mc == null) return 'unknown';
     if (mc < 300e6)  return 'micro';
@@ -371,26 +542,21 @@
     if (mc < 10e9)   return 'mid';
     return 'large';
   }
-
   function passesCapFilter(ticker, capFilter) {
     if (!capFilter) return true;
     const mc  = capCache[ticker];
     const cat = capCategory(mc);
-    if (cat === 'unknown') return true; // don't exclude if we couldn't fetch
+    if (cat === 'unknown') return true;
     if (capFilter === 'micro')      return cat === 'micro';
     if (capFilter === 'small')      return cat === 'small';
     if (capFilter === 'mid')        return cat === 'mid';
     if (capFilter === 'excl-large') return cat !== 'large';
     return true;
   }
-
   async function fetchCapData(alerts) {
-    const tickers = [...new Set(
-      alerts.map(a => firstTicker(a.ticker)).filter(Boolean)
-    )].filter(t => !(t in capCache));
-
+    const tickers = [...new Set(alerts.map(a => firstTicker(a.ticker)).filter(Boolean))]
+      .filter(t => !(t in capCache));
     if (!tickers.length) return;
-
     document.getElementById('cap-loading').style.display = 'inline';
     await Promise.all(tickers.map(async t => {
       try {
@@ -401,16 +567,26 @@
     }));
     document.getElementById('cap-loading').style.display = 'none';
   }
-
   async function onCapChange() {
-    const capFilter = document.getElementById('f-cap').value;
-    if (!capFilter || !allLoaded.length) { renderAlerts(allLoaded); return; }
+    const cap = document.getElementById('f-cap').value;
+    if (!cap || !allLoaded.length) { renderAlerts(allLoaded); return; }
     await fetchCapData(allLoaded);
-    const filtered = allLoaded.filter(a => {
-      const t = firstTicker(a.ticker);
-      return !t || passesCapFilter(t, capFilter);
-    });
-    renderAlerts(filtered);
+    renderAlerts(applyCapAndSort(allLoaded, cap));
+  }
+  function applyCapAndSort(data, cap) {
+    let filtered = cap
+      ? data.filter(a => { const t = firstTicker(a.ticker); return !t || passesCapFilter(t, cap); })
+      : data;
+    const sort = document.getElementById('f-sort').value;
+    if (sort === 'votes') {
+      filtered = [...filtered].sort((a,b) =>
+        (socialCache[String(b.id)]?.votes||0) - (socialCache[String(a.id)]?.votes||0));
+    }
+    return filtered;
+  }
+  function onSortChange() {
+    const cap = document.getElementById('f-cap').value;
+    renderAlerts(applyCapAndSort(allLoaded, cap));
   }
 
   function toggleWatchlist() {
@@ -426,8 +602,8 @@
     const days   = document.getElementById('f-days').value;
     const ticker = document.getElementById('f-ticker').value.trim();
     const cap    = document.getElementById('f-cap').value;
-    const list   = document.getElementById('alerts-list');
-    list.innerHTML = '<div class="loading"><span>Loading…</span></div>';
+    const listEl = document.getElementById('alerts-list');
+    listEl.innerHTML = '<div class="loading"><span>Loading…</span></div>';
 
     let url = `/alerts?days=${days}&limit=200`;
     if (sev)    url += `&severity=${sev}`;
@@ -440,16 +616,12 @@
       allLoaded = data;
       if (cap) {
         await fetchCapData(data);
-        const filtered = data.filter(a => {
-          const t = firstTicker(a.ticker);
-          return !t || passesCapFilter(t, cap);
-        });
-        renderAlerts(filtered);
+        renderAlerts(applyCapAndSort(data, cap));
       } else {
-        renderAlerts(data);
+        renderAlerts(applyCapAndSort(data, ''));
       }
     } catch {
-      list.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>';
+      listEl.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>';
     }
   }
 
@@ -457,16 +629,13 @@
     const thesis = document.getElementById('thesis-input').value.trim();
     if (!thesis) return;
     const btn = document.getElementById('thesis-btn');
-    btn.disabled = true;
-    btn.textContent = 'Scoring…';
+    btn.disabled = true; btn.textContent = 'Scoring…';
     document.getElementById('alerts-list').innerHTML =
       '<div class="loading"><span>Scoring alerts against thesis…</span></div>';
-
     try {
       const days = document.getElementById('f-days').value;
       const res = await fetch('/filter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ thesis, days: parseInt(days), limit: 60 }),
       });
       const data = await res.json();
@@ -480,8 +649,7 @@
       document.getElementById('alerts-list').innerHTML =
         `<div class="empty">Scoring failed: ${e.message}</div>`;
     }
-    btn.disabled = false;
-    btn.textContent = 'Score →';
+    btn.disabled = false; btn.textContent = 'Score →';
   }
 
   function clearThesis() {
@@ -491,7 +659,6 @@
     load();
   }
 
-  // Handle ?ticker= query param from leaderboard links
   const params = new URLSearchParams(window.location.search);
   if (params.get('ticker')) document.getElementById('f-ticker').value = params.get('ticker');
 

@@ -62,6 +62,52 @@ def get_alerts(
     return [_row_to_dict(r) for r in rows]
 
 
+@router.get("/{alert_id}/context")
+def get_alert_context(alert_id: int):
+    """Return the most recent prior firing of the same rule+ticker, with backtest return if available."""
+    conn = db_connection()
+    alert = conn.execute(
+        "SELECT rule, ticker FROM alerts WHERE id = ?", (alert_id,)
+    ).fetchone()
+    if not alert:
+        conn.close()
+        return JSONResponse(status_code=404, content={"error": "Alert not found"})
+
+    rule   = alert["rule"]
+    ticker = alert["ticker"]
+
+    prior = conn.execute(
+        """SELECT id, created_at FROM alerts
+           WHERE rule = ? AND ticker = ? AND id < ?
+           ORDER BY id DESC LIMIT 1""",
+        (rule, ticker, alert_id),
+    ).fetchone()
+
+    if not prior:
+        conn.close()
+        return {
+            "has_prior": False,
+            "rule": rule,
+            "ticker": ticker,
+            "message": f"First time {rule} has fired on {ticker}",
+        }
+
+    backtest = conn.execute(
+        "SELECT return_30d, price_at, price_30d FROM backtest_results WHERE alert_id = ?",
+        (prior["id"],),
+    ).fetchone()
+    conn.close()
+
+    return {
+        "has_prior":      True,
+        "rule":           rule,
+        "ticker":         ticker,
+        "prior_date":     prior["created_at"],
+        "prior_alert_id": prior["id"],
+        "return_30d":     dict(backtest)["return_30d"] if backtest else None,
+    }
+
+
 @router.get("/{alert_id}")
 def get_alert(alert_id: int):
     conn = db_connection()

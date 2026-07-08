@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Backtest — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #e55b4d; --green: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
+    .page-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; line-height: 1.55; max-width: 600px; }
+
+    /* STATS BAR */
+    .stats-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    .stat-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; min-width: 140px; }
+    .stat-val { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--amber); }
+    .stat-val.pos { color: var(--green); }
+    .stat-val.neg { color: var(--red); }
+    .stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 3px; }
+    .rule-avgs { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.5rem; }
+    .rule-avgs-title { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.7rem; }
+    .rule-avg-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.4rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
+    .rule-avg-name { color: var(--cream2); min-width: 120px; }
+    .rule-avg-val { font-weight: 500; }
+
+    /* CONTROLS */
+    .controls { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .filter-select { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
+    .filter-select:focus { border-color: var(--amber); }
+    .calc-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; background: transparent; border: 1px solid var(--amber); color: var(--amber); padding: 7px 16px; border-radius: 4px; cursor: pointer; transition: background 0.2s; }
+    .calc-btn:hover { background: rgba(200,146,42,0.1); }
+    .calc-btn:disabled { opacity: 0.4; cursor: default; }
+    .ctrl-info { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); margin-left: auto; }
+
+    /* TABLE */
+    .bt-table { width: 100%; border-collapse: collapse; }
+    .bt-table th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; cursor: pointer; user-select: none; }
+    .bt-table th:hover { color: var(--cream2); }
+    .bt-table th.sorted { color: var(--amber); }
+    .bt-table td { font-size: 0.78rem; padding: 9px 10px; border-bottom: 1px solid rgba(42,38,32,0.4); color: var(--cream2); vertical-align: middle; }
+    .bt-table tr:hover td { background: rgba(255,255,255,0.012); }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 3px; font-weight: 500; }
+    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--amber); text-decoration: none; }
+    .ticker-link:hover { text-decoration: underline; }
+    .ret-pos  { color: var(--green); font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .ret-neg  { color: var(--red);   font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .ret-null { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .calc-row-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; }
+    .calc-row-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+    .loading { text-align: center; padding: 3rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .empty   { text-align: center; padding: 3rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .overflow { overflow-x: auto; }
+    @media (max-width: 700px) { .stats-row { gap: 0.8rem; } }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/members-list">Members</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest" class="active">Backtest</a>
+    <a href="/digest">Digest</a>
+  </div>
+  <a href="/ask" class="nav-cta">Ask AI →</a>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Signal Validation</div>
+  <div class="page-title">Backtest Results</div>
+  <div class="page-sub">Post-alert price performance across all historical signals. Prices fetched from Yahoo Finance and cached permanently. Click "Calculate" on any row to fetch its return data on demand.</div>
+
+  <div id="stats-area"></div>
+
+  <div class="controls">
+    <select class="filter-select" id="f-days" onchange="load()">
+      <option value="30">Last 30 days</option>
+      <option value="90" selected>Last 90 days</option>
+      <option value="180">Last 180 days</option>
+      <option value="365">Last 365 days</option>
+    </select>
+    <select class="filter-select" id="f-rule" onchange="load()">
+      <option value="">All rules</option>
+      <option value="RULE_01B">RULE_01B</option>
+      <option value="RULE_02">RULE_02</option>
+      <option value="RULE_06">RULE_06</option>
+      <option value="RULE_07">RULE_07</option>
+      <option value="RULE_08">RULE_08</option>
+      <option value="RULE_10">RULE_10</option>
+      <option value="RULE_ANOMALY">RULE_ANOMALY</option>
+    </select>
+    <button class="calc-btn" id="calc-all-btn" onclick="calcAll()">Calculate All →</button>
+    <span class="ctrl-info" id="ctrl-info"></span>
+  </div>
+
+  <div class="overflow">
+    <table class="bt-table" id="bt-table" style="display:none">
+      <thead>
+        <tr>
+          <th onclick="sortBy('created_at')" id="th-date">Date ↕</th>
+          <th>Rule</th>
+          <th>Ticker</th>
+          <th>Severity</th>
+          <th>Signal</th>
+          <th onclick="sortBy('price_at')" id="th-price">Price at Alert ↕</th>
+          <th onclick="sortBy('price_7d')" id="th-7d">7d Price ↕</th>
+          <th onclick="sortBy('price_30d')" id="th-30d">30d Price ↕</th>
+          <th onclick="sortBy('return_30d')" id="th-ret">30d Return ↕</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="bt-body"></tbody>
+    </table>
+    <div id="bt-loading" class="loading">Loading…</div>
+  </div>
+</div>
+
+<script>
+  let allData    = [];
+  let sortCol    = 'return_30d';
+  let sortDir    = -1; // -1 = desc
+
+  function fmtDate(ts) {
+    return new Date(ts + 'Z').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  }
+  function fmtPrice(p) {
+    return p != null ? `$${p.toFixed(2)}` : '—';
+  }
+  function fmtRet(r) {
+    if (r == null) return `<span class="ret-null">—</span>`;
+    const cls = r >= 0 ? 'ret-pos' : 'ret-neg';
+    return `<span class="${cls}">${r >= 0 ? '+' : ''}${r.toFixed(1)}%</span>`;
+  }
+
+  function renderStats(stats) {
+    const avg = stats.avg_return_30d;
+    const avgHtml = avg != null
+      ? `<div class="stat-val ${avg >= 0 ? 'pos' : 'neg'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}%</div>`
+      : `<div class="stat-val">—</div>`;
+
+    const ruleRows = Object.entries(stats.by_rule)
+      .sort((a,b) => b[1]-a[1])
+      .map(([rule, avg]) => `<div class="rule-avg-row">
+        <span class="rule-avg-name">${rule}</span>
+        <span class="rule-avg-val ${avg >= 0 ? 'ret-pos' : 'ret-neg'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}%</span>
+      </div>`).join('');
+
+    document.getElementById('stats-area').innerHTML = `
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-val">${stats.total}</div>
+          <div class="stat-label">Alerts</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val">${stats.calculated}</div>
+          <div class="stat-label">Calculated</div>
+        </div>
+        <div class="stat-card">
+          ${avgHtml}
+          <div class="stat-label">Avg 30d Return</div>
+        </div>
+        ${ruleRows ? `<div class="rule-avgs"><div class="rule-avgs-title">Return by Rule</div>${ruleRows}</div>` : ''}
+      </div>`;
+  }
+
+  function renderTable(data) {
+    document.getElementById('ctrl-info').textContent =
+      `${data.filter(r => r.return_30d != null).length} of ${data.length} calculated`;
+
+    const sorted = [...data].sort((a, b) => {
+      const av = a[sortCol] ?? -Infinity;
+      const bv = b[sortCol] ?? -Infinity;
+      return (av > bv ? 1 : av < bv ? -1 : 0) * sortDir;
+    });
+
+    document.getElementById('bt-body').innerHTML = sorted.map(r => `
+      <tr id="row-${r.id}">
+        <td style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--muted)">${fmtDate(r.created_at)}</td>
+        <td style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted)">${r.rule}</td>
+        <td><a href="/ticker/${r.ticker}" class="ticker-link">${r.ticker}</a></td>
+        <td><span class="badge badge-${r.severity}">${r.severity}</span></td>
+        <td style="font-size:0.75rem;color:var(--cream2);max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.headline}</td>
+        <td>${fmtPrice(r.price_at)}</td>
+        <td>${fmtPrice(r.price_7d)}</td>
+        <td>${fmtPrice(r.price_30d)}</td>
+        <td>${fmtRet(r.return_30d)}</td>
+        <td>${r.return_30d == null
+          ? `<button class="calc-row-btn" onclick="calcRow(${r.id}, this)">Calculate</button>`
+          : ''}</td>
+      </tr>`).join('');
+
+    document.getElementById('bt-table').style.display = '';
+    document.getElementById('bt-loading').style.display = 'none';
+  }
+
+  function sortBy(col) {
+    if (sortCol === col) sortDir *= -1;
+    else { sortCol = col; sortDir = -1; }
+    document.querySelectorAll('.bt-table th').forEach(th => th.classList.remove('sorted'));
+    const thId = {created_at:'th-date', price_at:'th-price', price_7d:'th-7d', price_30d:'th-30d', return_30d:'th-ret'}[col];
+    if (thId) document.getElementById(thId)?.classList.add('sorted');
+    renderTable(allData);
+  }
+
+  async function calcRow(alertId, btn) {
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const r = await fetch(`/backtest/calculate/${alertId}`, {method:'POST'});
+      const d = await r.json();
+      if (d.return_30d != null) {
+        // Update in allData
+        const idx = allData.findIndex(x => x.id === alertId);
+        if (idx >= 0) {
+          allData[idx].price_at  = d.price_at;
+          allData[idx].price_7d  = d.price_7d;
+          allData[idx].price_30d = d.price_30d;
+          allData[idx].return_30d = d.return_30d;
+        }
+        renderTable(allData);
+      } else {
+        btn.textContent = 'N/A';
+        btn.disabled = false;
+      }
+    } catch {
+      btn.textContent = 'Error';
+      btn.disabled = false;
+    }
+  }
+
+  async function calcAll() {
+    const uncalc = allData.filter(r => r.return_30d == null).slice(0, 20);
+    if (!uncalc.length) { alert('All visible alerts already calculated.'); return; }
+    const btn = document.getElementById('calc-all-btn');
+    btn.disabled = true;
+    btn.textContent = `Calculating ${uncalc.length}…`;
+    for (const r of uncalc) {
+      try {
+        const res = await fetch(`/backtest/calculate/${r.id}`, {method:'POST'});
+        const d = await res.json();
+        if (d.return_30d != null) {
+          const idx = allData.findIndex(x => x.id === r.id);
+          if (idx >= 0) Object.assign(allData[idx], d);
+        }
+      } catch {}
+    }
+    renderTable(allData);
+    btn.disabled = false;
+    btn.textContent = 'Calculate All →';
+  }
+
+  async function load() {
+    const days = document.getElementById('f-days').value;
+    const rule = document.getElementById('f-rule').value;
+    document.getElementById('bt-loading').style.display = '';
+    document.getElementById('bt-table').style.display   = 'none';
+
+    let url = `/backtest/data?days=${days}&limit=200`;
+    if (rule) url += `&rule=${rule}`;
+
+    try {
+      const r = await fetch(url);
+      const d = await r.json();
+      allData = d.alerts || [];
+      renderStats(d.stats || {});
+      renderTable(allData);
+    } catch {
+      document.getElementById('bt-loading').textContent = 'Failed to load data.';
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>

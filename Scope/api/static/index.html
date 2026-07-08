@@ -100,6 +100,15 @@
     .lb-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
     .lb-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
 
+    /* DIGEST CARD */
+    .digest-card { background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px; padding: 1.8rem 2rem; display: flex; align-items: flex-start; justify-content: space-between; gap: 2rem; flex-wrap: wrap; }
+    .digest-card-left { flex: 1; min-width: 220px; }
+    .digest-week { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+    .digest-card-title { font-family: 'Playfair Display', serif; font-size: 1.2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
+    .digest-card-preview { font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
+    .digest-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid rgba(200,146,42,0.4); color: var(--amber); padding: 9px 18px; border-radius: 4px; text-decoration: none; white-space: nowrap; align-self: center; transition: background 0.15s; }
+    .digest-cta:hover { background: rgba(200,146,42,0.1); }
+
     /* FOOTER */
     footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
 
@@ -141,9 +150,10 @@
   <div class="nav-links">
     <a href="/" class="active">Home</a>
     <a href="/feed">Alerts</a>
-    <a href="/watchlist">Watchlist</a>
-    <a href="/ask">Chat</a>
-    <a href="/docs">API</a>
+    <a href="/members-list">Members</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/digest">Digest</a>
   </div>
   <a href="/feed" class="nav-cta">Live Feed →</a>
 </nav>
@@ -245,6 +255,20 @@
   </div>
 </div>
 
+<!-- DIGEST PREVIEW -->
+<div class="section" style="padding-top:0">
+  <div class="section-label">Weekly Intelligence Brief</div>
+  <div class="section-title">This Week's Digest</div>
+  <div class="digest-card">
+    <div class="digest-card-left">
+      <div class="digest-week" id="digest-week">Loading week…</div>
+      <div class="digest-card-title">This Week in Political Money</div>
+      <div class="digest-card-preview" id="digest-preview">Loading AI-generated summary…</div>
+    </div>
+    <a href="/digest" class="digest-cta">Read Full Digest →</a>
+  </div>
+</div>
+
 <!-- LEADERBOARD -->
 <div class="section" style="padding-top:0">
   <div class="section-label">Signal Heat</div>
@@ -255,6 +279,23 @@
 <footer>© 2026 Joint Predictive Technologies · Scope Political Intelligence · <a href="/docs" style="color:var(--amber);text-decoration:none;">API Docs</a> · <a href="/watchlist" style="color:var(--amber);text-decoration:none;">Watchlist</a></footer>
 
 <script>
+  // Digest preview
+  fetch('/digest')
+    .then(r => r.json())
+    .then(d => {
+      if (d.error || !d.content) return;
+      document.getElementById('digest-week').textContent = 'Week of ' + d.week_start;
+      try {
+        const parsed = JSON.parse(d.content);
+        const first = Object.values(parsed)[0];
+        if (first && first.summary) {
+          const preview = first.summary.slice(0, 200) + (first.summary.length > 200 ? '…' : '');
+          document.getElementById('digest-preview').textContent = preview;
+        }
+      } catch { document.getElementById('digest-preview').textContent = 'Digest available — click to read.'; }
+    })
+    .catch(() => { document.getElementById('digest-preview').textContent = 'Digest unavailable.'; });
+
   fetch('/tickers/leaderboard?days=30')
     .then(r => r.json())
     .then(data => {

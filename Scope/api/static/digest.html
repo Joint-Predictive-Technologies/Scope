@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weekly Digest — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #e55b4d; --green: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 780px; margin: 0 auto; padding: 3rem 2rem 5rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; color: var(--cream); margin-bottom: 0.3rem; }
+    .page-week { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); margin-bottom: 2rem; }
+
+    .digest-section { margin-bottom: 2.2rem; padding: 1.5rem 1.8rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; }
+    .digest-section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .digest-section-title { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 700; color: var(--cream); margin-bottom: 0.8rem; }
+    .digest-body { font-size: 0.88rem; color: var(--cream2); line-height: 1.7; }
+
+    .regen-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 6px 14px; border-radius: 4px; cursor: pointer; margin-bottom: 2rem; transition: border-color 0.15s, color 0.15s; }
+    .regen-btn:hover { border-color: var(--amber); color: var(--amber); }
+    .regen-btn:disabled { opacity: 0.4; cursor: default; }
+
+    .gen-at { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-top: 2rem; }
+
+    .loading { padding: 4rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .error { padding: 2rem; background: rgba(229,91,77,0.08); border: 1px solid rgba(229,91,77,0.2); border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--red); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/members-list">Members</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/digest" class="active">Digest</a>
+  </div>
+  <a href="/ask" class="nav-cta">Ask AI →</a>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Weekly Intelligence Brief</div>
+  <div class="page-title">This Week in Political Money</div>
+  <div class="page-week" id="week-line">Loading…</div>
+
+  <button class="regen-btn" id="regen-btn" onclick="regen()">↺ Regenerate digest</button>
+
+  <div id="digest-content"><div class="loading">Generating digest with AI… this may take 10–15 seconds.</div></div>
+  <div class="gen-at" id="gen-at"></div>
+</div>
+
+<script>
+  const SECTION_META = {
+    top_ticker:           { label: "Hot Ticker", title: d => `Most Active: ${d.name || ''}` },
+    biggest_insider:      { label: "Insider Activity", title: () => "Biggest Corporate Insider Move" },
+    cluster_of_week:      { label: "Congressional Cluster", title: () => "Cluster of the Week" },
+    regulatory_spotlight: { label: "Regulatory Watch", title: () => "Regulatory Spotlight" },
+    first_touches:        { label: "New Positions", title: d => `${d.count || 0} First Touches This Week` },
+  };
+
+  function renderDigest(parsed, week, generatedAt) {
+    document.getElementById('week-line').textContent =
+      `Week of ${week} · AI-generated every Monday at 6am`;
+    if (generatedAt) {
+      document.getElementById('gen-at').textContent =
+        `Generated ${new Date(generatedAt).toLocaleString()}`;
+    }
+
+    const sections = Object.entries(parsed)
+      .filter(([k]) => SECTION_META[k])
+      .map(([k, val]) => {
+        const meta  = SECTION_META[k];
+        const title = meta.title(val);
+        const body  = val.summary || '';
+        return `<div class="digest-section">
+          <div class="digest-section-label">${meta.label}</div>
+          <div class="digest-section-title">${title}</div>
+          <div class="digest-body">${body}</div>
+        </div>`;
+      }).join('');
+
+    document.getElementById('digest-content').innerHTML = sections ||
+      '<div class="error">No digest sections generated.</div>';
+  }
+
+  function showError(msg) {
+    document.getElementById('digest-content').innerHTML =
+      `<div class="error">${msg}</div>`;
+    document.getElementById('week-line').textContent = '';
+  }
+
+  async function load() {
+    try {
+      const r = await fetch('/digest');
+      const d = await r.json();
+      if (d.error) { showError(d.error); return; }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(d.content);
+      } catch {
+        showError('Could not parse digest JSON. Raw: ' + (d.content || '').slice(0, 200));
+        return;
+      }
+      renderDigest(parsed, d.week_start, d.generated_at);
+    } catch (e) {
+      showError('Failed to load digest: ' + e.message);
+    }
+  }
+
+  async function regen() {
+    const btn = document.getElementById('regen-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    document.getElementById('digest-content').innerHTML =
+      '<div class="loading">Regenerating with AI… 10–15 seconds.</div>';
+    document.getElementById('gen-at').textContent = '';
+
+    try {
+      const r = await fetch('/digest/regenerate', {method:'POST'});
+      const d = await r.json();
+      if (d.error) { showError(d.error); }
+      else {
+        let parsed;
+        try { parsed = JSON.parse(d.content); }
+        catch { showError('Could not parse digest JSON.'); return; }
+        renderDigest(parsed, d.week_start, d.generated_at);
+      }
+    } catch (e) {
+      showError('Regeneration failed: ' + e.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = '↺ Regenerate digest';
+  }
+
+  load();
+</script>
+</body>
+</html>

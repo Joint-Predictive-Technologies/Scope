@@ -89,3 +89,41 @@ CREATE TABLE IF NOT EXISTS price_action (
     fetched_at  TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (symbol, start_date, end_date)
 );
+
+CREATE TABLE IF NOT EXISTS backtest_results (
+    alert_id   INTEGER PRIMARY KEY,
+    ticker     TEXT,
+    price_at   REAL,
+    price_7d   REAL,
+    price_30d  REAL,
+    return_30d REAL,
+    fetched_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    week_start   TEXT UNIQUE,
+    content      TEXT,
+    generated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS alert_votes (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id   INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(alert_id, session_id)
+);
+
+CREATE TABLE IF NOT EXISTS alert_comments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id   INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS telegram_pushes (
+    alert_id  INTEGER PRIMARY KEY,
+    pushed_at TEXT DEFAULT (datetime('now'))
+);

@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sector Heat Map — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #e55b4d; --green: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
+    .page-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; }
+
+    .controls { display: flex; gap: 0.7rem; margin-bottom: 2rem; align-items: center; }
+    .filter-select { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
+    .filter-select:focus { border-color: var(--amber); }
+
+    .sectors-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.2rem; }
+
+    .sector-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.6rem; cursor: pointer; transition: border-color 0.2s, transform 0.15s; text-decoration: none; display: block; }
+    .sector-card:hover { border-color: var(--amber); transform: translateY(-2px); }
+
+    .sector-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+    .sector-name { font-family: 'Playfair Display', serif; font-size: 1.1rem; font-weight: 700; color: var(--cream); }
+    .trend-up   { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--green); }
+    .trend-down { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--red); }
+    .trend-flat { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); }
+
+    .sector-count { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; color: var(--amber); margin-bottom: 0.3rem; }
+
+    /* Severity bar */
+    .sev-bar { display: flex; gap: 2px; height: 4px; border-radius: 2px; overflow: hidden; margin-bottom: 0.8rem; }
+    .sev-critical { background: #e55b4d; }
+    .sev-high     { background: var(--amber2); }
+    .sev-medium   { background: #6ab0e0; }
+
+    .tickers-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .ticker-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); border: 1px solid var(--border2); padding: 2px 7px; border-radius: 3px; }
+
+    .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+
+    @media (max-width: 600px) { .sectors-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/members-list">Members</a>
+    <a href="/sectors" class="active">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/digest">Digest</a>
+  </div>
+  <a href="/ask" class="nav-cta">Ask AI →</a>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Signal Heat Map</div>
+  <div class="page-title">Sector Activity</div>
+  <div class="page-sub">Alert density by sector over the selected window. Click a sector to filter the live feed.</div>
+
+  <div class="controls">
+    <select class="filter-select" id="f-days" onchange="load()">
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="60">Last 60 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
+  </div>
+
+  <div id="grid"><div class="loading">Loading sector data…</div></div>
+</div>
+
+<script>
+  const SECTOR_COLORS = {
+    Defense: '#e55b4d', Technology: '#6ab0e0', Finance: '#4dc47a',
+    Energy: '#e67e22', Pharma: '#9b59b6', Telecom: '#c8922a',
+    Retail: '#2ecc71', Other: '#7a7060',
+  };
+
+  function trendIcon(t) {
+    if (t === 'up')   return '<span class="trend-up">↑ Rising</span>';
+    if (t === 'down') return '<span class="trend-down">↓ Falling</span>';
+    return '<span class="trend-flat">→ Flat</span>';
+  }
+
+  function sevBar(sev, total) {
+    if (!total) return '';
+    const crit = (sev.CRITICAL || 0) / total * 100;
+    const high = (sev.HIGH || 0) / total * 100;
+    const med  = (sev.MEDIUM || 0) / total * 100;
+    return `<div class="sev-bar">
+      <div class="sev-critical" style="width:${crit}%"></div>
+      <div class="sev-high"     style="width:${high}%"></div>
+      <div class="sev-medium"   style="width:${med}%"></div>
+    </div>`;
+  }
+
+  async function load() {
+    const days = document.getElementById('f-days').value;
+    document.getElementById('grid').innerHTML = '<div class="loading">Loading…</div>';
+
+    try {
+      const r = await fetch(`/sectors/data?days=${days}`);
+      const data = await r.json();
+      const entries = Object.entries(data).sort((a,b) => b[1].count - a[1].count);
+
+      if (!entries.length) {
+        document.getElementById('grid').innerHTML = '<div class="empty">No sector activity for this window.</div>';
+        return;
+      }
+
+      document.getElementById('grid').innerHTML = `<div class="sectors-grid">` + entries.map(([sector, d]) => {
+        const col   = SECTOR_COLORS[sector] || '#888';
+        const ticks = d.tickers.map(t => `<span class="ticker-chip">${t}</span>`).join('');
+        const bar   = sevBar(d.severity, d.count);
+        const feedUrl = `/feed?ticker=${d.tickers[0] || ''}`;
+        return `
+          <a href="${feedUrl}" class="sector-card">
+            <div class="sector-top">
+              <div class="sector-name" style="border-left:3px solid ${col};padding-left:0.6rem">${sector}</div>
+              ${trendIcon(d.trend)}
+            </div>
+            <div class="sector-count">${d.count}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted);margin-bottom:0.6rem">
+              alerts · prev period: ${d.prev}
+            </div>
+            ${bar}
+            <div class="tickers-row">${ticks}</div>
+          </a>`;
+      }).join('') + `</div>`;
+    } catch {
+      document.getElementById('grid').innerHTML = '<div class="empty">Failed to load sector data.</div>';
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
