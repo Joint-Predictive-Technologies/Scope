@@ -12,10 +12,12 @@
       --cream: #e8e0cc; --cream2: #c8bfa8;
       --amber: #c8922a; --amber2: #e8aa3a;
       --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red: #c0392b; --green: #2a8a4a;
+      --red: #e55b4d; --green: #2a8a4a;
+      --blue: #6ab0e0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
     .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
     .nav-links { display: flex; gap: 2rem; align-items: center; }
@@ -23,53 +25,84 @@
     .nav-links a:hover { color: var(--amber); }
     .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
 
-    .page { max-width: 900px; margin: 0 auto; padding: 3rem 2rem; }
+    .page { max-width: 960px; margin: 0 auto; padding: 3rem 2rem 5rem; }
 
-    .member-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 2.5rem; flex-wrap: wrap; }
-    .member-name { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
-    .member-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
-    .mbadge { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 3px; border: 1px solid var(--border2); color: var(--cream2); }
-    .party-D { color: #6ab0e0; border-color: rgba(106,176,224,0.3); }
-    .party-R { color: #e55b4d; border-color: rgba(229,91,77,0.3); }
-    .congress-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 6px 14px; border-radius: 4px; display: inline-block; }
+    /* HEADER */
+    .member-header { margin-bottom: 2rem; }
+    .member-name { font-family: 'Playfair Display', serif; font-size: 2.4rem; font-weight: 700; color: var(--cream); margin-bottom: 0.8rem; line-height: 1.15; }
+    .member-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 10px; border-radius: 3px; border: 1px solid; font-weight: 500; }
+    .badge-D { color: var(--blue); border-color: rgba(106,176,224,0.35); background: rgba(106,176,224,0.07); }
+    .badge-R { color: var(--red);  border-color: rgba(229,91,77,0.35);  background: rgba(229,91,77,0.07); }
+    .badge-I { color: var(--muted); border-color: var(--border2); }
+    .badge-chamber { color: var(--cream2); border-color: var(--border2); background: var(--bg2); }
+    .badge-state { color: var(--cream2); border-color: var(--border2); background: var(--bg2); }
+    .congress-link { display: inline-flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 6px 14px; border-radius: 4px; transition: background 0.15s; }
     .congress-link:hover { background: rgba(200,146,42,0.1); }
 
-    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
+    /* SUMMARY BAR */
+    .summary-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 2.5rem; }
+    .sum-cell { background: var(--bg2); padding: 1.1rem 1.2rem; }
+    .sum-val { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--amber); }
+    .sum-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-top: 3px; }
+    .sum-val.green { color: var(--green); }
+    .sum-val.red   { color: var(--red); }
+    .sum-val.ticker-val { font-size: 1.1rem; font-family: 'IBM Plex Mono', monospace; }
 
-    .tickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; }
-    .ticker-chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 1rem; text-decoration: none; display: block; transition: border-color 0.15s; }
+    /* SECTION */
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+
+    /* TOP TICKERS */
+    .tickers-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .ticker-chip { display: inline-flex; align-items: center; gap: 8px; background: var(--bg2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 12px; text-decoration: none; transition: border-color 0.15s; }
     .ticker-chip:hover { border-color: var(--amber); }
-    .chip-sym { font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; font-weight: 500; color: var(--amber); }
-    .chip-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-top: 3px; }
+    .chip-sym { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; font-weight: 500; color: var(--amber); }
+    .chip-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); }
 
-    table { width: 100%; border-collapse: collapse; }
-    th { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; }
-    td { font-size: 0.82rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); color: var(--cream2); vertical-align: middle; }
-    td.ticker-cell a { font-family: 'IBM Plex Mono', monospace; color: var(--amber); text-decoration: none; font-size: 0.82rem; }
-    td.ticker-cell a:hover { text-decoration: underline; }
-    .tx-type { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; }
-    .tx-buy { background: rgba(42,138,74,0.15); color: var(--green); }
-    .tx-sell { background: rgba(192,57,43,0.12); color: #e55b4d; }
+    /* TRADES TABLE */
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table { width: 100%; border-collapse: collapse; min-width: 560px; }
+    thead { background: var(--bg3); }
+    th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 10px 14px; text-align: left; white-space: nowrap; }
+    td { font-size: 0.82rem; padding: 9px 14px; border-top: 1px solid var(--border); color: var(--cream2); vertical-align: middle; }
+    tbody tr:hover { background: rgba(255,255,255,0.01); }
+    .td-ticker a { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--amber); text-decoration: none; font-weight: 500; }
+    .td-ticker a:hover { text-decoration: underline; }
+    .tx-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; padding: 2px 7px; border-radius: 3px; white-space: nowrap; }
+    .tx-purchase { background: rgba(42,138,74,0.15); color: #4caf72; border: 1px solid rgba(42,138,74,0.3); }
+    .tx-sale { background: rgba(229,91,77,0.12); color: var(--red); border: 1px solid rgba(229,91,77,0.25); }
+    .tx-other { background: rgba(255,255,255,0.04); color: var(--muted); border: 1px solid var(--border); }
+    .delay-normal { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); }
+    .delay-warn   { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--amber); font-weight: 500; }
+    .delay-alert  { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--red); font-weight: 500; }
 
-    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.2rem; margin-bottom: 1px; cursor: pointer; transition: border-color 0.15s; }
+    /* ALERT CARDS */
+    .alerts-list { display: flex; flex-direction: column; gap: 1px; }
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.3rem; cursor: pointer; transition: border-color 0.15s; }
     .alert-card:hover { border-color: var(--border2); }
     .alert-card.expanded { border-color: var(--amber); }
     .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; }
-    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
-    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
-    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
-    .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
-    .alert-headline { font-size: 0.85rem; color: var(--cream); line-height: 1.4; flex: 1; }
-    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-left: auto; }
-    .alert-detail { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--cream2); line-height: 1.6; display: none; }
-    .alert-card.expanded .alert-detail { display: block; }
+    .sev-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
+    .sev-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .sev-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .sev-MEDIUM   { background: rgba(42,100,160,0.15); color: var(--blue); border: 1px solid rgba(42,100,160,0.25); }
+    .rule-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border2); color: var(--muted); }
+    .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 180px; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+    .alert-detail-body { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--cream2); line-height: 1.6; display: none; }
+    .alert-card.expanded .alert-detail-body { display: block; }
 
-    .empty { padding: 1.5rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); }
-    .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 3rem 0; }
+    .empty { padding: 2rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .loading-msg { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; padding: 4rem 0; }
+
+    @media (max-width: 700px) {
+      .summary-bar { grid-template-columns: repeat(2, 1fr); }
+      .member-name { font-size: 1.8rem; }
+    }
   </style>
 </head>
 <body>
+
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <div class="nav-links">
@@ -82,7 +115,7 @@
 </nav>
 
 <div class="page">
-  <div id="content"><div class="loading">Loading…</div></div>
+  <div id="content"><div class="loading-msg">Loading member profile…</div></div>
 </div>
 
 <script>
@@ -96,83 +129,174 @@
     return Math.floor(s / 86400) + 'd ago';
   }
 
-  function txClass(type) {
-    if (!type) return '';
-    const t = type.toLowerCase();
-    if (t.includes('purchase') || t.includes('buy')) return 'tx-buy';
-    if (t.includes('sale') || t.includes('sell')) return 'tx-sell';
-    return '';
+  function partyClass(party) {
+    if (!party) return 'badge-I';
+    const p = party.toLowerCase();
+    if (p.includes('democrat')) return 'badge-D';
+    if (p.includes('republican')) return 'badge-R';
+    return 'badge-I';
   }
 
-  function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
+  function partyShort(party) {
+    if (!party) return 'Independent';
+    const p = party.toLowerCase();
+    if (p.includes('democrat')) return 'Democrat';
+    if (p.includes('republican')) return 'Republican';
+    return party;
+  }
+
+  function chamberShort(chamber) {
+    if (!chamber) return '';
+    return chamber.toLowerCase().includes('senate') ? 'Senate' : 'House';
+  }
+
+  function txClass(type) {
+    if (!type) return 'tx-other';
+    const t = type.toLowerCase();
+    if (t.includes('purchase')) return 'tx-purchase';
+    if (t.includes('sale')) return 'tx-sale';
+    return 'tx-other';
+  }
+
+  function txLabel(type) {
+    if (!type) return '—';
+    const t = type.toLowerCase();
+    if (t.includes('purchase')) return 'Purchase';
+    if (t.includes('sale_partial')) return 'Sale (partial)';
+    if (t.includes('sale')) return 'Sale';
+    return type.replace(/_/g, ' ');
+  }
+
+  function delayCell(delay) {
+    if (delay == null || delay < 0) return '<span class="delay-normal">—</span>';
+    const cls = delay > 40 ? 'delay-alert' : delay > 30 ? 'delay-warn' : 'delay-normal';
+    const flag = delay > 40 ? ' ⚑' : delay > 30 ? ' ▲' : '';
+    return `<span class="${cls}">${delay}d${flag}</span>`;
+  }
+
+  function renderSummaryBar(stats, m) {
+    const pct = stats.total_trades > 0
+      ? Math.round((stats.total_purchases / stats.total_trades) * 100) : 0;
+    return `
+      <div class="summary-bar">
+        <div class="sum-cell">
+          <div class="sum-val">${stats.total_trades}</div>
+          <div class="sum-label">Total Trades</div>
+        </div>
+        <div class="sum-cell">
+          <div class="sum-val green">${stats.total_purchases}</div>
+          <div class="sum-label">Purchases</div>
+        </div>
+        <div class="sum-cell">
+          <div class="sum-val red">${stats.total_sales}</div>
+          <div class="sum-label">Sales</div>
+        </div>
+        <div class="sum-cell">
+          <div class="sum-val ticker-val">${stats.most_traded_ticker || '—'}</div>
+          <div class="sum-label">Top Ticker</div>
+        </div>
+        <div class="sum-cell">
+          <div class="sum-val" style="font-size:1rem;font-family:'IBM Plex Mono',monospace">${stats.most_recent_trade || '—'}</div>
+          <div class="sum-label">Latest Trade</div>
+        </div>
+      </div>`;
+  }
+
+  function renderTopTickers(tickers) {
+    if (!tickers.length) return '';
+    return `
+      <div class="section-label">Most Traded Tickers</div>
+      <div class="tickers-grid">
+        ${tickers.map(t => `
+          <a href="/ticker/${t.ticker}" class="ticker-chip">
+            <span class="chip-sym">${t.ticker}</span>
+            <span class="chip-count">${t.trade_count}×</span>
+          </a>`).join('')}
+      </div>`;
+  }
+
+  function renderTrades(trades) {
+    if (!trades.length) {
+      return `
+        <div class="section-label">Trade History</div>
+        <div class="empty">No transactions on record yet.</div>`;
+    }
+    const rows = trades.map(t => `
+      <tr>
+        <td>${t.transaction_date || '—'}</td>
+        <td class="td-ticker">${t.ticker
+          ? `<a href="/ticker/${t.ticker}">${t.ticker}</a>`
+          : '<span style="color:var(--muted)">—</span>'}</td>
+        <td><span class="tx-badge ${txClass(t.transaction_type)}">${txLabel(t.transaction_type)}</span></td>
+        <td style="font-size:0.78rem">${t.amount_band || '—'}</td>
+        <td>${delayCell(t.filing_delay)}</td>
+      </tr>`).join('');
+
+    return `
+      <div class="section-label">Full Trade History — ${trades.length} records</div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Trade Date</th><th>Ticker</th><th>Type</th><th>Amount</th>
+              <th>Filing Delay <span style="color:var(--amber)">▲&gt;30d</span> <span style="color:var(--red)">⚑&gt;40d</span></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderAlerts(alerts) {
+    if (!alerts.length) return '';
+    return `
+      <div class="section-label">Recent Alerts — ${alerts.length} found</div>
+      <div class="alerts-list">
+        ${alerts.map((a, i) => `
+          <div class="alert-card" id="ac${i}" onclick="this.classList.toggle('expanded')">
+            <div class="alert-top">
+              <span class="sev-badge sev-${a.severity}">${a.severity}</span>
+              <span class="rule-badge">${a.rule}</span>
+              ${a.ticker ? `<a href="/ticker/${a.ticker.split(' ')[0].replace('$','')}" onclick="event.stopPropagation()" style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:var(--amber);border:1px solid rgba(200,146,42,0.25);padding:2px 7px;border-radius:3px;text-decoration:none">${a.ticker.split(' ')[0]}</a>` : ''}
+              <span class="alert-headline">${a.headline}</span>
+              <span class="alert-time">${timeAgo(a.created_at)}</span>
+            </div>
+            ${a.detail ? `<div class="alert-detail-body">${a.detail}</div>` : ''}
+          </div>`).join('')}
+      </div>`;
+  }
 
   async function load() {
     const res = await fetch(`/members/${bioguideId}/profile`);
-    if (!res.ok) { document.getElementById('content').innerHTML = '<div class="empty">Member not found.</div>'; return; }
+    if (!res.ok) {
+      document.getElementById('content').innerHTML = '<div class="empty">Member not found.</div>';
+      return;
+    }
     const data = await res.json();
     const m = data.member;
 
     document.title = `${m.full_name} — Scope`;
 
-    const nameSlug = m.full_name.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '-');
-    const congressUrl = `https://www.congress.gov/member/${nameSlug}/${bioguideId}`;
-
-    const partyClass = m.party === 'Democratic' ? 'party-D' : m.party === 'Republican' ? 'party-R' : '';
-
-    const tickersHtml = data.top_tickers.length ? `
-      <div class="section-label">Most Traded Tickers</div>
-      <div class="tickers-grid">
-        ${data.top_tickers.map(t => `
-          <a href="/ticker/${t.ticker}" class="ticker-chip">
-            <div class="chip-sym">${t.ticker}</div>
-            <div class="chip-meta">${t.trade_count} trades · ${t.types || ''}</div>
-          </a>`).join('')}
-      </div>` : '';
-
-    const tradesHtml = data.recent_trades.length ? `
-      <div class="section-label">Recent Trade History</div>
-      <table>
-        <thead><tr><th>Date</th><th>Ticker</th><th>Type</th><th>Amount</th></tr></thead>
-        <tbody>
-          ${data.recent_trades.map(t => `
-            <tr>
-              <td>${t.transaction_date || '—'}</td>
-              <td class="ticker-cell"><a href="/ticker/${t.ticker}">${t.ticker}</a></td>
-              <td><span class="tx-type ${txClass(t.transaction_type)}">${(t.transaction_type || '').replace(/_/g, ' ')}</span></td>
-              <td>${t.amount_band || '—'}</td>
-            </tr>`).join('')}
-        </tbody>
-      </table>` : '';
-
-    const alertsHtml = data.alerts.length ? `
-      <div class="section-label">Alerts Referencing This Member</div>
-      ${data.alerts.map((a, i) => `
-        <div class="alert-card" id="ac-${i}" onclick="toggle(${i})">
-          <div class="alert-top">
-            <span class="badge badge-${a.severity}">${a.severity}</span>
-            <span class="badge badge-rule">${a.rule}</span>
-            ${a.ticker ? `<a href="/ticker/${a.ticker.split(' ')[0].replace('$','')}" onclick="event.stopPropagation()" style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:var(--amber);text-decoration:none;border:1px solid rgba(200,146,42,0.25);padding:2px 8px;border-radius:3px;">${a.ticker.split(' ')[0]}</a>` : ''}
-            <span class="alert-headline">${a.headline}</span>
-            <span class="alert-time">${timeAgo(a.created_at)}</span>
-          </div>
-          ${a.detail ? `<div class="alert-detail">${a.detail}</div>` : ''}
-        </div>`).join('')}` : '';
+    const congressUrl = `https://bioguide.congress.gov/search/bio/${bioguideId}`;
+    const pClass = partyClass(m.party);
 
     document.getElementById('content').innerHTML = `
-      <div class="member-hero">
-        <div>
-          <div class="member-name">${m.full_name}</div>
-          <div class="member-badges">
-            ${m.party ? `<span class="mbadge ${partyClass}">${m.party}</span>` : ''}
-            ${m.state ? `<span class="mbadge">${m.state}</span>` : ''}
-            ${m.chamber ? `<span class="mbadge">${m.chamber}</span>` : ''}
-          </div>
-          <a href="${congressUrl}" target="_blank" rel="noopener" class="congress-link">Congress.gov Profile →</a>
+      <div class="member-header">
+        <div class="member-name">${m.full_name}</div>
+        <div class="member-badges">
+          <span class="badge ${pClass}">${partyShort(m.party)}</span>
+          ${m.state   ? `<span class="badge badge-state">${m.state}</span>` : ''}
+          ${m.chamber ? `<span class="badge badge-chamber">${chamberShort(m.chamber)}</span>` : ''}
         </div>
+        <a href="${congressUrl}" target="_blank" rel="noopener" class="congress-link">
+          View on Congress.gov →
+        </a>
       </div>
-      ${tickersHtml}
-      ${tradesHtml}
-      ${alertsHtml}
+
+      ${renderSummaryBar(data.stats, m)}
+      ${renderTopTickers(data.top_tickers)}
+      ${renderTrades(data.recent_trades)}
+      ${renderAlerts(data.alerts)}
     `;
   }
 

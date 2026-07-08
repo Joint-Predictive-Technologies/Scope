@@ -150,7 +150,7 @@
   let memberMap = {}; // full_name → bioguide_id
 
   // Preload member lookup table for RULE_02 tag links
-  fetch('/members?limit=3000')
+  fetch('/members?limit=5000')
     .then(r => r.json())
     .then(list => { list.forEach(m => { memberMap[m.full_name] = m.bioguide_id; }); })
     .catch(() => {});

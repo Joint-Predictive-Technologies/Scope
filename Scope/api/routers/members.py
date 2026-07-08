@@ -13,7 +13,7 @@ router = APIRouter()
 def get_members(
     chamber: str | None = Query(default=None, description="house or senate"),
     party: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=100, ge=1, le=5000),
 ):
     conn = db_connection()
 
@@ -46,11 +46,32 @@ def get_member_profile(bioguide_id: str):
         conn.close()
         return JSONResponse(status_code=404, content={"error": "Member not found"})
 
+    stats = conn.execute(
+        """
+        SELECT
+            COUNT(*)  AS total_trades,
+            SUM(CASE WHEN LOWER(transaction_type) LIKE '%purchase%' THEN 1 ELSE 0 END) AS total_purchases,
+            SUM(CASE WHEN LOWER(transaction_type) LIKE '%sale%'     THEN 1 ELSE 0 END) AS total_sales,
+            MAX(transaction_date) AS most_recent_trade
+        FROM transactions WHERE member_id = ?
+        """,
+        (bioguide_id,),
+    ).fetchone()
+
+    most_traded = conn.execute(
+        """
+        SELECT raw_ticker_string AS ticker, COUNT(*) AS c
+        FROM transactions
+        WHERE member_id = ? AND raw_ticker_string IS NOT NULL AND raw_ticker_string != ''
+        GROUP BY raw_ticker_string ORDER BY c DESC LIMIT 1
+        """,
+        (bioguide_id,),
+    ).fetchone()
+
     top_tickers = conn.execute(
         """
         SELECT raw_ticker_string AS ticker, COUNT(*) AS trade_count,
-               GROUP_CONCAT(DISTINCT transaction_type) AS types,
-               MAX(amount_band) AS max_amount
+               GROUP_CONCAT(DISTINCT transaction_type) AS types
         FROM transactions
         WHERE member_id = ?
           AND raw_ticker_string IS NOT NULL AND raw_ticker_string != ''
@@ -63,13 +84,19 @@ def get_member_profile(bioguide_id: str):
 
     recent_trades = conn.execute(
         """
-        SELECT t.raw_ticker_string AS ticker, t.transaction_type, t.amount_band,
-               t.transaction_date, f.raw_url AS filing_url
+        SELECT
+            t.raw_ticker_string   AS ticker,
+            t.transaction_type,
+            t.amount_band,
+            t.transaction_date,
+            t.filing_date,
+            CAST(julianday(t.filing_date) - julianday(t.transaction_date) AS INTEGER) AS filing_delay,
+            f.raw_url AS filing_url
         FROM transactions t
         JOIN filings f ON t.filing_id = f.id
         WHERE t.member_id = ?
         ORDER BY t.transaction_date DESC
-        LIMIT 50
+        LIMIT 100
         """,
         (bioguide_id,),
     ).fetchall()
@@ -80,7 +107,7 @@ def get_member_profile(bioguide_id: str):
         FROM alerts
         WHERE member_id = ?
         ORDER BY datetime(created_at) DESC
-        LIMIT 20
+        LIMIT 10
         """,
         (bioguide_id,),
     ).fetchall()
@@ -88,9 +115,16 @@ def get_member_profile(bioguide_id: str):
     conn.close()
     return {
         "member": dict(member),
-        "top_tickers": [dict(r) for r in top_tickers],
+        "stats": {
+            "total_trades":      stats["total_trades"] or 0,
+            "total_purchases":   stats["total_purchases"] or 0,
+            "total_sales":       stats["total_sales"] or 0,
+            "most_recent_trade": stats["most_recent_trade"],
+            "most_traded_ticker": most_traded["ticker"] if most_traded else None,
+        },
+        "top_tickers":   [dict(r) for r in top_tickers],
         "recent_trades": [dict(r) for r in recent_trades],
-        "alerts": [dict(r) for r in member_alerts],
+        "alerts":        [dict(r) for r in member_alerts],
     }
 
 
@@ -101,11 +135,9 @@ def get_member_trades(
     limit: int = Query(default=100, ge=1, le=500),
 ):
     conn = db_connection()
-
     member = conn.execute(
         "SELECT * FROM members WHERE bioguide_id = ?", (bioguide_id,)
     ).fetchone()
-
     if not member:
         conn.close()
         return JSONResponse(status_code=404, content={"error": "Member not found"})
@@ -127,7 +159,4 @@ def get_member_trades(
     ).fetchall()
 
     conn.close()
-    return {
-        "member": dict(member),
-        "trades": [dict(t) for t in trades],
-    }
+    return {"member": dict(member), "trades": [dict(t) for t in trades]}
