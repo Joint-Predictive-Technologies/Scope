@@ -53,6 +53,7 @@
     .wl-toggle { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid var(--border2); color: var(--cream2); background: transparent; padding: 7px 14px; border-radius: 4px; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s; }
     .wl-toggle.active { border-color: var(--amber); color: var(--amber); background: rgba(200,146,42,0.08); }
     .filter-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: auto; }
+    .cap-loading { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); margin-left: 4px; }
 
     /* ALERT CARDS */
     #alerts-list { display: flex; flex-direction: column; gap: 1px; }
@@ -65,7 +66,13 @@
     .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
     .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
     .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
-    .badge-score { background: rgba(42,138,74,0.15); color: var(--green); border: 1px solid rgba(42,138,74,0.3); }
+    .badge-score { background: rgba(42,138,74,0.15); color: #4dc47a; border: 1px solid rgba(42,138,74,0.3); }
+
+    /* DELAY BADGES */
+    .delay-ok      { background: rgba(100,100,100,0.15); color: #9a9080; border: 1px solid rgba(100,100,100,0.25); }
+    .delay-late    { background: rgba(230,126,34,0.15);  color: #e67e22; border: 1px solid rgba(230,126,34,0.3); }
+    .delay-overdue { background: rgba(192,57,43,0.18);   color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+
     .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
     .ticker-link:hover { background: rgba(200,146,42,0.1); }
     .alert-headline { font-size: 0.88rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
@@ -77,6 +84,10 @@
     .member-link:hover { color: var(--amber); }
     .verify-link { display: inline-block; margin-top: 0.7rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 4px 12px; border-radius: 3px; }
     .verify-link:hover { background: rgba(200,146,42,0.1); }
+
+    /* PRICE ACTION + SOCIAL */
+    .price-action { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; margin-top: 0.5rem; }
+    .social-flag  { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; margin-top: 0.3rem; }
 
     .empty { text-align: center; padding: 4rem 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
     .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
@@ -92,6 +103,7 @@
   <div class="nav-links">
     <a href="/">Home</a>
     <a href="/feed" class="active">Alerts</a>
+    <a href="/members-list">Members</a>
     <a href="/watchlist">Watchlist</a>
     <a href="/ask">Chat</a>
   </div>
@@ -123,12 +135,20 @@
     </select>
     <select class="filter-select" id="f-rule">
       <option value="">All rules</option>
+      <option value="RULE_01B">RULE_01B — First Touch</option>
       <option value="RULE_02">RULE_02 — Clusters</option>
       <option value="RULE_06">RULE_06 — Insider</option>
       <option value="RULE_07">RULE_07 — Polymarket</option>
       <option value="RULE_08">RULE_08 — Fed Register</option>
       <option value="RULE_09">RULE_09 — Lobbying</option>
       <option value="RULE_10">RULE_10 — Corroboration</option>
+    </select>
+    <select class="filter-select" id="f-cap" onchange="onCapChange()">
+      <option value="">All market caps</option>
+      <option value="micro">Micro-cap (&lt;$300M)</option>
+      <option value="small">Small-cap ($300M–$2B)</option>
+      <option value="mid">Mid-cap ($2B–$10B)</option>
+      <option value="excl-large">Excl. large-cap (&lt;$10B)</option>
     </select>
     <select class="filter-select" id="f-days">
       <option value="7">Last 7 days</option>
@@ -139,6 +159,7 @@
     <button class="filter-btn" onclick="load()">Filter</button>
     <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()">⊙ Watchlist</button>
     <span class="filter-count" id="result-count"></span>
+    <span class="cap-loading" id="cap-loading" style="display:none">fetching cap data…</span>
   </div>
 
   <div id="alerts-list"><div class="loading"><span>Loading alerts…</span></div></div>
@@ -146,8 +167,10 @@
 
 <script>
   let watchlistOnly = false;
-  let thesisData = null;
-  let memberMap = {}; // full_name → bioguide_id
+  let thesisData    = null;
+  let allLoaded     = [];   // latest server result, pre-cap-filter
+  let capCache      = {};   // symbol → market_cap (integer or null)
+  let memberMap     = {};   // full_name → bioguide_id
 
   // Preload member lookup table for RULE_02 tag links
   fetch('/members?limit=5000')
@@ -167,8 +190,10 @@
   function sourceUrl(a) {
     const rule = a.rule, tags = a.tags || '';
     const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
-    if (rule === 'RULE_02' || rule === 'RULE_01') return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
-    if (rule === 'RULE_06') return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
+    if (rule === 'RULE_02' || rule === 'RULE_01' || rule === 'RULE_01B')
+      return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
+    if (rule === 'RULE_06')
+      return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
     if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length-1].trim()}`; }
     if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
@@ -204,29 +229,112 @@
     }).join(', ');
   }
 
+  // Parse RULE_01B pipe-separated tags: name|tx_type|delay|tx_date|filed_date
+  function parseR01bTags(tags) {
+    if (!tags) return {};
+    const p = tags.split('|');
+    return { name: p[0], txType: p[1], delay: p[2], txDate: p[3], filedDate: p[4] };
+  }
+
+  function delayBadge(delay) {
+    if (delay == null || delay === '?' || delay === 'null') return '';
+    const d = parseInt(delay);
+    if (isNaN(d)) return '';
+    if (d >= 45) return `<span class="badge delay-overdue">⚑ OVERDUE ${d}d</span>`;
+    if (d >= 31) return `<span class="badge delay-late">▲ Late ${d}d</span>`;
+    return `<span class="badge delay-ok">Filed ${d}d</span>`;
+  }
+
+  async function loadPriceAction(el) {
+    if (!el || el.dataset.loaded) return;
+    el.dataset.loaded = '1';
+    const { sym, start, end } = el.dataset;
+    if (!sym || !start || !end || start === 'undefined' || end === 'undefined') {
+      el.innerHTML = '';
+      return;
+    }
+    try {
+      const r = await fetch(`/tickers/${sym}/price-action?start=${start}&end=${end}`);
+      const d = await r.json();
+      if (d.pct_change != null) {
+        const pct   = d.pct_change.toFixed(1);
+        const arrow = d.pct_change >= 0 ? '📈' : '📉';
+        const color = d.pct_change >= 0 ? '#4dc47a' : '#e55b4d';
+        el.innerHTML = `<span style="color:${color}">${arrow} ${d.pct_change >= 0 ? '+' : ''}${pct}% during disclosure window</span>`;
+      } else {
+        el.innerHTML = '<span style="color:var(--muted)">Price data unavailable</span>';
+      }
+    } catch { el.innerHTML = ''; }
+  }
+
+  async function loadSocialFlag(el) {
+    if (!el || el.dataset.loaded) return;
+    el.dataset.loaded = '1';
+    const sym = el.dataset.sym;
+    if (!sym) return;
+    try {
+      const r = await fetch(`/tickers/${sym}/meta`);
+      const d = await r.json();
+      capCache[sym] = d.market_cap;
+      if (d.social_spike) {
+        el.innerHTML = '<span style="color:#e67e22">⚡ High social activity on Stocktwits</span>';
+      }
+    } catch {}
+  }
+
   function renderAlerts(data) {
     const list = document.getElementById('alerts-list');
-    document.getElementById('result-count').textContent = data.length + ' result' + (data.length !== 1 ? 's' : '');
-    if (!data.length) { list.innerHTML = '<div class="empty">No alerts found for this filter.</div>'; return; }
+    document.getElementById('result-count').textContent =
+      data.length + ' result' + (data.length !== 1 ? 's' : '');
+    if (!data.length) {
+      list.innerHTML = '<div class="empty">No alerts found for this filter.</div>';
+      return;
+    }
 
     list.innerHTML = data.map((a, i) => {
-      const url = sourceUrl(a);
+      const url    = sourceUrl(a);
       const ticker = firstTicker(a.ticker);
-      const tickerBadge = ticker ? `<a href="/ticker/${ticker}" class="ticker-link" onclick="event.stopPropagation()">${ticker}</a>` : '';
+      const tickerBadge = ticker
+        ? `<a href="/ticker/${ticker}" class="ticker-link" onclick="event.stopPropagation()">${ticker}</a>`
+        : '';
       const memberLink = (a.member_id && a.full_name)
         ? `<a href="/member/${a.member_id}" class="member-link" onclick="event.stopPropagation()">${a.full_name}</a>`
         : (a.full_name || '');
 
+      // RULE_01B specific parsing
+      let r01b = null;
+      let inlineDelay = '';
+      if (a.rule === 'RULE_01B' && a.tags) {
+        r01b = parseR01bTags(a.tags);
+        inlineDelay = delayBadge(r01b.delay);
+      }
+
       let detailHtml = '';
-      if (a.detail) detailHtml = `<div class="detail-label">AI Analysis</div><div>${a.detail}</div>`;
+      if (a.relevance_score != null)
+        detailHtml += `<div class="detail-label">Thesis Relevance</div><div style="color:#4dc47a;font-family:IBM Plex Mono,monospace;font-size:0.8rem;margin-bottom:0.5rem">${a.relevance_score}/10</div>`;
+
+      if (a.detail)
+        detailHtml += `<div class="detail-label">Analysis</div><div>${a.detail}</div>`;
+
       if (a.rule === 'RULE_02' && a.tags) {
         detailHtml += `<div style="margin-top:0.5rem"><span style="font-family:IBM Plex Mono,monospace;font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber)">Members</span><div style="margin-top:0.3rem;font-size:0.82rem">${memberTagLinks(a.tags)}</div></div>`;
+      } else if (a.rule === 'RULE_01B' && r01b) {
+        // price action (lazy)
+        if (ticker && r01b.txDate && r01b.filedDate) {
+          detailHtml += `<div class="price-action" data-sym="${ticker}" data-start="${r01b.txDate}" data-end="${r01b.filedDate}" style="color:var(--muted)">Loading price action…</div>`;
+        }
+        // social spike flag (lazy)
+        if (ticker) {
+          detailHtml += `<div class="social-flag" data-sym="${ticker}"></div>`;
+        }
       } else if (!a.detail && a.tags) {
         detailHtml += `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
       }
-      if (memberLink) detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
-      if (url) detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
-      if (a.relevance_score != null) detailHtml = `<div class="detail-label">Thesis Relevance</div><div style="color:var(--green);font-family:IBM Plex Mono,monospace;font-size:0.8rem;">${a.relevance_score}/10</div>` + detailHtml;
+
+      if (memberLink)
+        detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
+      if (url)
+        detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
 
       return `
         <div class="alert-card" onclick="toggle(${i})" id="card-${i}">
@@ -234,6 +342,7 @@
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>
             ${tickerBadge}
+            ${inlineDelay}
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
             <span class="alert-headline">${a.headline}</span>
             <span class="alert-time">${timeAgo(a.created_at)}</span>
@@ -243,7 +352,66 @@
     }).join('');
   }
 
-  function toggle(i) { document.getElementById('card-' + i)?.classList.toggle('expanded'); }
+  function toggle(i) {
+    const card = document.getElementById('card-' + i);
+    if (!card) return;
+    card.classList.toggle('expanded');
+    if (card.classList.contains('expanded')) {
+      loadPriceAction(card.querySelector('.price-action'));
+      loadSocialFlag(card.querySelector('.social-flag'));
+    }
+  }
+
+  // ── Market cap filtering ──────────────────────────────────────────────────
+
+  function capCategory(mc) {
+    if (mc == null) return 'unknown';
+    if (mc < 300e6)  return 'micro';
+    if (mc < 2e9)    return 'small';
+    if (mc < 10e9)   return 'mid';
+    return 'large';
+  }
+
+  function passesCapFilter(ticker, capFilter) {
+    if (!capFilter) return true;
+    const mc  = capCache[ticker];
+    const cat = capCategory(mc);
+    if (cat === 'unknown') return true; // don't exclude if we couldn't fetch
+    if (capFilter === 'micro')      return cat === 'micro';
+    if (capFilter === 'small')      return cat === 'small';
+    if (capFilter === 'mid')        return cat === 'mid';
+    if (capFilter === 'excl-large') return cat !== 'large';
+    return true;
+  }
+
+  async function fetchCapData(alerts) {
+    const tickers = [...new Set(
+      alerts.map(a => firstTicker(a.ticker)).filter(Boolean)
+    )].filter(t => !(t in capCache));
+
+    if (!tickers.length) return;
+
+    document.getElementById('cap-loading').style.display = 'inline';
+    await Promise.all(tickers.map(async t => {
+      try {
+        const r = await fetch(`/tickers/${t}/meta`);
+        const d = await r.json();
+        capCache[t] = d.market_cap ?? null;
+      } catch { capCache[t] = null; }
+    }));
+    document.getElementById('cap-loading').style.display = 'none';
+  }
+
+  async function onCapChange() {
+    const capFilter = document.getElementById('f-cap').value;
+    if (!capFilter || !allLoaded.length) { renderAlerts(allLoaded); return; }
+    await fetchCapData(allLoaded);
+    const filtered = allLoaded.filter(a => {
+      const t = firstTicker(a.ticker);
+      return !t || passesCapFilter(t, capFilter);
+    });
+    renderAlerts(filtered);
+  }
 
   function toggleWatchlist() {
     watchlistOnly = !watchlistOnly;
@@ -257,6 +425,7 @@
     const rule   = document.getElementById('f-rule').value;
     const days   = document.getElementById('f-days').value;
     const ticker = document.getElementById('f-ticker').value.trim();
+    const cap    = document.getElementById('f-cap').value;
     const list   = document.getElementById('alerts-list');
     list.innerHTML = '<div class="loading"><span>Loading…</span></div>';
 
@@ -266,10 +435,22 @@
     if (ticker) url += `&ticker=${encodeURIComponent(ticker)}`;
     if (watchlistOnly) url += `&watchlist=true`;
 
-    fetch(url)
-      .then(r => r.json())
-      .then(renderAlerts)
-      .catch(() => { list.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>'; });
+    try {
+      const data = await fetch(url).then(r => r.json());
+      allLoaded = data;
+      if (cap) {
+        await fetchCapData(data);
+        const filtered = data.filter(a => {
+          const t = firstTicker(a.ticker);
+          return !t || passesCapFilter(t, cap);
+        });
+        renderAlerts(filtered);
+      } else {
+        renderAlerts(data);
+      }
+    } catch {
+      list.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>';
+    }
   }
 
   async function runThesis() {
@@ -278,7 +459,8 @@
     const btn = document.getElementById('thesis-btn');
     btn.disabled = true;
     btn.textContent = 'Scoring…';
-    document.getElementById('alerts-list').innerHTML = '<div class="loading"><span>Scoring alerts against thesis…</span></div>';
+    document.getElementById('alerts-list').innerHTML =
+      '<div class="loading"><span>Scoring alerts against thesis…</span></div>';
 
     try {
       const days = document.getElementById('f-days').value;
@@ -290,11 +472,13 @@
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       thesisData = data.results;
-      document.getElementById('thesis-label').textContent = `Thesis: "${thesis}" — ${data.results.length} relevant alerts (scored ${data.total_scored})`;
+      document.getElementById('thesis-label').textContent =
+        `Thesis: "${thesis}" — ${data.results.length} relevant alerts (scored ${data.total_scored})`;
       document.getElementById('thesis-banner').style.display = 'flex';
       renderAlerts(thesisData);
     } catch (e) {
-      document.getElementById('alerts-list').innerHTML = `<div class="empty">Scoring failed: ${e.message}</div>`;
+      document.getElementById('alerts-list').innerHTML =
+        `<div class="empty">Scoring failed: ${e.message}</div>`;
     }
     btn.disabled = false;
     btn.textContent = 'Score →';

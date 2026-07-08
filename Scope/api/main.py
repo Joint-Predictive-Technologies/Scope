@@ -30,6 +30,7 @@ LIVE_RULES = [
     "rule_07_polymarket.py",
     "rule_08_federal_register.py",
     "rule_09_lobbying.py",
+    "scripts/rule_01b_first_touch.py",
     "scripts/rule_10_corroboration.py",
 ]
 REFRESH_INTERVAL_HOURS = 4

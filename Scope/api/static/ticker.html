@@ -27,7 +27,8 @@
 
     .ticker-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2.5rem; flex-wrap: wrap; }
     .ticker-symbol { font-family: 'Playfair Display', serif; font-size: 3rem; font-weight: 900; color: var(--amber); }
-    .ticker-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-top: 0.4rem; }
+    .ticker-meta-line { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-top: 0.4rem; }
+    .ticker-cap { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--cream2); margin-top: 0.3rem; }
     .ticker-summary { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.4rem; display: flex; gap: 2rem; flex-wrap: wrap; }
     .sum-stat { text-align: center; }
     .sum-val { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--amber); }
@@ -45,6 +46,21 @@
     .tl-event { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; cursor: pointer; transition: transform 0.15s; }
     .tl-event:hover { transform: translate(-50%, -50%) scale(1.6); }
     .tl-labels { display: flex; justify-content: space-between; margin-top: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); }
+
+    /* TRADE HISTORY TABLE */
+    .trade-table { width: 100%; border-collapse: collapse; }
+    .trade-table th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+    .trade-table td { font-size: 0.8rem; padding: 8px 10px; border-bottom: 1px solid rgba(42,38,32,0.5); color: var(--cream2); vertical-align: top; }
+    .trade-table tr:hover td { background: rgba(255,255,255,0.015); }
+    .trade-table td:first-child { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); }
+    .tx-purchase { color: #4dc47a; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .tx-sale     { color: #e55b4d; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .delay-ok      { color: #9a9080; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .delay-late    { color: #e67e22; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .delay-overdue { color: #e55b4d; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+    .window-return { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; }
+    .member-link { color: var(--cream2); text-decoration: none; border-bottom: 1px solid var(--border2); }
+    .member-link:hover { color: var(--amber); }
 
     /* ALERT CARDS */
     .alerts-list { display: flex; flex-direction: column; gap: 1px; }
@@ -70,7 +86,7 @@
     .member-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.1rem; text-decoration: none; display: block; transition: border-color 0.15s; }
     .member-card:hover { border-color: var(--amber); }
     .member-name { font-size: 0.85rem; color: var(--cream); margin-bottom: 0.3rem; }
-    .member-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+    .member-meta-s { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
 
     .empty { padding: 2rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
     .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 2rem 0; }
@@ -82,6 +98,7 @@
   <div class="nav-links">
     <a href="/">Home</a>
     <a href="/feed">Alerts</a>
+    <a href="/members-list">Members</a>
     <a href="/watchlist">Watchlist</a>
     <a href="/ask">Chat</a>
   </div>
@@ -94,8 +111,8 @@
 
 <script>
   const RULE_COLORS = {
-    RULE_02: '#c8922a', RULE_06: '#6ab0e0', RULE_07: '#2a8a4a',
-    RULE_08: '#9b59b6', RULE_09: '#e67e22', RULE_10: '#e55b4d',
+    RULE_01B: '#e67e22', RULE_02: '#c8922a', RULE_06: '#6ab0e0',
+    RULE_07: '#2a8a4a', RULE_08: '#9b59b6', RULE_09: '#e67e22', RULE_10: '#e55b4d',
   };
 
   const symbol = window.location.pathname.split('/').pop().toUpperCase();
@@ -111,13 +128,61 @@
 
   function sourceUrl(a) {
     const rule = a.rule, tags = a.tags || '', ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
-    if (rule === 'RULE_02' || rule === 'RULE_01') return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
-    if (rule === 'RULE_06') return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
+    if (rule === 'RULE_02' || rule === 'RULE_01' || rule === 'RULE_01B')
+      return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
+    if (rule === 'RULE_06')
+      return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
     if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length - 1].trim()}`; }
     if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
     if (rule === 'RULE_10') return `/feed?ticker=${ticker}`;
     return null;
+  }
+
+  function fmtCap(mc) {
+    if (mc == null) return null;
+    if (mc >= 1e12) return `$${(mc / 1e12).toFixed(1)}T`;
+    if (mc >= 1e9)  return `$${(mc / 1e9).toFixed(1)}B`;
+    if (mc >= 1e6)  return `$${(mc / 1e6).toFixed(0)}M`;
+    return `$${mc.toLocaleString()}`;
+  }
+
+  function capLabel(mc) {
+    if (mc == null) return '';
+    if (mc < 300e6)  return 'Micro-cap';
+    if (mc < 2e9)    return 'Small-cap';
+    if (mc < 10e9)   return 'Mid-cap';
+    return 'Large-cap';
+  }
+
+  function delayClass(d) {
+    if (d == null) return 'delay-ok';
+    if (d >= 45) return 'delay-overdue';
+    if (d >= 31) return 'delay-late';
+    return 'delay-ok';
+  }
+  function delayLabel(d) {
+    if (d == null) return '—';
+    if (d >= 45) return `⚑ ${d}d`;
+    if (d >= 31) return `▲ ${d}d`;
+    return `${d}d`;
+  }
+
+  // Lazy load price action into a <td class="window-return" data-sym data-start data-end>
+  async function loadWindowReturn(td) {
+    if (!td || td.dataset.loaded) return;
+    td.dataset.loaded = '1';
+    const { sym, start, end } = td.dataset;
+    if (!sym || !start || !end) { td.textContent = '—'; return; }
+    try {
+      const r = await fetch(`/tickers/${sym}/price-action?start=${start}&end=${end}`);
+      const d = await r.json();
+      if (d.pct_change != null) {
+        const pct   = d.pct_change.toFixed(1);
+        const color = d.pct_change >= 0 ? '#4dc47a' : '#e55b4d';
+        td.innerHTML = `<span style="color:${color}">${d.pct_change >= 0 ? '+' : ''}${pct}%</span>`;
+      } else { td.textContent = '—'; }
+    } catch { td.textContent = '—'; }
   }
 
   function renderTimeline(alerts) {
@@ -164,18 +229,61 @@
     }).join('');
   }
 
+  function renderTransactions(txs) {
+    if (!txs.length) return '<div class="empty">No congressional transactions on record.</div>';
+    return `
+      <div style="overflow-x:auto">
+      <table class="trade-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Member</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Disclosure Delay</th>
+            <th>Window Return</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${txs.map((t, i) => {
+            const txClass = (t.transaction_type || '').toLowerCase().includes('sale') ? 'tx-sale' : 'tx-purchase';
+            const txLabel = (t.transaction_type || '—').replace(/_/g, ' ');
+            const memberHref = t.member_id
+              ? `<a href="/member/${t.member_id}" class="member-link">${t.full_name}</a>`
+              : (t.full_name || '—');
+            const dlClass = delayClass(t.filing_delay);
+            const dlLabel = delayLabel(t.filing_delay);
+            const hasDates = t.transaction_date && t.filing_date;
+            const retCell = hasDates
+              ? `<td class="window-return" data-sym="${symbol}" data-start="${t.transaction_date}" data-end="${t.filing_date}" id="wr-${i}" style="color:var(--muted)">…</td>`
+              : '<td style="color:var(--muted)">—</td>';
+            return `<tr>
+              <td>${t.transaction_date || '—'}</td>
+              <td>${memberHref}</td>
+              <td><span class="${txClass}">${txLabel}</span></td>
+              <td style="font-size:0.75rem;color:var(--muted)">${t.amount_band || '—'}</td>
+              <td><span class="${dlClass}">${dlLabel}</span></td>
+              ${retCell}
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      </div>`;
+  }
+
   function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
 
   async function load() {
-    const res = await fetch(`/tickers/${symbol}/alerts?days=365&limit=200`);
+    const res  = await fetch(`/tickers/${symbol}/alerts?days=365&limit=200`);
     const data = await res.json();
-    const alerts = data.alerts || [];
+    const alerts = data.alerts       || [];
     const members = data.related_members || [];
+    const txs     = data.transactions    || [];
 
-    const last30 = alerts.filter(a => new Date(a.created_at + 'Z') >= new Date(Date.now() - 30 * 86400000));
+    const last30  = alerts.filter(a => new Date(a.created_at + 'Z') >= new Date(Date.now() - 30 * 86400000));
     const ruleSet = new Set(last30.map(a => a.rule));
-    const topSev = last30.find(a => a.severity === 'CRITICAL') ? 'CRITICAL'
-                 : last30.find(a => a.severity === 'HIGH') ? 'HIGH' : 'MEDIUM';
+    const topSev  = last30.find(a => a.severity === 'CRITICAL') ? 'CRITICAL'
+                  : last30.find(a => a.severity === 'HIGH')     ? 'HIGH' : 'MEDIUM';
     const sevColor = { CRITICAL: '#e55b4d', HIGH: 'var(--amber2)', MEDIUM: '#6ab0e0' }[topSev] || 'var(--amber)';
 
     const membersSection = members.length ? `
@@ -184,28 +292,57 @@
         ${members.map(m => `
           <a href="/member/${m.bioguide_id}" class="member-card">
             <div class="member-name">${m.full_name}</div>
-            <div class="member-meta">${m.party || ''} · ${m.state || ''}</div>
+            <div class="member-meta-s">${m.party || ''} · ${m.state || ''}</div>
           </a>`).join('')}
       </div>` : '';
+
+    const txSection = txs.length ? `
+      <div class="section-label">Congressional Trade History — ${txs.length} transactions</div>
+      ${renderTransactions(txs)}` : '';
 
     document.getElementById('content').innerHTML = `
       <div class="ticker-hero">
         <div>
           <div class="ticker-symbol">${symbol}</div>
-          <div class="ticker-meta">Political Intelligence Drill-Down · All-time signal history</div>
+          <div class="ticker-meta-line">Political Intelligence Drill-Down · All-time signal history</div>
+          <div class="ticker-cap" id="cap-line">Loading market cap…</div>
         </div>
         <div class="ticker-summary">
           <div class="sum-stat"><div class="sum-val">${last30.length}</div><div class="sum-label">Alerts (30d)</div></div>
           <div class="sum-stat"><div class="sum-val">${ruleSet.size}</div><div class="sum-label">Rules Fired</div></div>
           <div class="sum-stat"><div class="sum-val" style="color:${sevColor}">${topSev}</div><div class="sum-label">Top Severity</div></div>
           <div class="sum-stat"><div class="sum-val">${alerts.length}</div><div class="sum-label">All-time Alerts</div></div>
+          <div class="sum-stat"><div class="sum-val">${txs.length}</div><div class="sum-label">Trades on Record</div></div>
         </div>
       </div>
       ${renderTimeline(alerts)}
       ${membersSection}
+      ${txSection}
       <div class="section-label">All Alerts — ${alerts.length} total</div>
       <div class="alerts-list">${renderAlerts(alerts)}</div>
     `;
+
+    // Fetch market cap and update cap line
+    fetch(`/tickers/${symbol}/meta`)
+      .then(r => r.json())
+      .then(d => {
+        const capEl = document.getElementById('cap-line');
+        if (!capEl) return;
+        if (d.market_cap) {
+          const label = capLabel(d.market_cap);
+          capEl.textContent = `${fmtCap(d.market_cap)} market cap · ${label}` +
+            (d.social_spike ? ' · ⚡ Active on Stocktwits' : '');
+        } else {
+          capEl.textContent = 'Market cap unavailable';
+        }
+      })
+      .catch(() => {
+        const el = document.getElementById('cap-line');
+        if (el) el.textContent = '';
+      });
+
+    // Lazily load all window returns
+    document.querySelectorAll('.window-return[data-sym]').forEach(td => loadWindowReturn(td));
   }
 
   load();

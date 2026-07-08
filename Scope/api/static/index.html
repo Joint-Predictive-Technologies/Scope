@@ -167,6 +167,7 @@
     <div class="terminal-body" id="term-body">
       <div class="t-line"><span class="t-prompt">$</span><span class="t-text">scope run --all-rules</span></div>
       <div class="t-spacer"></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_01B first touch — new position</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_02  congressional cluster</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_06  SEC Form 4 insider trades</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_07  Polymarket movements</span></div>
@@ -188,7 +189,7 @@
     <div class="stats-divider"></div>
     <div class="stat"><div class="stat-val" id="stat-high">—</div><div class="stat-label">High</div></div>
     <div class="stats-divider"></div>
-    <div class="stat"><div class="stat-val" id="stat-rules">6</div><div class="stat-label">Active Rules</div></div>
+    <div class="stat"><div class="stat-val" id="stat-rules">7</div><div class="stat-label">Active Rules</div></div>
     <div class="stats-divider"></div>
     <div class="stat"><div class="stat-val" id="stat-tickers">—</div><div class="stat-label">Tickers Tracked</div></div>
   </div>
@@ -197,8 +198,14 @@
 <!-- RULES GRID -->
 <div class="section">
   <div class="section-label">Signal Architecture</div>
-  <div class="section-title">Six rules. One picture.</div>
+  <div class="section-title">Seven rules. One picture.</div>
   <div class="rules-grid">
+    <div class="rule-card">
+      <div class="rule-id">RULE_01B</div>
+      <div class="rule-name">First Touch</div>
+      <div class="rule-desc">Fires when a member of Congress opens a brand-new position in a ticker with no prior disclosed history in that name.</div>
+      <div class="rule-status status-live">● Live</div>
+    </div>
     <div class="rule-card">
       <div class="rule-id">RULE_02</div>
       <div class="rule-name">Congressional Clusters</div>

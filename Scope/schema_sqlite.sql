@@ -70,3 +70,22 @@ CREATE TABLE IF NOT EXISTS watchlist (
     symbol   TEXT NOT NULL UNIQUE,
     added_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS ticker_meta (
+    symbol       TEXT PRIMARY KEY,
+    market_cap   INTEGER,
+    cap_updated  TEXT,
+    social_spike INTEGER DEFAULT 0,
+    social_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS price_action (
+    symbol      TEXT NOT NULL,
+    start_date  TEXT NOT NULL,
+    end_date    TEXT NOT NULL,
+    start_price REAL,
+    end_price   REAL,
+    pct_change  REAL,
+    fetched_at  TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY (symbol, start_date, end_date)
+);
