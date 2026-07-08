@@ -171,6 +171,10 @@ def feed():
 def ask():
     return FileResponse(STATIC_DIR / "chat.html")
 
+@app.get("/members-list", response_class=HTMLResponse, include_in_schema=False)
+def members_list_page():
+    return FileResponse(STATIC_DIR / "members.html")
+
 @app.get("/watchlist", response_class=HTMLResponse, include_in_schema=False)
 def watchlist_page():
     return FileResponse(STATIC_DIR / "watchlist.html")
