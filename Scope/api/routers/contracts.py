@@ -1,10 +1,31 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+from pathlib import Path
+
 from fastapi import APIRouter, Query
+from fastapi.responses import JSONResponse
 
 from jpt_common import db_connection
 
 router = APIRouter()
+
+CODE_DIR = Path(__file__).resolve().parent.parent.parent
+
+
+@router.post("/refresh")
+def refresh_contracts():
+    """Run rule_11_contracts.py immediately to ingest latest USASpending data."""
+    script = CODE_DIR / "scripts" / "rule_11_contracts.py"
+    r = subprocess.run(
+        [sys.executable, str(script), "--emit-alerts"],
+        capture_output=True, text=True, cwd=str(CODE_DIR),
+    )
+    if r.returncode != 0:
+        return JSONResponse(status_code=500, content={"error": r.stderr[-500:]})
+    lines = [l for l in r.stdout.splitlines() if "[RULE_11]" in l]
+    return {"ok": True, "output": lines}
 
 
 @router.get("/data")
