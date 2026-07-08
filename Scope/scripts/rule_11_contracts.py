@@ -24,32 +24,39 @@ TODAY = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 YEAR_START = f"{datetime.now(timezone.utc).year}-01-01"
 
 
-def _fetch_contracts() -> list[dict]:
-    payload = {
-        "filters": {
-            "time_period": [{"start_date": YEAR_START, "end_date": TODAY}],
-            "award_type_codes": ["A", "B", "C", "D"],
-            "award_amounts": [{"lower_bound": 50_000_000}],
-        },
-        "fields": [
-            "Recipient Name",
-            "Award Amount",
-            "Awarding Agency Name",
-            "Award Date",
-            "Description",
-        ],
-        "sort": "Award Amount",
-        "order": "desc",
-        "limit": 50,
-        "page": 1,
-    }
-    try:
-        r = requests.post(BASE_URL, json=payload, timeout=30)
-        r.raise_for_status()
-        return r.json().get("results", [])
-    except Exception as e:
-        print(f"[RULE_11] USASpending fetch error: {e}")
-        return []
+def _fetch_contracts(pages: int = 3) -> list[dict]:
+    results: list[dict] = []
+    for page in range(1, pages + 1):
+        payload = {
+            "filters": {
+                "time_period": [{"start_date": YEAR_START, "end_date": TODAY}],
+                "award_type_codes": ["A", "B", "C", "D"],
+                "award_amounts": [{"lower_bound": 50_000_000}],
+            },
+            "fields": [
+                "Recipient Name",
+                "Award Amount",
+                "Awarding Agency",
+                "Action Date",
+                "Period of Performance Start Date",
+                "Description",
+            ],
+            "sort": "Award Amount",
+            "order": "desc",
+            "limit": 50,
+            "page": page,
+        }
+        try:
+            r = requests.post(BASE_URL, json=payload, timeout=30)
+            r.raise_for_status()
+            batch = r.json().get("results", [])
+            results.extend(batch)
+            if len(batch) < 50:
+                break
+        except Exception as e:
+            print(f"[RULE_11] USASpending fetch error (page {page}): {e}")
+            break
+    return results
 
 
 def _match_ticker(name: str, ticker_map: list[tuple[str, str]]) -> str | None:
@@ -95,20 +102,33 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     emitted = skipped = 0
 
     for c in contracts:
-        recipient = (c.get("Recipient Name") or "").strip()
-        amount    = c.get("Award Amount") or 0
-        agency    = (c.get("Awarding Agency Name") or "").strip()
-        award_date = (c.get("Award Date") or "")[:10]
-        desc      = (c.get("Description") or "").strip()[:500]
+        recipient  = (c.get("Recipient Name") or "").strip()
+        amount     = c.get("Award Amount") or 0
+        agency     = (c.get("Awarding Agency") or "").strip()
+        # Date fallbacks: Action Date → Period start → today
+        award_date = (
+            c.get("Action Date")
+            or c.get("Period of Performance Start Date")
+            or TODAY
+        )
+        award_date = award_date[:10] if award_date else TODAY
+        desc       = (c.get("Description") or "").strip()[:500]
+        internal_id = str(c.get("internal_id") or c.get("generated_internal_id") or "")
 
-        if not recipient or not award_date:
+        if not recipient:
             continue
 
-        # Dedup check
-        exists = conn.execute(
-            "SELECT 1 FROM contracts WHERE recipient_name = ? AND award_date = ?",
-            (recipient, award_date),
-        ).fetchone()
+        # Dedup by internal_id when available, else (recipient, award_date)
+        if internal_id:
+            exists = conn.execute(
+                "SELECT 1 FROM contracts WHERE recipient_name = ? AND description LIKE ?",
+                (recipient, f"%{internal_id}%"),
+            ).fetchone()
+        else:
+            exists = conn.execute(
+                "SELECT 1 FROM contracts WHERE recipient_name = ? AND award_date = ?",
+                (recipient, award_date),
+            ).fetchone()
         if exists:
             skipped += 1
             continue
@@ -119,12 +139,13 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             print(f"[RULE_11] [dry] {recipient} → {ticker or '?'} ${amount:,.0f} {agency}")
             continue
 
-        # Store raw contract
+        # Store raw contract — embed internal_id in description for dedup
+        store_desc = f"{desc}|{internal_id}" if internal_id else desc
         conn.execute(
             """INSERT OR IGNORE INTO contracts
                (recipient_name, ticker, amount, agency, award_date, description)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (recipient, ticker, amount, agency, award_date, desc),
+            (recipient, ticker, amount, agency, award_date, store_desc),
         )
 
         if ticker and emit:
