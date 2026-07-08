@@ -45,7 +45,6 @@ def _fetch_contracts(pages: int = 3) -> list[dict]:
                 "Action Date",
                 "Period of Performance Start Date",
                 "Description",
-                "generated_unique_award_id",
             ],
             "sort": "Award Amount",
             "order": "desc",
@@ -105,15 +104,22 @@ def _emit_alert(conn, ticker: str, recipient: str, amount: float,
     detail   = desc or f"${amount:,.0f} contract awarded {award_date}"
     tags     = f"{recipient}|{award_date}|{award_id}"
 
+    # Check by award_id OR by ticker+date to avoid duplicates across runs
     already = conn.execute(
-        "SELECT 1 FROM alerts WHERE rule='RULE_11' AND tags LIKE ?",
-        (f"%{award_id}%",),
-    ).fetchone() if award_id else conn.execute(
-        "SELECT 1 FROM alerts WHERE rule='RULE_11' AND ticker=? AND tags LIKE ?",
-        (ticker, f"%{award_date}%"),
+        """SELECT id FROM alerts WHERE rule='RULE_11' AND (
+               (? != '' AND tags LIKE ?)
+               OR (ticker = ? AND tags LIKE ?)
+           )""",
+        (award_id, f"%{award_id}%", ticker, f"%{award_date}%"),
     ).fetchone()
 
     if already:
+        # Backfill award_id into tags if it's missing (old-style tags lack it)
+        if award_id:
+            conn.execute(
+                "UPDATE alerts SET tags = ? WHERE id = ? AND tags NOT LIKE ?",
+                (tags, already[0], f"%{award_id}%"),
+            )
         return False
 
     conn.execute(
@@ -152,7 +158,7 @@ def run(dry_run: bool = False) -> None:
         )
         award_date = award_date[:10] if award_date else TODAY
         desc       = (c.get("Description") or "").strip()[:500]
-        award_id   = (c.get("generated_unique_award_id") or "").strip()
+        award_id   = (c.get("generated_internal_id") or "").strip()
 
         if not recipient:
             continue
@@ -164,16 +170,20 @@ def run(dry_run: bool = False) -> None:
         if amount < LARGE_THRESHOLD and not on_watchlist:
             continue
 
-        # Dedup check
-        if award_id:
+        # Dedup check — prefer award_id, fall back to recipient+date
+        exists = conn.execute(
+            "SELECT id FROM contracts WHERE award_id = ?", (award_id,)
+        ).fetchone() if award_id else None
+        if not exists:
             exists = conn.execute(
-                "SELECT 1 FROM contracts WHERE award_id = ?", (award_id,)
-            ).fetchone()
-        else:
-            exists = conn.execute(
-                "SELECT 1 FROM contracts WHERE recipient_name = ? AND award_date = ?",
+                "SELECT id FROM contracts WHERE recipient_name = ? AND award_date = ?",
                 (recipient, award_date),
             ).fetchone()
+            # Backfill award_id on the matched row if we now know it
+            if exists and award_id:
+                conn.execute("UPDATE contracts SET award_id = ? WHERE id = ?",
+                             (award_id, exists[0]))
+                conn.commit()
 
         if exists:
             skipped += 1
