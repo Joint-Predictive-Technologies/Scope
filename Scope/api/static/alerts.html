@@ -147,6 +147,13 @@
 <script>
   let watchlistOnly = false;
   let thesisData = null;
+  let memberMap = {}; // full_name → bioguide_id
+
+  // Preload member lookup table for RULE_02 tag links
+  fetch('/members?limit=3000')
+    .then(r => r.json())
+    .then(list => { list.forEach(m => { memberMap[m.full_name] = m.bioguide_id; }); })
+    .catch(() => {});
 
   function timeAgo(ts) {
     const d = new Date(ts + 'Z');
@@ -174,6 +181,29 @@
     return raw.replace(/\$/g, '').split(' ')[0].trim() || null;
   }
 
+  // Parse "LastName, First,LastName, First" from RULE_02 tags
+  function parseMemberNames(tags) {
+    const parts = tags.split(',');
+    const names = [];
+    let cur = '';
+    for (const p of parts) {
+      if (!p.startsWith(' ') && cur) { names.push(cur.trim()); cur = p; }
+      else { cur += (cur ? ',' : '') + p; }
+    }
+    if (cur) names.push(cur.trim());
+    return names.filter(n => n.length > 2);
+  }
+
+  function memberTagLinks(tags) {
+    const names = parseMemberNames(tags);
+    return names.map(name => {
+      const id = memberMap[name];
+      return id
+        ? `<a href="/member/${id}" class="member-link" onclick="event.stopPropagation()">${name}</a>`
+        : name;
+    }).join(', ');
+  }
+
   function renderAlerts(data) {
     const list = document.getElementById('alerts-list');
     document.getElementById('result-count').textContent = data.length + ' result' + (data.length !== 1 ? 's' : '');
@@ -189,7 +219,11 @@
 
       let detailHtml = '';
       if (a.detail) detailHtml = `<div class="detail-label">AI Analysis</div><div>${a.detail}</div>`;
-      else if (a.tags) detailHtml = `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
+      if (a.rule === 'RULE_02' && a.tags) {
+        detailHtml += `<div style="margin-top:0.5rem"><span style="font-family:IBM Plex Mono,monospace;font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber)">Members</span><div style="margin-top:0.3rem;font-size:0.82rem">${memberTagLinks(a.tags)}</div></div>`;
+      } else if (!a.detail && a.tags) {
+        detailHtml += `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
+      }
       if (memberLink) detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
       if (url) detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
       if (a.relevance_score != null) detailHtml = `<div class="detail-label">Thesis Relevance</div><div style="color:var(--green);font-family:IBM Plex Mono,monospace;font-size:0.8rem;">${a.relevance_score}/10</div>` + detailHtml;

@@ -248,7 +248,7 @@
 <footer>© 2026 Joint Predictive Technologies · Scope Political Intelligence · <a href="/docs" style="color:var(--amber);text-decoration:none;">API Docs</a> · <a href="/watchlist" style="color:var(--amber);text-decoration:none;">Watchlist</a></footer>
 
 <script>
-  fetch('/tickers/leaderboard?days=7')
+  fetch('/tickers/leaderboard?days=30')
     .then(r => r.json())
     .then(data => {
       const el = document.getElementById('leaderboard');
