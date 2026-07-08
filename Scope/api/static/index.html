@@ -168,23 +168,7 @@
 <!-- TICKER TAPE -->
 <div class="tape">
   <div class="tape-inner" id="tape">
-    <span class="tape-item up"><span>RULE_01B</span> First Touch — NVDA new position <span class="val">●</span></span>
-    <span class="tape-item down"><span>RULE_06</span> Insider Sale — KYMR $45.3M <span class="val">↓</span></span>
-    <span class="tape-item up"><span>RULE_08</span> Fed Register — Stablecoin Rule <span class="val">↑</span></span>
-    <span class="tape-item down"><span>RULE_06</span> Insider Sale — FLEX $34.2M <span class="val">↓</span></span>
-    <span class="tape-item up"><span>RULE_10</span> Corroboration — TSM <span class="val">★</span></span>
-    <span class="tape-item down"><span>RULE_09</span> Lobbying Spike — +167% YoY <span class="val">↑</span></span>
-    <span class="tape-item up"><span>RULE_11</span> Gov Contract — LMT $2.4B DoD <span class="val">●</span></span>
-    <span class="tape-item up"><span>RULE_07</span> Polymarket — Defense +12pp <span class="val">↑</span></span>
-    <!-- duplicate for seamless loop -->
-    <span class="tape-item up"><span>RULE_01B</span> First Touch — NVDA new position <span class="val">●</span></span>
-    <span class="tape-item down"><span>RULE_06</span> Insider Sale — KYMR $45.3M <span class="val">↓</span></span>
-    <span class="tape-item up"><span>RULE_08</span> Fed Register — Stablecoin Rule <span class="val">↑</span></span>
-    <span class="tape-item down"><span>RULE_06</span> Insider Sale — FLEX $34.2M <span class="val">↓</span></span>
-    <span class="tape-item up"><span>RULE_10</span> Corroboration — TSM <span class="val">★</span></span>
-    <span class="tape-item down"><span>RULE_09</span> Lobbying Spike — +167% YoY <span class="val">↑</span></span>
-    <span class="tape-item up"><span>RULE_11</span> Gov Contract — LMT $2.4B DoD <span class="val">●</span></span>
-    <span class="tape-item up"><span>RULE_07</span> Polymarket — Defense +12pp <span class="val">↑</span></span>
+    <span class="tape-item"><span>SCOPE</span> Loading live signals… <span class="val">●</span></span>
   </div>
 </div>
 
@@ -364,6 +348,27 @@
   document.getElementById('ham-btn').addEventListener('click', () => {
     document.getElementById('nav-links').classList.toggle('open');
   });
+
+  // ── Ticker tape ───────────────────────────────────────────────────────────
+  const DOWN_RULES = new Set(['RULE_06']);
+  function buildTapeHTML(items) {
+    const half = items.map(item => {
+      const cls = DOWN_RULES.has(item.rule) ? 'down' : 'up';
+      return `<span class="tape-item ${cls}"><span>${item.rule}</span> ${item.text} <span class="val">${item.icon}</span></span>`;
+    }).join('');
+    return half + half; // duplicate for seamless CSS loop
+  }
+  function loadTape() {
+    fetch('/api/ticker-tape')
+      .then(r => r.json())
+      .then(items => {
+        if (!items.length) return;
+        document.getElementById('tape').innerHTML = buildTapeHTML(items);
+      })
+      .catch(() => {});
+  }
+  loadTape();
+  setInterval(loadTape, 5 * 60 * 1000);
 
   function timeAgo(ts) {
     if (!ts) return '';

@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     amount         REAL,
     agency         TEXT,
     award_date     TEXT,
+    award_id       TEXT,
     description    TEXT,
     ingested_at    TEXT DEFAULT (datetime('now')),
     UNIQUE(recipient_name, award_date)

@@ -175,6 +175,64 @@ def admin_refresh(key: str = ""):
     return {"status": "done", "alert_count": _alert_count(), "results": results}
 
 
+TAPE_RULE_LABELS = {
+    "RULE_01":      "Congressional",
+    "RULE_01B":     "Congressional",
+    "RULE_02":      "Cluster",
+    "RULE_06":      "Insider",
+    "RULE_07":      "Polymarket",
+    "RULE_08":      "Fed Register",
+    "RULE_09":      "Lobbying",
+    "RULE_10":      "Corroboration",
+    "RULE_11":      "Gov Contract",
+    "RULE_ANOMALY": "Attention",
+}
+TAPE_RULE_ICON = {
+    "RULE_01":  "↑", "RULE_01B": "↑", "RULE_02": "↑",
+    "RULE_06":  "↓", "RULE_07":  "↑", "RULE_08": "↑",
+    "RULE_09":  "↑", "RULE_10":  "★", "RULE_11": "●",
+    "RULE_ANOMALY": "⚡",
+}
+
+
+@app.get("/api/ticker-tape", tags=["Meta"])
+def ticker_tape():
+    """Live signal items for the scrolling ticker tape."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    rows = conn.execute("""
+        SELECT rule, ticker, headline, severity
+        FROM alerts
+        WHERE severity IN ('HIGH', 'CRITICAL')
+          AND datetime(created_at) >= datetime('now', '-7 days')
+        ORDER BY datetime(created_at) DESC
+        LIMIT 20
+    """).fetchall()
+    conn.close()
+
+    items = []
+    for r in rows:
+        rule    = r["rule"] or ""
+        ticker  = (r["ticker"] or "").replace("$", "").split(" ")[0][:6]
+        headline = (r["headline"] or "")
+        label   = TAPE_RULE_LABELS.get(rule, rule)
+        icon    = TAPE_RULE_ICON.get(rule, "●")
+        # Build short display text
+        if ticker:
+            text = f"{label} — {ticker}"
+        else:
+            text = f"{label} — {headline[:35]}"
+        items.append({"text": text, "rule": rule, "icon": icon,
+                      "ticker": ticker, "severity": r["severity"]})
+
+    if not items:
+        return []
+    # Duplicate to keep belt full (need at least 10 for seamless loop)
+    while len(items) < 10:
+        items = items + items
+    return items[:20]
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home():
     return FileResponse(STATIC_DIR / "index.html")

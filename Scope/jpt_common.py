@@ -39,6 +39,14 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
         conn.executescript(handle.read())
 
     conn.commit()
+    _run_migrations(conn)
+
+
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(contracts)").fetchall()}
+    if "award_id" not in existing:
+        conn.execute("ALTER TABLE contracts ADD COLUMN award_id TEXT")
+        conn.commit()
 
 
 def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:

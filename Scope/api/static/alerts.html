@@ -308,6 +308,14 @@
     if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1]||'')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
     if (rule === 'RULE_10') return ticker ? `/feed?ticker=${ticker}` : null;
+    if (rule === 'RULE_11') {
+      const parts = (tags || '').split('|');
+      const awardId = parts[2] ? parts[2].trim() : null;
+      const recipient = parts[0] ? encodeURIComponent(parts[0].trim()) : '';
+      return awardId
+        ? `https://www.usaspending.gov/award/${awardId}/`
+        : `https://www.usaspending.gov/search/?query=${recipient}`;
+    }
     return null;
   }
   function firstTicker(raw) {

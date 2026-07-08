@@ -25,14 +25,7 @@ def refresh_contracts():
     if r.returncode != 0:
         return JSONResponse(status_code=500, content={"error": r.stderr[-500:]})
     lines = [l for l in r.stdout.splitlines() if "[RULE_11]" in l]
-
-    # Remove any legacy RULE_11 alerts that were emitted before this change
-    conn = db_connection()
-    deleted = conn.execute("DELETE FROM alerts WHERE rule = 'RULE_11'").rowcount
-    conn.commit()
-    conn.close()
-
-    return {"ok": True, "deleted_alerts": deleted, "output": lines}
+    return {"ok": True, "output": lines}
 
 
 @router.get("/data")
@@ -60,7 +53,7 @@ def get_contracts(
     where = " AND ".join(conditions)
 
     rows = conn.execute(
-        f"""SELECT id, recipient_name, ticker, amount, agency, award_date, description, ingested_at
+        f"""SELECT id, recipient_name, ticker, amount, agency, award_date, award_id, description, ingested_at
             FROM contracts WHERE {where}
             ORDER BY {order} LIMIT :limit""",
         params,
