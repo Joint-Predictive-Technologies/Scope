@@ -36,6 +36,64 @@ def get_members(
     return [dict(r) for r in rows]
 
 
+@router.get("/{bioguide_id}/profile")
+def get_member_profile(bioguide_id: str):
+    conn = db_connection()
+    member = conn.execute(
+        "SELECT * FROM members WHERE bioguide_id = ?", (bioguide_id,)
+    ).fetchone()
+    if not member:
+        conn.close()
+        return JSONResponse(status_code=404, content={"error": "Member not found"})
+
+    top_tickers = conn.execute(
+        """
+        SELECT raw_ticker_string AS ticker, COUNT(*) AS trade_count,
+               GROUP_CONCAT(DISTINCT transaction_type) AS types,
+               MAX(amount_band) AS max_amount
+        FROM transactions
+        WHERE member_id = ?
+          AND raw_ticker_string IS NOT NULL AND raw_ticker_string != ''
+        GROUP BY raw_ticker_string
+        ORDER BY trade_count DESC
+        LIMIT 15
+        """,
+        (bioguide_id,),
+    ).fetchall()
+
+    recent_trades = conn.execute(
+        """
+        SELECT t.raw_ticker_string AS ticker, t.transaction_type, t.amount_band,
+               t.transaction_date, f.raw_url AS filing_url
+        FROM transactions t
+        JOIN filings f ON t.filing_id = f.id
+        WHERE t.member_id = ?
+        ORDER BY t.transaction_date DESC
+        LIMIT 50
+        """,
+        (bioguide_id,),
+    ).fetchall()
+
+    member_alerts = conn.execute(
+        """
+        SELECT id, rule, ticker, severity, headline, detail, created_at
+        FROM alerts
+        WHERE member_id = ?
+        ORDER BY datetime(created_at) DESC
+        LIMIT 20
+        """,
+        (bioguide_id,),
+    ).fetchall()
+
+    conn.close()
+    return {
+        "member": dict(member),
+        "top_tickers": [dict(r) for r in top_tickers],
+        "recent_trades": [dict(r) for r in recent_trades],
+        "alerts": [dict(r) for r in member_alerts],
+    }
+
+
 @router.get("/{bioguide_id}/trades")
 def get_member_trades(
     bioguide_id: str,

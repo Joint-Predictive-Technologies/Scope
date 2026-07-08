@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Member — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 900px; margin: 0 auto; padding: 3rem 2rem; }
+
+    .member-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.5rem; margin-bottom: 2.5rem; flex-wrap: wrap; }
+    .member-name { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
+    .member-badges { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+    .mbadge { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.06em; padding: 3px 10px; border-radius: 3px; border: 1px solid var(--border2); color: var(--cream2); }
+    .party-D { color: #6ab0e0; border-color: rgba(106,176,224,0.3); }
+    .party-R { color: #e55b4d; border-color: rgba(229,91,77,0.3); }
+    .congress-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 6px 14px; border-radius: 4px; display: inline-block; }
+    .congress-link:hover { background: rgba(200,146,42,0.1); }
+
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
+
+    .tickers-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.6rem; }
+    .ticker-chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 1rem; text-decoration: none; display: block; transition: border-color 0.15s; }
+    .ticker-chip:hover { border-color: var(--amber); }
+    .chip-sym { font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; font-weight: 500; color: var(--amber); }
+    .chip-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-top: 3px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; }
+    td { font-size: 0.82rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); color: var(--cream2); vertical-align: middle; }
+    td.ticker-cell a { font-family: 'IBM Plex Mono', monospace; color: var(--amber); text-decoration: none; font-size: 0.82rem; }
+    td.ticker-cell a:hover { text-decoration: underline; }
+    .tx-type { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; padding: 2px 6px; border-radius: 3px; }
+    .tx-buy { background: rgba(42,138,74,0.15); color: var(--green); }
+    .tx-sell { background: rgba(192,57,43,0.12); color: #e55b4d; }
+
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.2rem; margin-bottom: 1px; cursor: pointer; transition: border-color 0.15s; }
+    .alert-card:hover { border-color: var(--border2); }
+    .alert-card.expanded { border-color: var(--amber); }
+    .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; }
+    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+    .alert-headline { font-size: 0.85rem; color: var(--cream); line-height: 1.4; flex: 1; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-left: auto; }
+    .alert-detail { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--cream2); line-height: 1.6; display: none; }
+    .alert-card.expanded .alert-detail { display: block; }
+
+    .empty { padding: 1.5rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+    .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 3rem 0; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/ask">Chat</a>
+  </div>
+  <a href="/feed" class="nav-cta">Live Feed →</a>
+</nav>
+
+<div class="page">
+  <div id="content"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+  const bioguideId = window.location.pathname.split('/').pop();
+
+  function timeAgo(ts) {
+    const d = new Date(ts + 'Z');
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+
+  function txClass(type) {
+    if (!type) return '';
+    const t = type.toLowerCase();
+    if (t.includes('purchase') || t.includes('buy')) return 'tx-buy';
+    if (t.includes('sale') || t.includes('sell')) return 'tx-sell';
+    return '';
+  }
+
+  function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
+
+  async function load() {
+    const res = await fetch(`/members/${bioguideId}/profile`);
+    if (!res.ok) { document.getElementById('content').innerHTML = '<div class="empty">Member not found.</div>'; return; }
+    const data = await res.json();
+    const m = data.member;
+
+    document.title = `${m.full_name} — Scope`;
+
+    const nameSlug = m.full_name.toLowerCase().replace(/[^a-z\s]/g, '').trim().replace(/\s+/g, '-');
+    const congressUrl = `https://www.congress.gov/member/${nameSlug}/${bioguideId}`;
+
+    const partyClass = m.party === 'Democratic' ? 'party-D' : m.party === 'Republican' ? 'party-R' : '';
+
+    const tickersHtml = data.top_tickers.length ? `
+      <div class="section-label">Most Traded Tickers</div>
+      <div class="tickers-grid">
+        ${data.top_tickers.map(t => `
+          <a href="/ticker/${t.ticker}" class="ticker-chip">
+            <div class="chip-sym">${t.ticker}</div>
+            <div class="chip-meta">${t.trade_count} trades · ${t.types || ''}</div>
+          </a>`).join('')}
+      </div>` : '';
+
+    const tradesHtml = data.recent_trades.length ? `
+      <div class="section-label">Recent Trade History</div>
+      <table>
+        <thead><tr><th>Date</th><th>Ticker</th><th>Type</th><th>Amount</th></tr></thead>
+        <tbody>
+          ${data.recent_trades.map(t => `
+            <tr>
+              <td>${t.transaction_date || '—'}</td>
+              <td class="ticker-cell"><a href="/ticker/${t.ticker}">${t.ticker}</a></td>
+              <td><span class="tx-type ${txClass(t.transaction_type)}">${(t.transaction_type || '').replace(/_/g, ' ')}</span></td>
+              <td>${t.amount_band || '—'}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>` : '';
+
+    const alertsHtml = data.alerts.length ? `
+      <div class="section-label">Alerts Referencing This Member</div>
+      ${data.alerts.map((a, i) => `
+        <div class="alert-card" id="ac-${i}" onclick="toggle(${i})">
+          <div class="alert-top">
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            <span class="badge badge-rule">${a.rule}</span>
+            ${a.ticker ? `<a href="/ticker/${a.ticker.split(' ')[0].replace('$','')}" onclick="event.stopPropagation()" style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:var(--amber);text-decoration:none;border:1px solid rgba(200,146,42,0.25);padding:2px 8px;border-radius:3px;">${a.ticker.split(' ')[0]}</a>` : ''}
+            <span class="alert-headline">${a.headline}</span>
+            <span class="alert-time">${timeAgo(a.created_at)}</span>
+          </div>
+          ${a.detail ? `<div class="alert-detail">${a.detail}</div>` : ''}
+        </div>`).join('')}` : '';
+
+    document.getElementById('content').innerHTML = `
+      <div class="member-hero">
+        <div>
+          <div class="member-name">${m.full_name}</div>
+          <div class="member-badges">
+            ${m.party ? `<span class="mbadge ${partyClass}">${m.party}</span>` : ''}
+            ${m.state ? `<span class="mbadge">${m.state}</span>` : ''}
+            ${m.chamber ? `<span class="mbadge">${m.chamber}</span>` : ''}
+          </div>
+          <a href="${congressUrl}" target="_blank" rel="noopener" class="congress-link">Congress.gov Profile →</a>
+        </div>
+      </div>
+      ${tickersHtml}
+      ${tradesHtml}
+      ${alertsHtml}
+    `;
+  }
+
+  load();
+</script>
+</body>
+</html>

@@ -25,26 +25,33 @@
     .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
 
     .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
-    .page-header { margin-bottom: 2rem; }
+    .page-header { margin-bottom: 1.5rem; }
     .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
     .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); }
 
+    /* THESIS FILTER */
+    .thesis-row { display: flex; gap: 0.6rem; margin-bottom: 1.2rem; }
+    .thesis-input { flex: 1; font-family: Inter, sans-serif; font-size: 0.85rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 9px 14px; border-radius: 4px; outline: none; }
+    .thesis-input:focus { border-color: var(--amber); }
+    .thesis-input::placeholder { color: var(--muted); }
+    .thesis-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; background: transparent; border: 1px solid var(--amber); color: var(--amber); padding: 9px 16px; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: background 0.2s; }
+    .thesis-btn:hover { background: rgba(200,146,42,0.1); }
+    .thesis-btn:disabled { opacity: 0.4; cursor: default; }
+    .thesis-active { background: var(--bg2); border: 1px solid rgba(200,146,42,0.3); border-radius: 6px; padding: 0.5rem 1rem; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .thesis-active-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--amber); }
+    .thesis-clear { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); border: none; background: none; cursor: pointer; padding: 0; }
+    .thesis-clear:hover { color: var(--cream); }
+
     /* FILTERS */
-    .filters { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 2rem; align-items: center; }
-    .filter-select, .filter-input {
-      font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em;
-      background: var(--bg2); border: 1px solid var(--border); color: var(--cream2);
-      padding: 7px 12px; border-radius: 4px; outline: none; appearance: none;
-    }
+    .filters { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .filter-select, .filter-input { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
     .filter-select:focus, .filter-input:focus { border-color: var(--amber); color: var(--cream); }
     .filter-input { width: 140px; }
     .filter-input::placeholder { color: var(--muted); }
-    .filter-btn {
-      font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase;
-      background: var(--amber); color: var(--bg); border: none; padding: 7px 16px; border-radius: 4px;
-      cursor: pointer; font-weight: 500;
-    }
+    .filter-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-weight: 500; }
     .filter-btn:hover { background: var(--amber2); }
+    .wl-toggle { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid var(--border2); color: var(--cream2); background: transparent; padding: 7px 14px; border-radius: 4px; cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s; }
+    .wl-toggle.active { border-color: var(--amber); color: var(--amber); background: rgba(200,146,42,0.08); }
     .filter-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: auto; }
 
     /* ALERT CARDS */
@@ -58,30 +65,35 @@
     .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
     .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
     .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
-    .badge-ticker { background: transparent; color: var(--amber); border: 1px solid rgba(200,146,42,0.25); font-size: 0.65rem; }
+    .badge-score { background: rgba(42,138,74,0.15); color: var(--green); border: 1px solid rgba(42,138,74,0.3); }
+    .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
+    .ticker-link:hover { background: rgba(200,146,42,0.1); }
     .alert-headline { font-size: 0.88rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
     .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
     .alert-detail { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
     .alert-card.expanded .alert-detail { display: block; }
     .detail-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; }
+    .member-link { color: var(--cream2); text-decoration: none; border-bottom: 1px solid var(--border2); transition: color 0.15s; }
+    .member-link:hover { color: var(--amber); }
+    .verify-link { display: inline-block; margin-top: 0.7rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 4px 12px; border-radius: 3px; }
+    .verify-link:hover { background: rgba(200,146,42,0.1); }
 
     .empty { text-align: center; padding: 4rem 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
     .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
     .loading span { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-    @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } }
+    @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
   </style>
 </head>
 <body>
-
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <div class="nav-links">
     <a href="/">Home</a>
     <a href="/feed" class="active">Alerts</a>
+    <a href="/watchlist">Watchlist</a>
     <a href="/ask">Chat</a>
-    <a href="/docs">API</a>
   </div>
   <a href="/ask" class="nav-cta">Ask AI →</a>
 </nav>
@@ -90,6 +102,16 @@
   <div class="page-header">
     <div class="page-tag">Live Signal Feed</div>
     <div class="page-title">Active Alerts</div>
+  </div>
+
+  <!-- THESIS FILTER -->
+  <div class="thesis-row">
+    <input class="thesis-input" id="thesis-input" placeholder="Filter by thesis — e.g. 'semiconductor export controls', 'Medicare drug pricing'" />
+    <button class="thesis-btn" id="thesis-btn" onclick="runThesis()">Score →</button>
+  </div>
+  <div id="thesis-banner" style="display:none" class="thesis-active">
+    <span class="thesis-active-label" id="thesis-label"></span>
+    <button class="thesis-clear" onclick="clearThesis()">✕ Clear</button>
   </div>
 
   <div class="filters">
@@ -115,6 +137,7 @@
     </select>
     <input class="filter-input" id="f-ticker" placeholder="Ticker (e.g. NVDA)" />
     <button class="filter-btn" onclick="load()">Filter</button>
+    <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()">⊙ Watchlist</button>
     <span class="filter-count" id="result-count"></span>
   </div>
 
@@ -122,6 +145,9 @@
 </div>
 
 <script>
+  let watchlistOnly = false;
+  let thesisData = null;
+
   function timeAgo(ts) {
     const d = new Date(ts + 'Z');
     const s = Math.floor((Date.now() - d) / 1000);
@@ -131,38 +157,68 @@
     return Math.floor(s/86400) + 'd ago';
   }
 
+  function sourceUrl(a) {
+    const rule = a.rule, tags = a.tags || '';
+    const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
+    if (rule === 'RULE_02' || rule === 'RULE_01') return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
+    if (rule === 'RULE_06') return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
+    if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length-1].trim()}`; }
+    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
+    if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
+    if (rule === 'RULE_10') return ticker ? `/feed?ticker=${ticker}` : null;
+    return null;
+  }
+
+  function firstTicker(raw) {
+    if (!raw) return null;
+    return raw.replace(/\$/g, '').split(' ')[0].trim() || null;
+  }
+
   function renderAlerts(data) {
     const list = document.getElementById('alerts-list');
     document.getElementById('result-count').textContent = data.length + ' result' + (data.length !== 1 ? 's' : '');
     if (!data.length) { list.innerHTML = '<div class="empty">No alerts found for this filter.</div>'; return; }
-    list.innerHTML = data.map((a, i) => `
-      <div class="alert-card" onclick="toggle(${i})" id="card-${i}">
-        <div class="alert-top">
-          <span class="badge badge-${a.severity}">${a.severity}</span>
-          <span class="badge badge-rule">${a.rule}</span>
-          ${a.ticker ? `<span class="badge badge-ticker">${a.ticker.split(' ')[0]}</span>` : ''}
-          <span class="alert-headline">${a.headline}</span>
-          <span class="alert-time">${timeAgo(a.created_at)}</span>
-        </div>
-        ${a.detail ? `
-        <div class="alert-detail">
-          <div class="detail-label">AI Analysis</div>
-          ${a.detail}
-        </div>` : a.tags ? `
-        <div class="alert-detail">
-          <div class="detail-label">Tags</div>
-          ${a.tags}
-        </div>` : ''}
-      </div>
-    `).join('');
+
+    list.innerHTML = data.map((a, i) => {
+      const url = sourceUrl(a);
+      const ticker = firstTicker(a.ticker);
+      const tickerBadge = ticker ? `<a href="/ticker/${ticker}" class="ticker-link" onclick="event.stopPropagation()">${ticker}</a>` : '';
+      const memberLink = (a.member_id && a.full_name)
+        ? `<a href="/member/${a.member_id}" class="member-link" onclick="event.stopPropagation()">${a.full_name}</a>`
+        : (a.full_name || '');
+
+      let detailHtml = '';
+      if (a.detail) detailHtml = `<div class="detail-label">AI Analysis</div><div>${a.detail}</div>`;
+      else if (a.tags) detailHtml = `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
+      if (memberLink) detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
+      if (url) detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>`;
+      if (a.relevance_score != null) detailHtml = `<div class="detail-label">Thesis Relevance</div><div style="color:var(--green);font-family:IBM Plex Mono,monospace;font-size:0.8rem;">${a.relevance_score}/10</div>` + detailHtml;
+
+      return `
+        <div class="alert-card" onclick="toggle(${i})" id="card-${i}">
+          <div class="alert-top">
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            <span class="badge badge-rule">${a.rule}</span>
+            ${tickerBadge}
+            ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
+            <span class="alert-headline">${a.headline}</span>
+            <span class="alert-time">${timeAgo(a.created_at)}</span>
+          </div>
+          ${detailHtml ? `<div class="alert-detail">${detailHtml}</div>` : ''}
+        </div>`;
+    }).join('');
   }
 
-  function toggle(i) {
-    const card = document.getElementById('card-' + i);
-    card.classList.toggle('expanded');
+  function toggle(i) { document.getElementById('card-' + i)?.classList.toggle('expanded'); }
+
+  function toggleWatchlist() {
+    watchlistOnly = !watchlistOnly;
+    document.getElementById('wl-toggle').classList.toggle('active', watchlistOnly);
+    load();
   }
 
-  function load() {
+  async function load() {
+    if (thesisData) { renderAlerts(thesisData); return; }
     const sev    = document.getElementById('f-severity').value;
     const rule   = document.getElementById('f-rule').value;
     const days   = document.getElementById('f-days').value;
@@ -174,6 +230,7 @@
     if (sev)    url += `&severity=${sev}`;
     if (rule)   url += `&rule=${rule}`;
     if (ticker) url += `&ticker=${encodeURIComponent(ticker)}`;
+    if (watchlistOnly) url += `&watchlist=true`;
 
     fetch(url)
       .then(r => r.json())
@@ -181,8 +238,48 @@
       .catch(() => { list.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>'; });
   }
 
+  async function runThesis() {
+    const thesis = document.getElementById('thesis-input').value.trim();
+    if (!thesis) return;
+    const btn = document.getElementById('thesis-btn');
+    btn.disabled = true;
+    btn.textContent = 'Scoring…';
+    document.getElementById('alerts-list').innerHTML = '<div class="loading"><span>Scoring alerts against thesis…</span></div>';
+
+    try {
+      const days = document.getElementById('f-days').value;
+      const res = await fetch('/filter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thesis, days: parseInt(days), limit: 60 }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      thesisData = data.results;
+      document.getElementById('thesis-label').textContent = `Thesis: "${thesis}" — ${data.results.length} relevant alerts (scored ${data.total_scored})`;
+      document.getElementById('thesis-banner').style.display = 'flex';
+      renderAlerts(thesisData);
+    } catch (e) {
+      document.getElementById('alerts-list').innerHTML = `<div class="empty">Scoring failed: ${e.message}</div>`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Score →';
+  }
+
+  function clearThesis() {
+    thesisData = null;
+    document.getElementById('thesis-input').value = '';
+    document.getElementById('thesis-banner').style.display = 'none';
+    load();
+  }
+
+  // Handle ?ticker= query param from leaderboard links
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('ticker')) document.getElementById('f-ticker').value = params.get('ticker');
+
   load();
   document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+  document.getElementById('thesis-input').addEventListener('keydown', e => { if (e.key === 'Enter') runThesis(); });
 </script>
 </body>
 </html>

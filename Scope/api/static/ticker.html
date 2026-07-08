@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ticker — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 900px; margin: 0 auto; padding: 3rem 2rem; }
+
+    .ticker-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2.5rem; flex-wrap: wrap; }
+    .ticker-symbol { font-family: 'Playfair Display', serif; font-size: 3rem; font-weight: 900; color: var(--amber); }
+    .ticker-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-top: 0.4rem; }
+    .ticker-summary { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.4rem; display: flex; gap: 2rem; flex-wrap: wrap; }
+    .sum-stat { text-align: center; }
+    .sum-val { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--amber); }
+    .sum-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
+
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
+
+    /* TIMELINE */
+    .timeline-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1.4rem; overflow-x: auto; }
+    .timeline-rules { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+    .rule-dot { display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--cream2); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .timeline-track { position: relative; height: 48px; min-width: 500px; }
+    .tl-line { position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border2); }
+    .tl-event { position: absolute; top: 50%; transform: translate(-50%, -50%); width: 10px; height: 10px; border-radius: 50%; cursor: pointer; transition: transform 0.15s; }
+    .tl-event:hover { transform: translate(-50%, -50%) scale(1.6); }
+    .tl-labels { display: flex; justify-content: space-between; margin-top: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); }
+
+    /* ALERT CARDS */
+    .alerts-list { display: flex; flex-direction: column; gap: 1px; }
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.2rem; cursor: pointer; transition: border-color 0.15s; }
+    .alert-card:hover { border-color: var(--border2); }
+    .alert-card.expanded { border-color: var(--amber); }
+    .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
+    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+    .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
+    .alert-detail { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
+    .alert-card.expanded .alert-detail { display: block; }
+    .detail-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.3rem; }
+    .verify-link { display: inline-block; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; }
+    .verify-link:hover { background: rgba(200,146,42,0.1); }
+
+    /* MEMBERS */
+    .members-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; }
+    .member-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.1rem; text-decoration: none; display: block; transition: border-color 0.15s; }
+    .member-card:hover { border-color: var(--amber); }
+    .member-name { font-size: 0.85rem; color: var(--cream); margin-bottom: 0.3rem; }
+    .member-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+
+    .empty { padding: 2rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 2rem 0; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/watchlist">Watchlist</a>
+    <a href="/ask">Chat</a>
+  </div>
+  <a href="/feed" class="nav-cta">Live Feed →</a>
+</nav>
+
+<div class="page">
+  <div id="content"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+  const RULE_COLORS = {
+    RULE_02: '#c8922a', RULE_06: '#6ab0e0', RULE_07: '#2a8a4a',
+    RULE_08: '#9b59b6', RULE_09: '#e67e22', RULE_10: '#e55b4d',
+  };
+
+  const symbol = window.location.pathname.split('/').pop().toUpperCase();
+  document.title = `${symbol} — Scope`;
+
+  function timeAgo(ts) {
+    const d = new Date(ts + 'Z');
+    const s = Math.floor((Date.now() - d) / 1000);
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+
+  function sourceUrl(a) {
+    const rule = a.rule, tags = a.tags || '', ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
+    if (rule === 'RULE_02' || rule === 'RULE_01') return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
+    if (rule === 'RULE_06') return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
+    if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length - 1].trim()}`; }
+    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
+    if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
+    if (rule === 'RULE_10') return `/feed?ticker=${ticker}`;
+    return null;
+  }
+
+  function renderTimeline(alerts) {
+    if (!alerts.length) return '';
+    const dates = alerts.map(a => new Date(a.created_at + 'Z').getTime());
+    const minD = Math.min(...dates), maxD = Math.max(...dates);
+    const range = maxD - minD || 1;
+    const rules = [...new Set(alerts.map(a => a.rule))];
+    const legend = rules.map(r => `<div class="rule-dot"><div class="dot" style="background:${RULE_COLORS[r] || '#888'}"></div>${r}</div>`).join('');
+    const events = alerts.map(a => {
+      const pct = ((new Date(a.created_at + 'Z').getTime() - minD) / range) * 96 + 2;
+      const col = RULE_COLORS[a.rule] || '#888';
+      return `<div class="tl-event" style="left:${pct}%;background:${col}" title="${a.rule}: ${a.headline.slice(0,60)}"></div>`;
+    }).join('');
+    const labelL = new Date(minD).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    const labelR = new Date(maxD).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    return `
+      <div class="section-label">Signal Timeline</div>
+      <div class="timeline-wrap">
+        <div class="timeline-rules">${legend}</div>
+        <div class="timeline-track"><div class="tl-line"></div>${events}</div>
+        <div class="tl-labels"><span>${labelL}</span><span>${labelR}</span></div>
+      </div>`;
+  }
+
+  function renderAlerts(alerts) {
+    if (!alerts.length) return '<div class="empty">No alerts found for this ticker.</div>';
+    return alerts.map((a, i) => {
+      const url = sourceUrl(a);
+      let detail = '';
+      if (a.detail) detail = `<div class="detail-label">AI Analysis</div>${a.detail}`;
+      else if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
+      const verifyBtn = url ? `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>` : '';
+      return `
+        <div class="alert-card" id="ac-${i}" onclick="toggle(${i})">
+          <div class="alert-top">
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            <span class="badge badge-rule">${a.rule}</span>
+            <span class="alert-headline">${a.headline}</span>
+            <span class="alert-time">${timeAgo(a.created_at)}</span>
+          </div>
+          ${detail || verifyBtn ? `<div class="alert-detail">${detail}${verifyBtn}</div>` : ''}
+        </div>`;
+    }).join('');
+  }
+
+  function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
+
+  async function load() {
+    const res = await fetch(`/tickers/${symbol}/alerts?days=365&limit=200`);
+    const data = await res.json();
+    const alerts = data.alerts || [];
+    const members = data.related_members || [];
+
+    const last30 = alerts.filter(a => new Date(a.created_at + 'Z') >= new Date(Date.now() - 30 * 86400000));
+    const ruleSet = new Set(last30.map(a => a.rule));
+    const topSev = last30.find(a => a.severity === 'CRITICAL') ? 'CRITICAL'
+                 : last30.find(a => a.severity === 'HIGH') ? 'HIGH' : 'MEDIUM';
+    const sevColor = { CRITICAL: '#e55b4d', HIGH: 'var(--amber2)', MEDIUM: '#6ab0e0' }[topSev] || 'var(--amber)';
+
+    const membersSection = members.length ? `
+      <div class="section-label">Related Congressional Members</div>
+      <div class="members-grid">
+        ${members.map(m => `
+          <a href="/member/${m.bioguide_id}" class="member-card">
+            <div class="member-name">${m.full_name}</div>
+            <div class="member-meta">${m.party || ''} · ${m.state || ''}</div>
+          </a>`).join('')}
+      </div>` : '';
+
+    document.getElementById('content').innerHTML = `
+      <div class="ticker-hero">
+        <div>
+          <div class="ticker-symbol">${symbol}</div>
+          <div class="ticker-meta">Political Intelligence Drill-Down · All-time signal history</div>
+        </div>
+        <div class="ticker-summary">
+          <div class="sum-stat"><div class="sum-val">${last30.length}</div><div class="sum-label">Alerts (30d)</div></div>
+          <div class="sum-stat"><div class="sum-val">${ruleSet.size}</div><div class="sum-label">Rules Fired</div></div>
+          <div class="sum-stat"><div class="sum-val" style="color:${sevColor}">${topSev}</div><div class="sum-label">Top Severity</div></div>
+          <div class="sum-stat"><div class="sum-val">${alerts.length}</div><div class="sum-label">All-time Alerts</div></div>
+        </div>
+      </div>
+      ${renderTimeline(alerts)}
+      ${membersSection}
+      <div class="section-label">All Alerts — ${alerts.length} total</div>
+      <div class="alerts-list">${renderAlerts(alerts)}</div>
+    `;
+  }
+
+  load();
+</script>
+</body>
+</html>

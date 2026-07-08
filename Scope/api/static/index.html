@@ -87,6 +87,19 @@
     .stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
     .stats-divider { width: 1px; height: 36px; background: var(--border); }
 
+    /* LEADERBOARD */
+    .leaderboard { display: flex; flex-direction: column; gap: 2px; }
+    .lb-row { display: flex; align-items: center; gap: 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1.2rem; text-decoration: none; transition: border-color 0.15s; }
+    .lb-row:hover { border-color: var(--amber); }
+    .lb-rank { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); width: 20px; flex-shrink: 0; }
+    .lb-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 1rem; font-weight: 500; color: var(--amber); min-width: 70px; }
+    .lb-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--cream2); }
+    .lb-rules { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); flex: 1; }
+    .lb-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; margin-left: auto; flex-shrink: 0; }
+    .lb-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .lb-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .lb-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+
     /* FOOTER */
     footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
 
@@ -128,6 +141,7 @@
   <div class="nav-links">
     <a href="/" class="active">Home</a>
     <a href="/feed">Alerts</a>
+    <a href="/watchlist">Watchlist</a>
     <a href="/ask">Chat</a>
     <a href="/docs">API</a>
   </div>
@@ -224,9 +238,32 @@
   </div>
 </div>
 
-<footer>© 2026 Joint Predictive Technologies · Scope Political Intelligence · <a href="/docs" style="color:var(--amber);text-decoration:none;">API Docs</a></footer>
+<!-- LEADERBOARD -->
+<div class="section" style="padding-top:0">
+  <div class="section-label">Signal Heat</div>
+  <div class="section-title">Hottest Tickers Right Now</div>
+  <div class="leaderboard" id="leaderboard"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.78rem;color:var(--muted)">Loading…</div></div>
+</div>
+
+<footer>© 2026 Joint Predictive Technologies · Scope Political Intelligence · <a href="/docs" style="color:var(--amber);text-decoration:none;">API Docs</a> · <a href="/watchlist" style="color:var(--amber);text-decoration:none;">Watchlist</a></footer>
 
 <script>
+  fetch('/tickers/leaderboard?days=7')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('leaderboard');
+      if (!data.length) { el.innerHTML = '<div style="font-family:IBM Plex Mono,monospace;font-size:0.78rem;color:var(--muted)">No data yet — refresh later.</div>'; return; }
+      el.innerHTML = data.map((t, i) => `
+        <a href="/ticker/${t.ticker}" class="lb-row">
+          <span class="lb-rank">#${i+1}</span>
+          <span class="lb-ticker">${t.ticker}</span>
+          <span class="lb-meta">${t.total_alerts} alerts · ${t.rule_count} rule${t.rule_count !== 1 ? 's' : ''}</span>
+          <span class="lb-rules">${(t.rules || '').split(',').join(' · ')}</span>
+          <span class="lb-badge lb-${t.top_severity}">${t.top_severity}</span>
+        </a>`).join('');
+    })
+    .catch(() => {});
+
   fetch('/alerts?days=30&limit=500')
     .then(r => r.json())
     .then(data => {

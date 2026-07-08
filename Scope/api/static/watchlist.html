@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Watchlist — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-links { display: flex; gap: 2rem; align-items: center; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .nav-cta { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--amber); color: var(--bg); padding: 6px 16px; border-radius: 4px; text-decoration: none; font-weight: 500; }
+
+    .page { max-width: 700px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.5rem; }
+    .page-desc { font-size: 0.85rem; color: var(--cream2); line-height: 1.6; margin-bottom: 2rem; }
+
+    .add-row { display: flex; gap: 0.6rem; margin-bottom: 2rem; }
+    .ticker-input { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; letter-spacing: 0.05em; text-transform: uppercase; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 10px 14px; border-radius: 4px; outline: none; }
+    .ticker-input:focus { border-color: var(--amber); }
+    .ticker-input::placeholder { color: var(--muted); text-transform: none; letter-spacing: 0; }
+    .add-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+    .add-btn:hover { background: var(--amber2); }
+
+    .wl-list { display: flex; flex-direction: column; gap: 1px; }
+    .wl-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.2rem; display: flex; align-items: center; gap: 1rem; }
+    .wl-symbol { font-family: 'IBM Plex Mono', monospace; font-size: 1rem; font-weight: 500; color: var(--amber); letter-spacing: 0.06em; min-width: 80px; }
+    .wl-actions { margin-left: auto; display: flex; gap: 0.6rem; }
+    .btn-view { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 12px; border-radius: 4px; text-decoration: none; transition: border-color 0.15s, color 0.15s; }
+    .btn-view:hover { border-color: var(--amber); color: var(--amber); }
+    .btn-remove { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid rgba(192,57,43,0.3); color: #e55b4d; background: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; transition: background 0.15s; }
+    .btn-remove:hover { background: rgba(192,57,43,0.1); }
+
+    .empty { padding: 3rem 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
+    .msg { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); padding: 0.4rem 0; min-height: 1.2rem; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Home</a>
+    <a href="/feed">Alerts</a>
+    <a href="/watchlist" class="active">Watchlist</a>
+    <a href="/ask">Chat</a>
+  </div>
+  <a href="/feed" class="nav-cta">Live Feed →</a>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Portfolio Tracking</div>
+  <div class="page-title">Your Watchlist</div>
+  <div class="page-desc">Track specific tickers. Alerts from any rule that mention a watchlisted ticker will appear first in the feed when "Watchlist only" is toggled.</div>
+
+  <div class="add-row">
+    <input class="ticker-input" id="ticker-input" placeholder="Enter ticker (e.g. NVDA)" maxlength="10" />
+    <button class="add-btn" onclick="addTicker()">Add Ticker</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <div class="wl-list" id="wl-list">
+    <div class="empty">Loading…</div>
+  </div>
+</div>
+
+<script>
+  async function load() {
+    const res = await fetch('/tickers/watchlist');
+    const data = await res.json();
+    render(data);
+  }
+
+  function render(items) {
+    const el = document.getElementById('wl-list');
+    if (!items.length) {
+      el.innerHTML = '<div class="empty">No tickers yet. Add one above to start tracking alerts.</div>';
+      return;
+    }
+    el.innerHTML = items.map(w => `
+      <div class="wl-item" id="wl-${w.symbol}">
+        <div class="wl-symbol">${w.symbol}</div>
+        <div class="wl-actions">
+          <a href="/ticker/${w.symbol}" class="btn-view">View Signals →</a>
+          <button class="btn-remove" onclick="removeTicker('${w.symbol}')">Remove</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function addTicker() {
+    const input = document.getElementById('ticker-input');
+    const msg = document.getElementById('msg');
+    const sym = input.value.trim().toUpperCase().replace(/[^A-Z]/g, '');
+    if (!sym) return;
+    input.value = '';
+    const res = await fetch(`/tickers/watchlist/${sym}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { msg.textContent = 'Error: ' + data.error; return; }
+    msg.textContent = `${sym} added.`;
+    setTimeout(() => { msg.textContent = ''; }, 2000);
+    load();
+  }
+
+  async function removeTicker(sym) {
+    await fetch(`/tickers/watchlist/${sym}`, { method: 'DELETE' });
+    document.getElementById(`wl-${sym}`)?.remove();
+    const list = document.getElementById('wl-list');
+    if (!list.querySelector('.wl-item')) {
+      list.innerHTML = '<div class="empty">No tickers yet. Add one above to start tracking alerts.</div>';
+    }
+  }
+
+  document.getElementById('ticker-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addTicker();
+  });
+
+  load();
+</script>
+</body>
+</html>

@@ -20,7 +20,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 
-from api.routers import alerts, chat, members, tickers
+from api.routers import alerts, chat, members, tickers, filter as filter_router
 
 STATIC_DIR = Path(__file__).parent / "static"
 CODE_DIR   = Path(__file__).resolve().parent.parent
@@ -113,10 +113,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(alerts.router,  prefix="/alerts",  tags=["Alerts"])
-app.include_router(chat.router,    prefix="/chat",    tags=["Chat"])
-app.include_router(members.router, prefix="/members", tags=["Members"])
-app.include_router(tickers.router, prefix="/tickers", tags=["Tickers"])
+app.include_router(alerts.router,       prefix="/alerts",  tags=["Alerts"])
+app.include_router(chat.router,         prefix="/chat",    tags=["Chat"])
+app.include_router(members.router,      prefix="/members", tags=["Members"])
+app.include_router(tickers.router,      prefix="/tickers", tags=["Tickers"])
+app.include_router(filter_router.router, prefix="/filter",  tags=["Filter"])
 
 
 @app.get("/health", tags=["Health"])
@@ -169,3 +170,15 @@ def feed():
 @app.get("/ask", response_class=HTMLResponse, include_in_schema=False)
 def ask():
     return FileResponse(STATIC_DIR / "chat.html")
+
+@app.get("/watchlist", response_class=HTMLResponse, include_in_schema=False)
+def watchlist_page():
+    return FileResponse(STATIC_DIR / "watchlist.html")
+
+@app.get("/ticker/{symbol}", response_class=HTMLResponse, include_in_schema=False)
+def ticker_page(symbol: str):
+    return FileResponse(STATIC_DIR / "ticker.html")
+
+@app.get("/member/{bioguide_id}", response_class=HTMLResponse, include_in_schema=False)
+def member_page(bioguide_id: str):
+    return FileResponse(STATIC_DIR / "member.html")

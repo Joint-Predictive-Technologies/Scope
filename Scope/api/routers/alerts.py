@@ -19,6 +19,7 @@ def get_alerts(
     ticker: str | None = Query(default=None, description="Filter by ticker symbol"),
     rule: str | None = Query(default=None, description="Filter by rule ID e.g. RULE_06"),
     severity: str | None = Query(default=None, description="CRITICAL, HIGH, or MEDIUM"),
+    watchlist: bool = Query(default=False, description="Filter to watchlist tickers only"),
     limit: int = Query(default=100, ge=1, le=500),
 ):
     conn = db_connection()
@@ -35,6 +36,10 @@ def get_alerts(
     if severity:
         conditions.append("a.severity = :severity")
         params["severity"] = severity.upper()
+    if watchlist:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM watchlist w WHERE a.ticker LIKE '%' || w.symbol || '%')"
+        )
 
     where = " AND ".join(conditions)
 
