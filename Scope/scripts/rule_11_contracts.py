@@ -148,27 +148,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             (recipient, ticker, amount, agency, award_date, store_desc),
         )
 
-        if ticker and emit:
-            sev = "CRITICAL" if amount > 500_000_000 else "HIGH" if amount > 100_000_000 else "MEDIUM"
-            headline = f"Gov Contract — {recipient} awarded ${amount:,.0f} by {agency}"
-            detail   = desc or f"${amount:,.0f} contract awarded {award_date}"
-
-            already = conn.execute(
-                "SELECT 1 FROM alerts WHERE rule='RULE_11' AND ticker=? AND tags LIKE ?",
-                (ticker, f"%{award_date}%"),
-            ).fetchone()
-            if not already:
-                conn.execute(
-                    """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                       VALUES ('RULE_11', ?, ?, ?, ?, ?)""",
-                    (headline, sev, f"{recipient},{award_date}", ticker, detail),
-                )
-                emitted += 1
-                print(f"[RULE_11] [emit] {ticker} — {recipient} ${amount:,.0f} ({sev})")
-
         conn.commit()
 
-    print(f"[RULE_11] Done — {emitted} alerts emitted, {skipped} duplicates skipped")
+    print(f"[RULE_11] Done — {skipped} duplicates skipped, contracts stored in contracts table")
     conn.close()
 
 
