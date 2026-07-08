@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
@@ -10,6 +11,28 @@ from fastapi.responses import JSONResponse
 from jpt_common import db_connection
 
 router = APIRouter()
+
+_generating: set[str] = set()  # dates currently being generated
+
+
+def _trigger_generation(date: str) -> None:
+    if date in _generating:
+        return
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        return
+    _generating.add(date)
+    def _run():
+        try:
+            import sys as _sys, os as _os
+            _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))))
+            from scripts.generate_brief import generate
+            generate(date_str=date, days=1)
+        except Exception as e:
+            print(f"[brief] auto-generate failed for {date}: {e}")
+        finally:
+            _generating.discard(date)
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _today() -> str:
@@ -31,18 +54,23 @@ def _get_brief(date: str) -> dict | None:
 
 @router.get("/data")
 def get_brief():
-    """Return today's brief; fall back to yesterday's if not yet generated."""
+    """Return today's brief; auto-generate in background if missing."""
     today = _today()
     brief = _get_brief(today)
     if brief:
-        return {**brief, "is_today": True}
+        return {**brief, "is_today": True, "generating": False}
+
+    # Kick off background generation on first miss
+    _trigger_generation(today)
 
     yesterday = _yesterday()
     brief = _get_brief(yesterday)
     if brief:
-        return {**brief, "is_today": False, "note": "Today's brief is generating…"}
+        return {**brief, "is_today": False, "generating": True,
+                "note": "Today's brief is generating…"}
 
-    return {"is_today": False, "note": "No brief available yet.", "content_json": None}
+    return {"is_today": False, "generating": True,
+            "note": "Generating today's brief…", "content_json": None}
 
 
 @router.post("/generate")

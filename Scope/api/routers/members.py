@@ -13,6 +13,7 @@ router = APIRouter()
 def get_members(
     chamber: str | None = Query(default=None, description="house or senate"),
     party: str | None = Query(default=None),
+    is_current: bool | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=5000),
 ):
     conn = db_connection()
@@ -26,6 +27,9 @@ def get_members(
     if party:
         conditions.append("UPPER(party) = :party")
         params["party"] = party.upper()
+    if is_current is not None:
+        conditions.append("is_current = :is_current")
+        params["is_current"] = 1 if is_current else 0
 
     where = " AND ".join(conditions)
     rows = conn.execute(

@@ -217,6 +217,7 @@
       <option value="excl-large">Excl. large-cap (&lt;$10B)</option>
     </select>
     <select class="filter-select" id="f-sort" onchange="onSortChange()">
+      <option value="score">Highest score</option>
       <option value="recent">Most recent</option>
       <option value="votes">Most upvoted</option>
     </select>
@@ -268,17 +269,21 @@
     .catch(() => {});
 
   // ── Utils ──────────────────────────────────────────────────────────────────
-  function timeAgo(ts) {
-    const d = new Date(ts + 'Z');
-    const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return Math.floor(s/60) + 'm ago';
-    if (s < 86400) return Math.floor(s/3600) + 'h ago';
-    return Math.floor(s/86400) + 'd ago';
+  function timeAgo(dateStr) {
+    if (!dateStr) return 'Unknown';
+    const normalized = dateStr.replace(' ', 'T');
+    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
+    if (isNaN(date.getTime())) return 'Unknown';
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
   }
   function exactTime(ts) {
     if (!ts) return '';
-    return new Date(ts + 'Z').toLocaleString();
+    const normalized = ts.replace(' ', 'T');
+    return new Date(normalized + (normalized.includes('Z') ? '' : 'Z')).toLocaleString();
   }
   function sourceInfo(rule, ticker) {
     const t = (ticker||'').replace(/\$/g,'').split(' ')[0];
@@ -361,7 +366,7 @@
     document.getElementById('f-days').value     = p.get('days') || '7';
     document.getElementById('f-rule').value     = p.get('rule') || '';
     document.getElementById('f-ticker').value   = p.get('ticker') || '';
-    document.getElementById('f-sort').value     = p.get('sort') || 'recent';
+    document.getElementById('f-sort').value     = p.get('sort') || 'score';
     document.getElementById('f-cap').value      = p.get('cap') || '';
     if (p.get('watchlist') === '1') {
       watchlistOnly = true;
@@ -383,7 +388,7 @@
     if (days !== '7')         params.set('days', days);
     if (rule)                 params.set('rule', rule);
     if (ticker)               params.set('ticker', ticker);
-    if (sort !== 'recent')    params.set('sort', sort);
+    if (sort !== 'score')     params.set('sort', sort);
     if (cap)                  params.set('cap', cap);
     if (watchlistOnly)        params.set('watchlist', '1');
     if (currentPage > 1)      params.set('page', currentPage);
@@ -717,6 +722,7 @@
         <div style="color:var(--muted);font-size:0.72rem">Loading…</div>
       </div>`;
 
+      const sc = signalScore(a);
       return `
         <div class="alert-card" onclick="toggle(${i},${a.id})" id="card-${i}">
           <div class="alert-top">
@@ -725,6 +731,7 @@
             ${tickerBadge}
             ${inlineDelay}
             ${srcChip}
+            <span class="badge badge-score" title="Signal score">${sc}</span>
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
             <span class="alert-headline">${a.headline}</span>
             <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
@@ -806,9 +813,23 @@
     if (sort === 'votes') {
       filtered = [...filtered].sort((a,b) =>
         (socialCache[String(b.id)]?.votes||0) - (socialCache[String(a.id)]?.votes||0));
+    } else if (sort === 'score') {
+      filtered = [...filtered].sort((a,b) => signalScore(b) - signalScore(a));
     }
     return filtered;
   }
+  function signalScore(a) {
+    const sev = {CRITICAL: 100, HIGH: 60, MEDIUM: 30, LOW: 10}[a.severity] || 10;
+    const ts = (a.created_at || '').replace(' ', 'T');
+    const hoursOld = (Date.now() - new Date(ts + (ts.includes('Z') ? '' : 'Z')).getTime()) / 3_600_000;
+    let s = sev * Math.pow(0.5, hoursOld / 48);
+    if (a.rule === 'RULE_10')  s *= 2.0;
+    if (a.rule === 'RULE_06')  s *= 1.5;
+    if (a.rule === 'RULE_01B') s *= 1.4;
+    if (a.rule === 'RULE_11')  s *= 1.3;
+    return Math.round(s * 10) / 10;
+  }
+
   function onSortChange() {
     const cap = document.getElementById('f-cap').value;
     renderAlerts(applyCapAndSort(allLoaded, cap));

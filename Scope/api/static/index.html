@@ -134,6 +134,42 @@
     .rule-desc { font-size: 0.78rem; color: var(--cream2); line-height: 1.5; }
     .rule-status { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; margin-top: 0.6rem; background: rgba(42,138,74,0.12); color: var(--green-light); border: 1px solid rgba(42,138,74,0.25); }
 
+    /* ── CORROBORATION HERO ──────────────────────────────── */
+    .corr-hero { max-width: 1100px; margin: 0 auto; padding: 0 2rem 2rem; }
+    .corr-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+    .corr-card { background: var(--bg2); border: 1px solid rgba(200,146,42,0.2); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; transition: border-color 0.15s; text-decoration: none; }
+    .corr-card:hover { border-color: rgba(200,146,42,0.5); }
+    .corr-card-top { padding: 1rem 1.4rem 0.8rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .corr-card-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 1.1rem; font-weight: 500; color: var(--amber); }
+    .corr-card-body { padding: 1rem 1.4rem; flex: 1; display: flex; flex-direction: column; gap: 0.7rem; }
+    .corr-score-line { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); }
+    .corr-score-line strong { color: var(--amber2); font-size: 0.78rem; }
+    .corr-rule-pills { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .corr-pill { font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border2); color: var(--cream2); }
+    .corr-narrative { font-size: 0.8rem; color: var(--cream2); line-height: 1.6; font-style: italic; flex: 1; }
+    .corr-sentiment { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 500; }
+    .corr-horizon { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+    .corr-card-foot { padding: 0.65rem 1.4rem; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; }
+    .corr-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 3px 9px; border-radius: 3px; }
+    .corr-link:hover { background: rgba(200,146,42,0.08); }
+    .corr-empty { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); padding: 2rem; text-align: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; }
+
+    /* ── BRIEF PREVIEW ───────────────────────────────────── */
+    .brief-preview-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.8rem; display: flex; flex-direction: column; gap: 0.8rem; }
+    .brief-preview-summary { font-family: 'Playfair Display', serif; font-size: 0.95rem; color: var(--cream); line-height: 1.65; font-style: italic; }
+    .brief-bullets { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-top: 0.3rem; }
+    .brief-bullet { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--cream2); background: var(--bg3); padding: 0.45rem 0.75rem; border-radius: 4px; border: 1px solid var(--border); line-height: 1.5; flex: 1; min-width: 140px; }
+    .brief-bullet strong { color: var(--amber); display: block; font-size: 0.55rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.2rem; }
+
+    /* ── TOP SCORE WIDGET ────────────────────────────────── */
+    .score-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 1.4rem; border-bottom: 1px solid var(--border); text-decoration: none; transition: background 0.1s; }
+    .score-row:last-child { border-bottom: none; }
+    .score-row:hover { background: var(--bg3); }
+    .score-val { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: #4dc47a; min-width: 32px; text-align: right; flex-shrink: 0; }
+    .score-rule { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 5px; border-radius: 2px; flex-shrink: 0; }
+    .score-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--amber); min-width: 44px; }
+    .score-headline { font-size: 0.74rem; color: var(--cream2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
     /* ── LEADERBOARD ─────────────────────────────────────── */
     .leaderboard { display: flex; flex-direction: column; gap: 2px; }
     .lb-row { display: flex; align-items: center; gap: 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1.2rem; text-decoration: none; transition: border-color 0.15s; }
@@ -154,12 +190,14 @@
       .hero { grid-template-columns: 1fr; gap: 2.4rem; }
       .hero h1 { font-size: 2.2rem; }
       .widgets { grid-template-columns: 1fr; }
+      .corr-cards { grid-template-columns: 1fr; }
       .rules-grid { grid-template-columns: 1fr 1fr; }
       .rule-card.featured { grid-column: auto; }
       .stats-inner { gap: 1.2rem; }
     }
     @media (max-width: 600px) {
       .rules-grid { grid-template-columns: 1fr; }
+      .brief-bullets { flex-direction: column; }
     }
   </style>
 </head>
@@ -187,16 +225,16 @@
   </div>
 </nav>
 
-<!-- HERO -->
+<!-- HERO (compact) -->
 <div class="hero">
   <div>
     <div class="hero-tag">Political Intelligence Platform</div>
     <h1>Where <em>power</em> moves before markets do</h1>
     <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying records, and government contracts — synthesizing them into actionable signals.</p>
     <div class="hero-stats" id="hero-stats">
-      Monitoring <span id="member-count">—</span> congressional members ·
-      <span id="week-alert-count">—</span> alerts this week ·
-      <span id="corr-count">—</span> active corroborations
+      <span id="corr-count">—</span> corroborated signals this week ·
+      <span id="week-tickers">—</span> tickers under watch ·
+      monitoring <span id="member-count">—</span> current members
     </div>
     <div class="hero-actions">
       <a href="/feed" class="btn-primary">View Live Alerts</a>
@@ -225,25 +263,31 @@
   </div>
 </div>
 
-<!-- LIVE STATS -->
-<div class="stats-bar">
-  <div class="stats-inner">
-    <div class="stat"><div class="stat-val" id="stat-total">—</div><div class="stat-label">Total Alerts</div></div>
-    <div class="stats-divider"></div>
-    <div class="stat"><div class="stat-val" id="stat-critical">—</div><div class="stat-label">Critical</div></div>
-    <div class="stats-divider"></div>
-    <div class="stat"><div class="stat-val" id="stat-high">—</div><div class="stat-label">High</div></div>
-    <div class="stats-divider"></div>
-    <div class="stat"><div class="stat-val" id="stat-rules">8</div><div class="stat-label">Active Rules</div></div>
-    <div class="stats-divider"></div>
-    <div class="stat"><div class="stat-val" id="stat-tickers">—</div><div class="stat-label">Tickers Tracked</div></div>
+<!-- TOP CORROBORATED SIGNALS -->
+<div class="section" style="padding-bottom:0">
+  <div class="section-label">★ Flagship Signal</div>
+  <div class="section-title" style="margin-bottom:1.2rem">Top Corroborated Signals</div>
+  <div class="corr-hero">
+    <div class="corr-cards" id="corr-hero-cards"><div class="corr-empty">Loading corroborations…</div></div>
+  </div>
+  <div style="text-align:right;max-width:1100px;margin:0.7rem auto 0;padding:0 2rem">
+    <a href="/feed?rule=RULE_10" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);text-decoration:none">View all corroborations →</a>
+  </div>
+</div>
+
+<!-- WHAT CHANGED TODAY -->
+<div class="section" style="padding-bottom:0">
+  <div class="section-label">Intelligence Summary</div>
+  <div class="section-title" style="margin-bottom:1.2rem">What Changed Today</div>
+  <div id="brief-preview-wrap">
+    <div class="brief-preview-box"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading brief…</div></div>
   </div>
 </div>
 
 <!-- LIVE WIDGETS -->
 <div class="section">
   <div class="section-label">Live Data</div>
-  <div class="section-title">What's happening right now</div>
+  <div class="section-title">Signals by source</div>
   <div class="widgets">
 
     <!-- Widget 1: Latest Congressional Trades -->
@@ -255,13 +299,13 @@
       <div class="widget-body" id="widget-trades"><div class="widget-muted">Loading…</div></div>
     </div>
 
-    <!-- Widget 2: Active Corroborations -->
+    <!-- Widget 2: Highest Score Alerts -->
     <div class="widget">
       <div class="widget-header">
-        <span class="widget-title">Active Corroborations</span>
-        <a href="/feed?rule=RULE_10" class="widget-link">All →</a>
+        <span class="widget-title">Highest Signal Score</span>
+        <a href="/feed" class="widget-link">Feed →</a>
       </div>
-      <div class="widget-body" id="widget-corr"><div class="widget-muted">Loading…</div></div>
+      <div class="widget-body" id="widget-scores"><div class="widget-muted">Loading…</div></div>
     </div>
 
     <!-- Widget 3: Today's Brief -->
@@ -332,13 +376,6 @@
   </div>
 </div>
 
-<!-- LEADERBOARD -->
-<div class="section" style="padding-top:0">
-  <div class="section-label">Signal Heat</div>
-  <div class="section-title">Hottest Tickers Right Now</div>
-  <div class="leaderboard" id="leaderboard"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.78rem;color:var(--muted)">Loading…</div></div>
-</div>
-
 <footer>
   © 2026 Joint Predictive Technologies · Scope Political Intelligence ·
   <a href="/docs">API Docs</a> · <a href="/watchlist">Watchlist</a> · <a href="/brief">Daily Brief</a>
@@ -370,14 +407,16 @@
   loadTape();
   setInterval(loadTape, 5 * 60 * 1000);
 
-  function timeAgo(ts) {
-    if (!ts) return '';
-    const d = new Date(ts.includes('Z') ? ts : ts + 'Z');
-    const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return Math.floor(s/60) + 'm ago';
-    if (s < 86400) return Math.floor(s/3600) + 'h ago';
-    return Math.floor(s/86400) + 'd ago';
+  function timeAgo(dateStr) {
+    if (!dateStr) return 'Unknown';
+    const normalized = dateStr.replace(' ', 'T');
+    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
+    if (isNaN(date.getTime())) return 'Unknown';
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
   }
   function txClass(t) {
     if (!t) return '';
@@ -413,61 +452,163 @@
     })
     .catch(() => { document.getElementById('widget-trades').innerHTML = '<div class="widget-muted">Data unavailable.</div>'; });
 
-  // Widget 2: Active Corroborations
-  fetch('/alerts?rule=RULE_10&days=7&limit=3')
+  // ── Corroboration hero cards ──────────────────────────────────────────────
+  function corrConfidence(alert) {
+    let tags = {};
+    try { tags = JSON.parse(alert.tags || '{}'); } catch {}
+    const rules = tags.rules || [];
+    let score = Math.min(rules.length * 20, 40);
+    score += alert.severity === 'CRITICAL' ? 20 : 10;
+    score += 5; // timing (simplified)
+    score += rules.includes('RULE_06') ? 15 : 0;
+    score += rules.includes('RULE_11') ? 10 : 0;
+    return Math.min(score, 100);
+  }
+  function corrSentiment(rules) {
+    const hasCongress = rules.some(r => ['RULE_01B','RULE_02'].includes(r));
+    const hasInsider  = rules.includes('RULE_06');
+    const hasRegul    = rules.some(r => ['RULE_08','RULE_09'].includes(r));
+    if (hasCongress && hasInsider) return { label: '⚡ MIXED — Congressional + Insider divergence', color: '#e67e22' };
+    if (hasCongress)               return { label: '↑ BULLISH — Congressional accumulation', color: '#4dc47a' };
+    if (hasInsider)                return { label: '↓ INSIDER activity detected', color: '#6ab0e0' };
+    if (hasRegul)                  return { label: '⚑ REGULATORY convergence', color: '#e67e22' };
+    return { label: '● Multi-source convergence', color: 'var(--muted)' };
+  }
+  function corrHorizon(rules) {
+    if (rules.includes('RULE_07')) return '1–7 days (prediction market)';
+    if (rules.some(r => ['RULE_08','RULE_09'].includes(r))) return '1–6 months (regulatory)';
+    return '2–8 weeks (typical signal lag)';
+  }
+
+  fetch('/alerts?rule=RULE_10&days=30&limit=3')
     .then(r => r.json())
     .then(data => {
-      const el = document.getElementById('widget-corr');
-      if (!data.length) { el.innerHTML = '<div class="widget-muted">No corroborations in the last 7 days.</div>'; return; }
+      const el = document.getElementById('corr-hero-cards');
+      if (!data.length) {
+        el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 2+ rules converge on the same ticker.</div>';
+        return;
+      }
       el.innerHTML = data.map(a => {
         const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
-        return `<a href="${sym ? '/ticker/'+sym : '/feed'}" class="corr-row">
-          <span class="corr-ticker">${sym||'—'}</span>
-          <span class="corr-body">
-            <div class="corr-headline">${a.headline||''}</div>
-            <div class="corr-meta">${timeAgo(a.created_at)}</div>
-          </span>
-          <span class="badge-${a.severity}">${a.severity}</span>
+        let tags = {};
+        try { tags = JSON.parse(a.tags || '{}'); } catch {}
+        const rules = tags.rules || [];
+        const conf = corrConfidence(a);
+        const sentiment = corrSentiment(rules);
+        const horizon = corrHorizon(rules);
+        const narrative = (a.detail || a.headline || '').slice(0, 220);
+        const sevColor = { CRITICAL: '#e55b4d', HIGH: 'var(--amber2)', MEDIUM: '#6ab0e0' }[a.severity] || 'var(--muted)';
+        return `
+          <div class="corr-card">
+            <div class="corr-card-top">
+              <span class="corr-card-ticker">★ ${sym || (a.ticker||'—').slice(0,10)}</span>
+              <span class="badge-${a.severity}" style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.06em;padding:1px 6px;border-radius:2px">${a.severity}</span>
+            </div>
+            <div class="corr-card-body">
+              <div class="corr-score-line">Confidence: <strong>${conf}/100</strong> · Rules: ${rules.length}</div>
+              <div class="corr-rule-pills">${rules.map(r=>`<span class="corr-pill">${r}</span>`).join('')}</div>
+              ${narrative ? `<div class="corr-narrative">${narrative}${a.detail && a.detail.length > 220 ? '…' : ''}</div>` : ''}
+              <div class="corr-sentiment" style="color:${sentiment.color}">${sentiment.label}</div>
+              <div class="corr-horizon">Impact horizon: ${horizon}</div>
+            </div>
+            <div class="corr-card-foot">
+              ${sym ? `<a href="/ticker/${sym}" class="corr-link">View Evidence →</a>` : ''}
+              <a href="/feed?rule=RULE_10&ticker=${sym}" class="corr-link">All signals →</a>
+            </div>
+          </div>`;
+      }).join('');
+    })
+    .catch(() => { document.getElementById('corr-hero-cards').innerHTML = '<div class="corr-empty">Data unavailable.</div>'; });
+
+  // Widget 2: Highest Signal Score
+  function signalScoreW(a) {
+    const sev = {CRITICAL:100,HIGH:60,MEDIUM:30,LOW:10}[a.severity]||10;
+    const ts = (a.created_at||'').replace(' ','T');
+    const h = (Date.now() - new Date(ts+(ts.includes('Z')?'':'Z')).getTime()) / 3600000;
+    let s = sev * Math.pow(0.5, h/48);
+    if (a.rule==='RULE_10') s*=2.0;
+    if (a.rule==='RULE_06') s*=1.5;
+    if (a.rule==='RULE_01B') s*=1.4;
+    if (a.rule==='RULE_11') s*=1.3;
+    return Math.round(s*10)/10;
+  }
+  fetch('/alerts?days=7&severity_min=HIGH&limit=50')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('widget-scores');
+      if (!Array.isArray(data) || !data.length) { el.innerHTML='<div class="widget-muted">No high-severity alerts.</div>'; return; }
+      const scored = data.map(a=>({...a,_score:signalScoreW(a)})).sort((a,b)=>b._score-a._score).slice(0,5);
+      el.innerHTML = scored.map(a => {
+        const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
+        return `<a href="${sym?'/ticker/'+sym:'/feed'}" class="score-row" style="text-decoration:none">
+          <span class="score-val">${a._score}</span>
+          <span class="score-rule">${a.rule}</span>
+          ${sym ? `<span class="score-ticker">${sym}</span>` : ''}
+          <span class="score-headline">${a.headline||''}</span>
         </a>`;
       }).join('');
     })
-    .catch(() => { document.getElementById('widget-corr').innerHTML = '<div class="widget-muted">Data unavailable.</div>'; });
+    .catch(()=>{ document.getElementById('widget-scores').innerHTML='<div class="widget-muted">Data unavailable.</div>'; });
 
-  // Widget 3: Today's Brief
+  // Widget 3: Today's Brief (polls when generating)
+  let _briefPoll = null;
+  function loadBrief() {
+    fetch('/brief/data')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('widget-brief');
+        if (!el) return;
+        if (d.generating && !d.content_json) {
+          el.innerHTML = '<div class="widget-muted" id="brief-generating">⟳ Generating today\'s brief…</div>';
+          if (!_briefPoll) _briefPoll = setInterval(loadBrief, 8000);
+          return;
+        }
+        if (_briefPoll) { clearInterval(_briefPoll); _briefPoll = null; }
+        if (!d.content_json) { el.innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; return; }
+        try {
+          const p = JSON.parse(d.content_json);
+          const sentences = (p.ai_summary || '').split('. ');
+          const preview = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '…' : '');
+          el.innerHTML = `<div class="brief-box">
+            <div class="brief-week">${d.is_today ? 'Today' : 'Yesterday'} · ${d.date||''}</div>
+            <div class="brief-summary">${preview}</div>
+            <a href="/brief" class="brief-cta">Read full brief →</a>
+          </div>`;
+        } catch { el.innerHTML = '<div class="widget-muted">Brief available — <a href="/brief" style="color:var(--amber)">click to read</a>.</div>'; }
+      })
+      .catch(() => { document.getElementById('widget-brief').innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; });
+  }
+  loadBrief();
+
+  // Brief preview — "What Changed Today"
   fetch('/brief/data')
     .then(r => r.json())
     .then(d => {
-      const el = document.getElementById('widget-brief');
-      if (!d.content_json) { el.innerHTML = '<div class="widget-muted">Brief not yet generated.</div>'; return; }
+      const el = document.getElementById('brief-preview-wrap');
+      if (!el) return;
+      if (!d || !d.content_json) {
+        el.innerHTML = `<div class="brief-preview-box"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">${d && d.generating ? '⟳ Generating today\'s brief…' : 'No brief available yet.'}</div></div>`;
+        return;
+      }
       try {
         const p = JSON.parse(d.content_json);
-        const sentences = (p.ai_summary || '').split('. ');
-        const preview = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '…' : '');
-        el.innerHTML = `<div class="brief-box">
-          <div class="brief-week">Week of ${d.date||''}</div>
-          <div class="brief-summary">${preview}</div>
-          <a href="/brief" class="brief-cta">Read full brief →</a>
-        </div>`;
-      } catch { el.innerHTML = '<div class="widget-muted">Brief available — <a href="/brief" style="color:var(--amber)">click to read</a>.</div>'; }
+        const summary = p.ai_summary || '';
+        const preview = summary.split('. ').slice(0, 3).join('. ') + (summary.split('. ').length > 3 ? '…' : '');
+        const bullets = (p.sections || []).slice(0, 4).map(s => `<div class="brief-bullet">● ${s.title}</div>`).join('');
+        el.innerHTML = `
+          <div class="brief-preview-box">
+            <div class="brief-preview-summary">${preview}</div>
+            ${bullets ? `<div class="brief-bullets">${bullets}</div>` : ''}
+            <a href="/brief" style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:var(--amber);text-decoration:none">Read full brief →</a>
+          </div>`;
+      } catch {
+        el.innerHTML = '<div class="brief-preview-box"><a href="/brief" style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--amber)">Brief available — click to read →</a></div>';
+      }
     })
-    .catch(() => { document.getElementById('widget-brief').innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; });
-
-  // Leaderboard
-  fetch('/tickers/leaderboard?days=30')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('leaderboard');
-      if (!data.length) { el.innerHTML = '<div style="font-family:IBM Plex Mono,monospace;font-size:0.78rem;color:var(--muted)">No data yet.</div>'; return; }
-      el.innerHTML = data.map((t, i) => `
-        <a href="/ticker/${t.ticker}" class="lb-row">
-          <span class="lb-rank">#${i+1}</span>
-          <span class="lb-ticker">${t.ticker}</span>
-          <span class="lb-meta">${t.total_alerts} alerts · ${t.rule_count} rule${t.rule_count!==1?'s':''}</span>
-          <span class="lb-rules">${(t.rules||'').split(',').join(' · ')}</span>
-          <span class="lb-badge lb-${t.top_severity}">${t.top_severity}</span>
-        </a>`).join('');
-    })
-    .catch(() => {});
+    .catch(() => {
+      const el = document.getElementById('brief-preview-wrap');
+      if (el) el.innerHTML = '<div class="brief-preview-box"><div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Brief unavailable.</div></div>';
+    });
 
   // Stats + hero counts
   fetch('/alerts?days=30&limit=500')
@@ -482,19 +623,20 @@
       document.getElementById('stat-critical').textContent = crit;
       document.getElementById('stat-high').textContent     = high;
       document.getElementById('stat-tickers').textContent  = tickers;
-      document.getElementById('alert-count').textContent   = total + ' alerts';
-      document.getElementById('crit-count').textContent    = crit + ' critical';
+      document.getElementById('alert-count').textContent   = total;
+      document.getElementById('crit-count').textContent    = crit;
     }).catch(() => {});
 
   // Hero live counts
   Promise.all([
-    fetch('/members?limit=5000').then(r=>r.json()).catch(()=>[]),
+    fetch('/members?is_current=true&limit=5000').then(r=>r.json()).catch(()=>[]),
     fetch('/alerts?days=7&limit=500').then(r=>r.json()).catch(()=>[]),
     fetch('/alerts?rule=RULE_10&days=7&limit=100').then(r=>r.json()).catch(()=>[]),
   ]).then(([members, weekAlerts, corrs]) => {
-    document.getElementById('member-count').textContent    = members.length || '—';
-    document.getElementById('week-alert-count').textContent = weekAlerts.length || '—';
-    document.getElementById('corr-count').textContent      = corrs.length || '—';
+    document.getElementById('member-count').textContent = members.length || '—';
+    const tickers = new Set((weekAlerts||[]).map(a=>a.ticker).filter(Boolean));
+    document.getElementById('week-tickers').textContent = tickers.size || '—';
+    document.getElementById('corr-count').textContent   = (corrs||[]).length || '—';
   });
 </script>
 </body>

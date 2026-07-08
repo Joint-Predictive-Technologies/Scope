@@ -118,12 +118,16 @@
   const symbol = window.location.pathname.split('/').pop().toUpperCase();
   document.title = `${symbol} — Scope`;
 
-  function timeAgo(ts) {
-    const d = new Date(ts + 'Z');
-    const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-    return Math.floor(s / 86400) + 'd ago';
+  function timeAgo(dateStr) {
+    if (!dateStr) return 'Unknown';
+    const normalized = dateStr.replace(' ', 'T');
+    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
+    if (isNaN(date.getTime())) return 'Unknown';
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
   }
 
   function sourceUrl(a) {

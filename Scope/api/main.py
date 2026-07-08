@@ -204,6 +204,7 @@ def ticker_tape():
         SELECT rule, ticker, headline, severity
         FROM alerts
         WHERE severity IN ('HIGH', 'CRITICAL')
+          AND rule != 'RULE_ANOMALY'
           AND datetime(created_at) >= datetime('now', '-7 days')
         ORDER BY datetime(created_at) DESC
         LIMIT 20
