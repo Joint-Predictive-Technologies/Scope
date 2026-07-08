@@ -128,9 +128,31 @@
     .comment-submit:hover { background: var(--amber2); }
 
     .empty { text-align: center; padding: 4rem 2rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
+    .empty-actions { display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; margin-top: 1rem; }
     .loading { text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; }
     .loading span { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* NEW SINCE LAST VISIT */
+    .new-banner { background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.28); border-radius: 6px; padding: 0.65rem 1.2rem; margin-bottom: 1rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: #e55b4d; display: none; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+    .new-banner button { font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; letter-spacing: 0.04em; text-transform: uppercase; background: transparent; border: 1px solid rgba(192,57,43,0.4); color: #e55b4d; padding: 3px 10px; border-radius: 3px; cursor: pointer; }
+    .new-banner button:hover { background: rgba(192,57,43,0.12); }
+
+    /* ACTIVE FILTER BAR */
+    .active-filter-bar { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-bottom: 1rem; min-height: 1.1rem; line-height: 1.5; }
+
+    /* PAGINATION */
+    .pagination { display: none; justify-content: center; align-items: center; gap: 0.7rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--border); flex-wrap: wrap; }
+    .pagination button { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; background: transparent; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 14px; border-radius: 4px; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+    .pagination button:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+    .pagination button:disabled { opacity: 0.3; cursor: default; }
+    .pg-info { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); }
+    .pg-jump { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 5px 8px; border-radius: 4px; width: 56px; text-align: center; outline: none; -moz-appearance: textfield; }
+    .pg-jump::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .pg-jump:focus { border-color: var(--amber); }
+
+    /* NAV BADGE */
+    .nav-badge { background: var(--red); color: #fff; font-size: 0.52rem; font-family: 'IBM Plex Mono', monospace; padding: 1px 5px; border-radius: 10px; margin-left: 3px; vertical-align: middle; line-height: 1; }
 
     @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
   </style>
@@ -146,11 +168,12 @@
     <a href="/contracts">Contracts</a>
     <a href="/lobbying">Lobbying</a>
     <a href="/ask">Ask Scope</a>
-    <a href="/feed" class="active">Alerts</a>
+    <a href="/feed" class="active">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
   </div>
 </nav>
 
 <div class="page">
+  <div id="new-banner" class="new-banner"></div>
   <div class="page-header">
     <div class="page-tag">Live Signal Feed</div>
     <div class="page-title">Active Alerts</div>
@@ -168,10 +191,11 @@
 
   <div class="filters">
     <select class="filter-select" id="f-severity">
+      <option value="HIGH+">HIGH+ (default)</option>
       <option value="">All severity</option>
-      <option value="CRITICAL">Critical</option>
-      <option value="HIGH">High</option>
-      <option value="MEDIUM">Medium</option>
+      <option value="CRITICAL">Critical only</option>
+      <option value="HIGH">High only</option>
+      <option value="MEDIUM">Medium only</option>
     </select>
     <select class="filter-select" id="f-rule">
       <option value="">All rules</option>
@@ -197,18 +221,20 @@
       <option value="votes">Most upvoted</option>
     </select>
     <select class="filter-select" id="f-days">
-      <option value="7">Last 7 days</option>
-      <option value="30" selected>Last 30 days</option>
+      <option value="7" selected>Last 7 days</option>
+      <option value="30">Last 30 days</option>
       <option value="90">Last 90 days</option>
     </select>
     <input class="filter-input" id="f-ticker" placeholder="Ticker (e.g. NVDA)" />
-    <button class="filter-btn" onclick="load()">Filter</button>
+    <button class="filter-btn" onclick="currentPage=1;load(1)">Filter</button>
     <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()">⊙ Watchlist</button>
     <span class="filter-count" id="result-count"></span>
     <span class="cap-loading" id="cap-loading" style="display:none">fetching cap…</span>
   </div>
 
+  <div id="active-filter-bar" class="active-filter-bar"></div>
   <div id="alerts-list"><div class="loading"><span>Loading alerts…</span></div></div>
+  <div id="pagination" class="pagination"></div>
 </div>
 
 <script>
@@ -231,8 +257,10 @@
   let thesisData    = null;
   let allLoaded     = [];
   let capCache      = {};
-  let socialCache   = {};   // alert_id → {votes, mine, comments}
+  let socialCache   = {};
   let memberMap     = {};
+  let currentPage   = 1;
+  let sinceFilter   = null;
 
   fetch('/members?limit=5000')
     .then(r => r.json())
@@ -317,15 +345,157 @@
     return `<span class="badge delay-ok">Filed ${d}d</span>`;
   }
 
+  // ── URL & filter state ─────────────────────────────────────────────────────
+  function readParams() {
+    const p = new URLSearchParams(window.location.search);
+    const sev = p.get('severity');
+    document.getElementById('f-severity').value = sev === null ? 'HIGH+' : sev;
+    document.getElementById('f-days').value     = p.get('days') || '7';
+    document.getElementById('f-rule').value     = p.get('rule') || '';
+    document.getElementById('f-ticker').value   = p.get('ticker') || '';
+    document.getElementById('f-sort').value     = p.get('sort') || 'recent';
+    document.getElementById('f-cap').value      = p.get('cap') || '';
+    if (p.get('watchlist') === '1') {
+      watchlistOnly = true;
+      document.getElementById('wl-toggle').classList.add('active');
+    }
+    if (p.get('page')) currentPage = Math.max(1, parseInt(p.get('page')) || 1);
+    if (p.get('since')) sinceFilter = p.get('since');
+  }
+
+  function updateURL() {
+    const sev    = document.getElementById('f-severity').value;
+    const days   = document.getElementById('f-days').value;
+    const rule   = document.getElementById('f-rule').value;
+    const ticker = document.getElementById('f-ticker').value.trim();
+    const sort   = document.getElementById('f-sort').value;
+    const cap    = document.getElementById('f-cap').value;
+    const params = new URLSearchParams();
+    if (sev !== 'HIGH+')      params.set('severity', sev);
+    if (days !== '7')         params.set('days', days);
+    if (rule)                 params.set('rule', rule);
+    if (ticker)               params.set('ticker', ticker);
+    if (sort !== 'recent')    params.set('sort', sort);
+    if (cap)                  params.set('cap', cap);
+    if (watchlistOnly)        params.set('watchlist', '1');
+    if (currentPage > 1)      params.set('page', currentPage);
+    if (sinceFilter)          params.set('since', sinceFilter);
+    const str = params.toString();
+    history.pushState({}, '', str ? `/feed?${str}` : '/feed');
+  }
+
+  function renderActiveFilters(total) {
+    const bar    = document.getElementById('active-filter-bar');
+    const sev    = document.getElementById('f-severity').value;
+    const days   = document.getElementById('f-days').value;
+    const rule   = document.getElementById('f-rule').value;
+    const ticker = document.getElementById('f-ticker').value.trim();
+    const sevLabel = sev === 'HIGH+' ? 'HIGH+' : sev ? sev : 'All severity';
+    const parts  = [`Showing ${sevLabel}`, `Last ${days} days`];
+    if (rule)   parts.push(rule);
+    if (ticker) parts.push(`Ticker: ${ticker}`);
+    if (sinceFilter) parts.push('<a href="#" onclick="clearSince();return false" style="color:#e55b4d">New only ✕</a>');
+    if (watchlistOnly) parts.push('Watchlist');
+    const isDefault = sev === 'HIGH+' && days === '7' && !rule && !ticker && !watchlistOnly && !sinceFilter;
+    const reset = isDefault ? '' : ' &nbsp;·&nbsp; <a href="#" onclick="resetFilters();return false" style="color:var(--amber)">Reset</a>';
+    const totalLabel = total != null ? ` — <strong style="color:var(--cream2)">${total}</strong> total` : '';
+    bar.innerHTML = parts.join(' · ') + totalLabel + reset;
+  }
+
+  function resetFilters() {
+    document.getElementById('f-severity').value = 'HIGH+';
+    document.getElementById('f-days').value     = '7';
+    document.getElementById('f-rule').value     = '';
+    document.getElementById('f-ticker').value   = '';
+    document.getElementById('f-cap').value      = '';
+    document.getElementById('f-sort').value     = 'recent';
+    watchlistOnly = false;
+    sinceFilter   = null;
+    document.getElementById('wl-toggle').classList.remove('active');
+    currentPage = 1;
+    load(1);
+  }
+
+  function clearSince() {
+    sinceFilter = null;
+    currentPage = 1;
+    load(1);
+  }
+
+  function renderPagination(meta) {
+    const pg = document.getElementById('pagination');
+    if (!meta || meta.pages <= 1) { pg.style.display = 'none'; return; }
+    pg.style.display = 'flex';
+    const p = meta.page, tot = meta.pages;
+    pg.innerHTML = `
+      <button onclick="goPage(${p - 1})" ${p <= 1 ? 'disabled' : ''}>← Prev</button>
+      <span class="pg-info">Page ${p} of ${tot}</span>
+      <input type="number" class="pg-jump" id="pg-jump" min="1" max="${tot}" value="${p}" />
+      <button onclick="goPage(parseInt(document.getElementById('pg-jump').value) || 1)">Go</button>
+      <button onclick="goPage(${p + 1})" ${p >= tot ? 'disabled' : ''}>Next →</button>`;
+  }
+
+  function goPage(p) {
+    if (p < 1) return;
+    load(p);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Nav badge ─────────────────────────────────────────────────────────────
+  function updateAlertBadge() {
+    fetch('/alerts/count?hours=24&severity_min=HIGH')
+      .then(r => r.json())
+      .then(d => {
+        const badge = document.getElementById('alert-badge');
+        if (badge) {
+          badge.textContent = d.count || '';
+          badge.style.display = d.count > 0 ? 'inline' : 'none';
+        }
+      }).catch(() => {});
+  }
+
+  // ── New since last visit banner ────────────────────────────────────────────
+  function initLastVisitBanner() {
+    const lastVisit = localStorage.getItem('scope_last_visit');
+    localStorage.setItem('scope_last_visit', new Date().toISOString());
+    if (!lastVisit) return;
+    const sev = document.getElementById('f-severity').value;
+    let url = `/alerts/count?since=${encodeURIComponent(lastVisit)}&days=7`;
+    if (sev === 'HIGH+' || !sev) url += '&severity_min=HIGH';
+    else if (sev)                url += `&severity=${sev}`;
+    fetch(url)
+      .then(r => r.json())
+      .then(d => { if (d.count > 0) showNewBanner(d.count, lastVisit); })
+      .catch(() => {});
+  }
+  function showNewBanner(count, since) {
+    const banner = document.getElementById('new-banner');
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+      <span>🔴 ${count} new alert${count !== 1 ? 's' : ''} since your last visit</span>
+      <div style="display:flex;gap:0.5rem">
+        <button onclick="viewSinceDate('${since}')">View new only</button>
+        <button onclick="dismissBanner()">✕</button>
+      </div>`;
+    setTimeout(() => { banner.style.display = 'none'; }, 10000);
+  }
+  function dismissBanner() {
+    document.getElementById('new-banner').style.display = 'none';
+  }
+  function viewSinceDate(since) {
+    dismissBanner();
+    sinceFilter = since;
+    currentPage = 1;
+    load(1);
+  }
+
   // ── Social ─────────────────────────────────────────────────────────────────
   async function loadSocialBatch(ids) {
     if (!ids.length) return;
     try {
       const r = await fetch(`/social/batch?ids=${ids.join(',')}&session_id=${SESSION_ID}`);
       const d = await r.json();
-      for (const [id, data] of Object.entries(d)) {
-        socialCache[id] = data;
-      }
+      for (const [id, data] of Object.entries(d)) { socialCache[id] = data; }
       ids.forEach(id => updateSocialUI(id));
     } catch {}
   }
@@ -396,11 +566,9 @@
         method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({session_id: SESSION_ID, body})
       });
-      // Reload thread
       const comments = await fetch(`/social/${alertId}/comments`).then(r=>r.json()).catch(()=>[]);
       const thread = document.getElementById(`thread-${alertId}`);
       if (thread) renderCommentList(alertId, thread, comments);
-      // Update count
       if (!socialCache[String(alertId)]) socialCache[String(alertId)] = {votes:0, mine:false, comments:0};
       socialCache[String(alertId)].comments++;
       updateSocialUI(alertId);
@@ -464,9 +632,25 @@
   // ── Render ─────────────────────────────────────────────────────────────────
   function renderAlerts(data) {
     const list = document.getElementById('alerts-list');
-    document.getElementById('result-count').textContent =
-      data.length + ' result' + (data.length !== 1 ? 's' : '');
-    if (!data.length) { list.innerHTML = '<div class="empty">No alerts found for this filter.</div>'; return; }
+    document.getElementById('result-count').textContent = data.length + ' on page';
+
+    if (!data.length) {
+      const sev  = document.getElementById('f-severity').value;
+      const days = document.getElementById('f-days').value;
+      const hasFilters = sev || days !== '7' || sinceFilter;
+      list.innerHTML = `
+        <div class="empty">
+          <div>No alerts match your current filters.</div>
+          <div class="empty-actions">
+            ${days !== '30' ? `<button class="filter-btn" onclick="document.getElementById('f-days').value='30';currentPage=1;load(1)">Show last 30 days</button>` : ''}
+            ${sev ? `<button class="filter-btn" onclick="document.getElementById('f-severity').value='';currentPage=1;load(1)">Show all severities</button>` : ''}
+            ${sinceFilter ? `<button class="filter-btn" onclick="clearSince()">Clear time filter</button>` : ''}
+            ${hasFilters ? `<button class="filter-btn" style="background:transparent;border:1px solid var(--border2);color:var(--cream2)" onclick="resetFilters()">Reset all filters</button>` : ''}
+          </div>
+        </div>`;
+      document.getElementById('pagination').style.display = 'none';
+      return;
+    }
 
     list.innerHTML = data.map((a, i) => {
       const url    = sourceUrl(a);
@@ -491,10 +675,7 @@
       const aiLabel = (a.rule === 'RULE_10' || a.rule === 'RULE_ANOMALY')
         ? `<span class="ai-label">AI SUMMARY · Groq Llama 3.3</span>` : '';
 
-      // Build detail HTML
       let detailHtml = '';
-
-      // Historical context (lazy placeholder)
       detailHtml += `<div class="detail-label">Historical Context</div>
         <div class="context-section" id="ctx-${a.id}" data-aid="${a.id}" style="color:var(--muted)">Loading…</div>`;
 
@@ -509,12 +690,10 @@
         detailHtml += `<div class="detail-label">Members</div>
           <div style="font-size:0.82rem">${memberTagLinks(a.tags)}</div>`;
       } else if (a.rule === 'RULE_01B' && r01b) {
-        if (ticker && r01b.txDate && r01b.filedDate) {
+        if (ticker && r01b.txDate && r01b.filedDate)
           detailHtml += `<div class="price-action" data-sym="${ticker}" data-start="${r01b.txDate}" data-end="${r01b.filedDate}" style="color:var(--muted)">Loading price action…</div>`;
-        }
-        if (ticker) {
+        if (ticker)
           detailHtml += `<div class="social-flag" data-sym="${ticker}"></div>`;
-        }
       } else if (!a.detail && a.tags) {
         detailHtml += `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
       }
@@ -525,7 +704,6 @@
         detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
       if (aiLabel) detailHtml += aiLabel;
 
-      // Comment thread — pinned open for RULE_10
       const threadOpen = a.rule === 'RULE_10';
       detailHtml += `<div class="comment-thread" id="thread-${a.id}" style="display:${threadOpen?'block':'none'}">
         <div style="color:var(--muted);font-size:0.72rem">Loading…</div>
@@ -549,11 +727,8 @@
         </div>`;
     }).join('');
 
-    // Batch-load social data after render
-    const ids = data.map(a => a.id);
-    loadSocialBatch(ids);
+    loadSocialBatch(data.map(a => a.id));
 
-    // For RULE_10 alerts: pre-load comment threads
     data.filter(a => a.rule === 'RULE_10').forEach(a => {
       const thread = document.getElementById(`thread-${a.id}`);
       if (thread && !thread.dataset.loaded) {
@@ -579,9 +754,9 @@
   // ── Market cap filtering ──────────────────────────────────────────────────
   function capCategory(mc) {
     if (mc == null) return 'unknown';
-    if (mc < 300e6)  return 'micro';
-    if (mc < 2e9)    return 'small';
-    if (mc < 10e9)   return 'mid';
+    if (mc < 300e6) return 'micro';
+    if (mc < 2e9)   return 'small';
+    if (mc < 10e9)  return 'mid';
     return 'large';
   }
   function passesCapFilter(ticker, capFilter) {
@@ -634,11 +809,14 @@
   function toggleWatchlist() {
     watchlistOnly = !watchlistOnly;
     document.getElementById('wl-toggle').classList.toggle('active', watchlistOnly);
-    load();
+    currentPage = 1;
+    load(1);
   }
 
-  async function load() {
+  // ── Main load ──────────────────────────────────────────────────────────────
+  async function load(page) {
     if (thesisData) { renderAlerts(thesisData); return; }
+    if (page !== undefined) currentPage = page;
     const sev    = document.getElementById('f-severity').value;
     const rule   = document.getElementById('f-rule').value;
     const days   = document.getElementById('f-days').value;
@@ -647,26 +825,34 @@
     const listEl = document.getElementById('alerts-list');
     listEl.innerHTML = '<div class="loading"><span>Loading…</span></div>';
 
-    let url = `/alerts?days=${days}&limit=200`;
-    if (sev)    url += `&severity=${sev}`;
-    if (rule)   url += `&rule=${rule}`;
-    if (ticker) url += `&ticker=${encodeURIComponent(ticker)}`;
-    if (watchlistOnly) url += `&watchlist=true`;
+    let url = `/alerts?days=${days}&page=${currentPage}&per_page=20`;
+    if (sev === 'HIGH+') url += '&severity_min=HIGH';
+    else if (sev)        url += `&severity=${sev}`;
+    if (rule)            url += `&rule=${rule}`;
+    if (ticker)          url += `&ticker=${encodeURIComponent(ticker)}`;
+    if (watchlistOnly)   url += `&watchlist=true`;
+    if (sinceFilter)     url += `&since=${encodeURIComponent(sinceFilter)}`;
+
+    updateURL();
+    renderActiveFilters(null);
 
     try {
       const data = await fetch(url).then(r => r.json());
-      allLoaded = data;
+      allLoaded = data.items;
+      renderActiveFilters(data.total);
       if (cap) {
-        await fetchCapData(data);
-        renderAlerts(applyCapAndSort(data, cap));
+        await fetchCapData(data.items);
+        renderAlerts(applyCapAndSort(data.items, cap));
       } else {
-        renderAlerts(applyCapAndSort(data, ''));
+        renderAlerts(applyCapAndSort(data.items, ''));
       }
+      renderPagination(data);
     } catch {
       listEl.innerHTML = '<div class="empty">Failed to load alerts. Is the API running?</div>';
     }
   }
 
+  // ── Thesis scoring ─────────────────────────────────────────────────────────
   async function runThesis() {
     const thesis = document.getElementById('thesis-input').value.trim();
     if (!thesis) return;
@@ -698,15 +884,23 @@
     thesisData = null;
     document.getElementById('thesis-input').value = '';
     document.getElementById('thesis-banner').style.display = 'none';
-    load();
+    currentPage = 1;
+    load(1);
   }
 
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('ticker')) document.getElementById('f-ticker').value = params.get('ticker');
-
+  // ── Init ───────────────────────────────────────────────────────────────────
+  readParams();
   load();
-  document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-  document.getElementById('thesis-input').addEventListener('keydown', e => { if (e.key === 'Enter') runThesis(); });
+  updateAlertBadge();
+  setInterval(updateAlertBadge, 5 * 60 * 1000);
+  initLastVisitBanner();
+
+  document.getElementById('f-ticker').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { currentPage = 1; load(1); }
+  });
+  document.getElementById('thesis-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runThesis();
+  });
 </script>
 </body>
 </html>

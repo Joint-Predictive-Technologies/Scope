@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import math
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -8,24 +11,24 @@ from jpt_common import db_connection
 
 router = APIRouter()
 
+PER_PAGE = 20
+
 
 def _row_to_dict(row) -> dict:
     return dict(row)
 
 
-@router.get("")
-def get_alerts(
-    days: int = Query(default=30, ge=1, le=365, description="Lookback window in days"),
-    ticker: str | None = Query(default=None, description="Filter by ticker symbol"),
-    rule: str | None = Query(default=None, description="Filter by rule ID e.g. RULE_06"),
-    severity: str | None = Query(default=None, description="CRITICAL, HIGH, or MEDIUM"),
-    watchlist: bool = Query(default=False, description="Filter to watchlist tickers only"),
-    limit: int = Query(default=100, ge=1, le=500),
-):
-    conn = db_connection()
-
+def _build_conditions(
+    days: int,
+    ticker: str | None,
+    rule: str | None,
+    severity: str | None,
+    severity_min: str | None,
+    watchlist: bool,
+    since: str | None,
+) -> tuple[list[str], dict]:
     conditions = ["datetime(a.created_at) >= datetime('now', :lookback)"]
-    params: dict = {"lookback": f"-{days} days", "limit": limit}
+    params: dict = {"lookback": f"-{days} days"}
 
     if ticker:
         conditions.append("a.ticker LIKE :ticker")
@@ -36,15 +39,82 @@ def get_alerts(
     if severity:
         conditions.append("a.severity = :severity")
         params["severity"] = severity.upper()
+    elif severity_min:
+        sev = severity_min.upper()
+        if sev == "CRITICAL":
+            conditions.append("a.severity = 'CRITICAL'")
+        elif sev == "HIGH":
+            conditions.append("a.severity IN ('HIGH', 'CRITICAL')")
+        # MEDIUM = all severities, no filter needed
     if watchlist:
         conditions.append(
             "EXISTS (SELECT 1 FROM watchlist w WHERE a.ticker LIKE '%' || w.symbol || '%')"
         )
+    if since:
+        conditions.append("datetime(a.created_at) > datetime(:since)")
+        params["since"] = since.replace("Z", "").replace("T", " ")
 
+    return conditions, params
+
+
+@router.get("/count")
+def count_alerts(
+    hours: int          = Query(default=24, ge=1, le=8760),
+    days: int           = Query(default=None),
+    since: str | None   = Query(default=None),
+    severity: str | None      = Query(default=None),
+    severity_min: str | None  = Query(default=None),
+    rule: str | None    = Query(default=None),
+    ticker: str | None  = Query(default=None),
+):
+    """Lightweight count endpoint — used for nav badge and new-since-last-visit banner."""
+    conn = db_connection()
+
+    effective_days = days if days is not None else math.ceil(hours / 24)
+    conditions, params = _build_conditions(
+        days=effective_days,
+        ticker=ticker,
+        rule=rule,
+        severity=severity,
+        severity_min=severity_min,
+        watchlist=False,
+        since=since,
+    )
+    where = " AND ".join(conditions)
+    count = conn.execute(
+        f"SELECT COUNT(*) FROM alerts a WHERE {where}", params
+    ).fetchone()[0]
+    conn.close()
+    return {"count": count}
+
+
+@router.get("")
+def get_alerts(
+    days: int           = Query(default=30, ge=1, le=365),
+    ticker: str | None  = Query(default=None),
+    rule: str | None    = Query(default=None),
+    severity: str | None      = Query(default=None),
+    severity_min: str | None  = Query(default=None),
+    watchlist: bool     = Query(default=False),
+    limit: int          = Query(default=100, ge=1, le=500),
+    page: int | None    = Query(default=None, ge=1),
+    per_page: int       = Query(default=PER_PAGE, ge=1, le=100),
+    since: str | None   = Query(default=None),
+):
+    conn = db_connection()
+
+    conditions, params = _build_conditions(
+        days=days,
+        ticker=ticker,
+        rule=rule,
+        severity=severity,
+        severity_min=severity_min,
+        watchlist=watchlist,
+        since=since,
+    )
     where = " AND ".join(conditions)
 
-    rows = conn.execute(
-        f"""
+    base_select = f"""
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
             a.tags, a.member_id, a.created_at,
@@ -53,18 +123,37 @@ def get_alerts(
         LEFT JOIN members m ON a.member_id = m.bioguide_id
         WHERE {where}
         ORDER BY datetime(a.created_at) DESC
-        LIMIT :limit
-        """,
-        params,
-    ).fetchall()
+    """
 
-    conn.close()
-    return [_row_to_dict(r) for r in rows]
+    if page is not None:
+        # Paginated response
+        total = conn.execute(
+            f"SELECT COUNT(*) FROM alerts a LEFT JOIN members m ON a.member_id = m.bioguide_id WHERE {where}",
+            params,
+        ).fetchone()[0]
+        offset = (page - 1) * per_page
+        rows = conn.execute(
+            base_select + f" LIMIT {per_page} OFFSET {offset}", params
+        ).fetchall()
+        conn.close()
+        pages = max(1, math.ceil(total / per_page))
+        return {
+            "items": [_row_to_dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "per_page": per_page,
+        }
+    else:
+        # Legacy flat-list response (used by widgets, section pages)
+        params["limit"] = limit
+        rows = conn.execute(base_select + " LIMIT :limit", params).fetchall()
+        conn.close()
+        return [_row_to_dict(r) for r in rows]
 
 
 @router.get("/{alert_id}/context")
 def get_alert_context(alert_id: int):
-    """Return the most recent prior firing of the same rule+ticker, with backtest return if available."""
     conn = db_connection()
     alert = conn.execute(
         "SELECT rule, ticker FROM alerts WHERE id = ?", (alert_id,)
@@ -93,7 +182,7 @@ def get_alert_context(alert_id: int):
         }
 
     backtest = conn.execute(
-        "SELECT return_30d, price_at, price_30d FROM backtest_results WHERE alert_id = ?",
+        "SELECT return_30d FROM backtest_results WHERE alert_id = ?",
         (prior["id"],),
     ).fetchone()
     conn.close()
@@ -104,7 +193,7 @@ def get_alert_context(alert_id: int):
         "ticker":         ticker,
         "prior_date":     prior["created_at"],
         "prior_alert_id": prior["id"],
-        "return_30d":     dict(backtest)["return_30d"] if backtest else None,
+        "return_30d":     backtest["return_30d"] if backtest else None,
     }
 
 
