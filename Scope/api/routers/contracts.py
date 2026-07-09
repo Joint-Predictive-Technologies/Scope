@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Query
@@ -13,19 +14,31 @@ router = APIRouter()
 
 CODE_DIR = Path(__file__).resolve().parent.parent.parent
 
+_refreshing = False
+
 
 @router.post("/refresh")
 def refresh_contracts():
-    """Run rule_11_contracts.py immediately to ingest latest USASpending data."""
+    """Run rule_11_contracts.py to ingest latest USASpending data (synchronous, ~30s)."""
+    global _refreshing
+    if _refreshing:
+        return JSONResponse(status_code=409, content={"error": "Refresh already in progress"})
+    _refreshing = True
     script = CODE_DIR / "scripts" / "rule_11_contracts.py"
-    r = subprocess.run(
-        [sys.executable, str(script)],
-        capture_output=True, text=True, cwd=str(CODE_DIR),
-    )
-    if r.returncode != 0:
-        return JSONResponse(status_code=500, content={"error": r.stderr[-500:]})
-    lines = [l for l in r.stdout.splitlines() if "[RULE_11]" in l]
-    return {"ok": True, "output": lines}
+    try:
+        r = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True, text=True, cwd=str(CODE_DIR),
+            timeout=120,
+        )
+        if r.returncode != 0:
+            return JSONResponse(status_code=500, content={"error": r.stderr[-500:]})
+        lines = [l for l in r.stdout.splitlines() if "[RULE_11]" in l]
+        return {"ok": True, "output": lines}
+    except subprocess.TimeoutExpired:
+        return JSONResponse(status_code=504, content={"error": "Script timed out after 120s"})
+    finally:
+        _refreshing = False
 
 
 @router.get("/data")

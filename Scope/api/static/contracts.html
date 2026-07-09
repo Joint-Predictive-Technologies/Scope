@@ -117,8 +117,10 @@
       <option value="date">Most recent</option>
     </select>
     <button class="filter-btn" onclick="load()">Filter</button>
+    <button class="filter-btn" id="refresh-btn" onclick="refreshData()" style="background:transparent;color:var(--amber);border:1px solid rgba(200,146,42,0.4)">↺ Refresh</button>
     <span class="filter-count" id="result-count"></span>
   </div>
+  <div id="refresh-status" style="display:none;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted);margin-bottom:1rem;padding:0.8rem 1rem;background:var(--bg2);border:1px solid var(--border);border-radius:4px"></div>
 
   <div class="alerts-section">
     <div class="section-header">Rule 11 Alerts</div>
@@ -242,7 +244,43 @@
     </table></div>`;
   }
 
-  load();
+  async function refreshData() {
+    const btn = document.getElementById('refresh-btn');
+    const status = document.getElementById('refresh-status');
+    btn.disabled = true;
+    btn.textContent = '↺ Fetching…';
+    status.style.display = 'block';
+    status.textContent = '⟳ Fetching contracts from USASpending.gov — this takes ~30 seconds…';
+    try {
+      const r = await fetch('/contracts/refresh', { method: 'POST' });
+      const d = await r.json();
+      if (r.ok) {
+        status.textContent = `✓ Done — ${d.output ? d.output.length + ' contract events processed' : 'refresh complete'}. Reloading…`;
+        await load();
+        setTimeout(() => { status.style.display = 'none'; }, 3000);
+      } else {
+        status.style.color = 'var(--red)';
+        status.textContent = `✗ Error: ${d.error || 'refresh failed'}`;
+      }
+    } catch (e) {
+      status.style.color = 'var(--red)';
+      status.textContent = `✗ Network error: ${e.message}`;
+    }
+    btn.disabled = false;
+    btn.textContent = '↺ Refresh';
+  }
+
+  async function init() {
+    await load();
+    // Auto-trigger if both alerts and contracts are empty (fresh deploy)
+    const alertsEmpty = document.getElementById('alerts-list').querySelector('.empty');
+    const tableEmpty  = document.getElementById('table-area').querySelector('.empty');
+    if (alertsEmpty && tableEmpty) {
+      refreshData();
+    }
+  }
+
+  init();
   document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
 </script>
 </body>
