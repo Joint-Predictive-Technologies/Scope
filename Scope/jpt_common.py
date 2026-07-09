@@ -328,24 +328,84 @@ def calculate_conflict_score(
     return conflict_score, explanation
 
 
+import shutil
+from datetime import datetime as _dt
+
+
+_RAILWAY_VOLUME = Path("/app/data")
+_BACKUP_MARKER  = None  # module-level sentinel; replaced with Path after first call
+
+
+def _get_db_path(explicit: Optional[str]) -> Path:
+    """
+    Resolve the database file path.
+
+    Priority:
+    1. Explicit argument
+    2. DATABASE_PATH env var
+    3. Railway persistent volume (/app/data) if the directory exists
+    4. Local ./data/jpt.db fallback
+    """
+    load_dotenv()
+
+    if explicit:
+        return Path(explicit)
+
+    env_path = os.getenv("DATABASE_PATH", "").strip()
+    if env_path:
+        return Path(env_path)
+
+    if _RAILWAY_VOLUME.is_dir():
+        return _RAILWAY_VOLUME / "jpt.db"
+
+    return Path(__file__).resolve().parent / "data" / "jpt.db"
+
+
+def _backup_db(db_file: Path) -> None:
+    """Copy the DB to a timestamped backup at most once per hour."""
+    if not db_file.exists():
+        return
+
+    backup_dir = db_file.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    marker = backup_dir / "last_backup.txt"
+    if marker.exists():
+        try:
+            last = float(marker.read_text())
+            if (_dt.now().timestamp() - last) < 3600:
+                return
+        except Exception:
+            pass
+
+    timestamp   = _dt.now().strftime("%Y%m%d_%H%M")
+    backup_path = backup_dir / f"jpt_{timestamp}.db"
+    shutil.copy2(db_file, backup_path)
+
+    # Keep the 24 most recent backups
+    backups = sorted(backup_dir.glob("jpt_*.db"))
+    for old in backups[:-24]:
+        try:
+            old.unlink()
+        except Exception:
+            pass
+
+    marker.write_text(str(_dt.now().timestamp()))
+    print(f"[backup] {backup_path.name} ({backup_path.stat().st_size // 1024} KB)", flush=True)
+
+
 def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     """
     Return a SQLite connection for the project database.
 
-    DB path priority:
-    1. Explicit db_path argument
-    2. DATABASE_PATH from .env
-    3. Default: ./data/jpt.db
-
-    Initializes all tables from schema_sqlite.sql before returning.
+    On Railway the persistent volume at /app/data is used automatically.
+    Locally falls back to DATABASE_PATH env var or ./data/jpt.db.
+    Runs a non-blocking hourly backup before returning the connection.
     """
-    load_dotenv()
-
-    default = Path(__file__).resolve().parent / "data" / "jpt.db"
-    path = db_path or os.getenv("DATABASE_PATH") or str(default)
-    db_file = Path(path)
-
+    db_file = _get_db_path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)
+
+    _backup_db(db_file)
 
     conn = sqlite3.connect(db_file)
     conn.row_factory = sqlite3.Row
