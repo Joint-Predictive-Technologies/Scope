@@ -165,3 +165,11 @@ CREATE TABLE IF NOT EXISTS gdelt_events (
     event_id    TEXT UNIQUE,
     ingested_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS watchlist_rules (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    label            TEXT NOT NULL,
+    condition_type   TEXT NOT NULL,
+    condition_value  TEXT NOT NULL,
+    created_at       TEXT DEFAULT (datetime('now'))
+);

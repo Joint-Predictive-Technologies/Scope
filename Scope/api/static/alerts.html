@@ -158,6 +158,7 @@
   </style>
 </head>
 <body>
+<!-- NOTHING renders above this line except the nav -->
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <button class="hamburger" id="ham-btn">☰</button>
@@ -721,6 +722,9 @@
       } else if (!a.detail && a.tags) {
         detailHtml += `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
       }
+
+      if (a.why_matters)
+        detailHtml += `<div style="margin-top:0.6rem;font-size:0.74rem;color:var(--cream2);font-style:italic;border-left:2px solid var(--amber);padding-left:0.7rem">Why this matters: ${a.why_matters}</div>`;
 
       if (memberLink)
         detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;

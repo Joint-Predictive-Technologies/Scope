@@ -43,14 +43,67 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
 
 
 SECTOR_MAP: dict[str, list[str]] = {
-    "Defense & Aerospace": ["LMT", "RTX", "NOC", "GD", "BA", "HII", "LHX", "KTOS", "LDOS", "SAIC", "CACI", "BAH"],
-    "Technology":          ["NVDA", "AAPL", "MSFT", "AMD", "INTC", "TSM", "AVGO", "QCOM", "ARM", "MU", "AMAT"],
-    "Finance & Banking":   ["GS", "JPM", "MS", "BAC", "C", "WFC", "BLK", "AXP", "SCHW", "COF"],
-    "Energy":              ["XOM", "CVX", "COP", "USO", "XLE", "OXY", "SLB", "EOG", "VLO", "MPC"],
-    "Healthcare & Pharma": ["JNJ", "PFE", "MRK", "ABBV", "UNH", "CVS", "LLY", "AMGN", "GILD", "REGN"],
-    "Crypto & Fintech":    ["COIN", "MSTR", "PYPL", "SQ", "MARA", "RIOT"],
-    "Telecom":             ["T", "VZ", "TMUS", "CMCSA", "CHTR"],
-    "Government Contractors": ["PLTR", "SAIC", "CACI", "BAH", "LDOS"],
+    "Defense & Aerospace": ["LMT", "RTX", "NOC", "GD", "BA", "HII", "LHX", "KTOS", "LDOS", "SAIC", "CACI", "BAH", "LEIDOS", "L3H", "DRS", "CW", "HEICO"],
+    "Technology":          ["NVDA", "AAPL", "MSFT", "AMD", "INTC", "TSM", "AVGO", "QCOM", "ARM", "MU", "AMAT", "LRCX", "KLAC", "SNPS", "CDNS", "AI", "PLTR"],
+    "Finance & Banking":   ["GS", "JPM", "MS", "BAC", "C", "WFC", "BLK", "AXP", "SCHW", "COF", "USB", "PNC", "TFC", "BK"],
+    "Energy":              ["XOM", "CVX", "COP", "USO", "XLE", "OXY", "SLB", "EOG", "VLO", "MPC", "PSX", "HAL", "DVN", "HES", "MRO"],
+    "Healthcare & Pharma": ["JNJ", "PFE", "MRK", "ABBV", "UNH", "CVS", "LLY", "AMGN", "GILD", "REGN", "BIIB", "BMY", "VRTX", "ISRG"],
+    "Crypto & Fintech":    ["COIN", "MSTR", "PYPL", "SQ", "MARA", "RIOT", "CLSK", "HUT", "HIVE"],
+    "Telecom":             ["T", "VZ", "TMUS", "CMCSA", "CHTR", "DISH", "AMT", "CCI"],
+    "Government Contractors": ["PLTR", "SAIC", "CACI", "BAH", "LDOS", "CSCO", "ORCL", "IBM", "MAXIMUS"],
+}
+
+SECTOR_KEYWORDS: dict[str, list[str]] = {
+    "Defense & Aerospace": [
+        "defense", "aerospace", "military", "lockheed", "raytheon", "northrop",
+        "general dynamics", "boeing", "department of defense", "dod", "army",
+        "navy", "air force", "pentagon", "contractor", "missile", "weapon",
+        "fighter", "submarine", "satellite", "munition", "warfighter", "combat",
+        "leidos", "l3harris", "saic", "booz allen", "bae systems",
+    ],
+    "Technology": [
+        "semiconductor", "chip", "nvidia", "apple", "microsoft", "software",
+        "artificial intelligence", " ai ", "cloud", "data center", "tech",
+        "quantum", "cyber", "cybersecurity", "silicon", "processor", "gpu",
+        "computing", "algorithm", "digital", "internet", "broadband",
+    ],
+    "Energy": [
+        "oil", "gas", "energy", "petroleum", "pipeline", "refinery",
+        "exxon", "chevron", "shell", "iran", "opec", "crude", "lng",
+        "natural gas", "offshore", "drilling", "renewable", "solar", "wind",
+        "nuclear", "coal", "carbon", "emissions", "climate",
+    ],
+    "Healthcare & Pharma": [
+        "pharma", "drug", "fda", "medicare", "medicaid", "biotech",
+        "clinical", "therapy", "hospital", "health", "pfizer", "merck",
+        "vaccine", "treatment", "diagnostic", "genomic", "oncology",
+        "insurance", "prescription", "formulary", "biosimilar",
+    ],
+    "Finance & Banking": [
+        "bank", "financial", "goldman", "jpmorgan", "morgan stanley",
+        "stablecoin", "crypto", "sec regulation", "fintech", "insurance",
+        "interest rate", "federal reserve", "fed", "credit", "lending",
+        "dodd-frank", "capital", "liquidity", "forex", "debit",
+    ],
+    "Government Contractors": [
+        "palantir", "saic", "booz allen", "leidos", "caci", "federal contract",
+        "government contract", "usaspending", "procurement", "gsa", "dod contract",
+        "defense contract", "task order", "blanket purchase", "sole source",
+    ],
+}
+
+WHY_MATTERS: dict[str, str] = {
+    "RULE_01B":     "A first-ever disclosed position signals high conviction — members rarely open brand-new names without strong thesis.",
+    "RULE_02":      "Cluster trading by multiple members on the same ticker within a week suggests coordinated awareness of non-public information.",
+    "RULE_06":      "Executive selling at multiples of their historical average indicates unusual distribution behavior — insiders rarely sell this aggressively without reason.",
+    "RULE_07":      "Prediction market moves often precede hard news — sophisticated traders are repositioning based on private information.",
+    "RULE_08":      "Proposed regulations directly reshape sector economics, competitive dynamics, and compliance costs — positions ahead of finalization capture the largest moves.",
+    "RULE_09":      "Lobbying spend spikes indicate companies anticipating specific regulatory action affecting their business model or revenue.",
+    "RULE_10":      "Multiple independent data sources converging on a single ticker within 48 hours is the strongest pattern in Scope — historically the most reliable precursor to a sustained move.",
+    "RULE_11":      "Government contracts provide multi-year revenue visibility and validate a company's federal relationships, often preceding additional awards.",
+    "RULE_OSINT":   "Geopolitical events in this region historically move correlated sectors within 1–30 days, typically ahead of mainstream coverage.",
+    "RULE_REDDIT":  "Retail attention combined with political keywords can amplify institutional moves and create self-fulfilling momentum.",
+    "RULE_ANOMALY": "Unusual signal concentration on a ticker often precedes a catalyst event — the system is detecting something the market hasn't priced yet.",
 }
 
 REGION_TICKERS: dict[str, list[str]] = {
@@ -103,6 +156,34 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     if "return_7d" not in existing_bt and existing_bt:
         conn.execute("ALTER TABLE backtest_results ADD COLUMN return_7d REAL")
         conn.commit()
+
+    existing_alerts = {r[1] for r in conn.execute("PRAGMA table_info(alerts)").fetchall()}
+    if "why_matters" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN why_matters TEXT")
+        conn.commit()
+
+    # watchlist_rules table (idempotent — IF NOT EXISTS)
+    conn.execute("""CREATE TABLE IF NOT EXISTS watchlist_rules (
+        id               INTEGER PRIMARY KEY AUTOINCREMENT,
+        label            TEXT NOT NULL,
+        condition_type   TEXT NOT NULL,
+        condition_value  TEXT NOT NULL,
+        created_at       TEXT DEFAULT (datetime('now'))
+    )""")
+    conn.commit()
+
+
+def classify_sector(ticker: str, text: str = "") -> str:
+    """Classify ticker+text into a sector. Checks SECTOR_MAP first, then SECTOR_KEYWORDS."""
+    t = (ticker or "").upper().replace("$", "").split()[0] if ticker else ""
+    for sector, tickers in SECTOR_MAP.items():
+        if t in tickers:
+            return sector
+    low = text.lower()
+    for sector, keywords in SECTOR_KEYWORDS.items():
+        if any(kw in low for kw in keywords):
+            return sector
+    return "Other"
 
 
 def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:

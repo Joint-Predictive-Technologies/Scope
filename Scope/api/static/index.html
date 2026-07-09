@@ -154,6 +154,16 @@
     .corr-link:hover { background: rgba(200,146,42,0.08); }
     .corr-empty { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); padding: 2rem; text-align: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; }
 
+    /* Confidence tooltip */
+    .conf-wrap { position: relative; display: inline-block; cursor: help; }
+    .conf-tooltip { display: none; position: absolute; top: 100%; left: 0; z-index: 50; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.7rem 0.9rem; min-width: 200px; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--cream2); line-height: 1.7; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+    .conf-wrap:hover .conf-tooltip { display: block; }
+    .conf-tooltip .ct-row { display: flex; justify-content: space-between; gap: 1rem; }
+    .conf-tooltip .ct-row .val { color: var(--amber2); }
+
+    /* Why matters */
+    .why-matters { font-size: 0.72rem; color: var(--cream2); font-style: italic; line-height: 1.5; padding: 0.6rem 1.4rem; border-top: 1px solid var(--border); background: rgba(200,146,42,0.04); }
+
     /* ── BRIEF PREVIEW ───────────────────────────────────── */
     .brief-preview-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.8rem; display: flex; flex-direction: column; gap: 0.8rem; }
     .brief-preview-summary { font-family: 'Playfair Display', serif; font-size: 0.95rem; color: var(--cream); line-height: 1.65; font-style: italic; }
@@ -236,6 +246,7 @@
 </head>
 <body>
 
+<!-- NOTHING renders above this line except the ticker tape and nav -->
 <!-- TICKER TAPE -->
 <div class="tape">
   <div class="tape-inner" id="tape">
@@ -265,9 +276,9 @@
     <h1>Where <em>power</em> moves before markets do</h1>
     <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying records, and government contracts — synthesizing them into actionable signals.</p>
     <div class="hero-stats" id="hero-stats">
-      <span id="corr-count">—</span> corroborated signals this week ·
+      <span id="corr-count">—</span> corroborated signals this month ·
       <span id="week-tickers">—</span> tickers under watch ·
-      <span id="member-count">—</span> congressional records indexed
+      <span id="member-count">—</span> political figures tracked
     </div>
     <div class="hero-actions">
       <a href="/feed" class="btn-primary">View Live Alerts</a>
@@ -605,12 +616,28 @@
     let tags = {};
     try { tags = JSON.parse(alert.tags || '{}'); } catch {}
     const rules = tags.rules || [];
-    let score = Math.min(rules.length * 20, 40);
-    score += alert.severity === 'CRITICAL' ? 20 : 10;
-    score += 5; // timing (simplified)
-    score += rules.includes('RULE_06') ? 15 : 0;
-    score += rules.includes('RULE_11') ? 10 : 0;
-    return Math.min(score, 100);
+    const ruleScore = Math.min(rules.length * 20, 40);
+    const sevScore  = alert.severity === 'CRITICAL' ? 20 : 10;
+    const timePts   = 5;
+    const insScore  = rules.includes('RULE_06') ? 15 : 0;
+    const conScore  = rules.includes('RULE_11') ? 10 : 0;
+    return {
+      total:    Math.min(ruleScore + sevScore + timePts + insScore + conScore, 100),
+      breakdown: { rules: ruleScore, severity: sevScore, timing: timePts, insider: insScore, contract: conScore },
+      ruleCount: rules.length,
+    };
+  }
+
+  function corrConfidenceTooltip(conf) {
+    const b = conf.breakdown;
+    return `<div class="conf-tooltip">
+      <div class="ct-row"><span>Rule count (${conf.ruleCount})</span><span class="val">+${b.rules}</span></div>
+      <div class="ct-row"><span>Severity</span><span class="val">+${b.severity}</span></div>
+      <div class="ct-row"><span>Signal timing</span><span class="val">+${b.timing}</span></div>
+      ${b.insider ? `<div class="ct-row"><span>Insider trade present</span><span class="val">+${b.insider}</span></div>` : ''}
+      ${b.contract ? `<div class="ct-row"><span>Gov contract present</span><span class="val">+${b.contract}</span></div>` : ''}
+      <div class="ct-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;color:var(--amber2)"><span>Confidence score</span><span class="val">${conf.total}/100</span></div>
+    </div>`;
   }
   function corrSentiment(rules) {
     const hasCongress = rules.some(r => ['RULE_01B','RULE_02'].includes(r));
@@ -643,8 +670,7 @@
         const conf = corrConfidence(a);
         const sentiment = corrSentiment(rules);
         const horizon = corrHorizon(rules);
-        const narrative = (a.detail || a.headline || '').slice(0, 220);
-        const sevColor = { CRITICAL: '#e55b4d', HIGH: 'var(--amber2)', MEDIUM: '#6ab0e0' }[a.severity] || 'var(--muted)';
+        const narrative = (a.detail || a.headline || '').slice(0, 240);
         return `
           <div class="corr-card">
             <div class="corr-card-top">
@@ -652,12 +678,20 @@
               <span class="badge-${a.severity}" style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.06em;padding:1px 6px;border-radius:2px">${a.severity}</span>
             </div>
             <div class="corr-card-body">
-              <div class="corr-score-line">Confidence: <strong>${conf}/100</strong> · Rules: ${rules.length}</div>
+              <div class="corr-score-line">
+                Confidence:
+                <span class="conf-wrap">
+                  <strong style="cursor:help;border-bottom:1px dashed var(--amber)">${conf.total}/100</strong>
+                  ${corrConfidenceTooltip(conf)}
+                </span>
+                · Rules: ${conf.ruleCount}
+              </div>
               <div class="corr-rule-pills">${rules.map(r=>`<span class="corr-pill">${r}</span>`).join('')}</div>
-              ${narrative ? `<div class="corr-narrative">${narrative}${a.detail && a.detail.length > 220 ? '…' : ''}</div>` : ''}
+              ${narrative ? `<div class="corr-narrative">${narrative}${(a.detail||'').length > 240 ? '…' : ''}</div>` : ''}
               <div class="corr-sentiment" style="color:${sentiment.color}">${sentiment.label}</div>
               <div class="corr-horizon">Impact horizon: ${horizon}</div>
             </div>
+            ${a.why_matters ? `<div class="why-matters">Why this matters: ${a.why_matters}</div>` : ''}
             <div class="corr-card-foot">
               ${sym ? `<a href="/ticker/${sym}" class="corr-link">View Evidence →</a>` : ''}
               <a href="/feed?rule=RULE_10&ticker=${sym}" class="corr-link">All signals →</a>

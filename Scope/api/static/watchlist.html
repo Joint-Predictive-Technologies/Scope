@@ -46,9 +46,30 @@
 
     .empty { padding: 3rem 0; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; color: var(--muted); }
     .msg { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); padding: 0.4rem 0; min-height: 1.2rem; }
+
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: 2.5rem 0; }
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .section-title { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .section-desc { font-size: 0.82rem; color: var(--cream2); line-height: 1.5; margin-bottom: 1.2rem; }
+
+    .preset-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
+    .preset-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; background: transparent; border: 1px solid var(--border2); color: var(--cream2); padding: 6px 12px; border-radius: 4px; cursor: pointer; transition: border-color 0.15s, color 0.15s; }
+    .preset-btn:hover { border-color: var(--amber); color: var(--amber); }
+
+    .rule-add-row { display: flex; gap: 0.6rem; margin-bottom: 1rem; }
+    .rule-label-input { flex: 1; font-family: Inter, sans-serif; font-size: 0.82rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 8px 12px; border-radius: 4px; outline: none; }
+    .rule-label-input:focus { border-color: var(--amber); }
+    .rule-label-input::placeholder { color: var(--muted); }
+
+    .wl-rule-list { display: flex; flex-direction: column; gap: 1px; }
+    .wl-rule-item { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1.2rem; display: flex; align-items: center; gap: 1rem; }
+    .wl-rule-label { font-size: 0.85rem; color: var(--cream); flex: 1; }
+    .wl-rule-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.06em; color: var(--muted); border: 1px solid var(--border2); padding: 2px 8px; border-radius: 3px; }
+    .rule-msg { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); padding: 0.4rem 0; min-height: 1.2rem; }
   </style>
 </head>
 <body>
+<!-- NOTHING renders above this line except the nav -->
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <div class="nav-links">
@@ -72,6 +93,31 @@
   <div class="msg" id="msg"></div>
 
   <div class="wl-list" id="wl-list">
+    <div class="empty">Loading…</div>
+  </div>
+
+  <hr class="section-divider" />
+
+  <div class="section-label">Smart Alerts</div>
+  <div class="section-title">Alert Rules</div>
+  <div class="section-desc">Get notified when specific conditions fire across any ticker. These rules scan every incoming signal automatically.</div>
+
+  <div class="preset-row">
+    <button class="preset-btn" onclick="addPreset('CRITICAL alert on any ticker', 'severity', 'CRITICAL')">🔴 Any CRITICAL alert</button>
+    <button class="preset-btn" onclick="addPreset('Insider selling (RULE_06)', 'rule', 'RULE_06')">⬇ Insider sell signal</button>
+    <button class="preset-btn" onclick="addPreset('Corroboration signal (RULE_10)', 'rule', 'RULE_10')">★ Corroboration fires</button>
+    <button class="preset-btn" onclick="addPreset('Gov contract awarded (RULE_11)', 'rule', 'RULE_11')">● New gov contract</button>
+    <button class="preset-btn" onclick="addPreset('Congressional trade (RULE_01B)', 'rule', 'RULE_01B')">↑ Congressional trade</button>
+    <button class="preset-btn" onclick="addPreset('Polymarket move (RULE_07)', 'rule', 'RULE_07')">📈 Polymarket move</button>
+  </div>
+
+  <div class="rule-add-row">
+    <input class="rule-label-input" id="rule-label" placeholder="Custom rule label (e.g. 'Watch RKLB insider activity')" />
+    <button class="add-btn" onclick="addCustomRule()">+ Add Rule</button>
+  </div>
+  <div class="rule-msg" id="rule-msg"></div>
+
+  <div class="wl-rule-list" id="wl-rule-list">
     <div class="empty">Loading…</div>
   </div>
 </div>
@@ -127,7 +173,74 @@
     if (e.key === 'Enter') addTicker();
   });
 
+  document.getElementById('rule-label').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addCustomRule();
+  });
+
+  async function loadRules() {
+    const res = await fetch('/api/watchlist-rules');
+    const data = await res.json();
+    renderRules(data);
+  }
+
+  function renderRules(items) {
+    const el = document.getElementById('wl-rule-list');
+    if (!items.length) {
+      el.innerHTML = '<div class="empty">No alert rules yet. Add a preset or custom rule above.</div>';
+      return;
+    }
+    el.innerHTML = items.map(r => `
+      <div class="wl-rule-item" id="rule-${r.id}">
+        <div class="wl-rule-label">${r.label}</div>
+        <span class="wl-rule-badge">${r.condition_type}: ${r.condition_value}</span>
+        <button class="btn-remove" onclick="removeRule(${r.id})">Remove</button>
+      </div>
+    `).join('');
+  }
+
+  async function addPreset(label, conditionType, conditionValue) {
+    const ruleMsg = document.getElementById('rule-msg');
+    const res = await fetch('/api/watchlist-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, condition_type: conditionType, condition_value: conditionValue }),
+    });
+    const data = await res.json();
+    if (data.error) { ruleMsg.textContent = 'Error: ' + data.error; return; }
+    ruleMsg.textContent = 'Rule added.';
+    setTimeout(() => { ruleMsg.textContent = ''; }, 2000);
+    loadRules();
+  }
+
+  async function addCustomRule() {
+    const input = document.getElementById('rule-label');
+    const ruleMsg = document.getElementById('rule-msg');
+    const label = input.value.trim();
+    if (!label) return;
+    input.value = '';
+    const res = await fetch('/api/watchlist-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label, condition_type: 'custom', condition_value: label }),
+    });
+    const data = await res.json();
+    if (data.error) { ruleMsg.textContent = 'Error: ' + data.error; return; }
+    ruleMsg.textContent = 'Rule added.';
+    setTimeout(() => { ruleMsg.textContent = ''; }, 2000);
+    loadRules();
+  }
+
+  async function removeRule(id) {
+    await fetch(`/api/watchlist-rules/${id}`, { method: 'DELETE' });
+    document.getElementById(`rule-${id}`)?.remove();
+    const list = document.getElementById('wl-rule-list');
+    if (!list.querySelector('.wl-rule-item')) {
+      list.innerHTML = '<div class="empty">No alert rules yet. Add a preset or custom rule above.</div>';
+    }
+  }
+
   load();
+  loadRules();
 </script>
 </body>
 </html>

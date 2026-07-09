@@ -83,6 +83,7 @@
   </style>
 </head>
 <body>
+<!-- NOTHING renders above this line except the nav -->
 
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
@@ -105,11 +106,11 @@
   </div>
 
   <div class="suggestions">
-    <div class="chip" onclick="ask('Why is NVDA getting so much congressional attention?')">Why NVDA?</div>
-    <div class="chip" onclick="ask('Show all senators buying defense stocks this year')">Senate defense buys</div>
-    <div class="chip" onclick="ask('What changed overnight in the political landscape?')">What changed overnight?</div>
-    <div class="chip" onclick="ask('Which tickers have the most corroborated signals right now?')">Most corroborated tickers</div>
-    <div class="chip" onclick="ask('Compare lobbying activity for AI companies vs defense')">AI vs defense lobbying</div>
+    <div class="chip" onclick="ask('Why is defense moving today?')">Why is defense moving today?</div>
+    <div class="chip" onclick="ask('Explain everything affecting NVDA this week')">Everything affecting NVDA</div>
+    <div class="chip" onclick="ask(\'Who benefits if Taiwan tensions increase?\')">Taiwan tensions</div>
+    <div class="chip" onclick="ask('Show me all congressional activity in semiconductors')">Congress + semiconductors</div>
+    <div class="chip" onclick="ask('What\'s the strongest signal in the market right now?')">Strongest signal now</div>
     <div class="chip" onclick="ask('Any unusual insider buying in the last 7 days?')">Unusual insider buying</div>
     <div class="chip" onclick="ask('What government contracts has Palantir received recently?')">Palantir contracts</div>
   </div>
@@ -119,7 +120,7 @@
       <div class="msg-avatar">SC</div>
       <div class="msg-body">
         <div class="msg-sender">Scope</div>
-        <div class="msg-text">I have access to the live Scope database — congressional trading disclosures, SEC insider filings, Federal Register proposals, lobbying records, Polymarket signals, and government contracts. Ask me anything about recent political and alternative data signals.</div>
+        <div class="msg-text">Investigation Mode is active. Before answering, I search the live Scope database — congressional trades, SEC insider filings, Federal Register proposals, lobbying records, Polymarket signals, and government contracts — then build a structured context block. Ask me about any ticker, sector, or signal.</div>
       </div>
     </div>
   </div>
@@ -129,7 +130,7 @@
       <textarea id="user-input" placeholder="Ask about a ticker, sector, or recent signal…" rows="1"></textarea>
       <button id="send-btn" onclick="sendMsg()">Send</button>
     </div>
-    <div class="input-hint">Grounded in live data · Powered by Groq Llama 3.3 · AI SUMMARY — not investment advice</div>
+    <div class="input-hint">🔍 Investigation Mode — Scope searches its full database before answering · Powered by Groq Llama 3.3 · not investment advice</div>
   </div>
 </div>
 

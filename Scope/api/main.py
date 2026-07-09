@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
 
 from api.routers import (
     alerts, chat, members, tickers,
@@ -206,7 +207,7 @@ def api_stats():
     try:
         corr_count = conn.execute(
             "SELECT COUNT(*) FROM alerts WHERE rule='RULE_10' "
-            "AND datetime(created_at) >= datetime('now', '-7 days')"
+            "AND datetime(created_at) >= datetime('now', '-30 days')"
         ).fetchone()[0]
         ticker_count = conn.execute(
             "SELECT COUNT(DISTINCT ticker) FROM alerts WHERE ticker IS NOT NULL AND ticker != ''"
@@ -267,7 +268,7 @@ def ticker_tape():
         SELECT rule, ticker, headline, severity
         FROM alerts
         WHERE severity IN ('HIGH', 'CRITICAL')
-          AND rule != 'RULE_ANOMALY'
+          AND rule NOT IN ('RULE_ANOMALY', 'RULE_11')
           AND datetime(created_at) >= datetime('now', '-7 days')
         ORDER BY datetime(created_at) DESC
         LIMIT 20
@@ -295,6 +296,51 @@ def ticker_tape():
     while len(items) < 10:
         items = items + items
     return items[:20]
+
+
+@app.get("/api/watchlist-rules", tags=["Watchlist"])
+def get_watchlist_rules():
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    rows = conn.execute("SELECT id, label, condition_type, condition_value, created_at FROM watchlist_rules ORDER BY id").fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+class _WatchlistRuleBody(BaseModel):
+    label: str
+    condition_type: str
+    condition_value: str
+
+
+@app.post("/api/watchlist-rules", tags=["Watchlist"])
+def add_watchlist_rule(body: _WatchlistRuleBody):
+    from fastapi.responses import JSONResponse
+    label = (body.label or "").strip()
+    ctype = (body.condition_type or "").strip()
+    cvalue = (body.condition_value or "").strip()
+    if not label or not ctype or not cvalue:
+        return JSONResponse(status_code=422, content={"error": "label, condition_type, condition_value required"})
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    cur = conn.execute(
+        "INSERT INTO watchlist_rules (label, condition_type, condition_value) VALUES (?, ?, ?)",
+        (label, ctype, cvalue),
+    )
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+    return {"id": new_id, "label": label, "condition_type": ctype, "condition_value": cvalue}
+
+
+@app.delete("/api/watchlist-rules/{rule_id}", tags=["Watchlist"])
+def delete_watchlist_rule(rule_id: int):
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    conn.execute("DELETE FROM watchlist_rules WHERE id = ?", (rule_id,))
+    conn.commit()
+    conn.close()
+    return {"deleted": rule_id}
 
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)

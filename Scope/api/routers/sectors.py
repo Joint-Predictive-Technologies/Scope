@@ -2,41 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from jpt_common import db_connection
+from jpt_common import db_connection, classify_sector
 
 router = APIRouter()
 
-SECTOR_MAP: dict[str, list[str]] = {
-    "Defense":    ["LMT", "RTX", "NOC", "GD", "BA", "HII", "LDOS", "SAIC", "L3H", "CACI"],
-    "Technology": ["NVDA", "AAPL", "MSFT", "AMD", "INTC", "TSM", "QCOM", "AVGO", "ARM", "MU", "AMAT", "LRCX"],
-    "Finance":    ["GS", "JPM", "MS", "BAC", "WFC", "BLK", "C", "AXP", "SCHW", "COF"],
-    "Energy":     ["XOM", "CVX", "COP", "EOG", "SLB", "OXY", "VLO", "MPC", "PSX", "HAL"],
-    "Pharma":     ["JNJ", "PFE", "MRK", "ABBV", "BMY", "LLY", "AMGN", "GILD", "REGN", "BIIB"],
-    "Telecom":    ["T", "VZ", "TMUS", "CMCSA", "CHTR", "DISH"],
-    "Retail":     ["AMZN", "WMT", "TGT", "COST", "HD", "LOW", "MCD", "SBUX"],
-}
-
-SECTOR_KEYWORDS: dict[str, list[str]] = {
-    "Defense":    ["defense", "military", "itar", "dod", "weapons", "missile", "navy", "pentagon"],
-    "Technology": ["semiconductor", " ai ", "chips", "artificial intelligence", "cloud", "software", "tech"],
-    "Finance":    ["bank", "stablecoin", "crypto", "financial", "interest rate", "federal reserve", "fintech"],
-    "Energy":     ["oil", "gas", "iran", "pipeline", "crude", "lng", "refinery", "opec"],
-    "Pharma":     ["medicare", "drug pricing", "fda", "pharmaceutical", "clinical", "vaccine", "biotech"],
-    "Telecom":    ["spectrum", "broadband", "5g", "wireless", "telecom"],
-    "Retail":     ["retail", "consumer", "ecommerce", "tariff", "import"],
-}
-
 
 def _classify(ticker: str, text: str) -> str:
-    t = ticker.upper().replace("$", "").split()[0] if ticker else ""
-    for sector, tickers in SECTOR_MAP.items():
-        if t in tickers:
-            return sector
-    low = text.lower()
-    for sector, keywords in SECTOR_KEYWORDS.items():
-        if any(kw in low for kw in keywords):
-            return sector
-    return "Other"
+    return classify_sector(ticker, text)
 
 
 @router.get("/data")

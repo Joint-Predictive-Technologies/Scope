@@ -20,9 +20,38 @@ from jpt_common import db_connection
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
-def _gather_data(conn, days: float = 1) -> dict:
-    window = f"-{days} day" if days <= 1 else f"-{int(days)} days"
+def _gather_data(conn, days: float = 2) -> dict:
+    """Pull highest-ranked signals from the lookback window, prioritised by severity and rule."""
+    window = f"-{int(max(days, 1))} days"
 
+    signals = conn.execute(
+        """
+        SELECT rule, ticker, headline, detail, severity, created_at
+        FROM alerts
+        WHERE created_at >= datetime('now', ?)
+          AND severity IN ('CRITICAL', 'HIGH')
+        ORDER BY
+            CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 END,
+            CASE rule
+                WHEN 'RULE_10' THEN 1
+                WHEN 'RULE_11' THEN 2
+                WHEN 'RULE_06' THEN 3
+                WHEN 'RULE_OSINT' THEN 4
+                ELSE 5
+            END,
+            created_at DESC
+        LIMIT 20
+        """,
+        (window,),
+    ).fetchall()
+
+    # Group by rule for structured sections
+    by_rule: dict = {}
+    for r in signals:
+        rule = r["rule"] or "OTHER"
+        by_rule.setdefault(rule, []).append(dict(r))
+
+    # Congressional trades (separate data source)
     congressional = conn.execute(
         """
         SELECT t.raw_ticker_string AS ticker, t.transaction_type, t.amount_band,
@@ -30,178 +59,79 @@ def _gather_data(conn, days: float = 1) -> dict:
         FROM transactions t
         JOIN members m ON t.member_id = m.bioguide_id
         WHERE t.filing_date >= date('now', ?)
-        ORDER BY t.filing_date DESC LIMIT 25
+        ORDER BY t.filing_date DESC LIMIT 15
         """,
         (window,),
     ).fetchall()
-
-    rule06 = conn.execute(
-        """
-        SELECT headline, detail, ticker, severity, created_at
-        FROM alerts WHERE rule = 'RULE_06'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    rule08 = conn.execute(
-        """
-        SELECT headline, detail, ticker, created_at
-        FROM alerts WHERE rule = 'RULE_08'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    rule07 = conn.execute(
-        """
-        SELECT headline, detail, ticker, created_at
-        FROM alerts WHERE rule = 'RULE_07'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    rule10 = conn.execute(
-        """
-        SELECT headline, detail, ticker, severity, created_at
-        FROM alerts WHERE rule = 'RULE_10'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    rule09 = conn.execute(
-        """
-        SELECT headline, detail, ticker, created_at
-        FROM alerts WHERE rule = 'RULE_09'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    rule11 = conn.execute(
-        """
-        SELECT headline, detail, ticker, severity, created_at
-        FROM alerts WHERE rule = 'RULE_11'
-          AND datetime(created_at) >= datetime('now', ?)
-        ORDER BY datetime(created_at) DESC LIMIT 10
-        """,
-        (window,),
-    ).fetchall()
-
-    tickers_seen = sorted({
-        r["ticker"].strip() for r in congressional if r["ticker"] and r["ticker"].strip()
-    })
 
     return {
-        "congressional": {
-            "count": len(congressional),
-            "top_tickers": tickers_seen[:10],
-            "rows": [dict(r) for r in congressional[:8]],
-        },
-        "insider": {
-            "count": len(rule06),
-            "rows": [dict(r) for r in rule06[:5]],
-        },
-        "regulatory": {
-            "count": len(rule08),
-            "rows": [dict(r) for r in rule08[:5]],
-        },
-        "prediction_markets": {
-            "count": len(rule07),
-            "rows": [dict(r) for r in rule07[:5]],
-        },
-        "corroborations": {
-            "count": len(rule10),
-            "rows": [dict(r) for r in rule10[:5]],
-        },
-        "lobbying": {
-            "count": len(rule09),
-            "rows": [dict(r) for r in rule09[:5]],
-        },
-        "contracts": {
-            "count": len(rule11),
-            "rows": [dict(r) for r in rule11[:5]],
-        },
+        "signals":     [dict(r) for r in signals],
+        "by_rule":     by_rule,
+        "congressional": [dict(r) for r in congressional],
+        "total":       len(signals),
     }
 
 
 def _build_prompt(data: dict, date_str: str) -> str:
-    def _fmt_rows(rows: list[dict], fields: list[str]) -> str:
-        out = []
-        for r in rows:
-            parts = [str(r.get(f, "")) for f in fields if r.get(f)]
-            out.append(" | ".join(parts))
-        return "\n".join(out) if out else "(none)"
+    signals = data["signals"]
+    by_rule = data["by_rule"]
+    congressional = data["congressional"]
+    total = data["total"]
 
-    cong = data["congressional"]
-    cong_rows = _fmt_rows(cong["rows"], ["ticker", "transaction_type", "amount_band", "full_name", "party", "state"])
+    if total == 0:
+        signal_block = "No HIGH or CRITICAL alerts in the last 48 hours — this is unusual and should be noted explicitly."
+    else:
+        lines = []
+        for s in signals:
+            ticker = (s.get("ticker") or "").replace("$", "").split()[0]
+            parts = [
+                f"[{s['rule']}]",
+                f"{s['severity']}",
+                ticker or "—",
+                s.get("headline", "")[:120],
+            ]
+            if s.get("detail"):
+                parts.append(f"→ {s['detail'][:80]}")
+            lines.append("  " + " | ".join(p for p in parts if p))
+        signal_block = "\n".join(lines)
 
-    ins = data["insider"]
-    ins_rows = _fmt_rows(ins["rows"], ["headline", "detail"])
+    rule10 = by_rule.get("RULE_10", [])
+    rule10_block = "\n".join(
+        f"  ★ {r.get('ticker','—')} | {r.get('headline','')[:100]}" for r in rule10
+    ) or "  (none in this window)"
 
-    reg = data["regulatory"]
-    reg_rows = _fmt_rows(reg["rows"], ["headline", "detail"])
+    cong_block = "\n".join(
+        f"  {r.get('ticker','—')} | {r.get('transaction_type','')} | {r.get('amount_band','')} | {r.get('full_name','')}"
+        for r in congressional[:8]
+    ) or "  (none in this window)"
 
-    mkt = data["prediction_markets"]
-    mkt_rows = _fmt_rows(mkt["rows"], ["headline", "detail"])
+    return f"""Today is {date_str}. You are a political intelligence analyst writing the Scope Daily Brief.
 
-    corr = data["corroborations"]
-    corr_rows = _fmt_rows(corr["rows"], ["ticker", "headline", "detail"])
+You MUST reference the specific signals below. Do NOT say there are no signals — there are {total} high-priority signals active right now.
 
-    lob = data["lobbying"]
-    lob_rows = _fmt_rows(lob["rows"], ["headline", "detail"])
+=== CORROBORATIONS — RULE_10 (LEAD WITH THESE if present) ===
+{rule10_block}
 
-    con = data["contracts"]
-    con_rows = _fmt_rows(con["rows"], ["headline", "detail"])
+=== ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by severity then rule) ===
+{signal_block}
 
-    return f"""Today is {date_str}. You are a political intelligence analyst writing the Scope Daily Brief for macro and event-driven investors. Be direct, specific, and actionable. Name tickers, sectors, and individuals. Do not hedge excessively.
+=== CONGRESSIONAL TRADES ({len(congressional)} transactions) ===
+{cong_block}
 
-Here is the raw data for the past 48 hours:
-
-=== CROSS-SOURCE CORROBORATIONS — RULE_10 ({corr['count']} signals — LEAD WITH THESE if any exist) ===
-{corr_rows}
-
-=== CONGRESSIONAL TRADING ({cong['count']} transactions) ===
-Top tickers: {', '.join(cong['top_tickers']) or 'none'}
-{cong_rows}
-
-=== INSIDER ACTIVITY — RULE_06 ({ins['count']} alerts) ===
-{ins_rows}
-
-=== GOVERNMENT CONTRACTS — RULE_11 ({con['count']} alerts) ===
-{con_rows}
-
-=== REGULATORY — RULE_08 ({reg['count']} alerts) ===
-{reg_rows}
-
-=== PREDICTION MARKETS — RULE_07 ({mkt['count']} alerts) ===
-{mkt_rows}
-
-=== LOBBYING — RULE_09 ({lob['count']} alerts) ===
-{lob_rows}
-
-Write the Scope Daily Brief in strict JSON with this exact structure:
+Write the Scope Daily Brief in strict JSON:
 {{
-  "ai_summary": "3-4 sentences. Lead with the most actionable signal (corroborations first if present). Name specific tickers, amounts, or people. Explain why it matters for positioning. End with one forward-looking sentence.",
+  "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the most actionable signal — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
   "sections": {{
-    "corroborations":       {{ "one_liner": "Name the ticker(s) and converging rules. If none: 'No cross-source corroborations in this window.'" }},
-    "congressional":        {{ "one_liner": "Name the top ticker(s) and whether buys or sells dominate." }},
-    "insider":              {{ "one_liner": "Name the company/ticker if available, state direction." }},
-    "contracts":            {{ "one_liner": "Name the recipient and amount if available. 'No new contracts' if none." }},
-    "regulatory":           {{ "one_liner": "Name the sector or specific rule. 'No new filings' if none." }},
-    "prediction_markets":   {{ "one_liner": "Name the market and direction. 'No significant moves' if none." }},
-    "lobbying":             {{ "one_liner": "Name the company or sector showing the spike. 'No spikes' if none." }}
+    "corroborations": {{ "one_liner": "If RULE_10 fired: name ticker(s) and which rules converged. If none: 'No cross-source corroborations in this window.'" }},
+    "insider":        {{ "one_liner": "Name ticker and direction (RULE_06). 'No unusual insider activity.' if absent." }},
+    "contracts":      {{ "one_liner": "Name recipient, ticker, amount (RULE_11). 'No new contracts.' if absent." }},
+    "regulatory":     {{ "one_liner": "Name sector or rule affected (RULE_08). 'No new filings.' if absent." }},
+    "prediction":     {{ "one_liner": "Name the market and move direction (RULE_07). 'No significant moves.' if absent." }},
+    "congressional":  {{ "one_liner": "Name the top ticker and whether buys or sells dominate. 'No recent disclosures.' if absent." }}
   }}
 }}
 
-Return ONLY valid JSON. No preamble, no markdown fences."""
+Return ONLY valid JSON. No preamble, no markdown fences, no commentary."""
 
 
 def generate(date_str: str | None = None, days: float = 2) -> dict:
