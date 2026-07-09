@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -184,6 +184,35 @@ def admin_refresh(key: str = ""):
         return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
     results = _run_rules(LIVE_RULES)
     return {"status": "done", "alert_count": _alert_count(), "results": results}
+
+
+@app.post("/admin/upload-db", tags=["Admin"])
+async def admin_upload_db(key: str, request: "Request"):
+    """
+    Replace the live DB with an uploaded binary — writes directly to the volume.
+    POST /admin/upload-db?key=ADMIN_KEY  (raw .db bytes as request body)
+    """
+    from fastapi.responses import JSONResponse
+    import shutil
+    from jpt_common import _get_db_path
+
+    admin_key = os.getenv("ADMIN_KEY", "")
+    if not admin_key or key != admin_key:
+        return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
+
+    body = await request.body()
+    if len(body) < 4096:
+        return JSONResponse(status_code=400, content={"error": "Body too small — send the full .db file"})
+
+    db_path = _get_db_path(None)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp = Path(str(db_path) + ".upload_tmp")
+    tmp.write_bytes(body)
+    shutil.move(str(tmp), str(db_path))
+
+    size = db_path.stat().st_size
+    return {"status": "ok", "db_path": str(db_path), "size_bytes": size, "size_mb": round(size / 1e6, 2)}
 
 
 TAPE_RULE_LABELS = {
