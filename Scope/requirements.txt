@@ -3,3 +3,4 @@ requests
 groq
 fastapi
 uvicorn[standard]
+feedparser

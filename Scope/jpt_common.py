@@ -162,6 +162,11 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE alerts ADD COLUMN why_matters TEXT")
         conn.commit()
 
+    # lifecycle_stage column on alerts
+    if "lifecycle_stage" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN lifecycle_stage TEXT DEFAULT 'created'")
+        conn.commit()
+
     # watchlist_rules table (idempotent — IF NOT EXISTS)
     conn.execute("""CREATE TABLE IF NOT EXISTS watchlist_rules (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,6 +175,14 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         condition_value  TEXT NOT NULL,
         created_at       TEXT DEFAULT (datetime('now'))
     )""")
+
+    # region_summaries table for OSINT globe caching
+    conn.execute("""CREATE TABLE IF NOT EXISTS region_summaries (
+        region       TEXT PRIMARY KEY,
+        summary      TEXT NOT NULL,
+        generated_at TEXT NOT NULL
+    )""")
+
     conn.commit()
 
 

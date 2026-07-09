@@ -406,3 +406,246 @@ def insiders_page():
 @app.get("/lobbying", response_class=HTMLResponse, include_in_schema=False)
 def lobbying_page():
     return FileResponse(STATIC_DIR / "lobbying.html")
+
+@app.get("/osint", response_class=HTMLResponse, include_in_schema=False)
+def osint_page():
+    return FileResponse(STATIC_DIR / "osint.html")
+
+@app.get("/region/{region_name}", response_class=HTMLResponse, include_in_schema=False)
+def region_page(region_name: str):
+    return FileResponse(STATIC_DIR / "osint_region.html")
+
+
+# ── OSINT / Globe API ──────────────────────────────────────────────────────────
+
+REGION_COORDS = {
+    "Middle East":      (31.0, 35.0),
+    "Eastern Europe":   (49.0, 32.0),
+    "Russia":           (60.0, 90.0),
+    "Taiwan Strait":    (23.5, 120.5),
+    "Korean Peninsula": (37.5, 127.5),
+    "South China Sea":  (12.0, 114.0),
+    "South Asia":       (30.0, 70.0),
+    "West Africa":      (8.0, 2.0),
+    "East Africa":      (0.0, 38.0),
+    "Latin America":    (-15.0, -60.0),
+    "North Africa":     (25.0, 15.0),
+    "Southeast Asia":   (10.0, 106.0),
+}
+
+
+@app.get("/api/osint-hotspots", tags=["OSINT"])
+def osint_hotspots():
+    """Return grouped RULE_OSINT alerts from last 14 days as globe hotspots."""
+    import json as _json
+    from jpt_common import db_connection as _dbc, REGION_TICKERS
+    conn = _dbc()
+    rows = conn.execute("""
+        SELECT id, ticker, headline, severity, tags, created_at
+        FROM alerts
+        WHERE rule = 'RULE_OSINT'
+          AND datetime(created_at) >= datetime('now', '-14 days')
+        ORDER BY created_at DESC
+    """).fetchall()
+    conn.close()
+
+    groups: dict = {}
+    for row in rows:
+        tags_raw = row["tags"] or ""
+        # Try to find a region from tags or REGION_COORDS keys
+        region = None
+        # Check if tags is JSON
+        try:
+            tags_obj = _json.loads(tags_raw)
+            region = tags_obj.get("region")
+        except Exception:
+            # Fallback: check region names in raw tags string
+            for rname in REGION_COORDS:
+                if rname.lower() in tags_raw.lower():
+                    region = rname
+                    break
+
+        if not region:
+            # Try to match ticker to REGION_TICKERS
+            ticker = (row["ticker"] or "").replace("$", "").split()[0]
+            for rname, tickers in REGION_TICKERS.items():
+                if ticker in tickers:
+                    region = rname
+                    break
+
+        if not region:
+            region = "Middle East"  # default fallback
+
+        if region not in groups:
+            coords = REGION_COORDS.get(region, (0.0, 0.0))
+            # Try to get lat/lng from tags JSON
+            try:
+                tags_obj = _json.loads(tags_raw)
+                lat = float(tags_obj.get("lat", coords[0]))
+                lng = float(tags_obj.get("lng", coords[1]))
+            except Exception:
+                lat, lng = coords
+            groups[region] = {
+                "region": region,
+                "lat": lat,
+                "lng": lng,
+                "count": 0,
+                "severity": "MEDIUM",
+                "ticker_list": [],
+                "last_at": None,
+            }
+
+        g = groups[region]
+        g["count"] += 1
+        # Escalate severity
+        sev_rank = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
+        if sev_rank.get(row["severity"], 0) > sev_rank.get(g["severity"], 0):
+            g["severity"] = row["severity"]
+        ticker = (row["ticker"] or "").replace("$", "").split()[0]
+        if ticker and ticker not in g["ticker_list"]:
+            g["ticker_list"].append(ticker)
+        if not g["last_at"] or row["created_at"] > g["last_at"]:
+            g["last_at"] = row["created_at"]
+
+    return list(groups.values())
+
+
+@app.get("/api/osint-summary", tags=["OSINT"])
+def osint_summary(region: str):
+    """Return cached or freshly generated AI summary for a region."""
+    import json as _json
+    from datetime import datetime, timezone
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+
+    cached = conn.execute(
+        "SELECT summary, generated_at FROM region_summaries WHERE region = ?", (region,)
+    ).fetchone()
+
+    if cached:
+        generated_at = cached["generated_at"] or ""
+        try:
+            gen_dt = datetime.fromisoformat(generated_at).replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - gen_dt).total_seconds() / 3600
+        except Exception:
+            age_hours = 999
+        if age_hours < 6:
+            conn.close()
+            return {"region": region, "summary": cached["summary"], "cached": True}
+
+    # Gather recent alerts for this region
+    rows = conn.execute("""
+        SELECT headline, severity, ticker, created_at
+        FROM alerts
+        WHERE rule = 'RULE_OSINT'
+          AND datetime(created_at) >= datetime('now', '-14 days')
+        ORDER BY created_at DESC
+        LIMIT 10
+    """).fetchall()
+
+    signals_text = "\n".join(
+        f"- [{r['severity']}] {r['ticker'] or ''}: {r['headline']}"
+        for r in rows
+    ) or "No recent signals."
+
+    api_key = os.getenv("GROQ_API_KEY", "").strip()
+    if not api_key:
+        conn.close()
+        return {"region": region, "summary": "GROQ_API_KEY not configured.", "cached": False}
+
+    try:
+        from groq import Groq
+        client = Groq(api_key=api_key)
+        prompt = (
+            f"You are a geopolitical intelligence analyst. Summarize the current situation in the {region} region "
+            f"based on these recent signals from the Scope platform:\n\n{signals_text}\n\n"
+            f"Write 3-4 sentences covering: the main threat or development, affected markets, and what to watch next. "
+            f"Be concise and direct. Do not use bullet points."
+        )
+        resp = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            max_tokens=300,
+            messages=[
+                {"role": "system", "content": "You are a geopolitical intelligence analyst. Be concise and factual."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        summary = resp.choices[0].message.content.strip()
+    except Exception as e:
+        summary = f"Unable to generate summary: {e}"
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT OR REPLACE INTO region_summaries (region, summary, generated_at) VALUES (?, ?, ?)",
+        (region, summary, generated_at),
+    )
+    conn.commit()
+    conn.close()
+    return {"region": region, "summary": summary, "cached": False}
+
+
+@app.get("/api/conflict-news", tags=["OSINT"])
+def conflict_news():
+    """Return the 30 most recent RULE_OSINT alert headlines for the conflict RSS tape."""
+    import json as _json
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    rows = conn.execute("""
+        SELECT headline, tags, created_at
+        FROM alerts
+        WHERE rule = 'RULE_OSINT'
+        ORDER BY created_at DESC
+        LIMIT 30
+    """).fetchall()
+    conn.close()
+
+    items = []
+    for row in rows:
+        tags_raw = row["tags"] or ""
+        source = "OSINT"
+        url = None
+        try:
+            tags_obj = _json.loads(tags_raw)
+            source = tags_obj.get("source", "OSINT")
+            url = tags_obj.get("source_url")
+        except Exception:
+            pass
+        items.append({"title": row["headline"], "source": source, "url": url})
+    return items
+
+
+@app.get("/api/osint-region-context", tags=["OSINT"])
+def osint_region_context(region: str):
+    """Return congressional trades and contracts for tickers linked to this region."""
+    from jpt_common import db_connection as _dbc, REGION_TICKERS
+    conn = _dbc()
+    tickers = REGION_TICKERS.get(region, [])
+
+    trades = []
+    contracts = []
+
+    if tickers:
+        placeholders = ",".join("?" * len(tickers))
+        trade_rows = conn.execute(f"""
+            SELECT t.raw_ticker_string AS ticker, m.full_name, t.transaction_type, t.filing_date
+            FROM transactions t
+            JOIN members m ON t.member_id = m.bioguide_id
+            WHERE t.raw_ticker_string IN ({placeholders})
+              AND t.filing_date >= date('now', '-90 days')
+            ORDER BY t.filing_date DESC
+            LIMIT 20
+        """, tickers).fetchall()
+        trades = [dict(r) for r in trade_rows]
+
+        contract_rows = conn.execute(f"""
+            SELECT recipient, amount, agency, period_of_performance_start
+            FROM contracts
+            WHERE ticker IN ({placeholders})
+              AND period_of_performance_start >= date('now', '-90 days')
+            ORDER BY period_of_performance_start DESC
+            LIMIT 20
+        """, tickers).fetchall()
+        contracts = [dict(r) for r in contract_rows]
+
+    conn.close()
+    return {"region": region, "tickers": tickers, "trades": trades, "contracts": contracts}

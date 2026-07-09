@@ -148,6 +148,14 @@ def run(dry_run: bool, window_hours: int = 48) -> tuple[int, int]:
             """,
             (RULE, ticker, severity, headline, narrative, tags),
         )
+        # Promote existing alerts on this ticker to 'corroborated' lifecycle stage
+        conn.execute(
+            """UPDATE alerts SET lifecycle_stage = 'corroborated'
+               WHERE ticker = ? AND rule != 'RULE_10'
+                 AND (lifecycle_stage IS NULL OR lifecycle_stage = 'created')
+                 AND datetime(created_at) >= datetime('now', '-48 hours')""",
+            (ticker,),
+        )
         conn.commit()
         emitted += 1
 

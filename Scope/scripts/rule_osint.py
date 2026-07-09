@@ -82,7 +82,14 @@ def _fetch_gdelt_events() -> list[dict]:
                     num_mentions = int(row[31])   if row[31] else 0
                     avg_tone     = float(row[34]) if row[34] else 0.0
                     country      = row[53]
-                    source_url   = row[57]
+                    geo_lat      = float(row[53]) if len(row) > 53 and row[53] else None
+                    geo_lng      = float(row[54]) if len(row) > 54 and row[54] else None
+                    # GDELT v2 export: ActionGeo_Lat is col 56, ActionGeo_Long is col 57
+                    # (0-indexed; row[53]=Actor2CountryCode, row[56]=ActionGeo_Lat)
+                    geo_lat      = float(row[56]) if len(row) > 56 and row[56] else None
+                    geo_lng      = float(row[57]) if len(row) > 57 and row[57] else None
+                    country      = row[51] if len(row) > 51 and row[51] else row[53] if len(row) > 53 else ""
+                    source_url   = row[60] if len(row) > 60 and row[60] else (row[57] if len(row) > 57 else "")
                 except (ValueError, IndexError):
                     continue
 
@@ -105,6 +112,8 @@ def _fetch_gdelt_events() -> list[dict]:
                     "country":      country,
                     "region":       COUNTRY_REGION_MAP[country],
                     "source_url":   source_url,
+                    "geo_lat":      geo_lat,
+                    "geo_lng":      geo_lng,
                 })
 
     return signals
@@ -162,6 +171,9 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
             "tickers":    tickers[:3],
             "source":     "GDELT",
         }
+        if event.get("geo_lat") is not None:
+            tags_obj["lat"] = event["geo_lat"]
+            tags_obj["lng"] = event["geo_lng"]
         tags_str = json.dumps(tags_obj)
 
         print(

@@ -6,6 +6,7 @@
   <title>Ticker — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <style>
     :root {
       --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
@@ -90,6 +91,15 @@
 
     .empty { padding: 2rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
     .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 2rem 0; }
+
+    /* RELATIONSHIP GRAPH */
+    .graph-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0; overflow: hidden; }
+    .graph-wrap svg { display: block; width: 100%; }
+    .graph-filter-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); padding: 0.5rem 1rem; }
+    .rule-node { cursor: pointer; }
+    .rule-node circle { transition: r 0.2s; }
+    .rule-node:hover circle { filter: brightness(1.3); }
+    .rule-node.active-filter circle { stroke: var(--amber); stroke-width: 2px; }
   </style>
 </head>
 <body>
@@ -101,6 +111,7 @@
     <a href="/feed">Alerts</a>
     <a href="/members-list">Members</a>
     <a href="/watchlist">Watchlist</a>
+    <a href="/osint">OSINT Globe</a>
     <a href="/ask">Chat</a>
   </div>
   <a href="/feed" class="nav-cta">Live Feed →</a>
@@ -287,6 +298,82 @@
 
   function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
 
+  let _activeRuleFilter = null;
+
+  function renderRuleGraph(alerts) {
+    const ruleCount = {};
+    for (const a of alerts) ruleCount[a.rule] = (ruleCount[a.rule] || 0) + 1;
+    const rules = Object.keys(ruleCount);
+    if (rules.length < 2) return '';
+
+    const W = 680, H = 260, CX = W / 2, CY = H / 2;
+    const centerR = 22, ruleR = 14;
+    const angleStep = (2 * Math.PI) / rules.length;
+    const orbitR = Math.min(CX, CY) - 40;
+
+    const nodePositions = rules.map((r, i) => ({
+      rule: r, count: ruleCount[r],
+      x: CX + orbitR * Math.cos(angleStep * i - Math.PI / 2),
+      y: CY + orbitR * Math.sin(angleStep * i - Math.PI / 2),
+    }));
+    const maxCount = Math.max(...rules.map(r => ruleCount[r]));
+
+    const lines = nodePositions.map(n => {
+      const w = Math.max(1, Math.round((n.count / maxCount) * 4));
+      return `<line x1="${CX}" y1="${CY}" x2="${n.x}" y2="${n.y}" stroke="#3a3428" stroke-width="${w}" stroke-opacity="0.7"/>`;
+    }).join('');
+
+    const nodes = nodePositions.map((n, i) => {
+      const col = RULE_COLORS[n.rule] || '#7a7060';
+      const r = ruleR + Math.round((n.count / maxCount) * 6);
+      const shortRule = n.rule.replace('RULE_', '');
+      return `<g class="rule-node" id="rn-${i}" onclick="filterByRule('${n.rule}', ${i})" transform="translate(${n.x},${n.y})">
+        <circle r="${r}" fill="${col}" fill-opacity="0.85"/>
+        <text dy="0.35em" text-anchor="middle" fill="#e8e0cc" font-family="IBM Plex Mono,monospace" font-size="8">${shortRule}</text>
+        <title>${n.rule}: ${n.count} alerts — click to filter</title>
+      </g>`;
+    }).join('');
+
+    const center = `<g transform="translate(${CX},${CY})">
+      <circle r="${centerR}" fill="#c8922a" fill-opacity="0.9"/>
+      <text dy="0.35em" text-anchor="middle" fill="#0c0b09" font-family="Playfair Display,serif" font-size="11" font-weight="700">${symbol}</text>
+    </g>`;
+
+    return `
+      <div class="section-label">Signal Relationship Graph</div>
+      <div class="graph-wrap">
+        <svg viewBox="0 0 ${W} ${H}" height="${H}">
+          ${lines}${nodes}${center}
+        </svg>
+        <div class="graph-filter-note" id="graph-note">Click a rule node to filter the alert list below ·  <span id="clear-filter" style="color:var(--amber);cursor:pointer;display:none" onclick="clearRuleFilter()">Clear filter ×</span></div>
+      </div>`;
+  }
+
+  function filterByRule(rule, idx) {
+    _activeRuleFilter = _activeRuleFilter === rule ? null : rule;
+    document.querySelectorAll('.rule-node').forEach((el, i) => {
+      el.classList.toggle('active-filter', i === idx && _activeRuleFilter);
+    });
+    document.getElementById('clear-filter').style.display = _activeRuleFilter ? 'inline' : 'none';
+    applyAlertFilter();
+  }
+
+  function clearRuleFilter() {
+    _activeRuleFilter = null;
+    document.querySelectorAll('.rule-node').forEach(el => el.classList.remove('active-filter'));
+    document.getElementById('clear-filter').style.display = 'none';
+    applyAlertFilter();
+  }
+
+  let _allAlerts = [];
+  function applyAlertFilter() {
+    const visible = _activeRuleFilter ? _allAlerts.filter(a => a.rule === _activeRuleFilter) : _allAlerts;
+    const listEl = document.querySelector('.alerts-list');
+    if (listEl) listEl.innerHTML = renderAlerts(visible);
+    const countEl = document.querySelector('.alerts-count-label');
+    if (countEl) countEl.textContent = visible.length + (_activeRuleFilter ? ` — filtered to ${_activeRuleFilter}` : ' total');
+  }
+
   async function load() {
     let res, data;
     try {
@@ -297,6 +384,7 @@
       return;
     }
     const alerts = data.alerts       || [];
+    _allAlerts = alerts;
     const members = data.related_members || [];
     const txs     = data.transactions    || [];
 
@@ -336,9 +424,10 @@
         </div>
       </div>
       ${renderTimeline(alerts)}
+      ${renderRuleGraph(alerts)}
       ${membersSection}
       ${txSection}
-      <div class="section-label">All Alerts — ${alerts.length} total</div>
+      <div class="section-label">All Alerts — <span class="alerts-count-label">${alerts.length} total</span></div>
       <div class="alerts-list">${renderAlerts(alerts)}</div>
     `;
 

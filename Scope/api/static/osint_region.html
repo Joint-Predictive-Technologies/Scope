@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Region Dossier — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
+
+    .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
+
+    /* Header */
+    .page-back { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.06em; color: var(--muted); text-decoration: none; text-transform: uppercase; margin-bottom: 1.2rem; display: inline-block; transition: color 0.15s; }
+    .page-back:hover { color: var(--amber); }
+    .page-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2.4rem; font-weight: 900; color: var(--cream); margin-bottom: 0.8rem; }
+    .badge-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 3px; font-weight: 500; }
+    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-count    { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+    .badge-rule     { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
+
+    /* Sections */
+    .section { margin-bottom: 2.5rem; }
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+
+    /* AI Summary */
+    .summary-box { background: var(--bg2); border: 1px solid rgba(200,146,42,0.2); border-radius: 6px; padding: 1.2rem 1.4rem; }
+    .summary-text { font-size: 0.9rem; color: var(--cream2); line-height: 1.75; font-style: italic; }
+    .summary-loading { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+    .summary-loading span { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Alert cards */
+    .alert-cards { display: flex; flex-direction: column; gap: 1px; }
+    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.3rem; transition: border-color 0.15s; }
+    .alert-card:hover { border-color: var(--border2); }
+    .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
+    .ticker-link:hover { background: rgba(200,146,42,0.1); }
+    .alert-headline { font-size: 0.87rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 180px; }
+    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); flex-shrink: 0; }
+    .verify-link { display: inline-block; margin-top: 0.5rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.63rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; }
+    .verify-link:hover { background: rgba(200,146,42,0.1); }
+
+    /* Tables */
+    .data-table { width: 100%; border-collapse: collapse; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
+    .data-table th { text-align: left; font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+    .data-table td { padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--border); color: var(--cream2); vertical-align: top; }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: var(--bg3); }
+    .data-table .ticker-col { color: var(--amber); }
+    .data-table .buy-col  { color: #4dc47a; }
+    .data-table .sell-col { color: #e55b4d; }
+
+    .table-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .table-sub-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.8rem 1rem 0; }
+
+    /* Prediction markets section */
+    .pred-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1.2rem; margin-bottom: 0.4rem; }
+    .pred-headline { font-size: 0.85rem; color: var(--cream); margin-bottom: 0.3rem; }
+    .pred-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+
+    .empty { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); padding: 1.5rem 0; }
+    .loading { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); padding: 1rem 0; }
+    .loading span { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
+  </style>
+</head>
+<body>
+<!-- NOTHING renders above this line except the nav -->
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <button class="hamburger" id="ham-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/osint">OSINT Globe</a>
+    <a href="/ask">Ask Scope</a>
+    <a href="/feed">Alerts</a>
+  </div>
+</nav>
+
+<div class="page">
+  <a href="/osint" class="page-back">← Back to Globe</a>
+
+  <div id="page-header">
+    <div class="page-eyebrow">Region Intelligence Dossier</div>
+    <div class="page-title" id="page-title">Loading…</div>
+    <div class="badge-row" id="badge-row"></div>
+  </div>
+
+  <!-- 1. AI Summary -->
+  <div class="section">
+    <div class="section-label">AI Summary</div>
+    <div class="summary-box">
+      <div id="ai-summary" class="summary-loading"><span>Generating intelligence summary…</span></div>
+    </div>
+  </div>
+
+  <!-- 2. Active Alerts -->
+  <div class="section">
+    <div class="section-label">Active Alerts · RULE_OSINT · Last 30 days</div>
+    <div id="alerts-list"><div class="loading"><span>Loading alerts…</span></div></div>
+  </div>
+
+  <!-- 3. Affected Tickers & Congressional Activity -->
+  <div class="section">
+    <div class="section-label">Affected Tickers &amp; Congressional Activity</div>
+    <div id="context-section"><div class="loading"><span>Loading context…</span></div></div>
+  </div>
+
+  <!-- 4. Prediction Markets -->
+  <div class="section" id="pred-section" style="display:none">
+    <div class="section-label">Prediction Market Signals · RULE_07</div>
+    <div id="pred-list"></div>
+  </div>
+</div>
+
+<script>
+  // ── Nav hamburger ──────────────────────────────────────────────────────────
+  document.getElementById('ham-btn').addEventListener('click', () => {
+    document.getElementById('nav-links').classList.toggle('open');
+  });
+
+  // ── Get region from URL path ───────────────────────────────────────────────
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const REGION = decodeURIComponent(pathParts[pathParts.length - 1] || '');
+
+  document.title = (REGION || 'Region') + ' Dossier — Scope';
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+  function escHtml(s) {
+    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    const ts = new Date(dateStr.replace(' ', 'T') + (dateStr.includes('Z') ? '' : 'Z')).getTime();
+    if (isNaN(ts)) return '';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  function formatAmount(n) {
+    if (!n && n !== 0) return '—';
+    if (n >= 1e9) return '$' + (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return '$' + (n / 1e3).toFixed(0) + 'K';
+    return '$' + n;
+  }
+
+  function withTimeout(ms) {
+    const c = new AbortController();
+    setTimeout(() => c.abort(), ms);
+    return c.signal;
+  }
+
+  // ── 1. Page header (from hotspot data) ────────────────────────────────────
+  async function loadHeader() {
+    document.getElementById('page-title').textContent = REGION;
+    const badgeRow = document.getElementById('badge-row');
+
+    try {
+      const r = await fetch('/api/osint-hotspots', { signal: withTimeout(8000) });
+      const hotspots = await r.json();
+      const hs = hotspots.find(h => h.region === REGION);
+      if (hs) {
+        badgeRow.innerHTML = `
+          <span class="badge badge-${hs.severity}">${hs.severity}</span>
+          <span class="badge badge-count">${hs.count} signal${hs.count !== 1 ? 's' : ''}</span>
+          ${(hs.ticker_list || []).slice(0, 4).map(t =>
+            `<a href="/ticker/${t}" class="ticker-link">$${t}</a>`
+          ).join('')}
+        `;
+      }
+    } catch {
+      // silent — header still shows region name
+    }
+  }
+
+  // ── 2. AI Summary ──────────────────────────────────────────────────────────
+  async function loadSummary() {
+    const el = document.getElementById('ai-summary');
+    const timeout = setTimeout(() => {
+      if (el) el.innerHTML = '<span style="color:var(--muted)">Summary timed out.</span>';
+    }, 8000);
+    try {
+      const r = await fetch(`/api/osint-summary?region=${encodeURIComponent(REGION)}`, { signal: withTimeout(10000) });
+      const d = await r.json();
+      clearTimeout(timeout);
+      if (el) {
+        el.className = 'summary-text';
+        el.textContent = d.summary || 'No summary available for this region.';
+      }
+    } catch {
+      clearTimeout(timeout);
+      if (el) el.innerHTML = '<span style="color:var(--muted)">Unable to generate summary.</span>';
+    }
+  }
+
+  // ── 3. Active alerts ───────────────────────────────────────────────────────
+  async function loadAlerts() {
+    const el = document.getElementById('alerts-list');
+    try {
+      const r = await fetch('/alerts?rule=RULE_OSINT&days=30&limit=20', { signal: withTimeout(8000) });
+      const data = await r.json();
+      const items = (data.items || []).filter(a => {
+        const tags = (a.tags || '').toLowerCase();
+        return tags.includes(REGION.toLowerCase());
+      });
+
+      if (!items.length) {
+        // Fall back to all RULE_OSINT if no region match
+        const all = (data.items || []);
+        if (!all.length) {
+          el.innerHTML = '<div class="empty">No OSINT alerts in the last 30 days.</div>';
+          return;
+        }
+        renderAlerts(el, all.slice(0, 10));
+        return;
+      }
+      renderAlerts(el, items);
+    } catch {
+      el.innerHTML = '<div class="empty">Failed to load alerts.</div>';
+    }
+  }
+
+  function renderAlerts(el, items) {
+    el.innerHTML = '<div class="alert-cards">' + items.map(a => {
+      const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
+      const tickerBadge = ticker
+        ? `<a href="/ticker/${ticker}" class="ticker-link">${ticker}</a>`
+        : '';
+
+      let verifyLink = '';
+      try {
+        const tags = JSON.parse(a.tags || '{}');
+        if (tags.source_url) verifyLink = `<a href="${escHtml(tags.source_url)}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
+      } catch {
+        if (a.tags && a.tags.startsWith('http')) verifyLink = `<a href="${escHtml(a.tags)}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
+      }
+
+      return `
+        <div class="alert-card">
+          <div class="alert-top">
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            <span class="badge badge-rule">${a.rule}</span>
+            ${tickerBadge}
+            <span class="alert-headline">${escHtml(a.headline)}</span>
+            <span class="alert-time">${timeAgo(a.created_at)}</span>
+          </div>
+          ${verifyLink}
+        </div>`;
+    }).join('') + '</div>';
+  }
+
+  // ── 4. Context (trades + contracts) ───────────────────────────────────────
+  async function loadContext() {
+    const el = document.getElementById('context-section');
+    try {
+      const r = await fetch(`/api/osint-region-context?region=${encodeURIComponent(REGION)}`, { signal: withTimeout(8000) });
+      const d = await r.json();
+
+      const tickers = d.tickers || [];
+      const trades   = d.trades || [];
+      const contracts = d.contracts || [];
+
+      let html = '';
+
+      // Ticker list
+      if (tickers.length) {
+        html += `
+          <div style="margin-bottom:1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+            ${tickers.map(t => `<a href="/ticker/${t}" class="ticker-link">$${t}</a>`).join('')}
+          </div>`;
+      }
+
+      // Congressional trades table
+      html += `<div class="table-wrap" style="margin-bottom:1.2rem;">
+        <div class="table-sub-label">Congressional Trades</div>`;
+      if (trades.length) {
+        html += `<table class="data-table">
+          <thead><tr>
+            <th>Ticker</th><th>Member</th><th>Type</th><th>Date</th>
+          </tr></thead>
+          <tbody>` +
+          trades.map(t => {
+            const isBuy = (t.transaction_type || '').toLowerCase().includes('buy') ||
+                          (t.transaction_type || '').toLowerCase().includes('purchase');
+            return `<tr>
+              <td class="ticker-col">${escHtml(t.ticker || '—')}</td>
+              <td>${escHtml(t.full_name || '—')}</td>
+              <td class="${isBuy ? 'buy-col' : 'sell-col'}">${escHtml(t.transaction_type || '—')}</td>
+              <td>${escHtml(t.filing_date || '—')}</td>
+            </tr>`;
+          }).join('') +
+          `</tbody></table>`;
+      } else {
+        html += `<div style="padding:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">No congressional trades in the last 90 days.</div>`;
+      }
+      html += `</div>`;
+
+      // Contracts table
+      html += `<div class="table-wrap">
+        <div class="table-sub-label">Government Contracts</div>`;
+      if (contracts.length) {
+        html += `<table class="data-table">
+          <thead><tr>
+            <th>Recipient</th><th>Amount</th><th>Agency</th><th>Date</th>
+          </tr></thead>
+          <tbody>` +
+          contracts.map(c => `<tr>
+            <td>${escHtml(c.recipient || '—')}</td>
+            <td class="ticker-col">${formatAmount(c.amount)}</td>
+            <td>${escHtml(c.agency || '—')}</td>
+            <td>${escHtml(c.period_of_performance_start || '—')}</td>
+          </tr>`).join('') +
+          `</tbody></table>`;
+      } else {
+        html += `<div style="padding:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">No government contracts in the last 90 days.</div>`;
+      }
+      html += `</div>`;
+
+      el.innerHTML = html;
+    } catch {
+      el.innerHTML = '<div class="empty">Failed to load context data.</div>';
+    }
+  }
+
+  // ── 5. Prediction markets ──────────────────────────────────────────────────
+  async function loadPrediction(regionTickers) {
+    if (!regionTickers || !regionTickers.length) return;
+    try {
+      // Fetch prediction market alerts
+      const promises = regionTickers.slice(0, 3).map(t =>
+        fetch(`/alerts?rule=RULE_07&days=30&limit=10&ticker=${encodeURIComponent(t)}`)
+          .then(r => r.json()).catch(() => ({ items: [] }))
+      );
+      const results = await Promise.all(promises);
+      const items = results.flatMap(r => r.items || []);
+      if (!items.length) return;
+
+      document.getElementById('pred-section').style.display = 'block';
+      const el = document.getElementById('pred-list');
+      el.innerHTML = items.slice(0, 5).map(a => {
+        const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
+        return `<div class="pred-card">
+          <div class="pred-headline">${escHtml(a.headline)}</div>
+          <div class="pred-meta">
+            ${ticker ? `<a href="/ticker/${ticker}" class="ticker-link" style="margin-right:0.5rem">$${ticker}</a>` : ''}
+            <span class="badge badge-${a.severity}">${a.severity}</span>
+            &nbsp; ${timeAgo(a.created_at)}
+          </div>
+        </div>`;
+      }).join('');
+    } catch {
+      // silent
+    }
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  async function init() {
+    if (!REGION) {
+      document.getElementById('page-title').textContent = 'Unknown Region';
+      return;
+    }
+
+    // Load in parallel where possible
+    await loadHeader();
+
+    // These can all run in parallel
+    Promise.all([loadSummary(), loadAlerts(), loadContext()]);
+
+    // Load prediction markets after context (need tickers)
+    try {
+      const r = await fetch(`/api/osint-region-context?region=${encodeURIComponent(REGION)}`);
+      const d = await r.json();
+      loadPrediction(d.tickers || []);
+    } catch {
+      // silent
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>

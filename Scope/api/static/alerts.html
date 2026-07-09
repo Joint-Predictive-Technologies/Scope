@@ -72,6 +72,10 @@
     .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
     .badge-rule  { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
     .badge-score { background: rgba(42,138,74,0.15); color: #4dc47a; border: 1px solid rgba(42,138,74,0.3); }
+    .badge-lifecycle { font-size: 0.58rem; letter-spacing: 0.06em; }
+    .badge-lc-corroborated { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-lc-featured { background: rgba(100,160,200,0.15); color: #6ab0e0; border: 1px solid rgba(100,160,200,0.25); }
+    .badge-lc-backtested { background: rgba(42,138,74,0.15); color: #4dc47a; border: 1px solid rgba(42,138,74,0.3); }
     .delay-ok      { background: rgba(100,100,100,0.15); color: #9a9080; border: 1px solid rgba(100,100,100,0.25); }
     .delay-late    { background: rgba(230,126,34,0.15);  color: #e67e22; border: 1px solid rgba(230,126,34,0.3); }
     .delay-overdue { background: rgba(192,57,43,0.18);   color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
@@ -168,6 +172,7 @@
     <a href="/insiders">Insiders</a>
     <a href="/contracts">Contracts</a>
     <a href="/lobbying">Lobbying</a>
+    <a href="/osint">OSINT Globe</a>
     <a href="/ask">Ask Scope</a>
     <a href="/feed" class="active">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
   </div>
@@ -748,6 +753,7 @@
             ${srcChip}
             <span class="badge badge-score" title="Signal score">${sc}</span>
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
+            ${a.lifecycle_stage && a.lifecycle_stage !== 'created' ? `<span class="badge badge-lifecycle badge-lc-${a.lifecycle_stage}" title="Signal lifecycle">${{corroborated:'★ CORROBORATED', featured:'📰 FEATURED', backtested:'📊 BACKTESTED'}[a.lifecycle_stage] || a.lifecycle_stage}</span>` : ''}
             <span class="alert-headline">${a.headline}</span>
             <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
             <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>

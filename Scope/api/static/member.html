@@ -110,6 +110,7 @@
     <a href="/">Home</a>
     <a href="/feed">Alerts</a>
     <a href="/watchlist">Watchlist</a>
+    <a href="/osint">OSINT Globe</a>
     <a href="/ask">Chat</a>
   </div>
   <a href="/feed" class="nav-cta">Live Feed →</a>
@@ -122,12 +123,22 @@
 <script>
   const bioguideId = window.location.pathname.split('/').pop();
 
-  function timeAgo(ts) {
-    const d = new Date(ts + 'Z');
-    const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-    return Math.floor(s / 86400) + 'd ago';
+  function timeAgo(dateStr) {
+    if (!dateStr) return 'Unknown';
+    let ts;
+    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
+      const n = Number(dateStr); ts = n > 1e10 ? n : n * 1000;
+    } else {
+      const s = String(dateStr).trim().replace(' ', 'T');
+      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    }
+    if (isNaN(ts)) return 'Unknown';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 0) return 'just now';
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
   }
 
   function partyClass(party) {
