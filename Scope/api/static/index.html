@@ -229,6 +229,35 @@
     footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
     footer a { color: var(--amber); text-decoration: none; }
 
+    /* ── HEAT STRIP ── */
+    .heat-strip { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.6rem; }
+    .heat-chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.55rem 0.8rem; text-decoration: none; display: flex; flex-direction: column; gap: 0.35rem; min-width: 140px; flex: 1; transition: border-color 0.15s; }
+    .heat-chip:hover { border-color: var(--amber); }
+    .heat-chip-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .heat-chip-bar-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .heat-chip-bar-fill { height: 100%; border-radius: 2px; }
+    .heat-chip-score { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; }
+
+    /* ── CMD PALETTE ── */
+    #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
+    #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
+    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7); }
+    #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
+    #cmd-results { max-height:360px; overflow-y:auto; }
+    .cmd-group-label { font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
+    .cmd-item { display:flex; align-items:center; gap:0.8rem; padding:0.65rem 1.2rem; cursor:pointer; text-decoration:none; border-left:2px solid transparent; }
+    .cmd-item:hover,.cmd-item.active { background:#222018; border-left-color:#c8922a; }
+    .cmd-item-icon { font-size:0.9rem; opacity:0.6; width:18px; text-align:center; flex-shrink:0; }
+    .cmd-item-main { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#e8e0cc; }
+    .cmd-item-sub  { font-size:0.68rem; color:#7a7060; margin-top:1px; }
+    .cmd-badge { font-family:'IBM Plex Mono',monospace; font-size:0.55rem; padding:1px 5px; border-radius:2px; margin-left:auto; flex-shrink:0; }
+    .cmd-badge-CRITICAL { background:rgba(229,91,77,0.2); color:#e55b4d; }
+    .cmd-badge-HIGH     { background:rgba(200,146,42,0.2); color:#c8922a; }
+    .cmd-badge-MEDIUM   { background:rgba(106,176,224,0.2); color:#6ab0e0; }
+    .cmd-empty { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
+    .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
+    .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+
     @media (max-width: 900px) {
       .hero { grid-template-columns: 1fr; gap: 2.4rem; }
       .hero h1 { font-size: 2.2rem; }
@@ -268,7 +297,17 @@
     <a href="/ask">Ask Scope</a>
     <a href="/feed">Alerts</a>
   </div>
+  <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);background:var(--bg2);border:1px solid var(--border);padding:4px 10px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:0.4rem">⌘K</button>
 </nav>
+
+<!-- CMD PALETTE -->
+<div id="cmd-backdrop" onclick="if(event.target===this)closeCmd()">
+  <div id="cmd-box">
+    <input id="cmd-input" placeholder="Search tickers, members, headlines…" autocomplete="off" />
+    <div id="cmd-results"><div class="cmd-empty">Type to search…</div></div>
+    <div class="cmd-hint"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+  </div>
+</div>
 
 <!-- HERO (compact) -->
 <div class="hero">
@@ -330,11 +369,11 @@
   <div id="brief-preview-wrap" style="margin-top:1.2rem"></div>
 </div>
 
-<!-- SECTOR BAR -->
+<!-- HEAT STRIP -->
 <div class="section" style="padding-top:0;padding-bottom:1.5rem">
-  <div class="section-label">Sector Intelligence</div>
-  <div id="sector-bar" style="display:flex;gap:0.7rem;flex-wrap:wrap;margin-top:0.6rem">
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading sectors…</div>
+  <div class="section-label">Political Heat Index <a href="/sectors" style="font-size:0.58rem;color:var(--muted);text-decoration:none;margin-left:0.7rem">Full grid →</a></div>
+  <div class="heat-strip" id="heat-strip">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading…</div>
   </div>
 </div>
 
@@ -957,6 +996,85 @@
       ht.innerHTML = '<tbody><tr><td style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Activity data unavailable.</td></tr></tbody>';
     }
   }, 8000);
+
+  /* ── HEAT STRIP ── */
+  (async () => {
+    try {
+      const c = new AbortController(); setTimeout(() => c.abort(), 8000);
+      const r = await fetch('/api/heat-index?days=30', { signal: c.signal });
+      const data = await r.json();
+      if (!Array.isArray(data) || !data.length) return;
+      const top5 = data.slice(0, 5);
+      const maxScore = top5[0].score || 1;
+      function heatCol(s) { return s >= 60 ? '#e55b4d' : s >= 35 ? '#e67e22' : s >= 15 ? '#c8922a' : '#4dc47a'; }
+      document.getElementById('heat-strip').innerHTML = top5.map(d => {
+        const col = heatCol(d.score);
+        const pct = Math.min((d.score / Math.max(maxScore, 1)) * 100, 100).toFixed(0);
+        const trendSym = d.trend === 'up' ? '↑' : d.trend === 'down' ? '↓' : '→';
+        return `<a href="/sectors" class="heat-chip">
+          <div class="heat-chip-name">${d.sector}</div>
+          <div class="heat-chip-bar-track"><div class="heat-chip-bar-fill" style="width:${pct}%;background:${col}"></div></div>
+          <div class="heat-chip-score" style="color:${col}">${d.score} <span style="color:var(--muted);font-size:0.55rem">${trendSym} ${d.alert_count}a</span></div>
+        </a>`;
+      }).join('');
+    } catch { /* leave default */ }
+  })();
+
+  /* ── COMMAND PALETTE ── */
+  let _cmdTimer = null;
+  let _cmdActive = -1;
+  function openCmd() {
+    document.getElementById('cmd-backdrop').classList.add('open');
+    document.getElementById('cmd-input').focus();
+    _cmdActive = -1;
+  }
+  function closeCmd() {
+    document.getElementById('cmd-backdrop').classList.remove('open');
+    document.getElementById('cmd-input').value = '';
+    document.getElementById('cmd-results').innerHTML = '<div class="cmd-empty">Type to search…</div>';
+    _cmdActive = -1;
+  }
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmd(); return; }
+    if (e.key === 'Escape') { closeCmd(); return; }
+    const backdrop = document.getElementById('cmd-backdrop');
+    if (!backdrop.classList.contains('open')) return;
+    const items = document.querySelectorAll('.cmd-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); _cmdActive = Math.min(_cmdActive + 1, items.length - 1); items.forEach((el,i) => el.classList.toggle('active', i === _cmdActive)); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); _cmdActive = Math.max(_cmdActive - 1, 0); items.forEach((el,i) => el.classList.toggle('active', i === _cmdActive)); }
+    if (e.key === 'Enter' && _cmdActive >= 0) { items[_cmdActive]?.click(); closeCmd(); }
+  });
+  document.getElementById('cmd-input').addEventListener('input', e => {
+    clearTimeout(_cmdTimer);
+    _cmdTimer = setTimeout(() => cmdSearch(e.target.value.trim()), 200);
+  });
+  async function cmdSearch(q) {
+    _cmdActive = -1;
+    if (!q || q.length < 2) { document.getElementById('cmd-results').innerHTML = '<div class="cmd-empty">Type to search…</div>'; return; }
+    try {
+      const c = new AbortController(); setTimeout(() => c.abort(), 5000);
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: c.signal });
+      const d = await r.json();
+      let html = '';
+      if (d.tickers?.length) {
+        html += '<div class="cmd-group-label">Tickers</div>';
+        html += d.tickers.map(t => `<a class="cmd-item" href="/ticker/${t.ticker}"><span class="cmd-item-icon">◎</span><div><div class="cmd-item-main">${t.ticker}</div></div></a>`).join('');
+      }
+      if (d.members?.length) {
+        html += '<div class="cmd-group-label">Members</div>';
+        html += d.members.map(m => `<a class="cmd-item" href="/member/${m.bioguide_id}"><span class="cmd-item-icon">◈</span><div><div class="cmd-item-main">${m.full_name}</div><div class="cmd-item-sub">${m.state||''} · ${m.party||''}</div></div></a>`).join('');
+      }
+      if (d.headlines?.length) {
+        html += '<div class="cmd-group-label">Signals</div>';
+        html += d.headlines.map(h => {
+          const rule = (h.rule_path||'').split('/').pop().replace('.py','').toUpperCase();
+          return `<a class="cmd-item" href="/feed?ticker=${h.ticker||''}"><span class="cmd-item-icon">⚡</span><div><div class="cmd-item-main">${(h.headline||'').slice(0,72)}</div><div class="cmd-item-sub">${h.ticker||''} · ${rule}</div></div><span class="cmd-badge cmd-badge-${h.severity||'MEDIUM'}">${h.severity||''}</span></a>`;
+        }).join('');
+      }
+      if (!html) html = '<div class="cmd-empty">No results for "' + q + '"</div>';
+      document.getElementById('cmd-results').innerHTML = html;
+    } catch { document.getElementById('cmd-results').innerHTML = '<div class="cmd-empty">Search failed.</div>'; }
+  }
 </script>
 </body>
 </html>

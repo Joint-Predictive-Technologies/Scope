@@ -902,6 +902,59 @@ def earnings_sentiment(ticker: str):
     return result
 
 
+@app.get("/api/heat-index", tags=["Sectors"])
+def heat_index(days: int = 30):
+    """Return heat score for every sector, sorted by score descending."""
+    from jpt_common import db_connection as _dbc, SECTOR_MAP, calculate_heat_index
+    conn = _dbc()
+    results = []
+    for sector in SECTOR_MAP:
+        h = calculate_heat_index(sector, conn, days=days)
+        h["sector"] = sector
+        results.append(h)
+    conn.close()
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results
+
+
+@app.get("/api/search", tags=["Search"])
+def search(q: str = ""):
+    """Live search across tickers, members, and alert headlines."""
+    from jpt_common import db_connection as _dbc
+    q = q.strip()
+    if not q or len(q) < 2:
+        return {"tickers": [], "members": [], "headlines": []}
+    conn = _dbc()
+    like = f"%{q}%"
+
+    ticker_rows = conn.execute(
+        """SELECT DISTINCT raw_ticker_string AS ticker FROM alerts
+           WHERE raw_ticker_string LIKE ? AND raw_ticker_string != ''
+           LIMIT 6""",
+        (like,),
+    ).fetchall()
+
+    member_rows = conn.execute(
+        """SELECT bioguide_id, full_name, state, party FROM members
+           WHERE full_name LIKE ? LIMIT 6""",
+        (like,),
+    ).fetchall()
+
+    headline_rows = conn.execute(
+        """SELECT id, headline, raw_ticker_string AS ticker, severity, rule_path
+           FROM alerts WHERE headline LIKE ?
+           ORDER BY created_at DESC LIMIT 6""",
+        (like,),
+    ).fetchall()
+
+    conn.close()
+    return {
+        "tickers":   [{"ticker": r["ticker"]} for r in ticker_rows],
+        "members":   [dict(r) for r in member_rows],
+        "headlines": [dict(r) for r in headline_rows],
+    }
+
+
 @app.get("/api/osint-region-context", tags=["OSINT"])
 def osint_region_context(region: str):
     """Return congressional trades and contracts for tickers linked to this region."""

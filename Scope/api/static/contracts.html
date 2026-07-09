@@ -81,6 +81,26 @@
     .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
     .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
     @media (max-width: 700px) { .alert-time { display: none; } }
+
+    /* ── CMD PALETTE ── */
+    #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
+    #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
+    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7); }
+    #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
+    #cmd-results { max-height:360px; overflow-y:auto; }
+    .cmd-group-label { font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
+    .cmd-item { display:flex; align-items:center; gap:0.8rem; padding:0.65rem 1.2rem; cursor:pointer; text-decoration:none; border-left:2px solid transparent; }
+    .cmd-item:hover,.cmd-item.active { background:#222018; border-left-color:#c8922a; }
+    .cmd-item-icon { font-size:0.9rem; opacity:0.6; width:18px; text-align:center; flex-shrink:0; }
+    .cmd-item-main { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#e8e0cc; }
+    .cmd-item-sub  { font-size:0.68rem; color:#7a7060; margin-top:1px; }
+    .cmd-badge { font-family:'IBM Plex Mono',monospace; font-size:0.55rem; padding:1px 5px; border-radius:2px; margin-left:auto; flex-shrink:0; }
+    .cmd-badge-CRITICAL { background:rgba(229,91,77,0.2); color:#e55b4d; }
+    .cmd-badge-HIGH     { background:rgba(200,146,42,0.2); color:#c8922a; }
+    .cmd-badge-MEDIUM   { background:rgba(106,176,224,0.2); color:#6ab0e0; }
+    .cmd-empty { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
+    .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
+    .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
   </style>
 </head>
 <body>
@@ -98,6 +118,7 @@
     <a href="/ask">Ask Scope</a>
     <a href="/feed">Alerts</a>
   </div>
+  <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
 
 <div class="page">
@@ -295,6 +316,35 @@
 
   init();
   document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+
+  /* ── COMMAND PALETTE ── */
+  let _cmdTimer = null, _cmdActive = -1;
+  function openCmd() { document.getElementById('cmd-backdrop').classList.add('open'); document.getElementById('cmd-input').focus(); _cmdActive = -1; }
+  function closeCmd() { document.getElementById('cmd-backdrop').classList.remove('open'); document.getElementById('cmd-input').value = ''; document.getElementById('cmd-results').innerHTML = '<div class=\"cmd-empty\">Type to search…</div>'; _cmdActive = -1; }
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); openCmd(); return; }
+    if (e.key==='Escape') { closeCmd(); return; }
+    if (!document.getElementById('cmd-backdrop').classList.contains('open')) return;
+    const items = document.querySelectorAll('.cmd-item');
+    if (e.key==='ArrowDown') { e.preventDefault(); _cmdActive=Math.min(_cmdActive+1,items.length-1); items.forEach((el,i)=>el.classList.toggle('active',i===_cmdActive)); }
+    if (e.key==='ArrowUp')   { e.preventDefault(); _cmdActive=Math.max(_cmdActive-1,0); items.forEach((el,i)=>el.classList.toggle('active',i===_cmdActive)); }
+    if (e.key==='Enter'&&_cmdActive>=0) { items[_cmdActive]?.click(); closeCmd(); }
+  });
+  document.getElementById('cmd-input').addEventListener('input', e => { clearTimeout(_cmdTimer); _cmdTimer=setTimeout(()=>cmdSearch(e.target.value.trim()),200); });
+  async function cmdSearch(q) {
+    _cmdActive=-1;
+    if (!q||q.length<2) { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Type to search…</div>'; return; }
+    try {
+      const c=new AbortController(); setTimeout(()=>c.abort(),5000);
+      const r=await fetch('/api/search?q='+encodeURIComponent(q),{signal:c.signal});
+      const d=await r.json(); let html='';
+      if (d.tickers?.length) { html+='<div class=\"cmd-group-label\">Tickers</div>'; html+=d.tickers.map(t=>`<a class=\"cmd-item\" href=\"/ticker/${t.ticker}\"><span class=\"cmd-item-icon\">◎</span><div><div class=\"cmd-item-main\">${t.ticker}</div></div></a>`).join(''); }
+      if (d.members?.length) { html+='<div class=\"cmd-group-label\">Members</div>'; html+=d.members.map(m=>`<a class=\"cmd-item\" href=\"/member/${m.bioguide_id}\"><span class=\"cmd-item-icon\">◈</span><div><div class=\"cmd-item-main\">${m.full_name}</div><div class=\"cmd-item-sub\">${m.state||''} · ${m.party||''}</div></div></a>`).join(''); }
+      if (d.headlines?.length) { html+='<div class=\"cmd-group-label\">Signals</div>'; html+=d.headlines.map(h=>{ const rule=(h.rule_path||'').split('/').pop().replace('.py','').toUpperCase(); return `<a class=\"cmd-item\" href=\"/feed?ticker=${h.ticker||''}\"><span class=\"cmd-item-icon\">⚡</span><div><div class=\"cmd-item-main\">${(h.headline||'').slice(0,72)}</div><div class=\"cmd-item-sub\">${h.ticker||''} · ${rule}</div></div><span class=\"cmd-badge cmd-badge-${h.severity||'MEDIUM'}\">${h.severity||''}</span></a>`; }).join(''); }
+      if (!html) html='<div class=\"cmd-empty\">No results for \"'+q+'\"</div>';
+      document.getElementById('cmd-results').innerHTML=html;
+    } catch { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Search failed.</div>'; }
+  }
 </script>
 </body>
 </html>

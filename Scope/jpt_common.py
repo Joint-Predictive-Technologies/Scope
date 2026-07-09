@@ -415,6 +415,89 @@ def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     return conn
 
 
+_HEAT_SEVERITY_WEIGHTS: dict[str, float] = {
+    "CRITICAL": 3.0,
+    "HIGH":     1.5,
+    "MEDIUM":   0.5,
+}
+
+_HEAT_RULE_MULTIPLIERS: dict[str, float] = {
+    "RULE_10": 2.0,
+    "RULE_06": 1.5,
+    "RULE_09": 1.3,
+    "RULE_12": 1.4,
+    "RULE_13": 1.4,
+    "RULE_14": 1.2,
+    "RULE_15": 1.2,
+}
+
+
+def calculate_heat_index(
+    sector: str,
+    conn: sqlite3.Connection,
+    days: int = 30,
+) -> dict:
+    """
+    Return a heat score for a sector based on alert severity × rule weight × recency decay.
+    Score is normalised by days so windows are comparable.
+    Returns dict: score, trend, dominant_rule, alert_count.
+    """
+    tickers = SECTOR_MAP.get(sector, [])
+    if not tickers:
+        return {"score": 0.0, "trend": "flat", "dominant_rule": None, "alert_count": 0}
+
+    placeholders = ",".join("?" * len(tickers))
+    rows = conn.execute(
+        f"""
+        SELECT severity, rule_path,
+               (julianday('now') - julianday(created_at)) AS age_days
+        FROM alerts
+        WHERE raw_ticker_string IN ({placeholders})
+          AND created_at >= datetime('now', '-{int(days)} days')
+        """,
+        tickers,
+    ).fetchall()
+
+    if not rows:
+        return {"score": 0.0, "trend": "flat", "dominant_rule": None, "alert_count": 0}
+
+    rule_scores: dict[str, float] = {}
+    current_half = 0.0
+    prev_half = 0.0
+    half = days / 2.0
+
+    for row in rows:
+        sev_w   = _HEAT_SEVERITY_WEIGHTS.get(row[0] or "MEDIUM", 0.5)
+        rule    = (row[1] or "").split("/")[-1].replace(".py", "").upper()
+        rule_w  = _HEAT_RULE_MULTIPLIERS.get(rule, 1.0)
+        age     = max(0.0, float(row[2] or 0))
+        decay   = 0.5 ** (age / 48.0)
+        contrib = sev_w * rule_w * decay
+        rule_scores[rule] = rule_scores.get(rule, 0.0) + contrib
+        if age <= half:
+            current_half += contrib
+        else:
+            prev_half += contrib
+
+    raw_score = sum(rule_scores.values()) / max(days, 1)
+    score     = round(min(raw_score * 10, 100.0), 1)
+
+    if prev_half > 0:
+        ratio = current_half / prev_half
+        trend = "up" if ratio > 1.2 else ("down" if ratio < 0.8 else "flat")
+    else:
+        trend = "up" if current_half > 0 else "flat"
+
+    dominant_rule = max(rule_scores, key=lambda k: rule_scores[k]) if rule_scores else None
+
+    return {
+        "score":        score,
+        "trend":        trend,
+        "dominant_rule": dominant_rule,
+        "alert_count":  len(rows),
+    }
+
+
 def severity_score(tags: list[str]) -> str:
     """
     CRITICAL if a cluster or cross-reference tag is present, HIGH if the
