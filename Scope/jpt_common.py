@@ -135,7 +135,7 @@ COUNTRY_REGION_MAP: dict[str, str] = {
     "AE": "Middle East", "QA": "Middle East", "KU": "Middle East",
     "LE": "Middle East", "JO": "Middle East", "TU": "Middle East",
     # Eastern Europe
-    "UP": "Eastern Europe", "BO": "Eastern Europe",
+    "UP": "Eastern Europe", "BO": "Eastern Europe", "HU": "Eastern Europe",
     # Russia
     "RS": "Russia",
     # Taiwan Strait
@@ -146,7 +146,7 @@ COUNTRY_REGION_MAP: dict[str, str] = {
     "VM": "South China Sea", "RP": "South China Sea",
     "MY": "South China Sea", "ID": "South China Sea",
     # South Asia
-    "PK": "South Asia", "AF": "South Asia", "IN": "South Asia",
+    "PK": "South Asia", "AF": "South Asia", "IN": "South Asia", "CE": "South Asia",
     # West Africa
     "NI": "West Africa", "GH": "West Africa", "ML": "West Africa",
     "UV": "West Africa", "NG": "West Africa",
