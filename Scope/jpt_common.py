@@ -118,17 +118,50 @@ REGION_TICKERS: dict[str, list[str]] = {
     "South China Sea":   ["TSM", "NVDA", "LMT", "RTX"],
     "Russia":            ["LMT", "RTX", "NOC", "USO", "XLE"],
     "South Asia":        ["LMT", "RTX", "NOC"],
+    "West Africa":       ["XOM", "CVX", "USO"],
+    "East Africa":       ["USO", "XLE"],
+    "North Africa":      ["USO", "XLE", "LMT"],
+    "Southeast Asia":    ["TSM", "NVDA", "XOM"],
+    "Latin America":     ["XOM", "CVX", "USO"],
 }
 
+# GDELT uses FIPS-10-4 country codes (2-letter), NOT ISO-3166.
+# Key differences: Russia=RS, China=CH, Ukraine=UP, Israel=IS, Iraq=IZ,
+# Yemen=YM, Kuwait=KU, Vietnam=VM, Philippines=RP, Myanmar=BM, Turkey=TU
 COUNTRY_REGION_MAP: dict[str, str] = {
-    "IR": "Middle East", "IQ": "Middle East", "SY": "Middle East",
-    "YE": "Middle East", "IL": "Middle East", "SA": "Middle East",
-    "AE": "Middle East", "QA": "Middle East", "KW": "Middle East",
-    "UA": "Eastern Europe", "BY": "Eastern Europe",
-    "RU": "Russia",
-    "TW": "Taiwan Strait", "CN": "Taiwan Strait",
+    # Middle East (FIPS codes)
+    "IR": "Middle East", "IZ": "Middle East", "SY": "Middle East",
+    "YM": "Middle East", "IS": "Middle East", "SA": "Middle East",
+    "AE": "Middle East", "QA": "Middle East", "KU": "Middle East",
+    "LE": "Middle East", "JO": "Middle East", "TU": "Middle East",
+    # Eastern Europe
+    "UP": "Eastern Europe", "BO": "Eastern Europe",
+    # Russia
+    "RS": "Russia",
+    # Taiwan Strait
+    "TW": "Taiwan Strait", "CH": "Taiwan Strait",
+    # Korean Peninsula
     "KN": "Korean Peninsula", "KS": "Korean Peninsula",
+    # South China Sea
+    "VM": "South China Sea", "RP": "South China Sea",
+    "MY": "South China Sea", "ID": "South China Sea",
+    # South Asia
     "PK": "South Asia", "AF": "South Asia", "IN": "South Asia",
+    # West Africa
+    "NI": "West Africa", "GH": "West Africa", "ML": "West Africa",
+    "UV": "West Africa", "NG": "West Africa",
+    # East Africa
+    "ET": "East Africa", "KE": "East Africa", "SO": "East Africa",
+    "UG": "East Africa", "SU": "East Africa",
+    # North Africa
+    "EG": "North Africa", "LY": "North Africa", "TS": "North Africa",
+    "AG": "North Africa", "MO": "North Africa",
+    # Southeast Asia
+    "BM": "Southeast Asia", "TH": "Southeast Asia",
+    "CB": "Southeast Asia", "LA": "Southeast Asia",
+    # Latin America
+    "VE": "Latin America", "CO": "Latin America", "BR": "Latin America",
+    "MX": "Latin America",
 }
 
 HIGH_SIGNAL_CAMEO: dict[str, str] = {

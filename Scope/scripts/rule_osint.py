@@ -27,27 +27,11 @@ from jpt_common import (
     db_connection,
     COUNTRY_REGION_MAP,
     REGION_TICKERS,
+    HIGH_SIGNAL_CAMEO,
 )
 
 GDELT_MASTER_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 HEADERS = {"User-Agent": "Scope Political Intelligence Monitor 1.0"}
-
-# CAMEO event codes that indicate hostile/high-signal geopolitical events.
-# Prefix-match: '19' matches '190', '193', '195', etc.
-HIGH_SIGNAL_CAMEO: dict[str, str] = {
-    "19":  "Military action",
-    "190": "Military action",
-    "193": "Airstrike",
-    "195": "Troops mobilized",
-    "18":  "Assault",
-    "180": "Assault",
-    "20":  "Mass violence",
-    "201": "Mass killings",
-    "17":  "Coerce",
-    "172": "Sanctions imposed",
-    "14":  "Protest",
-    "145": "Violent protest",
-}
 
 
 # ── GDELT Event Stream ────────────────────────────────────────────────────────
@@ -84,9 +68,12 @@ def _fetch_gdelt_events() -> list[dict]:
                     goldstein    = float(row[30]) if row[30] else 0.0
                     num_mentions = int(row[31])   if row[31] else 0
                     avg_tone     = float(row[34]) if row[34] else 0.0
-                    # Actor country codes: Actor1CountryCode=col 7, Actor2CountryCode=col 17
-                    # ActionGeo_CountryCode=col 51, ActionGeo_Lat=col 56, ActionGeo_Long=col 57
-                    country    = row[51] if len(row) > 51 and row[51] else (row[7] if row[7] else "")
+                    # GDELT 2.0 has 61 columns; geo blocks are 8 cols each
+                    # (Type, FullName, CountryCode, ADM1Code, ADM2Code, Lat, Long, FeatureID)
+                    # ActionGeo block starts at col 51: Type=51, FullName=52,
+                    # CountryCode=53, ADM1=54, ADM2=55, Lat=56, Long=57, FeatureID=58
+                    # DATEADDED=59, SOURCEURL=60
+                    country    = row[53] if len(row) > 53 and row[53] else (row[37] if len(row) > 37 and row[37] else "")
                     geo_lat    = float(row[56]) if len(row) > 56 and row[56] else None
                     geo_lng    = float(row[57]) if len(row) > 57 and row[57] else None
                     source_url = row[60] if len(row) > 60 and row[60] else ""
