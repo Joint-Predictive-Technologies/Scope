@@ -17,7 +17,11 @@ def get_congress_trades(
     limit: int          = Query(default=100, ge=1, le=500),
 ):
     conn = db_connection()
-    conditions = ["t.transaction_date >= date('now', :window)"]
+    conditions = [
+        "t.transaction_date >= date('now', :window)",
+        "date(t.transaction_date) IS NOT NULL",
+        "date(t.transaction_date) <= date('now')",
+    ]
     params: dict = {"window": f"-{days} days", "limit": limit}
 
     if chamber:
