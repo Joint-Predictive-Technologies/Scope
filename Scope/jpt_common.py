@@ -449,10 +449,10 @@ def calculate_heat_index(
     placeholders = ",".join("?" * len(tickers))
     rows = conn.execute(
         f"""
-        SELECT severity, rule_path,
+        SELECT severity, rule,
                (julianday('now') - julianday(created_at)) AS age_days
         FROM alerts
-        WHERE raw_ticker_string IN ({placeholders})
+        WHERE ticker IN ({placeholders})
           AND created_at >= datetime('now', '-{int(days)} days')
         """,
         tickers,
@@ -468,7 +468,7 @@ def calculate_heat_index(
 
     for row in rows:
         sev_w   = _HEAT_SEVERITY_WEIGHTS.get(row[0] or "MEDIUM", 0.5)
-        rule    = (row[1] or "").split("/")[-1].replace(".py", "").upper()
+        rule    = (row[1] or "").upper()
         rule_w  = _HEAT_RULE_MULTIPLIERS.get(rule, 1.0)
         age     = max(0.0, float(row[2] or 0))
         decay   = 0.5 ** (age / 48.0)

@@ -223,14 +223,17 @@
     const ticker  = document.getElementById('f-ticker').value.trim();
     const days    = document.getElementById('f-days').value;
 
-    // Load alerts
+    // Load alerts — two targeted queries so large RULE_07 volume can't crowd these out
     const alertsEl = document.getElementById('alerts-list');
     alertsEl.innerHTML = '<div class="loading">Loading…</div>';
-    let alertUrl = `/alerts?days=${days}&limit=200`;
-    if (ticker) alertUrl += `&ticker=${encodeURIComponent(ticker)}`;
-    // Fetch all alerts, filter to congressional rules client-side
-    const allAlerts = await fetch(alertUrl).then(r=>r.json()).catch(()=>[]);
-    const congAlerts = allAlerts.filter(a => ['RULE_01B','RULE_02','RULE_01'].includes(a.rule));
+    let base = `days=${days}&limit=100`;
+    if (ticker) base += `&ticker=${encodeURIComponent(ticker)}`;
+    const [alerts01b, alerts02] = await Promise.all([
+      fetch(`/alerts?${base}&rule=RULE_01B`).then(r=>r.json()).catch(()=>[]),
+      fetch(`/alerts?${base}&rule=RULE_02`).then(r=>r.json()).catch(()=>[]),
+    ]);
+    const congAlerts = [...(Array.isArray(alerts01b)?alerts01b:[]), ...(Array.isArray(alerts02)?alerts02:[])]
+      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 
     document.getElementById('result-count').textContent = congAlerts.length + ' signals';
 

@@ -34,8 +34,15 @@ def _build_conditions(
         conditions.append("a.ticker LIKE :ticker")
         params["ticker"] = f"%{ticker.upper()}%"
     if rule:
-        conditions.append("a.rule = :rule")
-        params["rule"] = rule.upper()
+        if rule.upper() != "ALL":
+            conditions.append("a.rule = :rule")
+            params["rule"] = rule.upper()
+        # rule="ALL" → no rule filter and no default exclusions
+    else:
+        # No rule param → hide high-volume noise rules from the default view
+        conditions.append(
+            "a.rule NOT IN ('RULE_07', 'RULE_OSINT', 'RULE_REDDIT')"
+        )
     if severity:
         conditions.append("a.severity = :severity")
         params["severity"] = severity.upper()

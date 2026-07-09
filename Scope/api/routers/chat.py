@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
@@ -179,14 +180,35 @@ def _fetch_context(message: str, days: int) -> tuple[str, int]:
     return context, len(alert_rows)
 
 
+def _call_groq(api_key: str, prompt: str, retries: int = 3) -> str:
+    from groq import Groq
+    client = Groq(api_key=api_key)
+    for attempt in range(retries):
+        try:
+            completion = client.chat.completions.create(
+                model=GROQ_MODEL,
+                max_tokens=600,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return completion.choices[0].message.content.strip()
+        except Exception as e:
+            if "429" in str(e) and attempt < retries - 1:
+                time.sleep(30 * (attempt + 1))
+                continue
+            if "429" in str(e):
+                return "Analyst temporarily unavailable — rate limit reached. Try again in 1 minute."
+            raise
+    return "Unable to generate response."
+
+
 @router.post("")
 def chat(req: ChatRequest):
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
-        return JSONResponse(
-            status_code=503,
-            content={"error": "GROQ_API_KEY not configured on server."},
-        )
+        return {"answer": "Ask Scope requires a Groq API key. Add GROQ_API_KEY to your .env file.", "context_alerts": 0}
 
     context, alert_count = _fetch_context(req.message, req.days)
 
@@ -200,19 +222,7 @@ User question: {req.message}
 Answer based on the signals above. Be specific — name tickers, rules, amounts, dates."""
 
     try:
-        from groq import Groq
-
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model=GROQ_MODEL,
-            max_tokens=600,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        answer = completion.choices[0].message.content.strip()
+        answer = _call_groq(api_key, prompt)
         return {"answer": answer, "context_alerts": alert_count}
-
     except Exception as exc:
         return JSONResponse(status_code=500, content={"error": str(exc)})

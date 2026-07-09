@@ -29,8 +29,8 @@ HEADERS = {"User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com"}
 SLEEP = 0.3
 
 # Trigger thresholds
-MIN_PP_MOVE = 10.0       # percentage points
-MIN_VOLUME_24H = 75_000  # USD
+MIN_PP_MOVE = 15.0        # percentage points
+MIN_VOLUME_24H = 100_000  # USD
 
 # Alert severity thresholds
 HIGH_PP = 15.0

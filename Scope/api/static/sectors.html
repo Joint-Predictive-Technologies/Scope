@@ -173,11 +173,16 @@
   };
   async function loadHeat() {
     const days = document.getElementById('f-days')?.value || 30;
+    const el = document.getElementById('heat-grid');
+    const fallbackTimer = setTimeout(() => {
+      if (el && el.innerHTML.includes('Loading')) el.innerHTML = '<div class="loading" style="padding:1rem">Heat index unavailable — run ingestion scripts to populate.</div>';
+    }, 8000);
     try {
       const r = await fetch(`/api/heat-index?days=${days}`, { signal: withTimeout(10000) });
+      clearTimeout(fallbackTimer);
       const data = await r.json();
       if (!Array.isArray(data) || !data.length) {
-        document.getElementById('heat-grid').innerHTML = '<div class="loading" style="padding:1rem">No heat data yet.</div>';
+        el.innerHTML = '<div class="loading" style="padding:1rem">Insufficient data. Run ingestion scripts to populate.</div>';
         return;
       }
       const maxScore = data[0].score || 1;
@@ -197,7 +202,7 @@
           </div>
         </div>`;
       }).join('');
-    } catch { document.getElementById('heat-grid').innerHTML = ''; }
+    } catch { clearTimeout(fallbackTimer); document.getElementById('heat-grid').innerHTML = '<div class="loading" style="padding:1rem">Heat index unavailable.</div>'; }
   }
 
   /* ── COMMAND PALETTE ── */

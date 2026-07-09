@@ -169,7 +169,15 @@
     document.getElementById('result-count').textContent = data.length + ' alerts';
 
     if (!data.length) {
-      el.innerHTML = '<div class="empty">No lobbying alerts for this filter.</div>';
+      el.innerHTML = `<div class="empty" style="text-align:left;padding:2rem 1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:600px">
+        <div style="font-family:'Playfair Display',serif;font-size:1.1rem;color:var(--cream);margin-bottom:0.6rem">No lobbying spikes detected</div>
+        <div style="font-size:0.82rem;color:var(--cream2);line-height:1.65;margin-bottom:1rem">
+          Senate LDA filings for the current quarter are still being submitted.
+          Lobbying data is most complete in January (Q4 prior year) and April (Q1 filings).
+          Check back in October for Q3 2026 data.
+        </div>
+        <a href="/feed?rule=RULE_09" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--bg);background:var(--amber);padding:6px 14px;border-radius:4px;text-decoration:none">View all past lobbying alerts →</a>
+      </div>`;
       return;
     }
     el.innerHTML = data.map(a => {

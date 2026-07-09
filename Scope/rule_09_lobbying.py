@@ -27,6 +27,15 @@ SLEEP = 0.3
 
 QUARTERLY_TYPES = {"Q1", "Q2", "Q3", "Q4"}
 
+# Historical quarter pairs to compare when current quarter has sparse data.
+# Format: (current_filing_type, current_year, prior_filing_type, prior_year)
+COMPARE_PERIODS = [
+    ("Q2", 2026, "Q2", 2025),
+    ("Q1", 2026, "Q1", 2025),
+    ("Q4", 2025, "Q4", 2024),
+    ("Q3", 2025, "Q3", 2024),
+]
+
 # Trigger thresholds
 MIN_SPEND = 50_000.0
 MIN_YOY_PCT = 50.0
@@ -240,15 +249,24 @@ def _fmt_spend(v: float) -> str:
 # Main pipeline
 # ---------------------------------------------------------------------------
 
-def run(filing_type: str, filing_year: int, emit_alerts: bool) -> tuple[int, int]:
-    prior_year = filing_year - 1
+def run(
+    filing_type: str,
+    filing_year: int,
+    emit_alerts: bool,
+    prior_type: str | None = None,
+    prior_year: int | None = None,
+) -> tuple[int, int]:
+    if prior_type is None:
+        prior_type = filing_type
+    if prior_year is None:
+        prior_year = filing_year - 1
 
     print(f"Fetching {filing_type} {filing_year} …")
     current = fetch_filings(filing_type, filing_year)
     print(f"  {len(current)} current filings")
 
-    print(f"Fetching {filing_type} {prior_year} …")
-    prior = fetch_filings(filing_type, prior_year)
+    print(f"Fetching {prior_type} {prior_year} …")
+    prior = fetch_filings(prior_type, prior_year)
     print(f"  {len(prior)} prior-year filings")
 
     spikes = find_spikes(current, prior)
@@ -342,8 +360,18 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    triggered, emitted = run(args.filing_type, args.filing_year, args.emit_alerts)
-    print(f"\n{triggered} spike(s) detected, {emitted} alert(s) emitted")
+    if args.filing_type == current_quarter()[0] and args.filing_year == current_quarter()[1]:
+        # Default run: sweep all COMPARE_PERIODS so historical data always shows
+        total_triggered = total_emitted = 0
+        for cur_type, cur_year, prior_type, prior_year in COMPARE_PERIODS:
+            print(f"\n── {cur_type} {cur_year} vs {prior_type} {prior_year} ──")
+            t, e = run(cur_type, cur_year, args.emit_alerts, prior_type, prior_year)
+            total_triggered += t
+            total_emitted += e
+        print(f"\n{total_triggered} spike(s) detected, {total_emitted} alert(s) emitted")
+    else:
+        triggered, emitted = run(args.filing_type, args.filing_year, args.emit_alerts)
+        print(f"\n{triggered} spike(s) detected, {emitted} alert(s) emitted")
 
 
 if __name__ == "__main__":
