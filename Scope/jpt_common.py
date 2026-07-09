@@ -59,6 +59,37 @@ REGION_TICKERS: dict[str, list[str]] = {
     "Eastern Europe":    ["LMT", "RTX", "NOC", "GD"],
     "Korean Peninsula":  ["TSM", "LMT", "NOC"],
     "South China Sea":   ["TSM", "NVDA", "LMT", "RTX"],
+    "Russia":            ["LMT", "RTX", "NOC", "USO", "XLE"],
+    "South Asia":        ["LMT", "RTX", "NOC"],
+}
+
+COUNTRY_REGION_MAP: dict[str, str] = {
+    "IR": "Middle East", "IQ": "Middle East", "SY": "Middle East",
+    "YE": "Middle East", "IL": "Middle East", "SA": "Middle East",
+    "AE": "Middle East", "QA": "Middle East", "KW": "Middle East",
+    "UA": "Eastern Europe", "BY": "Eastern Europe",
+    "RU": "Russia",
+    "TW": "Taiwan Strait", "CN": "Taiwan Strait",
+    "KN": "Korean Peninsula", "KS": "Korean Peninsula",
+    "PK": "South Asia", "AF": "South Asia", "IN": "South Asia",
+}
+
+HIGH_SIGNAL_CAMEO: dict[str, str] = {
+    "13":  "Threaten",
+    "14":  "Protest",
+    "17":  "Coerce",
+    "18":  "Assault",
+    "19":  "Fight",
+    "20":  "Use unconventional mass violence",
+    "112": "Criticize or denounce",
+    "172": "Impose administrative sanctions",
+    "173": "Impose embargo or boycott",
+    "175": "Expel or deport",
+    "191": "Use conventional military force",
+    "193": "Conduct strike or raid",
+    "194": "Conduct siege",
+    "195": "Employ aerial weapons",
+    "196": "Violate ceasefire",
 }
 
 

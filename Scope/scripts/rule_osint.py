@@ -1,57 +1,232 @@
 #!/usr/bin/env python3
 """
-RULE_OSINT — Geopolitical Event Detection (Phase 1, daily cadence)
+RULE_OSINT — Geopolitical Event Detection
 Sources:
-  1. ReliefWeb API (free, no key) — humanitarian/conflict reports
-  2. ACLED API (requires free registration) — conflict event data
-Cross-checks: if affected tickers also have RULE_02/RULE_06 alerts → triggers RULE_10.
+  1. GDELT Project (primary) — free, no key, updates every 15 minutes
+  2. ReliefWeb API (secondary) — free, no key, daily cadence
 
-Set env vars: ACLED_API_KEY, ACLED_EMAIL (optional — ACLED source skipped if missing)
+Run every 15 minutes via cron:
+  */15 * * * * cd /path/to/Scope && python scripts/rule_osint.py
 """
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 import json
 import os
 import sys
 import time
+import zipfile
 from datetime import datetime, timedelta, timezone
 
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection, REGION_TICKERS
+from jpt_common import (
+    db_connection,
+    COUNTRY_REGION_MAP,
+    HIGH_SIGNAL_CAMEO,
+    REGION_TICKERS,
+)
 
-RELIEFWEB_URL = "https://api.reliefweb.int/v1/reports"
-ACLED_URL     = "https://api.acleddata.com/acled/read"
+GDELT_MASTER_URL = "http://data.gdelt.org/gdeltv2/lastupdate.txt"
+RELIEFWEB_URL    = "https://api.reliefweb.int/v1/reports"
 
-MONITORED_COUNTRIES = [
+MONITORED_COUNTRIES_RW = [
     "Israel", "Palestine", "Iran", "Lebanon", "Syria", "Yemen",
     "Ukraine", "Russia", "Taiwan", "South Korea", "North Korea",
-    "Philippines",
+    "Philippines", "Pakistan", "Afghanistan",
 ]
-
-REGION_MAP: dict[str, str] = {
-    "Israel": "Middle East", "Palestine": "Middle East", "Iran": "Middle East",
-    "Lebanon": "Middle East", "Syria": "Middle East", "Yemen": "Middle East",
-    "Ukraine": "Eastern Europe", "Russia": "Eastern Europe",
-    "Taiwan": "Taiwan Strait",
-    "South Korea": "Korean Peninsula", "North Korea": "Korean Peninsula",
-    "Philippines": "South China Sea",
-}
 
 HEADERS = {"User-Agent": "Scope Political Intelligence Monitor 1.0"}
 
+
+# ── GDELT ─────────────────────────────────────────────────────────────────────
+
+def _fetch_gdelt_events() -> list[dict]:
+    resp = requests.get(GDELT_MASTER_URL, timeout=15)
+    resp.raise_for_status()
+
+    # lastupdate.txt has 3 lines; first line is the export zip (full events)
+    latest_url = None
+    for line in resp.text.strip().splitlines():
+        parts = line.split(" ")
+        if len(parts) >= 3 and parts[2].endswith(".export.CSV.zip"):
+            latest_url = parts[2]
+            break
+
+    if not latest_url:
+        print("[RULE_OSINT] GDELT: could not find export file URL")
+        return []
+
+    zip_resp = requests.get(latest_url, timeout=60)
+    zip_resp.raise_for_status()
+
+    signals: list[dict] = []
+    with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as z:
+        filename = z.namelist()[0]
+        with z.open(filename) as f:
+            reader = csv.reader(
+                io.TextIOWrapper(f, encoding="utf-8", errors="replace"),
+                delimiter="\t",
+            )
+            for row in reader:
+                if len(row) < 58:
+                    continue
+                try:
+                    event_id     = row[0]
+                    event_code   = row[26][:3] if row[26] else ""
+                    goldstein    = float(row[30]) if row[30] else 0.0
+                    num_mentions = int(row[31])   if row[31] else 0
+                    avg_tone     = float(row[34]) if row[34] else 0.0
+                    country      = row[53]
+                    source_url   = row[57]
+                except (ValueError, IndexError):
+                    continue
+
+                if goldstein > -3:
+                    continue
+                if num_mentions < 5:
+                    continue
+                if event_code not in HIGH_SIGNAL_CAMEO:
+                    continue
+                if country not in COUNTRY_REGION_MAP:
+                    continue
+
+                signals.append({
+                    "event_id":     event_id,
+                    "event_code":   event_code,
+                    "event_type":   HIGH_SIGNAL_CAMEO[event_code],
+                    "goldstein":    goldstein,
+                    "num_mentions": num_mentions,
+                    "avg_tone":     avg_tone,
+                    "country":      country,
+                    "region":       COUNTRY_REGION_MAP[country],
+                    "source_url":   source_url,
+                })
+
+    return signals
+
+
+def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
+    if goldstein <= -7 and num_mentions >= 20:
+        return "CRITICAL"
+    if goldstein <= -5 or num_mentions >= 15:
+        return "HIGH"
+    return "MEDIUM"
+
+
+def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
+    try:
+        events = _fetch_gdelt_events()
+    except Exception as e:
+        print(f"[RULE_OSINT] GDELT fetch failed: {e}")
+        return 0
+
+    print(f"[RULE_OSINT] GDELT: {len(events)} candidate events after filtering")
+    emitted = 0
+
+    for event in events:
+        existing = conn.execute(
+            "SELECT 1 FROM gdelt_events WHERE event_id = ?", (event["event_id"],)
+        ).fetchone()
+        if existing:
+            continue
+
+        region  = event["region"]
+        tickers = REGION_TICKERS.get(region, [])
+        if not tickers:
+            conn.execute(
+                "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
+                (event["event_id"],),
+            )
+            conn.commit()
+            continue
+
+        severity   = _gdelt_severity(event["goldstein"], event["num_mentions"])
+        ticker_str = " ".join(f"${t}" for t in tickers[:3])
+        headline   = f"Geopolitical — {event['event_type']} ({region}) → {ticker_str}"
+        detail     = (
+            f"GDELT event {event['event_id']}: {event['event_type']} in {event['country']}. "
+            f"Goldstein scale: {event['goldstein']} (hostile). "
+            f"Mentioned in {event['num_mentions']} sources. "
+            f"Tone: {event['avg_tone']:.1f}."
+        )
+        tags_obj = {
+            "source_url": event["source_url"],
+            "region":     region,
+            "goldstein":  event["goldstein"],
+            "cameo":      event["event_code"],
+            "tickers":    tickers[:3],
+            "source":     "GDELT",
+        }
+        tags_str = json.dumps(tags_obj)
+
+        print(
+            f"[RULE_OSINT] {'[dry]' if dry_run else '[emit]'} {severity} — "
+            f"{event['event_type']} ({region}) → {ticker_str}"
+        )
+
+        if not dry_run and emit:
+            for ticker in tickers[:3]:
+                conn.execute(
+                    """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
+                       VALUES ('RULE_OSINT', ?, ?, ?, ?, ?)""",
+                    (ticker, severity, headline, detail, tags_str),
+                )
+
+            conn.execute(
+                "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
+                (event["event_id"],),
+            )
+
+            # Auto-trigger RULE_10 if corroborating signal exists within 48h
+            for ticker in tickers[:3]:
+                corr = conn.execute(
+                    """SELECT COUNT(DISTINCT rule) FROM alerts
+                       WHERE ticker = ?
+                         AND rule NOT IN ('RULE_OSINT', 'RULE_10')
+                         AND datetime(created_at) >= datetime('now', '-48 hours')""",
+                    (ticker,),
+                ).fetchone()[0]
+                if corr >= 1:
+                    corr_tags = json.dumps({
+                        "rules": ["RULE_OSINT", "RULE_10"],
+                        "rule_count": 2,
+                        "rules_fired": "RULE_OSINT",
+                        "source": "GDELT",
+                    })
+                    conn.execute(
+                        """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
+                           VALUES ('RULE_10', ?, 'CRITICAL', ?, ?, ?)""",
+                        (
+                            ticker,
+                            f"[Corroboration] {ticker}: OSINT + existing signals converged within 48h",
+                            f"Geopolitical event ({event['event_type']} in {region}) "
+                            f"corroborates existing Scope signals on {ticker}.",
+                            corr_tags,
+                        ),
+                    )
+
+            conn.commit()
+            emitted += 1
+
+    print(f"[RULE_OSINT] GDELT: {emitted} new alerts emitted")
+    return emitted
+
+
+# ── ReliefWeb ─────────────────────────────────────────────────────────────────
 
 def _fetch_reliefweb(country: str) -> list[dict]:
     try:
         payload = {
             "appname": "scope",
-            "filter": {"field": "country.name", "value": country},
-            "fields": {"include": ["title", "body", "date", "url", "source"]},
-            "sort": ["date:desc"],
-            "limit": 5,
+            "filter":  {"field": "country.name", "value": country},
+            "fields":  {"include": ["title", "body", "date", "url", "source"]},
+            "sort":    ["date:desc"],
+            "limit":   5,
         }
         r = requests.post(RELIEFWEB_URL, json=payload, timeout=15)
         r.raise_for_status()
@@ -61,56 +236,21 @@ def _fetch_reliefweb(country: str) -> list[dict]:
         return []
 
 
-def _fetch_acled(yesterday: str) -> list[dict]:
-    api_key = os.getenv("ACLED_API_KEY", "").strip()
-    email   = os.getenv("ACLED_EMAIL", "").strip()
-    if not api_key or not email:
-        return []
-    try:
-        params = {
-            "key":        api_key,
-            "email":      email,
-            "limit":      50,
-            "event_date": yesterday,
-            "country":    "|".join(MONITORED_COUNTRIES),
-        }
-        r = requests.get(ACLED_URL, params=params, timeout=20)
-        r.raise_for_status()
-        return r.json().get("data", [])
-    except Exception as e:
-        print(f"[RULE_OSINT] ACLED error: {e}")
-        return []
+COUNTRY_TO_REGION = {
+    "Israel": "Middle East", "Palestine": "Middle East", "Iran": "Middle East",
+    "Lebanon": "Middle East", "Syria": "Middle East", "Yemen": "Middle East",
+    "Ukraine": "Eastern Europe", "Russia": "Russia",
+    "Taiwan": "Taiwan Strait",
+    "South Korea": "Korean Peninsula", "North Korea": "Korean Peninsula",
+    "Philippines": "South China Sea",
+    "Pakistan": "South Asia", "Afghanistan": "South Asia",
+}
 
 
-def _already_alerted(conn, ticker: str, days: int = 14) -> bool:
-    row = conn.execute(
-        """SELECT 1 FROM alerts WHERE rule='RULE_OSINT' AND ticker=?
-           AND datetime(created_at) >= datetime('now', ?)""",
-        (ticker, f"-{days} days"),
-    ).fetchone()
-    return row is not None
-
-
-def _check_corroboration(conn, tickers: list[str]) -> bool:
-    for t in tickers:
-        row = conn.execute(
-            """SELECT 1 FROM alerts
-               WHERE ticker=? AND rule IN ('RULE_02','RULE_06')
-               AND datetime(created_at) >= datetime('now', '-30 days')""",
-            (t,),
-        ).fetchone()
-        if row:
-            return True
-    return False
-
-
-def run(emit: bool = False, dry_run: bool = False) -> None:
-    conn = db_connection()
-    yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
+def _run_reliefweb(conn, emit: bool, dry_run: bool) -> int:
     emitted = 0
 
-    # ── Source 1: ReliefWeb ──────────────────────────────────────────────────
-    for country in MONITORED_COUNTRIES:
+    for country in MONITORED_COUNTRIES_RW:
         reports = _fetch_reliefweb(country)
         time.sleep(0.5)
 
@@ -119,14 +259,13 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             title   = fields.get("title", "")
             body    = (fields.get("body", "") or "")[:300]
             url     = fields.get("url", "")
-            source  = (fields.get("source", [{}]) or [{}])[0].get("name", "ReliefWeb")
-            region  = REGION_MAP.get(country, country)
+            source  = (fields.get("source") or [{}])[0].get("name", "ReliefWeb")
+            region  = COUNTRY_TO_REGION.get(country, country)
             tickers = REGION_TICKERS.get(region, [])
 
             if not tickers or not title:
                 continue
 
-            # Deduplicate by URL in tags
             existing = conn.execute(
                 "SELECT 1 FROM alerts WHERE rule='RULE_OSINT' AND tags LIKE ?",
                 (f"%{url[:60]}%",),
@@ -135,91 +274,42 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                 continue
 
             ticker   = tickers[0]
-            sev      = "HIGH"
             headline = f"Geopolitical — {country}: {title[:80]}"
             detail   = f"Source: {source}\n\n{body}"
-            tags_obj = {"url": url, "country": country, "region": region,
-                        "tickers": tickers, "source": source}
-            tags_str = json.dumps(tags_obj)
+            tags_str = json.dumps({
+                "url": url, "country": country, "region": region,
+                "tickers": tickers, "source": source,
+            })
 
             print(
-                f"[RULE_OSINT] {'[dry]' if dry_run else '[emit]'} "
-                f"{country}/{region} → {ticker}: {title[:60]}"
+                f"[RULE_OSINT] ReliefWeb {'[dry]' if dry_run else '[emit]'} "
+                f"{country} → {ticker}: {title[:60]}"
             )
 
             if not dry_run and emit:
                 conn.execute(
                     """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                       VALUES ('RULE_OSINT', ?, ?, ?, ?, ?)""",
-                    (headline, sev, tags_str, ticker, detail),
+                       VALUES ('RULE_OSINT', ?, 'HIGH', ?, ?, ?)""",
+                    (headline, tags_str, ticker, detail),
                 )
                 conn.commit()
                 emitted += 1
 
-                # Cross-check for corroboration
-                if _check_corroboration(conn, tickers):
-                    corr_headline = (
-                        f"Corroboration — {ticker} has congressional/insider activity "
-                        f"alongside geopolitical event in {region}"
-                    )
-                    corr_tags = json.dumps({
-                        "rules": ["RULE_02", "RULE_OSINT"],
-                        "rule_count": 2,
-                        "rules_fired": "RULE_02,RULE_OSINT",
-                    })
-                    conn.execute(
-                        """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                           VALUES ('RULE_10', ?, 'CRITICAL', ?, ?, ?)""",
-                        (corr_headline, corr_tags, ticker,
-                         f"Geopolitical event in {region} overlaps with existing congressional signal on {ticker}."),
-                    )
-                    conn.commit()
+    print(f"[RULE_OSINT] ReliefWeb: {emitted} new alerts emitted")
+    return emitted
 
-    # ── Source 2: ACLED ──────────────────────────────────────────────────────
-    acled_events = _fetch_acled(yesterday)
-    for event in acled_events:
-        country    = event.get("country", "")
-        event_type = event.get("event_type", "")
-        location   = event.get("location", "")
-        fatalities = int(event.get("fatalities", 0) or 0)
-        notes      = (event.get("notes", "") or "")[:300]
-        region     = REGION_MAP.get(country, "")
-        tickers    = REGION_TICKERS.get(region, []) if region else []
 
-        if not tickers:
-            continue
+# ── Entry point ───────────────────────────────────────────────────────────────
 
-        ticker   = tickers[0]
-        sev      = "CRITICAL" if fatalities > 10 else "HIGH"
-        headline = f"ACLED — {event_type} in {location}, {country} ({', '.join(tickers[:3])})"
-        detail   = notes
-        tags_obj = {"country": country, "region": region, "event_type": event_type,
-                    "fatalities": fatalities, "tickers": tickers, "source": "ACLED"}
-        tags_str = json.dumps(tags_obj)
-
-        if _already_alerted(conn, ticker):
-            continue
-
-        print(
-            f"[RULE_OSINT] ACLED {'[dry]' if dry_run else '[emit]'} "
-            f"{event_type} {location} {country} fatalities={fatalities} → {ticker}"
-        )
-
-        if not dry_run and emit:
-            conn.execute(
-                """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                   VALUES ('RULE_OSINT', ?, ?, ?, ?, ?)""",
-                (headline, sev, tags_str, ticker, detail),
-            )
-            conn.commit()
-            emitted += 1
-
-    print(f"[RULE_OSINT] Done — {emitted} alerts emitted")
+def run(emit: bool = False, dry_run: bool = False) -> None:
+    conn = db_connection()
+    _run_gdelt(conn, emit=emit, dry_run=dry_run)
+    _run_reliefweb(conn, emit=emit, dry_run=dry_run)
     conn.close()
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="RULE_OSINT — Geopolitical event detection")
+    p = argparse.ArgumentParser(description="RULE_OSINT — Geopolitical event detection (GDELT + ReliefWeb)")
     p.add_argument("--emit-alerts", action="store_true")
     p.add_argument("--dry-run",     action="store_true")
     args = p.parse_args()

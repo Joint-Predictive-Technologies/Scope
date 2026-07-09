@@ -159,3 +159,9 @@ CREATE TABLE IF NOT EXISTS daily_briefs (
     content_json  TEXT,
     generated_at  TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS gdelt_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id    TEXT UNIQUE,
+    ingested_at TEXT DEFAULT (datetime('now'))
+);
