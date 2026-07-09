@@ -24,7 +24,7 @@ from api.routers import (
     alerts, chat, members, tickers,
     filter as filter_router,
     social, backtest, sectors, digest,
-    brief, contracts, congress,
+    brief, contracts, congress, history,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -39,6 +39,8 @@ LIVE_RULES = [
     "scripts/rule_anomaly.py",
     "scripts/rule_10_corroboration.py",
     "scripts/rule_11_contracts.py",
+    "scripts/rule_reddit.py",
+    "scripts/rule_osint.py",
     "scripts/telegram_bot.py",
 ]
 REFRESH_INTERVAL_HOURS = 4
@@ -134,6 +136,7 @@ app.include_router(digest.router,        prefix="/digest",    tags=["Digest"])
 app.include_router(brief.router,         prefix="/brief",     tags=["Brief"])
 app.include_router(contracts.router,     prefix="/contracts", tags=["Contracts"])
 app.include_router(congress.router,      prefix="/congress",  tags=["Congress"])
+app.include_router(history.router,       prefix="/history",   tags=["History"])
 
 
 @app.get("/health", tags=["Health"])
@@ -285,6 +288,10 @@ def contracts_page():
 @app.get("/congress", response_class=HTMLResponse, include_in_schema=False)
 def congress_page():
     return FileResponse(STATIC_DIR / "congress.html")
+
+@app.get("/history", response_class=HTMLResponse, include_in_schema=False)
+def history_page():
+    return FileResponse(STATIC_DIR / "history.html")
 
 @app.get("/insiders", response_class=HTMLResponse, include_in_schema=False)
 def insiders_page():

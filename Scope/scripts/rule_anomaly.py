@@ -85,6 +85,43 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             conn.commit()
             emitted += 1
 
+    # ── First-ever appearance detection ──────────────────────────────────────
+    new_tickers = conn.execute("""
+        SELECT REPLACE(ticker, '$', '') AS t
+        FROM alerts
+        WHERE ticker IS NOT NULL AND ticker != '' AND ticker NOT LIKE '% %'
+          AND datetime(created_at) >= datetime('now', '-30 days')
+          AND rule != 'RULE_ANOMALY'
+        GROUP BY t
+        HAVING SUM(CASE WHEN datetime(created_at) < datetime('now', '-30 days') THEN 1 ELSE 0 END) = 0
+           AND COUNT(*) >= 1
+    """).fetchall()
+
+    for r in new_tickers:
+        ticker = r["t"]
+        exists = conn.execute(
+            "SELECT 1 FROM alerts WHERE rule='RULE_ANOMALY' AND ticker=?"
+            " AND datetime(created_at) >= datetime('now', ?)",
+            (ticker, f"-{ALERT_COOLDOWN_DAYS} days"),
+        ).fetchone()
+        if exists:
+            continue
+
+        headline = f"New on Radar — {ticker} appears in Scope data for the first time"
+        detail   = f"{ticker} has no prior signal history before the last 30 days. First appearance may indicate early attention before a catalyst."
+        tags     = "first_appearance"
+
+        print(f"[RULE_ANOMALY] {'[dry]' if dry_run else '[emit]'} NEW: {ticker}")
+
+        if not dry_run and emit:
+            conn.execute(
+                """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
+                   VALUES ('RULE_ANOMALY', ?, 'MEDIUM', ?, ?, ?)""",
+                (headline, tags, ticker, detail),
+            )
+            conn.commit()
+            emitted += 1
+
     print(f"[RULE_ANOMALY] Done — {emitted} alerts emitted")
     conn.close()
 

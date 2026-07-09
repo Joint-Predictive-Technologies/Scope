@@ -105,13 +105,25 @@
     </select>
     <select class="filter-select" id="f-rule" onchange="load()">
       <option value="">All rules</option>
-      <option value="RULE_01B">RULE_01B</option>
-      <option value="RULE_02">RULE_02</option>
-      <option value="RULE_06">RULE_06</option>
-      <option value="RULE_07">RULE_07</option>
-      <option value="RULE_08">RULE_08</option>
-      <option value="RULE_10">RULE_10</option>
-      <option value="RULE_ANOMALY">RULE_ANOMALY</option>
+      <option value="RULE_01B">RULE_01B — Congressional</option>
+      <option value="RULE_02">RULE_02 — Cluster</option>
+      <option value="RULE_06">RULE_06 — Insider</option>
+      <option value="RULE_07">RULE_07 — Polymarket</option>
+      <option value="RULE_08">RULE_08 — Fed Register</option>
+      <option value="RULE_09">RULE_09 — Lobbying</option>
+      <option value="RULE_10">RULE_10 — Corroboration</option>
+      <option value="RULE_11">RULE_11 — Gov Contract</option>
+      <option value="RULE_ANOMALY">RULE_ANOMALY — Spike</option>
+      <option value="RULE_REDDIT">RULE_REDDIT — Reddit</option>
+      <option value="RULE_OSINT">RULE_OSINT — Geopolitical</option>
+    </select>
+    <select class="filter-select" id="f-outcome" onchange="load()">
+      <option value="">All outcomes</option>
+      <option value="STRONG">Strong (+10%+)</option>
+      <option value="POSITIVE">Positive (0–10%)</option>
+      <option value="FLAT">Flat (-5% to 0%)</option>
+      <option value="NEGATIVE">Negative (&lt;-5%)</option>
+      <option value="PENDING">Pending</option>
     </select>
     <button class="calc-btn" id="calc-all-btn" onclick="calcAll()">Calculate All →</button>
     <span class="ctrl-info" id="ctrl-info"></span>
@@ -126,10 +138,10 @@
           <th>Ticker</th>
           <th>Severity</th>
           <th>Signal</th>
-          <th onclick="sortBy('price_at')" id="th-price">Price at Alert ↕</th>
-          <th onclick="sortBy('price_7d')" id="th-7d">7d Price ↕</th>
-          <th onclick="sortBy('price_30d')" id="th-30d">30d Price ↕</th>
-          <th onclick="sortBy('return_30d')" id="th-ret">30d Return ↕</th>
+          <th onclick="sortBy('price_at')" id="th-price">Entry ↕</th>
+          <th onclick="sortBy('return_7d')" id="th-7d">7d Ret ↕</th>
+          <th onclick="sortBy('return_30d')" id="th-ret">30d Ret ↕</th>
+          <th>Outcome</th>
           <th></th>
         </tr>
       </thead>
@@ -203,11 +215,11 @@
         <td style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted)">${r.rule}</td>
         <td><a href="/ticker/${r.ticker}" class="ticker-link">${r.ticker}</a></td>
         <td><span class="badge badge-${r.severity}">${r.severity}</span></td>
-        <td style="font-size:0.75rem;color:var(--cream2);max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.headline}</td>
+        <td style="font-size:0.75rem;color:var(--cream2);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.headline}</td>
         <td>${fmtPrice(r.price_at)}</td>
-        <td>${fmtPrice(r.price_7d)}</td>
-        <td>${fmtPrice(r.price_30d)}</td>
+        <td>${fmtRet(r.return_7d)}</td>
         <td>${fmtRet(r.return_30d)}</td>
+        <td>${outcomeHtml(r.outcome || 'PENDING')}</td>
         <td>${r.return_30d == null
           ? `<button class="calc-row-btn" onclick="calcRow(${r.id}, this)">Calculate</button>`
           : ''}</td>
@@ -217,11 +229,23 @@
     document.getElementById('bt-loading').style.display = 'none';
   }
 
+  function outcomeHtml(o) {
+    const map = {
+      STRONG:   ['#4dc47a','STRONG ▲'],
+      POSITIVE: ['#6ab0e0','POSITIVE ↑'],
+      FLAT:     ['#7a7060','FLAT →'],
+      NEGATIVE: ['#e55b4d','NEGATIVE ↓'],
+      PENDING:  ['#3a3428','PENDING'],
+    };
+    const [color, label] = map[o] || ['#7a7060', o];
+    return `<span style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;padding:2px 7px;border-radius:3px;background:${color}22;color:${color};border:1px solid ${color}44">${label}</span>`;
+  }
+
   function sortBy(col) {
     if (sortCol === col) sortDir *= -1;
     else { sortCol = col; sortDir = -1; }
     document.querySelectorAll('.bt-table th').forEach(th => th.classList.remove('sorted'));
-    const thId = {created_at:'th-date', price_at:'th-price', price_7d:'th-7d', price_30d:'th-30d', return_30d:'th-ret'}[col];
+    const thId = {created_at:'th-date', price_at:'th-price', return_7d:'th-7d', return_30d:'th-ret'}[col];
     if (thId) document.getElementById(thId)?.classList.add('sorted');
     renderTable(allData);
   }
@@ -233,14 +257,8 @@
       const r = await fetch(`/backtest/calculate/${alertId}`, {method:'POST'});
       const d = await r.json();
       if (d.return_30d != null) {
-        // Update in allData
         const idx = allData.findIndex(x => x.id === alertId);
-        if (idx >= 0) {
-          allData[idx].price_at  = d.price_at;
-          allData[idx].price_7d  = d.price_7d;
-          allData[idx].price_30d = d.price_30d;
-          allData[idx].return_30d = d.return_30d;
-        }
+        if (idx >= 0) Object.assign(allData[idx], d);
         renderTable(allData);
       } else {
         btn.textContent = 'N/A';
@@ -279,8 +297,10 @@
     document.getElementById('bt-loading').style.display = '';
     document.getElementById('bt-table').style.display   = 'none';
 
+    const outcome = document.getElementById('f-outcome').value;
     let url = `/backtest/data?days=${days}&limit=200`;
     if (rule) url += `&rule=${rule}`;
+    if (outcome) url += `&outcome=${outcome}`;
 
     try {
       const r = await fetch(url);

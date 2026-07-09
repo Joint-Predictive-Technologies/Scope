@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signal Archive — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #e55b4d; --green: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
+
+    .page { max-width: 1200px; margin: 0 auto; padding: 3rem 2rem; }
+    .page-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; }
+
+    /* SEARCH BAR */
+    .search-row { display: flex; gap: 0.6rem; margin-bottom: 1.2rem; }
+    .search-input { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 10px 14px; border-radius: 6px; outline: none; }
+    .search-input:focus { border-color: var(--amber); }
+    .search-input::placeholder { color: var(--muted); }
+    .search-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 500; white-space: nowrap; }
+    .search-btn:hover { background: var(--amber2); }
+
+    /* FILTERS */
+    .filters { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .f-input, .f-select { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 6px 10px; border-radius: 4px; outline: none; appearance: none; }
+    .f-input:focus, .f-select:focus { border-color: var(--amber); }
+    .f-input::placeholder { color: var(--muted); }
+    .export-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; background: transparent; color: var(--amber); border: 1px solid rgba(200,146,42,0.4); padding: 6px 14px; border-radius: 4px; cursor: pointer; margin-left: auto; text-decoration: none; white-space: nowrap; }
+    .export-btn:hover { background: rgba(200,146,42,0.08); }
+    .result-info { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); }
+
+    /* TABLE */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    thead th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+    tbody tr { border-bottom: 1px solid rgba(42,38,32,0.5); transition: background 0.1s; cursor: pointer; }
+    tbody tr:hover { background: var(--bg2); }
+    tbody tr.expanded { background: var(--bg2); }
+    tbody td { padding: 0.75rem 0.8rem; color: var(--cream2); font-size: 0.8rem; vertical-align: top; }
+    .detail-row td { padding: 0 0.8rem 0.8rem; }
+    .detail-box { background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 1rem 1.2rem; font-size: 0.8rem; color: var(--cream2); line-height: 1.65; }
+
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 3px; font-weight: 500; }
+    .badge-CRITICAL { background: rgba(229,91,77,0.15); color: var(--red); border: 1px solid rgba(229,91,77,0.3); }
+    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
+    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-LOW      { background: rgba(100,100,100,0.1); color: var(--muted); border: 1px solid var(--border2); }
+    .ticker-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--amber); text-decoration: none; }
+    .ticker-link:hover { text-decoration: underline; }
+    .rule-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+    .ret-pos { color: var(--green); font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .ret-neg { color: var(--red);   font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+    .ret-null { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; }
+
+    /* PAGINATION */
+    .pagination { display: flex; gap: 0.4rem; margin-top: 1.5rem; align-items: center; flex-wrap: wrap; }
+    .page-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; padding: 5px 12px; border-radius: 3px; border: 1px solid var(--border2); background: transparent; color: var(--cream2); cursor: pointer; }
+    .page-btn:hover { border-color: var(--amber); color: var(--amber); }
+    .page-btn.active { background: var(--amber); color: var(--bg); border-color: var(--amber); cursor: default; }
+    .page-btn:disabled { opacity: 0.35; cursor: default; }
+    .page-info { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--muted); margin-left: auto; }
+
+    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .empty   { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <button class="hamburger" id="ham-btn">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/feed">Alerts</a>
+    <a href="/history" class="active">History</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-eyebrow">Research Archive</div>
+  <div class="page-title">Signal History</div>
+  <div class="page-sub">Full searchable database of every alert Scope has ever fired. Default view: last 90 days. Use filters to narrow by rule, severity, outcome, or date range.</div>
+
+  <div class="search-row">
+    <input class="search-input" id="q" placeholder="Search headline, detail, ticker…" onkeydown="if(event.key==='Enter') load(1)" />
+    <button class="search-btn" onclick="load(1)">Search</button>
+  </div>
+
+  <div class="filters">
+    <input class="f-input" id="f-ticker" placeholder="Ticker" style="width:90px" onkeydown="if(event.key==='Enter') load(1)" />
+    <input class="f-input" id="f-member" placeholder="Member name or ID" style="width:160px" onkeydown="if(event.key==='Enter') load(1)" />
+    <select class="f-select" id="f-rule" onchange="load(1)">
+      <option value="">All rules</option>
+      <option value="RULE_01B">RULE_01B</option>
+      <option value="RULE_02">RULE_02</option>
+      <option value="RULE_06">RULE_06</option>
+      <option value="RULE_07">RULE_07</option>
+      <option value="RULE_08">RULE_08</option>
+      <option value="RULE_09">RULE_09</option>
+      <option value="RULE_10">RULE_10</option>
+      <option value="RULE_11">RULE_11</option>
+      <option value="RULE_ANOMALY">RULE_ANOMALY</option>
+      <option value="RULE_REDDIT">RULE_REDDIT</option>
+      <option value="RULE_OSINT">RULE_OSINT</option>
+    </select>
+    <select class="f-select" id="f-severity" onchange="load(1)">
+      <option value="">All severity</option>
+      <option value="CRITICAL">Critical</option>
+      <option value="HIGH">High</option>
+      <option value="MEDIUM">Medium</option>
+      <option value="LOW">Low</option>
+    </select>
+    <select class="f-select" id="f-outcome" onchange="load(1)">
+      <option value="">All outcomes</option>
+      <option value="STRONG">Strong ▲ (+10%+)</option>
+      <option value="POSITIVE">Positive ↑ (0–10%)</option>
+      <option value="FLAT">Flat → (-5% to 0%)</option>
+      <option value="NEGATIVE">Negative ↓ (&lt;-5%)</option>
+    </select>
+    <input class="f-input" id="f-from" type="date" title="From date" onchange="load(1)" style="width:130px" />
+    <input class="f-input" id="f-to"   type="date" title="To date"   onchange="load(1)" style="width:130px" />
+    <a id="export-btn" class="export-btn" href="#" onclick="doExport(event)">↓ Export CSV</a>
+    <div class="result-info" id="result-info"></div>
+  </div>
+
+  <div class="table-wrap">
+    <table id="hist-table" style="display:none">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Rule</th>
+          <th>Ticker</th>
+          <th>Severity</th>
+          <th>Headline</th>
+          <th>7d Ret</th>
+          <th>30d Ret</th>
+        </tr>
+      </thead>
+      <tbody id="hist-body"></tbody>
+    </table>
+    <div id="hist-loading" class="loading">Loading…</div>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<script>
+  document.getElementById('ham-btn').addEventListener('click', () => {
+    document.getElementById('nav-links').classList.toggle('open');
+  });
+
+  let currentPage = 1;
+  let totalPages  = 1;
+
+  function fmtDate(ts) {
+    if (!ts) return '—';
+    return new Date((ts.includes('Z') ? ts : ts + 'Z')).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  }
+  function fmtRet(r) {
+    if (r == null) return '<span class="ret-null">—</span>';
+    const cls = r >= 0 ? 'ret-pos' : 'ret-neg';
+    return `<span class="${cls}">${r >= 0 ? '+' : ''}${r.toFixed(1)}%</span>`;
+  }
+
+  function buildParams(page) {
+    const p = new URLSearchParams();
+    const q = document.getElementById('q').value.trim();
+    const ticker  = document.getElementById('f-ticker').value.trim();
+    const member  = document.getElementById('f-member').value.trim();
+    const rule    = document.getElementById('f-rule').value;
+    const severity= document.getElementById('f-severity').value;
+    const outcome = document.getElementById('f-outcome').value;
+    const from    = document.getElementById('f-from').value;
+    const to      = document.getElementById('f-to').value;
+    if (q)        p.set('q', q);
+    if (ticker)   p.set('ticker', ticker);
+    if (member)   p.set('member', member);
+    if (rule)     p.set('rule', rule);
+    if (severity) p.set('severity', severity);
+    if (outcome)  p.set('outcome', outcome);
+    if (from)     p.set('from_date', from);
+    if (to)       p.set('to_date', to);
+    p.set('page', page);
+    p.set('limit', 50);
+    return p;
+  }
+
+  async function load(page) {
+    currentPage = page || currentPage;
+    const params = buildParams(currentPage);
+    document.getElementById('hist-loading').style.display = '';
+    document.getElementById('hist-table').style.display   = 'none';
+    document.getElementById('pagination').innerHTML       = '';
+    document.getElementById('result-info').textContent    = '';
+
+    try {
+      const r = await fetch('/history/data?' + params.toString());
+      const d = await r.json();
+      totalPages = d.pages || 1;
+
+      document.getElementById('result-info').textContent =
+        `${d.total.toLocaleString()} results · page ${d.page} of ${totalPages}`;
+
+      if (!d.data || !d.data.length) {
+        document.getElementById('hist-loading').textContent = 'No results found.';
+        return;
+      }
+
+      document.getElementById('hist-body').innerHTML = d.data.map(row => {
+        const sym = (row.ticker||'').replace(/\$/g,'').split(' ')[0];
+        const detailId = `det-${row.id}`;
+        return `
+          <tr onclick="toggleDetail(${row.id})" id="tr-${row.id}">
+            <td style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);white-space:nowrap">${fmtDate(row.created_at)}</td>
+            <td class="rule-tag">${row.rule||''}</td>
+            <td>${sym ? `<a href="/ticker/${sym}" class="ticker-link" onclick="event.stopPropagation()">${sym}</a>` : '—'}</td>
+            <td><span class="badge badge-${row.severity}">${row.severity}</span></td>
+            <td style="max-width:320px">${row.headline||''}</td>
+            <td>${fmtRet(row.return_7d)}</td>
+            <td>${fmtRet(row.return_30d)}</td>
+          </tr>
+          <tr id="${detailId}" style="display:none"><td colspan="7" class="detail-row">
+            <div class="detail-box">
+              <div style="margin-bottom:0.5rem">${(row.detail||'').replace(/\n/g,'<br>')}</div>
+              ${row.return_30d != null ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted)">Entry: $${(row.price_at||0).toFixed(2)} · 30d return: ${fmtRet(row.return_30d)}</div>` : ''}
+            </div>
+          </td></tr>`;
+      }).join('');
+
+      document.getElementById('hist-table').style.display = '';
+      document.getElementById('hist-loading').style.display = 'none';
+
+      renderPagination(d.page, totalPages);
+    } catch (e) {
+      document.getElementById('hist-loading').textContent = 'Failed to load history.';
+    }
+  }
+
+  function toggleDetail(id) {
+    const det = document.getElementById(`det-${id}`);
+    const tr  = document.getElementById(`tr-${id}`);
+    const hidden = det.style.display === 'none';
+    det.style.display = hidden ? '' : 'none';
+    tr.classList.toggle('expanded', hidden);
+  }
+
+  function renderPagination(page, pages) {
+    if (pages <= 1) return;
+    const el = document.getElementById('pagination');
+    const items = [];
+    items.push(`<button class="page-btn" onclick="load(${page-1})" ${page<=1?'disabled':''}>← Prev</button>`);
+    const start = Math.max(1, page - 2);
+    const end   = Math.min(pages, page + 2);
+    if (start > 1) items.push(`<button class="page-btn" onclick="load(1)">1</button>${start > 2 ? '<span style="color:var(--muted);font-size:0.7rem;padding:0 4px">…</span>' : ''}`);
+    for (let i = start; i <= end; i++) {
+      items.push(`<button class="page-btn ${i===page?'active':''}" onclick="load(${i})">${i}</button>`);
+    }
+    if (end < pages) items.push(`${end < pages-1 ? '<span style="color:var(--muted);font-size:0.7rem;padding:0 4px">…</span>' : ''}<button class="page-btn" onclick="load(${pages})">${pages}</button>`);
+    items.push(`<button class="page-btn" onclick="load(${page+1})" ${page>=pages?'disabled':''}>Next →</button>`);
+    items.push(`<span class="page-info">Page ${page} of ${pages}</span>`);
+    el.innerHTML = items.join('');
+  }
+
+  function doExport(e) {
+    e.preventDefault();
+    const params = buildParams(1);
+    params.delete('page');
+    params.delete('limit');
+    window.location.href = '/history/export?' + params.toString();
+  }
+
+  load(1);
+</script>
+</body>
+</html>

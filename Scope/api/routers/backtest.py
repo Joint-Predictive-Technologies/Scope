@@ -46,18 +46,20 @@ def _fetch_and_cache(alert_id: int, ticker: str, created_at: str) -> dict | None
         price_30d = round(closes[min(30, len(closes) - 1)], 4)
         ret_30d   = round(((price_30d - price_at) / price_at) * 100, 2)
 
+        ret_7d = round(((price_7d - price_at) / price_at) * 100, 2)
+
         conn.execute(
             """INSERT OR REPLACE INTO backtest_results
-               (alert_id, ticker, price_at, price_7d, price_30d, return_30d)
-               VALUES (?,?,?,?,?,?)""",
-            (alert_id, ticker, price_at, price_7d, price_30d, ret_30d),
+               (alert_id, ticker, price_at, price_7d, price_30d, return_7d, return_30d)
+               VALUES (?,?,?,?,?,?,?)""",
+            (alert_id, ticker, price_at, price_7d, price_30d, ret_7d, ret_30d),
         )
         conn.commit()
         conn.close()
         return {
             "alert_id": alert_id, "ticker": ticker,
-            "price_at": price_at, "price_7d": price_7d,
-            "price_30d": price_30d, "return_30d": ret_30d,
+            "price_at": price_at, "price_7d": price_7d, "price_30d": price_30d,
+            "return_7d": ret_7d, "return_30d": ret_30d,
         }
     except Exception as exc:
         conn.close()
@@ -66,24 +68,37 @@ def _fetch_and_cache(alert_id: int, ticker: str, created_at: str) -> dict | None
 
 # ── data ──────────────────────────────────────────────────────────────────────
 
+def _outcome(ret: float | None) -> str:
+    if ret is None:
+        return "PENDING"
+    if ret >= 10:
+        return "STRONG"
+    if ret >= 0:
+        return "POSITIVE"
+    if ret >= -5:
+        return "FLAT"
+    return "NEGATIVE"
+
+
 @router.get("/data")
 def get_backtest_data(
-    days:  int = Query(default=90, ge=7, le=365),
-    rule:  str = Query(default=""),
-    limit: int = Query(default=150, ge=1, le=500),
+    days:    int = Query(default=90, ge=7, le=365),
+    rule:    str = Query(default=""),
+    outcome: str = Query(default=""),
+    limit:   int = Query(default=150, ge=1, le=500),
 ):
     conn = db_connection()
     params: list = [f"-{days} days"]
     extra = ""
     if rule:
-        extra = " AND a.rule = ?"
+        extra += " AND a.rule = ?"
         params.append(rule.upper())
     params.append(limit)
 
     rows = conn.execute(
         f"""
         SELECT a.id, a.rule, a.severity, a.headline, a.ticker, a.created_at,
-               b.price_at, b.price_7d, b.price_30d, b.return_30d
+               b.price_at, b.price_7d, b.price_30d, b.return_7d, b.return_30d
         FROM alerts a
         LEFT JOIN backtest_results b ON a.id = b.alert_id
         WHERE datetime(a.created_at) >= datetime('now', ?)
@@ -96,7 +111,15 @@ def get_backtest_data(
         params,
     ).fetchall()
 
-    calculated = [r for r in rows if r["return_30d"] is not None]
+    rows_dicts = [dict(r) for r in rows]
+    for row in rows_dicts:
+        row["outcome"] = _outcome(row.get("return_30d"))
+
+    # Apply outcome filter client-side after enriching
+    if outcome:
+        rows_dicts = [r for r in rows_dicts if r["outcome"] == outcome.upper()]
+
+    calculated = [r for r in rows_dicts if r.get("return_30d") is not None]
     avg_ret = (
         round(sum(r["return_30d"] for r in calculated) / len(calculated), 2)
         if calculated else None
@@ -108,10 +131,10 @@ def get_backtest_data(
 
     conn.close()
     return {
-        "alerts": [dict(r) for r in rows],
+        "alerts": rows_dicts,
         "stats": {
-            "total":         len(rows),
-            "calculated":    len(calculated),
+            "total":          len(rows_dicts),
+            "calculated":     len(calculated),
             "avg_return_30d": avg_ret,
             "by_rule":        rule_avgs,
         },

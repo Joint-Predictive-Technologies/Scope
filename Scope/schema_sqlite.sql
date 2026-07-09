@@ -96,8 +96,20 @@ CREATE TABLE IF NOT EXISTS backtest_results (
     price_at   REAL,
     price_7d   REAL,
     price_30d  REAL,
+    return_7d  REAL,
     return_30d REAL,
     fetched_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS reddit_posts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id     TEXT UNIQUE,
+    subreddit   TEXT,
+    title       TEXT,
+    ticker      TEXT,
+    upvotes     INTEGER,
+    url         TEXT,
+    ingested_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS digests (

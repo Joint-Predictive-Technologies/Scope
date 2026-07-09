@@ -42,10 +42,35 @@ def _initialize_schema(conn: sqlite3.Connection) -> None:
     _run_migrations(conn)
 
 
+SECTOR_MAP: dict[str, list[str]] = {
+    "Defense & Aerospace": ["LMT", "RTX", "NOC", "GD", "BA", "HII", "LHX", "KTOS", "LDOS", "SAIC", "CACI", "BAH"],
+    "Technology":          ["NVDA", "AAPL", "MSFT", "AMD", "INTC", "TSM", "AVGO", "QCOM", "ARM", "MU", "AMAT"],
+    "Finance & Banking":   ["GS", "JPM", "MS", "BAC", "C", "WFC", "BLK", "AXP", "SCHW", "COF"],
+    "Energy":              ["XOM", "CVX", "COP", "USO", "XLE", "OXY", "SLB", "EOG", "VLO", "MPC"],
+    "Healthcare & Pharma": ["JNJ", "PFE", "MRK", "ABBV", "UNH", "CVS", "LLY", "AMGN", "GILD", "REGN"],
+    "Crypto & Fintech":    ["COIN", "MSTR", "PYPL", "SQ", "MARA", "RIOT"],
+    "Telecom":             ["T", "VZ", "TMUS", "CMCSA", "CHTR"],
+    "Government Contractors": ["PLTR", "SAIC", "CACI", "BAH", "LDOS"],
+}
+
+REGION_TICKERS: dict[str, list[str]] = {
+    "Middle East":       ["USO", "XLE", "XOM", "CVX", "LMT", "RTX"],
+    "Taiwan Strait":     ["TSM", "NVDA", "AMD", "INTC", "AVGO"],
+    "Eastern Europe":    ["LMT", "RTX", "NOC", "GD"],
+    "Korean Peninsula":  ["TSM", "LMT", "NOC"],
+    "South China Sea":   ["TSM", "NVDA", "LMT", "RTX"],
+}
+
+
 def _run_migrations(conn: sqlite3.Connection) -> None:
-    existing = {r[1] for r in conn.execute("PRAGMA table_info(contracts)").fetchall()}
-    if "award_id" not in existing:
+    existing_contracts = {r[1] for r in conn.execute("PRAGMA table_info(contracts)").fetchall()}
+    if "award_id" not in existing_contracts:
         conn.execute("ALTER TABLE contracts ADD COLUMN award_id TEXT")
+        conn.commit()
+
+    existing_bt = {r[1] for r in conn.execute("PRAGMA table_info(backtest_results)").fetchall()}
+    if "return_7d" not in existing_bt and existing_bt:
+        conn.execute("ALTER TABLE backtest_results ADD COLUMN return_7d REAL")
         conn.commit()
 
 

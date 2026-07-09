@@ -89,6 +89,13 @@
   </div>
 
   <div id="grid"><div class="loading">Loading sector data…</div></div>
+
+  <div style="margin-top:3rem">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);margin-bottom:0.8rem;padding-bottom:0.4rem;border-bottom:1px solid var(--border)">
+      ⚑ Active Geopolitical Risks
+    </div>
+    <div id="osint-section"><div class="loading">Loading geopolitical risks…</div></div>
+  </div>
 </div>
 
 <script>
@@ -130,11 +137,19 @@
         return;
       }
 
+      const RULE_LABELS = {
+        RULE_01B: 'Congressional', RULE_02: 'Cluster', RULE_06: 'Insider',
+        RULE_07: 'Polymarket', RULE_08: 'Fed Register', RULE_09: 'Lobbying',
+        RULE_10: 'Corroboration', RULE_11: 'Gov Contract',
+        RULE_ANOMALY: 'Attention Spike', RULE_REDDIT: 'Reddit',
+        RULE_OSINT: 'Geopolitical',
+      };
       document.getElementById('grid').innerHTML = `<div class="sectors-grid">` + entries.map(([sector, d]) => {
         const col   = SECTOR_COLORS[sector] || '#888';
         const ticks = d.tickers.map(t => `<span class="ticker-chip">${t}</span>`).join('');
         const bar   = sevBar(d.severity, d.count);
         const feedUrl = `/feed?ticker=${d.tickers[0] || ''}`;
+        const drLabel = d.dominant_rule ? (RULE_LABELS[d.dominant_rule] || d.dominant_rule) : '';
         return `
           <a href="${feedUrl}" class="sector-card">
             <div class="sector-top">
@@ -143,12 +158,40 @@
             </div>
             <div class="sector-count">${d.count}</div>
             <div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted);margin-bottom:0.6rem">
-              alerts · prev period: ${d.prev}
+              alerts · prev: ${d.prev}${drLabel ? ` · ${drLabel}` : ''}
             </div>
             ${bar}
             <div class="tickers-row">${ticks}</div>
           </a>`;
       }).join('') + `</div>`;
+
+      // OSINT geopolitical risks section
+      const osintEl = document.getElementById('osint-section');
+      fetch('/alerts?rule=RULE_OSINT&days=30&limit=6')
+        .then(r => r.json())
+        .then(osint => {
+          if (!Array.isArray(osint) || !osint.length) {
+            osintEl.innerHTML = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">No active geopolitical risks detected.</div>';
+            return;
+          }
+          osintEl.innerHTML = osint.map(a => {
+            let tags = {};
+            try { tags = JSON.parse(a.tags||'{}'); } catch {}
+            const region  = tags.region || tags.country || '';
+            const tickers = (tags.tickers || []).slice(0,3).join(', ');
+            const url     = tags.url || '#';
+            return `<div style="padding:0.8rem 1rem;border:1px solid var(--border);border-radius:6px;background:var(--bg2);margin-bottom:0.5rem">
+              <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap">
+                <span class="badge badge-${a.severity}">${a.severity}</span>
+                ${region ? `<span style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--amber)">${region}</span>` : ''}
+                <span style="font-size:0.82rem;color:var(--cream);flex:1">${a.headline||''}</span>
+              </div>
+              ${tickers ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.4rem">Market exposure: ${tickers}</div>` : ''}
+              ${url && url!='#' ? `<a href="${url}" target="_blank" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--amber);text-decoration:none">Source →</a>` : ''}
+            </div>`;
+          }).join('');
+        })
+        .catch(() => { osintEl.innerHTML = ''; });
     } catch {
       document.getElementById('grid').innerHTML = '<div class="empty">Failed to load sector data.</div>';
     }

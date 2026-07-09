@@ -284,6 +284,14 @@
   </div>
 </div>
 
+<!-- SECTOR BAR -->
+<div class="section" style="padding-top:0;padding-bottom:0">
+  <div class="section-label">Sector Intelligence</div>
+  <div id="sector-bar" style="display:flex;gap:0.7rem;flex-wrap:wrap;padding:0 2rem 2rem;max-width:1100px;margin:0 auto">
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading sectors…</div>
+  </div>
+</div>
+
 <!-- LIVE WIDGETS -->
 <div class="section">
   <div class="section-label">Live Data</div>
@@ -367,6 +375,24 @@
       <div class="rule-desc">$50M+ federal contracts awarded to publicly traded companies via USASpending.gov.</div>
       <div class="rule-status">● Live</div>
     </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_ANOMALY</div>
+      <div class="rule-name">Attention Spike</div>
+      <div class="rule-desc">Fires when a ticker receives 2.5× its normal signal rate in 30 days. Also flags first-ever appearances in Scope data.</div>
+      <div class="rule-status">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_REDDIT</div>
+      <div class="rule-name">Reddit Signal</div>
+      <div class="rule-desc">High-upvote posts in investing subreddits that mention tracked tickers alongside political keywords.</div>
+      <div class="rule-status">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_OSINT</div>
+      <div class="rule-name">Geopolitical OSINT</div>
+      <div class="rule-desc">Conflict and humanitarian events from ReliefWeb and ACLED mapped to market exposure via region→sector→ticker logic.</div>
+      <div class="rule-status">● Live</div>
+    </div>
     <div class="rule-card featured">
       <div class="rule-id">RULE_10 — Marquee Signal</div>
       <div class="rule-name">Cross-Source Corroboration</div>
@@ -376,9 +402,23 @@
   </div>
 </div>
 
+<!-- BACKTEST TEASER -->
+<div class="section" style="padding-top:0">
+  <div style="max-width:1100px;margin:0 auto;padding:0 2rem">
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:1.6rem 2rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);margin-bottom:0.4rem">Signal Validation · Backtest</div>
+        <div style="font-family:'Playfair Display',serif;font-size:1.15rem;font-weight:700;color:var(--cream)" id="bt-teaser-text">Loading performance data…</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Based on Yahoo Finance post-alert price data. Historical, not forward-looking.</div>
+      </div>
+      <a href="/backtest" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--bg);background:var(--amber);padding:8px 20px;border-radius:4px;text-decoration:none;white-space:nowrap">View Backtest →</a>
+    </div>
+  </div>
+</div>
+
 <footer>
   © 2026 Joint Predictive Technologies · Scope Political Intelligence ·
-  <a href="/docs">API Docs</a> · <a href="/watchlist">Watchlist</a> · <a href="/brief">Daily Brief</a>
+  <a href="/docs">API Docs</a> · <a href="/watchlist">Watchlist</a> · <a href="/brief">Daily Brief</a> · <a href="/history">History</a>
 </footer>
 
 <script>
@@ -608,6 +648,53 @@
     .catch(() => {
       const el = document.getElementById('brief-preview-wrap');
       if (el) el.innerHTML = '<div class="brief-preview-box"><div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Brief unavailable.</div></div>';
+    });
+
+  // Compact sector bar
+  fetch('/sectors/data?days=30')
+    .then(r => r.json())
+    .then(data => {
+      const el = document.getElementById('sector-bar');
+      const entries = Object.entries(data).sort((a,b) => b[1].count - a[1].count).slice(0, 5);
+      if (!entries.length) { el.innerHTML = ''; return; }
+      const COLORS = {
+        'Defense & Aerospace':'#e55b4d','Technology':'#6ab0e0','Finance & Banking':'#4dc47a',
+        'Energy':'#e67e22','Healthcare & Pharma':'#9b59b6','Crypto & Fintech':'#c8922a',
+        'Telecom':'#c8922a','Government Contractors':'#e55b4d','Other':'#7a7060',
+        'Defense':'#e55b4d','Finance':'#4dc47a','Pharma':'#9b59b6',
+      };
+      el.innerHTML = entries.map(([sector, d]) => {
+        const col   = COLORS[sector] || '#888';
+        const trend = d.trend === 'up' ? '↑' : (d.trend === 'down' ? '↓' : '→');
+        const trendC = d.trend === 'up' ? '#4dc47a' : (d.trend === 'down' ? '#e55b4d' : '#7a7060');
+        return `<a href="/sectors" style="text-decoration:none;display:flex;align-items:center;gap:0.5rem;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${col};border-radius:6px;padding:0.5rem 0.9rem">
+          <span style="font-family:'Playfair Display',serif;font-size:0.88rem;font-weight:700;color:var(--cream)">${sector}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--amber)">${d.count}</span>
+          <span style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:${trendC}">${trend}</span>
+        </a>`;
+      }).join('') + `<a href="/sectors" style="text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--amber);display:flex;align-items:center;padding:0 0.4rem">All sectors →</a>`;
+    })
+    .catch(() => { document.getElementById('sector-bar').innerHTML = ''; });
+
+  // Backtest teaser
+  fetch('/backtest/data?days=180&limit=200')
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('bt-teaser-text');
+      if (!el) return;
+      const stats = d.stats || {};
+      if (stats.avg_return_30d != null) {
+        const avg = stats.avg_return_30d;
+        const r10 = (stats.by_rule || {})['RULE_10'];
+        const r10str = r10 != null ? ` RULE_10 corroborations averaged ${r10 >= 0 ? '+' : ''}${r10.toFixed(1)}%.` : '';
+        el.textContent = `Across ${stats.calculated} tracked signals, average 30-day return: ${avg >= 0 ? '+' : ''}${avg.toFixed(1)}%.${r10str}`;
+      } else {
+        el.textContent = 'Backtest data populates as signals age past 30 days.';
+      }
+    })
+    .catch(() => {
+      const el = document.getElementById('bt-teaser-text');
+      if (el) el.textContent = 'Signal validation via post-alert price performance.';
     });
 
   // Stats + hero counts
