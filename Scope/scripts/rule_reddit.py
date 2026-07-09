@@ -25,7 +25,7 @@ ARCTIC_BASE = "https://arctic-shift.photon-reddit.com/api/posts/search"
 SUBREDDITS = [
     "wallstreetbets", "investing", "stocks",
     "StockMarket", "worldnews",
-    "politicaleconomy", "politics", "news",
+    "economics", "politics", "geopolitics",
 ]
 
 POLITICAL_KEYWORDS = [

@@ -31,8 +31,8 @@ from jpt_common import (
     REGION_TICKERS,
 )
 
-GDELT_MASTER_URL = "http://data.gdelt.org/gdeltv2/lastupdate.txt"
-RELIEFWEB_URL    = "https://api.reliefweb.int/v1/reports"
+GDELT_MASTER_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
+GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 
 MONITORED_COUNTRIES_RW = [
     "Israel", "Palestine", "Iran", "Lebanon", "Syria", "Yemen",
@@ -229,24 +229,7 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
     return emitted
 
 
-# ── ReliefWeb ─────────────────────────────────────────────────────────────────
-
-def _fetch_reliefweb(country: str) -> list[dict]:
-    try:
-        payload = {
-            "appname": "scope",
-            "filter":  {"field": "country.name", "value": country},
-            "fields":  {"include": ["title", "body", "date", "url", "source"]},
-            "sort":    ["date:desc"],
-            "limit":   5,
-        }
-        r = requests.post(RELIEFWEB_URL, json=payload, timeout=15)
-        r.raise_for_status()
-        return r.json().get("data", [])
-    except Exception as e:
-        print(f"[RULE_OSINT] ReliefWeb error for {country}: {e}")
-        return []
-
+# ── GDELT Doc API (news search by country, no auth) ──────────────────────────
 
 COUNTRY_TO_REGION = {
     "Israel": "Middle East", "Palestine": "Middle East", "Iran": "Middle East",
@@ -258,43 +241,59 @@ COUNTRY_TO_REGION = {
     "Pakistan": "South Asia", "Afghanistan": "South Asia",
 }
 
+CONFLICT_TERMS = "war OR military OR attack OR conflict OR missile OR troops OR sanctions"
 
-def _run_reliefweb(conn, emit: bool, dry_run: bool) -> int:
+
+def _fetch_gdelt_news(country: str) -> list[dict]:
+    try:
+        params = {
+            "query":    f"{country} ({CONFLICT_TERMS})",
+            "mode":     "artlist",
+            "maxrecords": 5,
+            "format":   "json",
+            "timespan": "1d",
+        }
+        r = requests.get(GDELT_DOC_URL, params=params, timeout=15, headers=HEADERS)
+        r.raise_for_status()
+        return r.json().get("articles", [])
+    except Exception as e:
+        print(f"[RULE_OSINT] GDELT-News error for {country}: {e}")
+        return []
+
+
+def _run_gdelt_news(conn, emit: bool, dry_run: bool) -> int:
     emitted = 0
 
     for country in MONITORED_COUNTRIES_RW:
-        reports = _fetch_reliefweb(country)
-        time.sleep(0.5)
+        articles = _fetch_gdelt_news(country)
+        time.sleep(2.0)
 
-        for rpt in reports:
-            fields  = rpt.get("fields", {})
-            title   = fields.get("title", "")
-            body    = (fields.get("body", "") or "")[:300]
-            url     = fields.get("url", "")
-            source  = (fields.get("source") or [{}])[0].get("name", "ReliefWeb")
-            region  = COUNTRY_TO_REGION.get(country, country)
+        for art in articles:
+            title  = art.get("title", "")
+            url    = art.get("url", "")
+            source = art.get("domain", "news")
+            region = COUNTRY_TO_REGION.get(country, country)
             tickers = REGION_TICKERS.get(region, [])
 
-            if not tickers or not title:
+            if not tickers or not title or not url:
                 continue
 
             existing = conn.execute(
                 "SELECT 1 FROM alerts WHERE rule='RULE_OSINT' AND tags LIKE ?",
-                (f"%{url[:60]}%",),
+                (f"%{url[:80]}%",),
             ).fetchone()
             if existing:
                 continue
 
             ticker   = tickers[0]
             headline = f"Geopolitical — {country}: {title[:80]}"
-            detail   = f"Source: {source}\n\n{body}"
             tags_str = json.dumps({
                 "url": url, "country": country, "region": region,
                 "tickers": tickers, "source": source,
             })
 
             print(
-                f"[RULE_OSINT] ReliefWeb {'[dry]' if dry_run else '[emit]'} "
+                f"[RULE_OSINT] GDELT-News {'[dry]' if dry_run else '[emit]'} "
                 f"{country} → {ticker}: {title[:60]}"
             )
 
@@ -302,12 +301,12 @@ def _run_reliefweb(conn, emit: bool, dry_run: bool) -> int:
                 conn.execute(
                     """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
                        VALUES ('RULE_OSINT', ?, 'HIGH', ?, ?, ?)""",
-                    (headline, tags_str, ticker, detail),
+                    (headline, tags_str, ticker, source),
                 )
                 conn.commit()
                 emitted += 1
 
-    print(f"[RULE_OSINT] ReliefWeb: {emitted} new alerts emitted")
+    print(f"[RULE_OSINT] GDELT-News: {emitted} new alerts emitted")
     return emitted
 
 
@@ -316,7 +315,7 @@ def _run_reliefweb(conn, emit: bool, dry_run: bool) -> int:
 def run(emit: bool = False, dry_run: bool = False) -> None:
     conn = db_connection()
     _run_gdelt(conn, emit=emit, dry_run=dry_run)
-    _run_reliefweb(conn, emit=emit, dry_run=dry_run)
+    _run_gdelt_news(conn, emit=emit, dry_run=dry_run)
     conn.close()
 
 
