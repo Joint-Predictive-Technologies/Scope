@@ -32,9 +32,9 @@
     }
 
     /* ── TICKER TAPE ─────────────────────────────────────── */
-    .tape { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 7px 0; overflow: hidden; white-space: nowrap; }
-    .tape-inner { display: inline-flex; gap: 3rem; animation: scroll 40s linear infinite; }
-    .tape-item { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.04em; }
+    .tape { background: var(--bg2); border-bottom: 1px solid var(--border); height: 32px; line-height: 32px; overflow: hidden; white-space: nowrap; }
+    .tape-inner { display: inline-flex; gap: 2.5rem; animation: scroll 50s linear infinite; height: 32px; align-items: center; }
+    .tape-item { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap; }
     .tape-item span { color: var(--amber); margin-right: 4px; }
     .tape-item.up .val { color: var(--green); }
     .tape-item.down .val { color: var(--red); }
@@ -162,13 +162,13 @@
     .brief-bullet strong { color: var(--amber); display: block; font-size: 0.55rem; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 0.2rem; }
 
     /* ── TOP SCORE WIDGET ────────────────────────────────── */
-    .score-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 1.4rem; border-bottom: 1px solid var(--border); text-decoration: none; transition: background 0.1s; }
+    .score-row { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.6rem 1.4rem; border-bottom: 1px solid var(--border); text-decoration: none; transition: background 0.1s; }
     .score-row:last-child { border-bottom: none; }
     .score-row:hover { background: var(--bg3); }
     .score-val { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: #4dc47a; min-width: 32px; text-align: right; flex-shrink: 0; }
     .score-rule { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 5px; border-radius: 2px; flex-shrink: 0; }
     .score-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--amber); min-width: 44px; }
-    .score-headline { font-size: 0.74rem; color: var(--cream2); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .score-headline { font-size: 0.74rem; color: var(--cream2); flex: 1; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
 
     /* ── LEADERBOARD ─────────────────────────────────────── */
     .leaderboard { display: flex; flex-direction: column; gap: 2px; }
@@ -182,6 +182,39 @@
     .lb-CRITICAL { background: rgba(192,57,43,0.18); color: var(--red-light); border: 1px solid rgba(192,57,43,0.3); }
     .lb-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
     .lb-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+
+    /* ── RECENT ALERTS ───────────────────────────────────── */
+    .recent-alerts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+    .ra-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.4rem; text-decoration: none; transition: border-color 0.15s; }
+    .ra-card:hover { border-color: var(--amber); }
+    .ra-card-top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .ra-rule { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 2px; border: 1px solid var(--border2); color: var(--cream2); flex-shrink: 0; }
+    .ra-ticker { font-family: 'IBM Plex Mono', monospace; font-size: 0.8rem; font-weight: 500; color: var(--amber); }
+    .ra-headline { font-size: 0.78rem; color: var(--cream); line-height: 1.45; }
+    .ra-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; color: var(--muted); margin-top: auto; }
+
+    /* ── HEAT MAP ────────────────────────────────────────── */
+    .heatmap-wrap { overflow-x: auto; }
+    .heatmap-table { border-collapse: collapse; width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; }
+    .hm-rule-label { color: var(--muted); white-space: nowrap; padding: 4px 10px 4px 0; text-align: right; font-size: 0.6rem; letter-spacing: 0.04em; min-width: 80px; }
+    .hm-day-label { color: var(--muted); text-align: center; padding: 2px 3px 6px; font-size: 0.55rem; letter-spacing: 0.03em; }
+    .hm-cell { width: 28px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: default; transition: transform 0.1s; }
+    .hm-cell:hover { transform: scale(1.15); z-index: 1; position: relative; }
+
+    /* ── ONBOARDING ──────────────────────────────────────── */
+    .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4rem; }
+    .how-step { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.6rem; }
+    .how-num { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; color: rgba(200,146,42,0.2); line-height: 1; margin-bottom: 0.6rem; }
+    .how-title { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .how-desc { font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
+    .how-example { margin-top: 0.8rem; background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 0.6rem 0.8rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--cream2); line-height: 1.5; }
+    .how-example .hi { color: var(--amber2); }
+    .how-example .ok { color: var(--green-light); }
+
+    @media (max-width: 900px) {
+      .recent-alerts { grid-template-columns: 1fr; }
+      .how-grid { grid-template-columns: 1fr; }
+    }
 
     footer { border-top: 1px solid var(--border); padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em; }
     footer a { color: var(--amber); text-decoration: none; }
@@ -234,7 +267,7 @@
     <div class="hero-stats" id="hero-stats">
       <span id="corr-count">—</span> corroborated signals this week ·
       <span id="week-tickers">—</span> tickers under watch ·
-      monitoring <span id="member-count">—</span> current members
+      <span id="member-count">—</span> congressional records indexed
     </div>
     <div class="hero-actions">
       <a href="/feed" class="btn-primary">View Live Alerts</a>
@@ -277,17 +310,18 @@
 
 <!-- WHAT CHANGED TODAY -->
 <div class="section" style="padding-bottom:0">
-  <div class="section-label">Intelligence Summary</div>
+  <div class="section-label">Latest Intelligence</div>
   <div class="section-title" style="margin-bottom:1.2rem">What Changed Today</div>
-  <div id="brief-preview-wrap">
-    <div class="brief-preview-box"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading brief…</div></div>
+  <div id="recent-alerts-grid" class="recent-alerts">
+    <div style="grid-column:1/-1;font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading signals…</div>
   </div>
+  <div id="brief-preview-wrap" style="margin-top:1.2rem"></div>
 </div>
 
 <!-- SECTOR BAR -->
-<div class="section" style="padding-top:0;padding-bottom:0">
+<div class="section" style="padding-top:0;padding-bottom:1.5rem">
   <div class="section-label">Sector Intelligence</div>
-  <div id="sector-bar" style="display:flex;gap:0.7rem;flex-wrap:wrap;padding:0 2rem 2rem;max-width:1100px;margin:0 auto">
+  <div id="sector-bar" style="display:flex;gap:0.7rem;flex-wrap:wrap;margin-top:0.6rem">
     <div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading sectors…</div>
   </div>
 </div>
@@ -402,6 +436,43 @@
   </div>
 </div>
 
+<!-- SIGNAL HEAT MAP -->
+<div class="section" style="padding-top:0">
+  <div class="section-label">Signal Activity</div>
+  <div class="section-title">14-Day Signal Heat Map</div>
+  <div class="heatmap-wrap">
+    <table class="heatmap-table" id="heatmap-table">
+      <tbody><tr><td colspan="16" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading activity data…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- HOW SCOPE WORKS -->
+<div class="section" style="padding-top:0">
+  <div class="section-label">Platform Guide</div>
+  <div class="section-title">How Scope Works</div>
+  <div class="how-grid">
+    <div class="how-step">
+      <div class="how-num">01</div>
+      <div class="how-title">Raw data ingested</div>
+      <div class="how-desc">Scope monitors eight live data streams — congressional disclosures, SEC Form 4 insider filings, Federal Register proposals, Senate lobby reports, USASpending.gov contracts, Polymarket odds, Reddit, and geopolitical OSINT — every four hours.</div>
+      <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> 2 rules converge → RULE_10 queued</div>
+    </div>
+    <div class="how-step">
+      <div class="how-num">02</div>
+      <div class="how-title">Rules score every signal</div>
+      <div class="how-desc">Eight detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When two or more independent rules fire on the same ticker within 48 hours, RULE_10 generates an AI-written analyst narrative.</div>
+      <div class="how-example">Signal score = sev × 0.5^(h/48)<br>× rule_multiplier<br><span class="hi">RULE_10</span> multiplier: <span class="ok">2.0×</span><br><span class="hi">RULE_06</span> multiplier: <span class="ok">1.5×</span></div>
+    </div>
+    <div class="how-step">
+      <div class="how-num">03</div>
+      <div class="how-title">You're positioned early</div>
+      <div class="how-desc">Signals surface before earnings announcements, before regulatory decisions become public, and before retail coverage. The Daily Brief synthesizes overnight intelligence into actionable context. Use the /ask terminal to query the full alert database conversationally.</div>
+      <div class="how-example"><span class="hi">→ /feed</span> — live alert stream<br><span class="hi">→ /brief</span> — AI daily synthesis<br><span class="hi">→ /ask</span> — natural language query<br><span class="hi">→ /backtest</span> — historical signal performance</div>
+    </div>
+  </div>
+</div>
+
 <!-- BACKTEST TEASER -->
 <div class="section" style="padding-top:0">
   <div style="max-width:1100px;margin:0 auto;padding:0 2rem">
@@ -426,6 +497,23 @@
     document.getElementById('nav-links').classList.toggle('open');
   });
 
+  // ── safeFetch — visible error on failure, no silent swallows ─────────────
+  async function safeFetch(url, { fallback = null, signal } = {}) {
+    try {
+      const resp = await fetch(url, signal ? { signal } : {});
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await resp.json();
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('[Scope] fetch failed:', url, e.message);
+      return fallback;
+    }
+  }
+  function withTimeout(ms) {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), ms);
+    return ctrl.signal;
+  }
+
   // ── Ticker tape ───────────────────────────────────────────────────────────
   const DOWN_RULES = new Set(['RULE_06']);
   function buildTapeHTML(items) {
@@ -436,24 +524,28 @@
     return half + half; // duplicate for seamless CSS loop
   }
   function loadTape() {
-    fetch('/api/ticker-tape')
-      .then(r => r.json())
-      .then(items => {
-        if (!items.length) return;
-        document.getElementById('tape').innerHTML = buildTapeHTML(items);
-      })
-      .catch(() => {});
+    safeFetch('/api/ticker-tape', { signal: withTimeout(8000) }).then(items => {
+      if (!Array.isArray(items) || !items.length) return;
+      document.getElementById('tape').innerHTML = buildTapeHTML(items);
+    });
   }
   loadTape();
   setInterval(loadTape, 5 * 60 * 1000);
 
   function timeAgo(dateStr) {
     if (!dateStr) return 'Unknown';
-    const normalized = dateStr.replace(' ', 'T');
-    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
-    if (isNaN(date.getTime())) return 'Unknown';
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
+    let ts;
+    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
+      const n = Number(dateStr);
+      ts = n > 1e10 ? n : n * 1000;
+    } else {
+      const s = String(dateStr).trim().replace(' ', 'T');
+      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    }
+    if (isNaN(ts)) return 'Unknown';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 0)    return 'just now';
+    if (diff < 60)   return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
     return `${Math.floor(diff/86400)}d ago`;
@@ -473,24 +565,40 @@
     return t.slice(0,4).toUpperCase();
   }
 
+  function fmtTradeDate(d) {
+    if (!d || d.includes('99/')) return '—';
+    try {
+      // Parse YYYY-MM-DD safely; show "Dec 26" format
+      const [y, mo, dy] = d.split(/[-\/]/).map(Number);
+      if (!y || !mo || !dy || mo > 12 || dy > 31) return '—';
+      return new Date(Date.UTC(y, mo - 1, dy))
+        .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: y !== new Date().getFullYear() ? 'numeric' : undefined });
+    } catch { return d; }
+  }
+
   // Widget 1: Latest Congressional Trades
-  fetch('/congress/trades?days=30&limit=5')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('widget-trades');
-      if (!data.length) { el.innerHTML = '<div class="widget-muted">No recent trades.</div>'; return; }
-      el.innerHTML = data.map(t => {
-        const sym = (t.ticker||'').replace(/\$/g,'').split(' ')[0];
-        const cls = txClass(t.transaction_type);
-        return `<div class="trade-row">
-          <a href="${sym ? '/ticker/'+sym : '#'}" class="trade-ticker">${sym || '—'}</a>
-          <span class="trade-type ${cls}">${txLabel(t.transaction_type)}</span>
-          <span class="trade-meta">${t.full_name||''} · ${t.amount_band||''}</span>
-          <span class="trade-time">${timeAgo(t.transaction_date ? t.transaction_date + 'T00:00:00' : null)}</span>
-        </div>`;
-      }).join('');
-    })
-    .catch(() => { document.getElementById('widget-trades').innerHTML = '<div class="widget-muted">Data unavailable.</div>'; });
+  safeFetch('/congress/trades?days=180&limit=6', { signal: withTimeout(8000) }).then(data => {
+    const el = document.getElementById('widget-trades');
+    if (!el) return;
+    // Filter out obviously corrupted dates (99/*, far-future years)
+    const valid = (Array.isArray(data) ? data : []).filter(t => {
+      const d = t.transaction_date || '';
+      if (d.startsWith('99')) return false;
+      const yr = parseInt(d.slice(0, 4));
+      return yr >= 2020 && yr <= new Date().getFullYear() + 1;
+    });
+    if (!valid.length) { el.innerHTML = '<div class="widget-muted">No recent trades on record.</div>'; return; }
+    el.innerHTML = valid.slice(0, 5).map(t => {
+      const sym = (t.ticker||'').replace(/\$/g,'').split(' ')[0];
+      const cls = txClass(t.transaction_type);
+      return `<div class="trade-row">
+        <a href="${sym ? '/ticker/'+sym : '#'}" class="trade-ticker">${sym || '—'}</a>
+        <span class="trade-type ${cls}">${txLabel(t.transaction_type)}</span>
+        <span class="trade-meta">${(t.full_name||'').split(',')[0]} · ${t.amount_band||''}</span>
+        <span class="trade-time">${fmtTradeDate(t.transaction_date)}</span>
+      </div>`;
+    }).join('');
+  });
 
   // ── Corroboration hero cards ──────────────────────────────────────────────
   function corrConfidence(alert) {
@@ -520,15 +628,14 @@
     return '2–8 weeks (typical signal lag)';
   }
 
-  fetch('/alerts?rule=RULE_10&days=30&limit=3')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('corr-hero-cards');
-      if (!data.length) {
-        el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 2+ rules converge on the same ticker.</div>';
-        return;
-      }
-      el.innerHTML = data.map(a => {
+  safeFetch('/alerts?rule=RULE_10&days=30&limit=3', { signal: withTimeout(8000) }).then(data => {
+    const el = document.getElementById('corr-hero-cards');
+    if (!el) return;
+    if (!Array.isArray(data) || !data.length) {
+      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 2+ rules converge on the same ticker.</div>';
+      return;
+    }
+    el.innerHTML = data.map(a => {
         const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
         let tags = {};
         try { tags = JSON.parse(a.tags || '{}'); } catch {}
@@ -556,9 +663,8 @@
               <a href="/feed?rule=RULE_10&ticker=${sym}" class="corr-link">All signals →</a>
             </div>
           </div>`;
-      }).join('');
-    })
-    .catch(() => { document.getElementById('corr-hero-cards').innerHTML = '<div class="corr-empty">Data unavailable.</div>'; });
+    }).join('');
+  });
 
   // Widget 2: Highest Signal Score
   function signalScoreW(a) {
@@ -572,159 +678,250 @@
     if (a.rule==='RULE_11') s*=1.3;
     return Math.round(s*10)/10;
   }
-  fetch('/alerts?days=7&severity_min=HIGH&limit=50')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('widget-scores');
-      if (!Array.isArray(data) || !data.length) { el.innerHTML='<div class="widget-muted">No high-severity alerts.</div>'; return; }
-      const scored = data.map(a=>({...a,_score:signalScoreW(a)})).sort((a,b)=>b._score-a._score).slice(0,5);
-      el.innerHTML = scored.map(a => {
-        const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
-        return `<a href="${sym?'/ticker/'+sym:'/feed'}" class="score-row" style="text-decoration:none">
-          <span class="score-val">${a._score}</span>
-          <span class="score-rule">${a.rule}</span>
-          ${sym ? `<span class="score-ticker">${sym}</span>` : ''}
-          <span class="score-headline">${a.headline||''}</span>
-        </a>`;
-      }).join('');
-    })
-    .catch(()=>{ document.getElementById('widget-scores').innerHTML='<div class="widget-muted">Data unavailable.</div>'; });
+  safeFetch('/alerts?days=7&severity_min=HIGH&limit=50', { signal: withTimeout(8000) }).then(data => {
+    const el = document.getElementById('widget-scores');
+    if (!el) return;
+    if (!Array.isArray(data) || !data.length) { el.innerHTML='<div class="widget-muted">No high-severity alerts.</div>'; return; }
+    const scored = data.map(a=>({...a,_score:signalScoreW(a)})).sort((a,b)=>b._score-a._score).slice(0,5);
+    el.innerHTML = scored.map(a => {
+      const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
+      return `<a href="${sym?'/ticker/'+sym:'/feed'}" class="score-row" style="text-decoration:none">
+        <span class="score-val">${a._score}</span>
+        <span class="score-rule">${a.rule}</span>
+        ${sym ? `<span class="score-ticker">${sym}</span>` : ''}
+        <span class="score-headline">${a.headline||''}</span>
+      </a>`;
+    }).join('');
+  });
 
-  // Widget 3: Today's Brief (polls when generating)
+  // Widget 3: Today's Brief
   let _briefPoll = null;
   function loadBrief() {
-    fetch('/brief/data')
-      .then(r => r.json())
-      .then(d => {
-        const el = document.getElementById('widget-brief');
-        if (!el) return;
-        if (d.generating && !d.content_json) {
-          el.innerHTML = '<div class="widget-muted" id="brief-generating">⟳ Generating today\'s brief…</div>';
-          if (!_briefPoll) _briefPoll = setInterval(loadBrief, 8000);
-          return;
-        }
-        if (_briefPoll) { clearInterval(_briefPoll); _briefPoll = null; }
-        if (!d.content_json) { el.innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; return; }
-        try {
-          const p = JSON.parse(d.content_json);
-          const sentences = (p.ai_summary || '').split('. ');
-          const preview = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '…' : '');
-          el.innerHTML = `<div class="brief-box">
-            <div class="brief-week">${d.is_today ? 'Today' : 'Yesterday'} · ${d.date||''}</div>
-            <div class="brief-summary">${preview}</div>
-            <a href="/brief" class="brief-cta">Read full brief →</a>
-          </div>`;
-        } catch { el.innerHTML = '<div class="widget-muted">Brief available — <a href="/brief" style="color:var(--amber)">click to read</a>.</div>'; }
-      })
-      .catch(() => { document.getElementById('widget-brief').innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; });
-  }
-  loadBrief();
-
-  // Brief preview — "What Changed Today"
-  fetch('/brief/data')
-    .then(r => r.json())
-    .then(d => {
-      const el = document.getElementById('brief-preview-wrap');
+    safeFetch('/brief/data', { signal: withTimeout(10000) }).then(d => {
+      const el = document.getElementById('widget-brief');
       if (!el) return;
-      if (!d || !d.content_json) {
-        el.innerHTML = `<div class="brief-preview-box"><div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">${d && d.generating ? '⟳ Generating today\'s brief…' : 'No brief available yet.'}</div></div>`;
+      if (!d) { el.innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; return; }
+      if (d.generating && !d.content_json) {
+        el.innerHTML = '<div class="widget-muted">⟳ Generating today\'s brief…</div>';
+        if (!_briefPoll) _briefPoll = setInterval(loadBrief, 8000);
+        return;
+      }
+      if (_briefPoll) { clearInterval(_briefPoll); _briefPoll = null; }
+      if (!d.content_json) {
+        el.innerHTML = '<div class="widget-muted">No brief yet — <a href="/brief" style="color:var(--amber)">view brief page</a>.</div>';
         return;
       }
       try {
         const p = JSON.parse(d.content_json);
-        const summary = p.ai_summary || '';
-        const preview = summary.split('. ').slice(0, 3).join('. ') + (summary.split('. ').length > 3 ? '…' : '');
-        const bullets = (p.sections || []).slice(0, 4).map(s => `<div class="brief-bullet">● ${s.title}</div>`).join('');
-        el.innerHTML = `
-          <div class="brief-preview-box">
-            <div class="brief-preview-summary">${preview}</div>
-            ${bullets ? `<div class="brief-bullets">${bullets}</div>` : ''}
-            <a href="/brief" style="font-family:'IBM Plex Mono',monospace;font-size:0.7rem;color:var(--amber);text-decoration:none">Read full brief →</a>
-          </div>`;
-      } catch {
-        el.innerHTML = '<div class="brief-preview-box"><a href="/brief" style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--amber)">Brief available — click to read →</a></div>';
-      }
-    })
-    .catch(() => {
-      const el = document.getElementById('brief-preview-wrap');
-      if (el) el.innerHTML = '<div class="brief-preview-box"><div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Brief unavailable.</div></div>';
+        const sentences = (p.ai_summary || '').split('. ');
+        const preview = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '…' : '');
+        el.innerHTML = `<div class="brief-box">
+          <div class="brief-week">${d.is_today ? 'Today' : 'Yesterday'} · ${d.date||''}</div>
+          <div class="brief-summary">${preview}</div>
+          <a href="/brief" class="brief-cta">Read full brief →</a>
+        </div>`;
+      } catch { el.innerHTML = '<div class="widget-muted">Brief available — <a href="/brief" style="color:var(--amber)">click to read</a>.</div>'; }
     });
+  }
+  loadBrief();
+
+  // "What Changed Today" — show actual recent HIGH/CRITICAL alerts, brief as footer note
+  const RULE_LABEL = {
+    RULE_01B:'Congressional first-touch', RULE_02:'Cluster', RULE_06:'Insider trade',
+    RULE_07:'Polymarket', RULE_08:'Fed Register', RULE_09:'Lobbying',
+    RULE_10:'★ Corroboration', RULE_11:'Gov contract', RULE_ANOMALY:'Attention spike',
+    RULE_REDDIT:'Reddit signal', RULE_OSINT:'Geopolitical',
+  };
+  safeFetch('/alerts?days=3&severity_min=HIGH&limit=50', { signal: withTimeout(8000) }).then(alerts => {
+    const grid = document.getElementById('recent-alerts-grid');
+    if (!grid) return;
+    let items = Array.isArray(alerts) ? alerts : [];
+    // If nothing in 3 days, expand to 14 days
+    if (!items.length) {
+      safeFetch('/alerts?days=14&severity_min=HIGH&limit=8', { signal: withTimeout(8000) }).then(more => {
+        renderRecentAlerts(grid, Array.isArray(more) ? more : []);
+      });
+    } else {
+      renderRecentAlerts(grid, items);
+    }
+  });
+
+  function renderRecentAlerts(grid, items) {
+    if (!items.length) {
+      grid.innerHTML = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted);grid-column:1/-1">No recent high-severity signals.</div>';
+      return;
+    }
+    // De-dup by ticker+rule, keep top 4
+    const seen = new Set();
+    const top = items.filter(a => {
+      const key = (a.ticker||'?') + '|' + (a.rule||'');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 4);
+
+    grid.innerHTML = top.map(a => {
+      const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
+      const label = RULE_LABEL[a.rule] || a.rule || '';
+      // Truncate headline at sentence boundary if > 120 chars
+      const hl = (a.headline||'');
+      const display = hl.length > 120 ? hl.slice(0, 117) + '…' : hl;
+      return `<a href="${sym?'/ticker/'+sym:'/feed'}" class="ra-card">
+        <div class="ra-card-top">
+          <span class="badge-${a.severity}" style="font-family:'IBM Plex Mono',monospace;font-size:0.56rem;padding:1px 5px;border-radius:2px">${a.severity}</span>
+          <span class="ra-rule">${label}</span>
+          ${sym ? `<span class="ra-ticker">${sym}</span>` : ''}
+        </div>
+        <div class="ra-headline">${display}</div>
+        <div class="ra-time">${timeAgo(a.created_at)}</div>
+      </a>`;
+    }).join('');
+  }
+
+  // Brief footer note
+  safeFetch('/brief/data', { signal: withTimeout(10000) }).then(d => {
+    const el = document.getElementById('brief-preview-wrap');
+    if (!el) return;
+    if (!d || !d.content_json) {
+      el.innerHTML = `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.5rem">
+        ${d && d.generating ? '⟳ Generating daily brief…' : 'Daily brief pending.'}
+        <a href="/brief" style="color:var(--amber);margin-left:0.6rem">View brief page →</a></div>`;
+      return;
+    }
+    try {
+      const p = JSON.parse(d.content_json);
+      const sentences = (p.ai_summary||'').split('. ');
+      const snip = sentences.slice(0,2).join('. ') + (sentences.length > 2 ? '…' : '');
+      el.innerHTML = `<div style="margin-top:1rem;padding:0.9rem 1.2rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:0.35rem">${d.is_today?'Today':'Yesterday'} · AI Brief · ${d.date||''}</div>
+          <div style="font-family:'Playfair Display',serif;font-size:0.85rem;color:var(--cream);line-height:1.55;font-style:italic">${snip}</div>
+        </div>
+        <a href="/brief" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;color:var(--amber);text-decoration:none;white-space:nowrap;align-self:center;border:1px solid rgba(200,146,42,0.3);padding:5px 12px;border-radius:4px">Read full brief →</a>
+      </div>`;
+    } catch {
+      el.innerHTML = `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.5rem"><a href="/brief" style="color:var(--amber)">Read today's brief →</a></div>`;
+    }
+  });
 
   // Compact sector bar
-  fetch('/sectors/data?days=30')
-    .then(r => r.json())
-    .then(data => {
-      const el = document.getElementById('sector-bar');
-      const entries = Object.entries(data).sort((a,b) => b[1].count - a[1].count).slice(0, 5);
-      if (!entries.length) { el.innerHTML = ''; return; }
-      const COLORS = {
-        'Defense & Aerospace':'#e55b4d','Technology':'#6ab0e0','Finance & Banking':'#4dc47a',
-        'Energy':'#e67e22','Healthcare & Pharma':'#9b59b6','Crypto & Fintech':'#c8922a',
-        'Telecom':'#c8922a','Government Contractors':'#e55b4d','Other':'#7a7060',
-        'Defense':'#e55b4d','Finance':'#4dc47a','Pharma':'#9b59b6',
-      };
-      el.innerHTML = entries.map(([sector, d]) => {
-        const col   = COLORS[sector] || '#888';
-        const trend = d.trend === 'up' ? '↑' : (d.trend === 'down' ? '↓' : '→');
-        const trendC = d.trend === 'up' ? '#4dc47a' : (d.trend === 'down' ? '#e55b4d' : '#7a7060');
-        return `<a href="/sectors" style="text-decoration:none;display:flex;align-items:center;gap:0.5rem;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${col};border-radius:6px;padding:0.5rem 0.9rem">
-          <span style="font-family:'Playfair Display',serif;font-size:0.88rem;font-weight:700;color:var(--cream)">${sector}</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--amber)">${d.count}</span>
-          <span style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:${trendC}">${trend}</span>
-        </a>`;
-      }).join('') + `<a href="/sectors" style="text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--amber);display:flex;align-items:center;padding:0 0.4rem">All sectors →</a>`;
-    })
-    .catch(() => { document.getElementById('sector-bar').innerHTML = ''; });
+  safeFetch('/sectors/data?days=30', { signal: withTimeout(8000) }).then(data => {
+    const el = document.getElementById('sector-bar');
+    if (!el) return;
+    if (!data) { el.innerHTML = ''; return; }
+    const entries = Object.entries(data).sort((a,b) => b[1].count - a[1].count).slice(0, 5);
+    if (!entries.length) { el.innerHTML = ''; return; }
+    const COLORS = {
+      'Defense & Aerospace':'#e55b4d','Technology':'#6ab0e0','Finance & Banking':'#4dc47a',
+      'Energy':'#e67e22','Healthcare & Pharma':'#9b59b6','Crypto & Fintech':'#c8922a',
+      'Telecom':'#c8922a','Government Contractors':'#e55b4d','Other':'#7a7060',
+      'Defense':'#e55b4d','Finance':'#4dc47a','Pharma':'#9b59b6',
+    };
+    el.innerHTML = entries.map(([sector, d]) => {
+      const col   = COLORS[sector] || '#888';
+      const trend = d.trend === 'up' ? '↑' : (d.trend === 'down' ? '↓' : '→');
+      const trendC = d.trend === 'up' ? '#4dc47a' : (d.trend === 'down' ? '#e55b4d' : '#7a7060');
+      return `<a href="/sectors" style="text-decoration:none;display:flex;align-items:center;gap:0.5rem;background:var(--bg2);border:1px solid var(--border);border-left:3px solid ${col};border-radius:6px;padding:0.5rem 0.9rem">
+        <span style="font-family:'Playfair Display',serif;font-size:0.88rem;font-weight:700;color:var(--cream)">${sector}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--amber)">${d.count}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:${trendC}">${trend}</span>
+      </a>`;
+    }).join('') + `<a href="/sectors" style="text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--amber);display:flex;align-items:center;padding:0 0.4rem">All sectors →</a>`;
+  });
 
   // Backtest teaser
-  fetch('/backtest/data?days=180&limit=200')
-    .then(r => r.json())
-    .then(d => {
-      const el = document.getElementById('bt-teaser-text');
-      if (!el) return;
-      const stats = d.stats || {};
-      if (stats.avg_return_30d != null) {
-        const avg = stats.avg_return_30d;
-        const r10 = (stats.by_rule || {})['RULE_10'];
-        const r10str = r10 != null ? ` RULE_10 corroborations averaged ${r10 >= 0 ? '+' : ''}${r10.toFixed(1)}%.` : '';
-        el.textContent = `Across ${stats.calculated} tracked signals, average 30-day return: ${avg >= 0 ? '+' : ''}${avg.toFixed(1)}%.${r10str}`;
-      } else {
-        el.textContent = 'Backtest data populates as signals age past 30 days.';
-      }
-    })
-    .catch(() => {
-      const el = document.getElementById('bt-teaser-text');
-      if (el) el.textContent = 'Signal validation via post-alert price performance.';
-    });
-
-  // Stats + hero counts
-  fetch('/alerts?days=30&limit=500')
-    .then(r => r.json())
-    .then(data => {
-      if (!Array.isArray(data)) return;
-      const total   = data.length;
-      const crit    = data.filter(a => a.severity === 'CRITICAL').length;
-      const high    = data.filter(a => a.severity === 'HIGH').length;
-      const tickers = new Set(data.map(a => a.ticker).filter(Boolean)).size;
-      document.getElementById('stat-total').textContent    = total;
-      document.getElementById('stat-critical').textContent = crit;
-      document.getElementById('stat-high').textContent     = high;
-      document.getElementById('stat-tickers').textContent  = tickers;
-      document.getElementById('alert-count').textContent   = total;
-      document.getElementById('crit-count').textContent    = crit;
-    }).catch(() => {});
-
-  // Hero live counts
-  Promise.all([
-    fetch('/members?is_current=true&limit=5000').then(r=>r.json()).catch(()=>[]),
-    fetch('/alerts?days=7&limit=500').then(r=>r.json()).catch(()=>[]),
-    fetch('/alerts?rule=RULE_10&days=7&limit=100').then(r=>r.json()).catch(()=>[]),
-  ]).then(([members, weekAlerts, corrs]) => {
-    document.getElementById('member-count').textContent = members.length || '—';
-    const tickers = new Set((weekAlerts||[]).map(a=>a.ticker).filter(Boolean));
-    document.getElementById('week-tickers').textContent = tickers.size || '—';
-    document.getElementById('corr-count').textContent   = (corrs||[]).length || '—';
+  safeFetch('/backtest/data?days=180&limit=200', { signal: withTimeout(8000) }).then(d => {
+    const el = document.getElementById('bt-teaser-text');
+    if (!el) return;
+    if (!d) { el.textContent = 'Signal validation via post-alert price performance.'; return; }
+    const stats = d.stats || {};
+    if (stats.avg_return_30d != null) {
+      const avg = stats.avg_return_30d;
+      const r10 = (stats.by_rule || {})['RULE_10'];
+      const r10str = r10 != null ? ` RULE_10 corroborations averaged ${r10 >= 0 ? '+' : ''}${r10.toFixed(1)}%.` : '';
+      el.textContent = `Across ${stats.calculated} tracked signals, average 30-day return: ${avg >= 0 ? '+' : ''}${avg.toFixed(1)}%.${r10str}`;
+    } else {
+      el.textContent = 'Backtest data populates as signals age past 30 days.';
+    }
   });
+
+  function _setEl(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+
+  // Hero + terminal live counts — single call
+  safeFetch('/api/stats', { signal: withTimeout(8000) }).then(s => {
+    if (!s) return;
+    _setEl('alert-count',  s.alert_count  != null ? s.alert_count  : '—');
+    _setEl('crit-count',   s.crit_count   != null ? s.crit_count   : '—');
+    _setEl('member-count', s.member_count != null ? s.member_count.toLocaleString() : '—');
+    _setEl('week-tickers', s.week_tickers != null ? s.week_tickers : '—');
+    _setEl('corr-count',   s.corr_count   != null ? s.corr_count   : '—');
+  });
+
+  // ── Signal Heat Map ───────────────────────────────────────────────────────
+  const HM_RULES = ['RULE_01B','RULE_06','RULE_07','RULE_08','RULE_11','RULE_10'];
+  const HM_RULE_LABELS = {
+    RULE_01B:'Congressional', RULE_06:'Insider', RULE_07:'Polymarket',
+    RULE_08:'Fed Register', RULE_11:'Gov Contract', RULE_10:'Corroboration',
+  };
+  safeFetch('/api/activity', { signal: withTimeout(8000) }).then(data => {
+    const tbl = document.getElementById('heatmap-table');
+    if (!tbl || !data) return;
+
+    // Build sorted day list (last 14)
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000);
+      days.push(d.toISOString().slice(0, 10));
+    }
+
+    // Per-rule max for per-row color normalization
+    const ruleMax = {};
+    for (const rule of HM_RULES) {
+      ruleMax[rule] = Math.max(1, ...days.map(day => (data[day] && data[day][rule]) || 0));
+    }
+
+    // Header row
+    const headRow = `<tr>
+      <td class="hm-rule-label"></td>
+      ${days.map(d => {
+        const dt = new Date(d + 'T12:00:00Z');
+        const label = dt.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+        return `<td class="hm-day-label">${label}</td>`;
+      }).join('')}
+    </tr>`;
+
+    // Data rows — each rule uses its own max for color intensity
+    const dataRows = HM_RULES.map(rule => {
+      const cells = days.map(day => {
+        const cnt = (data[day] && data[day][rule]) || 0;
+        const intensity = cnt ? Math.max(0.1, cnt / ruleMax[rule]) : 0;
+        const bg = cnt ? `rgba(200,146,42,${intensity.toFixed(2)})` : 'var(--bg3)';
+        return `<td><div class="hm-cell" style="background:${bg}" title="${HM_RULE_LABELS[rule]||rule} · ${day} · ${cnt} signals"></div></td>`;
+      }).join('');
+      return `<tr><td class="hm-rule-label">${HM_RULE_LABELS[rule]||rule}</td>${cells}</tr>`;
+    }).join('');
+
+    tbl.innerHTML = `<thead>${headRow}</thead><tbody>${dataRows}</tbody>`;
+  });
+
+  // ── 8s fallback for stuck loading states ─────────────────────────────────
+  setTimeout(() => {
+    document.querySelectorAll('.widget-muted').forEach(el => {
+      if (el.textContent.trim() === 'Loading…') el.textContent = 'Data unavailable.';
+    });
+    const ch = document.getElementById('corr-hero-cards');
+    if (ch && ch.innerHTML.includes('Loading corroborations')) {
+      ch.innerHTML = '<div class="corr-empty">No corroborations found.</div>';
+    }
+    const rg = document.getElementById('recent-alerts-grid');
+    if (rg && rg.textContent.includes('Loading signals')) {
+      rg.innerHTML = '<div style="grid-column:1/-1;font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Signal data unavailable.</div>';
+    }
+    const ht = document.getElementById('heatmap-table');
+    if (ht && ht.textContent.includes('Loading activity')) {
+      ht.innerHTML = '<tbody><tr><td style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted)">Activity data unavailable.</td></tr></tbody>';
+    }
+  }, 8000);
 </script>
 </body>
 </html>

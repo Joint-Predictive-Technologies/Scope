@@ -136,14 +136,25 @@
     document.getElementById('nav-links').classList.toggle('open');
   });
 
-  function timeAgo(ts) {
-    if (!ts) return '';
-    const d = new Date(ts.includes('Z') ? ts : ts + 'Z');
-    const s = Math.floor((Date.now() - d) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return Math.floor(s/60) + 'm ago';
-    if (s < 86400) return Math.floor(s/3600) + 'h ago';
-    return Math.floor(s/86400) + 'd ago';
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    let ts;
+    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
+      const n = Number(dateStr);
+      ts = n > 1e10 ? n : n * 1000;
+    } else {
+      const s = String(dateStr).trim().replace(' ', 'T');
+      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    }
+    if (isNaN(ts)) return '';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 0)    return 'just now';
+    if (diff < 60)   return 'just now';
+    if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
   }
   function exactTime(ts) {
     if (!ts) return '';
@@ -169,7 +180,7 @@
     alertsEl.innerHTML = '<div class="loading">Loading…</div>';
     let alertUrl = '/alerts?rule=RULE_11&days=365&limit=50';
     if (ticker) alertUrl += `&ticker=${encodeURIComponent(ticker)}`;
-    const alerts = await fetch(alertUrl).then(r=>r.json()).catch(()=>[]);
+    const alerts = await fetch(alertUrl, { signal: withTimeout(8000) }).then(r=>r.json()).catch(()=>[]);
 
     if (!alerts.length) {
       alertsEl.innerHTML = '<div class="empty">No RULE_11 alerts yet. Run rule_11_contracts.py to populate.</div>';
@@ -209,7 +220,7 @@
     if (ticker)  url += `&ticker=${encodeURIComponent(ticker)}`;
     if (agency)  url += `&agency=${encodeURIComponent(agency)}`;
     if (minAmt)  url += `&min_amount=${minAmt}`;
-    const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
+    const data = await fetch(url, { signal: withTimeout(10000) }).then(r=>r.json()).catch(()=>[]);
     document.getElementById('result-count').textContent = data.length + ' contracts';
 
     if (!data.length) {

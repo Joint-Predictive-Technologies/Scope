@@ -105,6 +105,8 @@
     { key: 'contracts',          label: 'Gov Contracts',          href: '/contracts' },
   ];
 
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   function timeAgo(ts) {
     if (!ts) return '';
     const d = new Date(ts.includes('Z') ? ts : ts + 'Z');
@@ -169,7 +171,7 @@
 
   async function load() {
     try {
-      const r = await fetch('/brief/data');
+      const r = await fetch('/brief/data', { signal: withTimeout(12000) });
       const d = await r.json();
       render(d);
     } catch (e) {

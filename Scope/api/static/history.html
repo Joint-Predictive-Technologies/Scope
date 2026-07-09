@@ -173,6 +173,8 @@
     document.getElementById('nav-links').classList.toggle('open');
   });
 
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   let currentPage = 1;
   let totalPages  = 1;
 
@@ -220,7 +222,7 @@
     document.getElementById('result-info').textContent    = '';
 
     try {
-      const r = await fetch('/history/data?' + params.toString());
+      const r = await fetch('/history/data?' + params.toString(), { signal: withTimeout(10000) });
       const d = await r.json();
       totalPages = d.pages || 1;
 

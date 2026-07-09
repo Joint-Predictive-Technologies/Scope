@@ -78,7 +78,8 @@ def get_sectors(days: int = Query(default=30, ge=1, le=90)):
                 "rules": {},
             }
         buckets[sector]["alerts"].append(alert)
-        t = (alert.get("ticker") or "").replace("$", "").split()[0]
+        _tparts = (alert.get("ticker") or "").replace("$", "").split()
+        t = _tparts[0] if _tparts else ""
         if t:
             buckets[sector]["tickers"].add(t)
         sev  = alert.get("severity", "MEDIUM")

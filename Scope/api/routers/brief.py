@@ -15,11 +15,15 @@ router = APIRouter()
 _generating: set[str] = set()  # dates currently being generated
 
 
+_generation_failed: set[str] = set()  # dates that failed generation
+
+
 def _trigger_generation(date: str) -> None:
-    if date in _generating:
+    if date in _generating or date in _generation_failed:
         return
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
+        _generation_failed.add(date)
         return
     _generating.add(date)
     def _run():
@@ -27,9 +31,10 @@ def _trigger_generation(date: str) -> None:
             import sys as _sys, os as _os
             _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__))))
             from scripts.generate_brief import generate
-            generate(date_str=date, days=1)
+            generate(date_str=date, days=2)
         except Exception as e:
             print(f"[brief] auto-generate failed for {date}: {e}")
+            _generation_failed.add(date)
         finally:
             _generating.discard(date)
     threading.Thread(target=_run, daemon=True).start()
@@ -60,17 +65,26 @@ def get_brief():
     if brief:
         return {**brief, "is_today": True, "generating": False}
 
-    # Kick off background generation on first miss
+    # Attempt background generation (no-op if already in progress, failed, or no key)
     _trigger_generation(today)
+
+    # Whether generation is actively running or permanently failed
+    failed = today in _generation_failed
+    is_gen = today in _generating
 
     yesterday = _yesterday()
     brief = _get_brief(yesterday)
     if brief:
-        return {**brief, "is_today": False, "generating": True,
-                "note": "Today's brief is generating…"}
+        return {**brief, "is_today": False,
+                "generating": is_gen and not failed,
+                "note": "Today's brief is generating…" if is_gen else None}
 
-    return {"is_today": False, "generating": True,
-            "note": "Generating today's brief…", "content_json": None}
+    return {
+        "is_today": False,
+        "generating": is_gen and not failed,
+        "note": "Generating today's brief…" if is_gen else "No brief available yet.",
+        "content_json": None,
+    }
 
 
 @router.post("/generate")

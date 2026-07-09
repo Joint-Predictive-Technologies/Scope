@@ -208,6 +208,8 @@
       <option value="RULE_10">RULE_10 — Corroboration</option>
       <option value="RULE_11">RULE_11 — Gov Contracts</option>
       <option value="RULE_ANOMALY">RULE_ANOMALY — Attention Spike</option>
+      <option value="RULE_REDDIT">RULE_REDDIT — Reddit Signal</option>
+      <option value="RULE_OSINT">RULE_OSINT — Geopolitical</option>
     </select>
     <select class="filter-select" id="f-cap" onchange="onCapChange()">
       <option value="">All market caps</option>
@@ -268,14 +270,23 @@
     .then(list => { list.forEach(m => { memberMap[m.full_name] = m.bioguide_id; }); })
     .catch(() => {});
 
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   // ── Utils ──────────────────────────────────────────────────────────────────
   function timeAgo(dateStr) {
     if (!dateStr) return 'Unknown';
-    const normalized = dateStr.replace(' ', 'T');
-    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
-    if (isNaN(date.getTime())) return 'Unknown';
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
+    let ts;
+    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
+      const n = Number(dateStr);
+      ts = n > 1e10 ? n : n * 1000;
+    } else {
+      const s = String(dateStr).trim().replace(' ', 'T');
+      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    }
+    if (isNaN(ts)) return 'Unknown';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 0)    return 'just now';
+    if (diff < 60)   return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
     return `${Math.floor(diff/86400)}d ago`;
@@ -866,7 +877,7 @@
     renderActiveFilters(null);
 
     try {
-      const data = await fetch(url).then(r => r.json());
+      const data = await fetch(url, { signal: withTimeout(8000) }).then(r => r.json());
       allLoaded = data.items;
       renderActiveFilters(data.total);
       if (cap) {

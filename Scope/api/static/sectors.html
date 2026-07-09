@@ -99,6 +99,8 @@
 </div>
 
 <script>
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   const SECTOR_COLORS = {
     Defense: '#e55b4d', Technology: '#6ab0e0', Finance: '#4dc47a',
     Energy: '#e67e22', Pharma: '#9b59b6', Telecom: '#c8922a',
@@ -128,7 +130,7 @@
     document.getElementById('grid').innerHTML = '<div class="loading">Loading…</div>';
 
     try {
-      const r = await fetch(`/sectors/data?days=${days}`);
+      const r = await fetch(`/sectors/data?days=${days}`, { signal: withTimeout(10000) });
       const data = await r.json();
       const entries = Object.entries(data).sort((a,b) => b[1].count - a[1].count);
 
@@ -167,7 +169,7 @@
 
       // OSINT geopolitical risks section
       const osintEl = document.getElementById('osint-section');
-      fetch('/alerts?rule=RULE_OSINT&days=30&limit=6')
+      fetch('/alerts?rule=RULE_OSINT&days=30&limit=6', { signal: withTimeout(8000) })
         .then(r => r.json())
         .then(osint => {
           if (!Array.isArray(osint) || !osint.length) {

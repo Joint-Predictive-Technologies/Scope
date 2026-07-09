@@ -110,6 +110,8 @@
 </div>
 
 <script>
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   const RULE_COLORS = {
     RULE_01B: '#e67e22', RULE_02: '#c8922a', RULE_06: '#6ab0e0',
     RULE_07: '#2a8a4a', RULE_08: '#9b59b6', RULE_09: '#e67e22', RULE_10: '#e55b4d',
@@ -120,11 +122,18 @@
 
   function timeAgo(dateStr) {
     if (!dateStr) return 'Unknown';
-    const normalized = dateStr.replace(' ', 'T');
-    const date = new Date(normalized + (normalized.includes('Z') ? '' : 'Z'));
-    if (isNaN(date.getTime())) return 'Unknown';
-    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
+    let ts;
+    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
+      const n = Number(dateStr);
+      ts = n > 1e10 ? n : n * 1000;
+    } else {
+      const s = String(dateStr).trim().replace(' ', 'T');
+      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    }
+    if (isNaN(ts)) return 'Unknown';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 0)    return 'just now';
+    if (diff < 60)   return `${diff}s ago`;
     if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
     return `${Math.floor(diff/86400)}d ago`;
@@ -278,8 +287,14 @@
   function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
 
   async function load() {
-    const res  = await fetch(`/tickers/${symbol}/alerts?days=365&limit=200`);
-    const data = await res.json();
+    let res, data;
+    try {
+      res  = await fetch(`/tickers/${symbol}/alerts?days=365&limit=200`, { signal: withTimeout(10000) });
+      data = await res.json();
+    } catch {
+      document.getElementById('content').innerHTML = '<div style="color:var(--muted);font-family:\'IBM Plex Mono\',monospace;font-size:0.8rem;padding:2rem">Failed to load ticker data.</div>';
+      return;
+    }
     const alerts = data.alerts       || [];
     const members = data.related_members || [];
     const txs     = data.transactions    || [];
@@ -327,7 +342,7 @@
     `;
 
     // Fetch market cap and update cap line
-    fetch(`/tickers/${symbol}/meta`)
+    fetch(`/tickers/${symbol}/meta`, { signal: withTimeout(8000) })
       .then(r => r.json())
       .then(d => {
         const capEl = document.getElementById('cap-line');

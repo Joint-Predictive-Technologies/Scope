@@ -198,6 +198,66 @@ TAPE_RULE_ICON = {
 }
 
 
+@app.get("/api/stats", tags=["Meta"])
+def api_stats():
+    """Single-shot endpoint for homepage stats — avoids 3 separate JS fetches."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    try:
+        corr_count = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE rule='RULE_10' "
+            "AND datetime(created_at) >= datetime('now', '-7 days')"
+        ).fetchone()[0]
+        ticker_count = conn.execute(
+            "SELECT COUNT(DISTINCT ticker) FROM alerts WHERE ticker IS NOT NULL AND ticker != ''"
+        ).fetchone()[0]
+        member_count = conn.execute("SELECT COUNT(*) FROM members").fetchone()[0]
+        alert_count = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE severity IN ('HIGH','CRITICAL') "
+            "AND datetime(created_at) >= datetime('now', '-24 hours')"
+        ).fetchone()[0]
+        crit_count = conn.execute(
+            "SELECT COUNT(*) FROM alerts WHERE severity = 'CRITICAL' "
+            "AND datetime(created_at) >= datetime('now', '-24 hours')"
+        ).fetchone()[0]
+        week_tickers = conn.execute(
+            "SELECT COUNT(DISTINCT ticker) FROM alerts "
+            "WHERE datetime(created_at) >= datetime('now', '-7 days') AND ticker IS NOT NULL AND ticker != ''"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+    return {
+        "corr_count":    corr_count,
+        "ticker_count":  ticker_count,
+        "member_count":  member_count,
+        "alert_count":   alert_count,
+        "crit_count":    crit_count,
+        "week_tickers":  week_tickers,
+    }
+
+
+@app.get("/api/activity", tags=["Meta"])
+def api_activity():
+    """Daily alert counts by rule for the last 14 days — used for the signal heat map."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    rows = conn.execute("""
+        SELECT date(created_at) as day, rule, COUNT(*) as count
+        FROM alerts
+        WHERE datetime(created_at) >= datetime('now', '-14 days')
+        GROUP BY day, rule
+        ORDER BY day, rule
+    """).fetchall()
+    conn.close()
+    result: dict = {}
+    for row in rows:
+        day = row["day"]
+        if day not in result:
+            result[day] = {}
+        result[day][row["rule"]] = row["count"]
+    return result
+
+
 @app.get("/api/ticker-tape", tags=["Meta"])
 def ticker_tape():
     """Live signal items for the scrolling ticker tape."""

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 generate_brief.py — Daily Brief generator.
-Queries DB for last 24h activity, calls Groq, caches in daily_briefs table.
+Queries DB for last 48h activity, calls Groq, caches in daily_briefs table.
 Run manually or via cron: 0 6 * * * cd /app && python Scope/scripts/generate_brief.py
 """
 from __future__ import annotations
@@ -161,9 +161,12 @@ def _build_prompt(data: dict, date_str: str) -> str:
     con = data["contracts"]
     con_rows = _fmt_rows(con["rows"], ["headline", "detail"])
 
-    return f"""Today is {date_str}. You are writing the Scope Daily Brief — a political intelligence morning summary for macro and event-driven investors.
+    return f"""Today is {date_str}. You are a political intelligence analyst writing the Scope Daily Brief for macro and event-driven investors. Be direct, specific, and actionable. Name tickers, sectors, and individuals. Do not hedge excessively.
 
-Here is the raw data for the past 24 hours:
+Here is the raw data for the past 48 hours:
+
+=== CROSS-SOURCE CORROBORATIONS — RULE_10 ({corr['count']} signals — LEAD WITH THESE if any exist) ===
+{corr_rows}
 
 === CONGRESSIONAL TRADING ({cong['count']} transactions) ===
 Top tickers: {', '.join(cong['top_tickers']) or 'none'}
@@ -172,39 +175,36 @@ Top tickers: {', '.join(cong['top_tickers']) or 'none'}
 === INSIDER ACTIVITY — RULE_06 ({ins['count']} alerts) ===
 {ins_rows}
 
+=== GOVERNMENT CONTRACTS — RULE_11 ({con['count']} alerts) ===
+{con_rows}
+
 === REGULATORY — RULE_08 ({reg['count']} alerts) ===
 {reg_rows}
 
 === PREDICTION MARKETS — RULE_07 ({mkt['count']} alerts) ===
 {mkt_rows}
 
-=== CORROBORATIONS — RULE_10 ({corr['count']} alerts — always highlight) ===
-{corr_rows}
-
 === LOBBYING — RULE_09 ({lob['count']} alerts) ===
 {lob_rows}
 
-=== GOVERNMENT CONTRACTS — RULE_11 ({con['count']} alerts) ===
-{con_rows}
-
-Write a Scope Daily Brief in strict JSON with this exact structure:
+Write the Scope Daily Brief in strict JSON with this exact structure:
 {{
-  "ai_summary": "3-4 sentence paragraph: what matters this morning and why, written for a sophisticated investor. Mention specific tickers, sectors, or names where relevant.",
+  "ai_summary": "3-4 sentences. Lead with the most actionable signal (corroborations first if present). Name specific tickers, amounts, or people. Explain why it matters for positioning. End with one forward-looking sentence.",
   "sections": {{
-    "congressional":        {{ "one_liner": "one sentence summary of congressional activity" }},
-    "insider":              {{ "one_liner": "one sentence about insider moves" }},
-    "regulatory":           {{ "one_liner": "one sentence about regulatory filings" }},
-    "prediction_markets":   {{ "one_liner": "one sentence about prediction market moves" }},
-    "corroborations":       {{ "one_liner": "one sentence about corroborated signals (say 'No corroborations' if none)" }},
-    "lobbying":             {{ "one_liner": "one sentence about lobbying spikes" }},
-    "contracts":            {{ "one_liner": "one sentence about government contracts (say 'No new contracts' if none)" }}
+    "corroborations":       {{ "one_liner": "Name the ticker(s) and converging rules. If none: 'No cross-source corroborations in this window.'" }},
+    "congressional":        {{ "one_liner": "Name the top ticker(s) and whether buys or sells dominate." }},
+    "insider":              {{ "one_liner": "Name the company/ticker if available, state direction." }},
+    "contracts":            {{ "one_liner": "Name the recipient and amount if available. 'No new contracts' if none." }},
+    "regulatory":           {{ "one_liner": "Name the sector or specific rule. 'No new filings' if none." }},
+    "prediction_markets":   {{ "one_liner": "Name the market and direction. 'No significant moves' if none." }},
+    "lobbying":             {{ "one_liner": "Name the company or sector showing the spike. 'No spikes' if none." }}
   }}
 }}
 
 Return ONLY valid JSON. No preamble, no markdown fences."""
 
 
-def generate(date_str: str | None = None, days: float = 1) -> dict:
+def generate(date_str: str | None = None, days: float = 2) -> dict:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("GROQ_API_KEY not set")
@@ -228,7 +228,7 @@ def generate(date_str: str | None = None, days: float = 1) -> dict:
     client = Groq(api_key=api_key)
     resp = client.chat.completions.create(
         model=GROQ_MODEL,
-        max_tokens=800,
+        max_tokens=1200,
         messages=[
             {"role": "system", "content": "You are a financial intelligence analyst. Return only valid JSON."},
             {"role": "user", "content": prompt},
@@ -258,7 +258,7 @@ def generate(date_str: str | None = None, days: float = 1) -> dict:
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Generate daily brief")
     p.add_argument("--date", default=None, help="YYYY-MM-DD (default: today)")
-    p.add_argument("--days", type=float, default=1, help="lookback window in days")
+    p.add_argument("--days", type=float, default=2, help="lookback window in days")
     p.add_argument("--force", action="store_true", help="Overwrite existing brief")
     args = p.parse_args()
 

@@ -152,6 +152,8 @@
 </div>
 
 <script>
+  function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
+
   let allData    = [];
   let sortCol    = 'return_30d';
   let sortDir    = -1; // -1 = desc
@@ -303,7 +305,7 @@
     if (outcome) url += `&outcome=${outcome}`;
 
     try {
-      const r = await fetch(url);
+      const r = await fetch(url, { signal: withTimeout(10000) });
       const d = await r.json();
       allData = d.alerts || [];
       renderStats(d.stats || {});
