@@ -186,7 +186,15 @@
             </div>
             <div class="alert-detail">
               ${a.detail ? `<div>${a.detail}</div>` : ''}
-              <a href="https://usaspending.gov" target="_blank" rel="noopener" class="verify-link">Verify → USASpending.gov</a>
+              ${(() => {
+                const parts = (a.tags || '').split('|');
+                const awardId = (parts[2] || '').trim();
+                const recipient = encodeURIComponent((parts[0] || '').trim());
+                const url = awardId
+                  ? `https://www.usaspending.gov/award/${awardId}/`
+                  : `https://www.usaspending.gov/search/?query=${recipient}`;
+                return `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify → USASpending.gov</a>`;
+              })()}
             </div>
           </div>`;
       }).join('');
@@ -214,15 +222,22 @@
         <th>Amount</th>
         <th>Agency</th>
         <th>Date</th>
+        <th>Source</th>
       </tr></thead>
-      <tbody>${data.map(c => `
+      <tbody>${data.map(c => {
+        const url = c.award_id
+          ? `https://www.usaspending.gov/award/${c.award_id}/`
+          : `https://www.usaspending.gov/search/?query=${encodeURIComponent(c.recipient_name || '')}`;
+        return `
         <tr>
           <td>${c.recipient_name || '—'}</td>
           <td class="td-ticker">${c.ticker ? `<a href="/ticker/${c.ticker}">${c.ticker}</a>` : '—'}</td>
           <td class="td-amount">${fmtAmount(c.amount)}</td>
           <td style="font-size:0.78rem">${c.agency || '—'}</td>
           <td style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;white-space:nowrap">${c.award_date || '—'}</td>
-        </tr>`).join('')}
+          <td><a href="${url}" target="_blank" rel="noopener" class="verify-link" style="margin-top:0;padding:2px 7px">↗</a></td>
+        </tr>`;
+      }).join('')}
       </tbody>
     </table></div>`;
   }
