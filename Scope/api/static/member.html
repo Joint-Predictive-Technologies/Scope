@@ -95,9 +95,32 @@
     .empty { padding: 2rem 0; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
     .loading-msg { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; padding: 4rem 0; }
 
+    /* FUNDING PROFILE */
+    .funding-bar-wrap { display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 1.4rem; }
+    .funding-row { display: grid; grid-template-columns: 140px 1fr 52px; align-items: center; gap: 0.8rem; }
+    .funding-label { font-size: 0.78rem; color: var(--cream2); }
+    .funding-bar-track { background: var(--bg3); border-radius: 3px; height: 7px; overflow: hidden; }
+    .funding-bar-fill { height: 100%; border-radius: 3px; background: var(--amber); transition: width 0.4s; }
+    .funding-pct { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--amber); text-align: right; }
+    .pac-list { display: flex; flex-direction: column; gap: 4px; margin-top: 0.8rem; }
+    .pac-item { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--cream2); }
+    .pac-amount { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); }
+    .conflict-note { font-size: 0.78rem; color: var(--cream2); line-height: 1.5; padding: 0.7rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; margin-top: 0.8rem; }
+    .integrity-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-top: 0.8rem; }
+    .int-cell { background: var(--bg2); padding: 1rem 1.2rem; }
+    .int-val { font-family: 'Playfair Display', serif; font-size: 1.5rem; font-weight: 700; color: var(--amber); }
+    .int-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); margin-top: 2px; }
+    .fara-table { width: 100%; font-size: 0.78rem; border-collapse: collapse; margin-top: 0.8rem; }
+    .fara-table td { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--cream2); vertical-align: top; }
+    .fara-table td:first-child { color: var(--amber); font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; width: 120px; }
+    .conflict-badge-pos { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; background: rgba(42,138,74,0.15); color: #4caf72; border: 1px solid rgba(42,138,74,0.3); }
+    .conflict-badge-neg { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; background: rgba(122,112,96,0.15); color: var(--muted); border: 1px solid var(--border2); }
+
     @media (max-width: 700px) {
       .summary-bar { grid-template-columns: repeat(2, 1fr); }
       .member-name { font-size: 1.8rem; }
+      .integrity-grid { grid-template-columns: repeat(2, 1fr); }
+      .funding-row { grid-template-columns: 110px 1fr 44px; }
     }
   </style>
 </head>
@@ -270,6 +293,8 @@
               <span class="sev-badge sev-${a.severity}">${a.severity}</span>
               <span class="rule-badge">${a.rule}</span>
               ${a.ticker ? `<a href="/ticker/${a.ticker.split(' ')[0].replace('$','')}" onclick="event.stopPropagation()" style="font-family:IBM Plex Mono,monospace;font-size:0.65rem;color:var(--amber);border:1px solid rgba(200,146,42,0.25);padding:2px 7px;border-radius:3px;text-decoration:none">${a.ticker.split(' ')[0]}</a>` : ''}
+              ${a.conflict_score > 0.3 ? `<span class="conflict-badge-pos" title="${a.conflict_explanation || ''}">↑ Cuts against funding profile</span>` : ''}
+              ${a.conflict_score < -0.3 ? `<span class="conflict-badge-neg" title="${a.conflict_explanation || ''}">~ Aligns with funding profile</span>` : ''}
               <span class="alert-headline">${a.headline}</span>
               <span class="alert-time">${timeAgo(a.created_at)}</span>
             </div>
@@ -278,15 +303,81 @@
       </div>`;
   }
 
+  function renderFundingProfile(funding) {
+    if (!funding || !funding.has_data) {
+      return `<div class="section-label">Funding Profile</div>
+        <div class="empty">FEC data not yet available. Run bootstrap_fec.py to populate.</div>`;
+    }
+
+    const industries = Array.isArray(funding.top_industries) ? funding.top_industries : [];
+    const pac = funding.pac_summary || {};
+    const top_pacs = pac.top_pacs || [];
+
+    const bars = industries.slice(0, 5).map(ind => `
+      <div class="funding-row">
+        <div class="funding-label">${ind.industry}</div>
+        <div class="funding-bar-track">
+          <div class="funding-bar-fill" style="width:${Math.min(ind.pct, 100)}%"></div>
+        </div>
+        <div class="funding-pct">${ind.pct}%</div>
+      </div>`).join('');
+
+    const pacs = top_pacs.slice(0, 5).map(p => `
+      <div class="pac-item">
+        <span>${p.name}</span>
+        <span class="pac-amount">$${(p.amount || 0).toLocaleString()}</span>
+      </div>`).join('');
+
+    const raised = funding.total_raised
+      ? `$${(funding.total_raised / 1e6).toFixed(1)}M raised` : '';
+
+    return `
+      <div class="section-label">Funding Profile ${raised ? '— ' + raised : ''}</div>
+      <div class="funding-bar-wrap">${bars || '<div class="empty">No industry breakdown available.</div>'}</div>
+      ${top_pacs.length ? `<div style="font-family:IBM Plex Mono,monospace;font-size:0.62rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:0.4rem">Top PAC Contributions</div>
+        <div class="pac-list">${pacs}</div>` : ''}
+      ${funding.foreign_connected_pct > 0 ? `<div style="margin-top:0.6rem;font-size:0.78rem;color:var(--red)">⚑ Foreign-connected PAC funding: ${funding.foreign_connected_pct.toFixed(1)}%</div>` : ''}
+      <div class="conflict-note">Trades that cut against this member's funding profile have historically been stronger signals. A purchase in a sector where this member receives minimal funding may indicate access to information beyond typical donor relationships.</div>`;
+  }
+
+  function renderSignalIntegrity(integrity) {
+    if (!integrity || !integrity.has_data) return '';
+    return `
+      <div class="section-label">Historical Signal Accuracy</div>
+      <div class="integrity-grid">
+        <div class="int-cell">
+          <div class="int-val">${integrity.win_rate}%</div>
+          <div class="int-label">Win Rate (>5% 30d move)</div>
+        </div>
+        <div class="int-cell">
+          <div class="int-val" style="color:${integrity.avg_return_30d >= 0 ? 'var(--green)' : 'var(--red)'}">
+            ${integrity.avg_return_30d >= 0 ? '+' : ''}${integrity.avg_return_30d}%
+          </div>
+          <div class="int-label">Avg 30d Return After Disclosure</div>
+        </div>
+        <div class="int-cell">
+          <div class="int-val">${integrity.backtested}</div>
+          <div class="int-label">Backtested Trades</div>
+        </div>
+      </div>`;
+  }
+
   async function load() {
-    const res = await fetch(`/members/${bioguideId}/profile`);
-    if (!res.ok) {
+    const [profileRes, fundingRes, integrityRes] = await Promise.all([
+      fetch(`/members/${bioguideId}/profile`),
+      fetch(`/api/member-funding/${bioguideId}`),
+      fetch(`/api/signal-integrity/${bioguideId}`),
+    ]);
+
+    if (!profileRes.ok) {
       document.getElementById('content').innerHTML = '<div class="empty">Member not found.</div>';
       return;
     }
-    const data = await res.json();
-    const m = data.member;
+    const data      = await profileRes.json();
+    const funding   = fundingRes.ok   ? await fundingRes.json()   : null;
+    const integrity = integrityRes.ok ? await integrityRes.json() : null;
 
+    const m = data.member;
     document.title = `${m.full_name} — Scope`;
 
     const congressUrl = `https://bioguide.congress.gov/search/bio/${bioguideId}`;
@@ -307,6 +398,8 @@
 
       ${renderSummaryBar(data.stats, m)}
       ${renderTopTickers(data.top_tickers)}
+      ${renderFundingProfile(funding)}
+      ${renderSignalIntegrity(integrity)}
       ${renderTrades(data.recent_trades)}
       ${renderAlerts(data.alerts)}
     `;

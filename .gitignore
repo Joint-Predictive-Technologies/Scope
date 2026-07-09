@@ -3,3 +3,6 @@
 __pycache__/
 .DS_Store
 .claude/
+Scope/data/moat/
+Scope/scripts/.fara_cache.json
+*.csv

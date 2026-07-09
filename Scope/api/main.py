@@ -40,8 +40,15 @@ LIVE_RULES = [
     "scripts/rule_anomaly.py",
     "scripts/rule_10_corroboration.py",
     "scripts/rule_11_contracts.py",
+    "scripts/rule_12_fara.py",
+    "scripts/rule_13_fec.py",
+    "scripts/rule_14_patents.py",
+    "scripts/rule_15_earnings_nlp.py",
     "scripts/rule_reddit.py",
     "scripts/rule_osint.py",
+    "scripts/rule_adsb.py",
+    "scripts/rule_telegram_osint.py",
+    "scripts/rule_options_correlation.py",
     "scripts/telegram_bot.py",
 ]
 REFRESH_INTERVAL_HOURS = 4
@@ -189,13 +196,21 @@ TAPE_RULE_LABELS = {
     "RULE_09":      "Lobbying",
     "RULE_10":      "Corroboration",
     "RULE_11":      "Gov Contract",
+    "RULE_12":      "FARA",
+    "RULE_13":      "PAC Funding",
+    "RULE_14":      "Patent Cluster",
+    "RULE_15":      "Earnings NLP",
     "RULE_ANOMALY": "Attention",
+    "RULE_ADSB":    "ADSB",
+    "RULE_TELEGRAM_OSINT": "OSINT",
 }
 TAPE_RULE_ICON = {
     "RULE_01":  "↑", "RULE_01B": "↑", "RULE_02": "↑",
     "RULE_06":  "↓", "RULE_07":  "↑", "RULE_08": "↑",
     "RULE_09":  "↑", "RULE_10":  "★", "RULE_11": "●",
-    "RULE_ANOMALY": "⚡",
+    "RULE_12":  "🌍", "RULE_13": "💰", "RULE_14": "🔬",
+    "RULE_15":  "📞",
+    "RULE_ANOMALY": "⚡", "RULE_ADSB": "✈", "RULE_TELEGRAM_OSINT": "📡",
 }
 
 
@@ -612,6 +627,140 @@ def conflict_news():
             pass
         items.append({"title": row["headline"], "source": source, "url": url})
     return items
+
+
+@app.get("/api/member-funding/{bioguide_id}", tags=["Members"])
+def member_funding(bioguide_id: str):
+    """Return FEC funding profile for a member."""
+    import json as _json
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    row = conn.execute("""
+        SELECT mf.*, m.full_name
+        FROM member_funding mf
+        JOIN members m ON m.bioguide_id = mf.bioguide_id
+        WHERE mf.bioguide_id = ?
+    """, (bioguide_id,)).fetchone()
+    conn.close()
+    if not row:
+        return {"bioguide_id": bioguide_id, "has_data": False}
+    data = dict(row)
+    # Parse JSON fields
+    for field in ("top_industries", "pac_summary"):
+        try:
+            data[field] = _json.loads(data.get(field) or "[]")
+        except Exception:
+            data[field] = []
+    data["has_data"] = True
+    return data
+
+
+@app.get("/api/signal-integrity/{bioguide_id}", tags=["Members"])
+def member_signal_integrity(bioguide_id: str):
+    """Return signal accuracy stats for a member's historical trades."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    row = conn.execute("""
+        SELECT
+            COUNT(*) as trade_count,
+            AVG(b.return_30d) as avg_return_30d,
+            SUM(CASE WHEN b.return_30d > 5 THEN 1 ELSE 0 END) as winning_trades,
+            SUM(CASE WHEN b.return_30d IS NOT NULL THEN 1 ELSE 0 END) as backtested
+        FROM transactions t
+        LEFT JOIN alerts a ON a.ticker = t.raw_ticker_string AND a.member_id = t.member_id
+        LEFT JOIN backtest_results b ON b.alert_id = a.id
+        WHERE t.member_id = ?
+    """, (bioguide_id,)).fetchone()
+    conn.close()
+    if not row or not row["backtested"]:
+        return {"has_data": False}
+    backtested   = row["backtested"] or 0
+    winning      = row["winning_trades"] or 0
+    win_rate     = round(winning / backtested * 100, 1) if backtested else 0
+    avg_return   = round(row["avg_return_30d"] or 0, 1)
+    return {
+        "has_data":      True,
+        "trade_count":   row["trade_count"],
+        "backtested":    backtested,
+        "winning_trades": winning,
+        "win_rate":      win_rate,
+        "avg_return_30d": avg_return,
+    }
+
+
+@app.get("/api/fara-activity", tags=["FARA"])
+def fara_activity(country: str = "", limit: int = 20):
+    """Return recent FARA filings, optionally filtered by country."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    if country:
+        rows = conn.execute("""
+            SELECT registrant, foreign_principal, country, period_start, total_receipts, issues_lobbied
+            FROM fara_filings
+            WHERE country LIKE ?
+            ORDER BY total_receipts DESC LIMIT ?
+        """, (f"%{country}%", limit)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT registrant, foreign_principal, country, period_start, total_receipts, issues_lobbied
+            FROM fara_filings
+            ORDER BY total_receipts DESC LIMIT ?
+        """, (limit,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/patent-activity", tags=["Patents"])
+def patent_activity(ticker: str = "", category: str = ""):
+    """Return recent patent filings, optionally filtered by ticker or category."""
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    if ticker:
+        rows = conn.execute("""
+            SELECT patent_number, patent_title, patent_date, assignee, category
+            FROM patent_filings WHERE ticker = ?
+            ORDER BY patent_date DESC LIMIT 20
+        """, (ticker.upper(),)).fetchall()
+    elif category:
+        rows = conn.execute("""
+            SELECT patent_number, patent_title, patent_date, assignee, ticker, category
+            FROM patent_filings WHERE category = ?
+            ORDER BY patent_date DESC LIMIT 20
+        """, (category,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT patent_number, patent_title, patent_date, assignee, ticker, category
+            FROM patent_filings ORDER BY patent_date DESC LIMIT 20
+        """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/earnings-sentiment", tags=["Earnings"])
+def earnings_sentiment(ticker: str):
+    """Return political keyword density trend for a ticker's earnings calls."""
+    import json as _json
+    from jpt_common import db_connection as _dbc
+    conn = _dbc()
+    rows = conn.execute("""
+        SELECT filing_date, political_score, keyword_counts
+        FROM earnings_sentiment WHERE ticker = ? AND political_score > 0
+        ORDER BY filing_date DESC LIMIT 8
+    """, (ticker.upper(),)).fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        counts = {}
+        try:
+            counts = _json.loads(r["keyword_counts"] or "{}")
+        except Exception:
+            pass
+        result.append({
+            "filing_date":    r["filing_date"],
+            "political_score": round(r["political_score"], 2),
+            "top_keywords":   sorted(counts.items(), key=lambda x: -x[1])[:5],
+        })
+    return result
 
 
 @app.get("/api/osint-region-context", tags=["OSINT"])

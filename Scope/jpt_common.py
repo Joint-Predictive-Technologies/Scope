@@ -101,6 +101,10 @@ WHY_MATTERS: dict[str, str] = {
     "RULE_09":      "Lobbying spend spikes indicate companies anticipating specific regulatory action affecting their business model or revenue.",
     "RULE_10":      "Multiple independent data sources converging on a single ticker within 48 hours is the strongest pattern in Scope — historically the most reliable precursor to a sustained move.",
     "RULE_11":      "Government contracts provide multi-year revenue visibility and validate a company's federal relationships, often preceding additional awards.",
+    "RULE_12":      "Foreign lobbying spend surges indicate governments anticipating policy decisions that affect their strategic interests — historically precedes regulatory action in mapped sectors.",
+    "RULE_13":      "Large PAC contributions from industry-specific groups often precede favorable committee votes or policy positions benefiting those sectors within 90 days.",
+    "RULE_14":      "Patent filing clusters signal concentrated R&D investment that often precedes product launches, regulatory approvals, or government contract awards in that vertical.",
+    "RULE_15":      "Surging political keyword density in earnings calls often precedes regulatory action, government contract activity, or policy-driven sector moves — management is signaling awareness of imminent change.",
     "RULE_OSINT":   "Geopolitical events in this region historically move correlated sectors within 1–30 days, typically ahead of mainstream coverage.",
     "RULE_REDDIT":  "Retail attention combined with political keywords can amplify institutional moves and create self-fulfilling momentum.",
     "RULE_ANOMALY": "Unusual signal concentration on a ticker often precedes a catalyst event — the system is detecting something the market hasn't priced yet.",
@@ -162,12 +166,27 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE alerts ADD COLUMN why_matters TEXT")
         conn.commit()
 
-    # lifecycle_stage column on alerts
     if "lifecycle_stage" not in existing_alerts:
         conn.execute("ALTER TABLE alerts ADD COLUMN lifecycle_stage TEXT DEFAULT 'created'")
         conn.commit()
 
-    # watchlist_rules table (idempotent — IF NOT EXISTS)
+    if "source_url" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN source_url TEXT")
+        conn.commit()
+
+    if "confidence_score" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN confidence_score REAL")
+        conn.commit()
+
+    if "conflict_score" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN conflict_score REAL")
+        conn.commit()
+
+    if "conflict_explanation" not in existing_alerts:
+        conn.execute("ALTER TABLE alerts ADD COLUMN conflict_explanation TEXT")
+        conn.commit()
+
+    # Phase 2 tables (all idempotent — IF NOT EXISTS)
     conn.execute("""CREATE TABLE IF NOT EXISTS watchlist_rules (
         id               INTEGER PRIMARY KEY AUTOINCREMENT,
         label            TEXT NOT NULL,
@@ -176,11 +195,62 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         created_at       TEXT DEFAULT (datetime('now'))
     )""")
 
-    # region_summaries table for OSINT globe caching
     conn.execute("""CREATE TABLE IF NOT EXISTS region_summaries (
         region       TEXT PRIMARY KEY,
         summary      TEXT NOT NULL,
         generated_at TEXT NOT NULL
+    )""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS fara_filings (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        reg_number        TEXT,
+        registrant        TEXT,
+        foreign_principal TEXT,
+        country           TEXT,
+        period_start      TEXT,
+        period_end        TEXT,
+        total_receipts    REAL,
+        issues_lobbied    TEXT,
+        ingested_at       TEXT DEFAULT (datetime('now')),
+        UNIQUE(reg_number, period_start)
+    )""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS member_funding (
+        id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+        bioguide_id           TEXT UNIQUE,
+        candidate_id          TEXT,
+        total_raised          REAL DEFAULT 0,
+        top_industries        TEXT,
+        pac_summary           TEXT,
+        defense_pct           REAL DEFAULT 0,
+        energy_pct            REAL DEFAULT 0,
+        tech_pct              REAL DEFAULT 0,
+        finance_pct           REAL DEFAULT 0,
+        pharma_pct            REAL DEFAULT 0,
+        foreign_connected_pct REAL DEFAULT 0,
+        last_updated          TEXT DEFAULT (datetime('now'))
+    )""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS patent_filings (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        patent_number  TEXT UNIQUE,
+        patent_title   TEXT,
+        patent_date    TEXT,
+        assignee       TEXT,
+        ticker         TEXT,
+        category       TEXT,
+        keywords_hit   TEXT,
+        ingested_at    TEXT DEFAULT (datetime('now'))
+    )""")
+
+    conn.execute("""CREATE TABLE IF NOT EXISTS earnings_sentiment (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticker          TEXT NOT NULL,
+        filing_date     TEXT NOT NULL,
+        accession       TEXT UNIQUE,
+        political_score REAL,
+        keyword_counts  TEXT,
+        ingested_at     TEXT DEFAULT (datetime('now'))
     )""")
 
     conn.commit()
@@ -197,6 +267,65 @@ def classify_sector(ticker: str, text: str = "") -> str:
         if any(kw in low for kw in keywords):
             return sector
     return "Other"
+
+
+_SECTOR_FUNDING_KEYS: dict[str, str] = {
+    "Defense & Aerospace": "defense_pct",
+    "Energy":              "energy_pct",
+    "Technology":          "tech_pct",
+    "Finance & Banking":   "finance_pct",
+    "Healthcare & Pharma": "pharma_pct",
+}
+
+
+def calculate_conflict_score(
+    bioguide_id: str,
+    ticker: str,
+    transaction_type: str,
+    member_name: str,
+    conn: "sqlite3.Connection",
+) -> "tuple[float, str]":
+    """
+    Return (score, explanation) where score is -1.0 to +1.0.
+    Positive = trade cuts against member's funding profile (stronger signal).
+    Negative = trade aligns with member's funding profile (weaker signal).
+    """
+    row = conn.execute(
+        "SELECT defense_pct, energy_pct, tech_pct, finance_pct, pharma_pct "
+        "FROM member_funding WHERE bioguide_id = ?",
+        (bioguide_id,),
+    ).fetchone()
+
+    if not row:
+        return 0.0, "No funding data"
+
+    sector = classify_sector(ticker)
+    key    = _SECTOR_FUNDING_KEYS.get(sector)
+    sector_funding = row[key] if key and row[key] is not None else 0.0
+
+    is_buy = transaction_type.lower() in ("purchase", "p", "buy")
+    if is_buy:
+        conflict_score = (50.0 - sector_funding) / 50.0
+    else:
+        conflict_score = (sector_funding - 50.0) / 50.0
+
+    conflict_score = max(-1.0, min(1.0, conflict_score))
+
+    if conflict_score > 0.3:
+        explanation = (
+            f"CUTS AGAINST funding profile — {member_name} receives only "
+            f"{sector_funding:.0f}% from {sector}, making this "
+            f"{'purchase' if is_buy else 'sale'} more significant"
+        )
+    elif conflict_score < -0.3:
+        explanation = (
+            f"ALIGNS WITH funding profile — {member_name} receives "
+            f"{sector_funding:.0f}% from {sector}, reducing signal weight"
+        )
+    else:
+        explanation = "Neutral — no clear funding alignment"
+
+    return conflict_score, explanation
 
 
 def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
