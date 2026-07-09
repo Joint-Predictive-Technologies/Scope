@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-RULE_OSINT — Geopolitical Event Detection
-Sources:
-  1. GDELT Project (primary) — free, no key, updates every 15 minutes
-  2. ReliefWeb API (secondary) — free, no key, daily cadence
+RULE_OSINT — Geopolitical Event Detection via GDELT 2.0 Event Stream
 
-Run every 15 minutes via cron:
+Downloads the raw 15-minute GDELT event CSV directly — no API key, no rate
+limits, updates every 15 minutes. The previous GDELT DOC API approach
+(/api/v2/doc/doc) caused 429 errors; this avoids it entirely.
+
+Run every 15 minutes via APScheduler (configured in api/main.py) or cron:
   */15 * * * * cd /path/to/Scope && python scripts/rule_osint.py
 """
 from __future__ import annotations
@@ -16,9 +17,7 @@ import io
 import json
 import os
 import sys
-import time
 import zipfile
-from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -27,47 +26,51 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jpt_common import (
     db_connection,
     COUNTRY_REGION_MAP,
-    HIGH_SIGNAL_CAMEO,
     REGION_TICKERS,
 )
 
 GDELT_MASTER_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
-GDELT_DOC_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-
-MONITORED_COUNTRIES_RW = [
-    "Israel", "Palestine", "Iran", "Lebanon", "Syria", "Yemen",
-    "Ukraine", "Russia", "Taiwan", "South Korea", "North Korea",
-    "Philippines", "Pakistan", "Afghanistan",
-]
-
 HEADERS = {"User-Agent": "Scope Political Intelligence Monitor 1.0"}
 
+# CAMEO event codes that indicate hostile/high-signal geopolitical events.
+# Prefix-match: '19' matches '190', '193', '195', etc.
+HIGH_SIGNAL_CAMEO: dict[str, str] = {
+    "19":  "Military action",
+    "190": "Military action",
+    "193": "Airstrike",
+    "195": "Troops mobilized",
+    "18":  "Assault",
+    "180": "Assault",
+    "20":  "Mass violence",
+    "201": "Mass killings",
+    "17":  "Coerce",
+    "172": "Sanctions imposed",
+    "14":  "Protest",
+    "145": "Violent protest",
+}
 
-# ── GDELT ─────────────────────────────────────────────────────────────────────
+
+# ── GDELT Event Stream ────────────────────────────────────────────────────────
 
 def _fetch_gdelt_events() -> list[dict]:
-    resp = requests.get(GDELT_MASTER_URL, timeout=15)
-    resp.raise_for_status()
+    """Download latest 15-min GDELT event CSV — no API, no rate limits."""
+    master = requests.get(GDELT_MASTER_URL, timeout=30, headers=HEADERS)
+    master.raise_for_status()
 
-    # lastupdate.txt has 3 lines; first line is the export zip (full events)
-    latest_url = None
-    for line in resp.text.strip().splitlines():
-        parts = line.split(" ")
-        if len(parts) >= 3 and parts[2].endswith(".export.CSV.zip"):
-            latest_url = parts[2]
-            break
-
-    if not latest_url:
-        print("[RULE_OSINT] GDELT: could not find export file URL")
+    # lastupdate.txt: line 1 = events export, line 2 = mentions, line 3 = GKG
+    # Format per line: <size> <md5> <url>
+    event_url = master.text.strip().splitlines()[0].strip().split()[-1]
+    if not event_url.endswith(".export.CSV.zip"):
+        print("[RULE_OSINT] GDELT: unexpected lastupdate.txt format")
         return []
 
-    zip_resp = requests.get(latest_url, timeout=60)
-    zip_resp.raise_for_status()
+    print(f"[RULE_OSINT] Downloading GDELT event file: {event_url}")
+    r = requests.get(event_url, timeout=60, headers=HEADERS)
+    r.raise_for_status()
 
-    signals: list[dict] = []
-    with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as z:
-        filename = z.namelist()[0]
-        with z.open(filename) as f:
+    events: list[dict] = []
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        with z.open(z.namelist()[0]) as f:
             reader = csv.reader(
                 io.TextIOWrapper(f, encoding="utf-8", errors="replace"),
                 delimiter="\t",
@@ -77,46 +80,55 @@ def _fetch_gdelt_events() -> list[dict]:
                     continue
                 try:
                     event_id     = row[0]
-                    event_code   = row[26][:3] if row[26] else ""
+                    cameo        = row[26] if row[26] else ""
                     goldstein    = float(row[30]) if row[30] else 0.0
                     num_mentions = int(row[31])   if row[31] else 0
                     avg_tone     = float(row[34]) if row[34] else 0.0
-                    country      = row[53]
-                    geo_lat      = float(row[53]) if len(row) > 53 and row[53] else None
-                    geo_lng      = float(row[54]) if len(row) > 54 and row[54] else None
-                    # GDELT v2 export: ActionGeo_Lat is col 56, ActionGeo_Long is col 57
-                    # (0-indexed; row[53]=Actor2CountryCode, row[56]=ActionGeo_Lat)
-                    geo_lat      = float(row[56]) if len(row) > 56 and row[56] else None
-                    geo_lng      = float(row[57]) if len(row) > 57 and row[57] else None
-                    country      = row[51] if len(row) > 51 and row[51] else row[53] if len(row) > 53 else ""
-                    source_url   = row[60] if len(row) > 60 and row[60] else (row[57] if len(row) > 57 else "")
+                    # Actor country codes: Actor1CountryCode=col 7, Actor2CountryCode=col 17
+                    # ActionGeo_CountryCode=col 51, ActionGeo_Lat=col 56, ActionGeo_Long=col 57
+                    country    = row[51] if len(row) > 51 and row[51] else (row[7] if row[7] else "")
+                    geo_lat    = float(row[56]) if len(row) > 56 and row[56] else None
+                    geo_lng    = float(row[57]) if len(row) > 57 and row[57] else None
+                    source_url = row[60] if len(row) > 60 and row[60] else ""
                 except (ValueError, IndexError):
                     continue
 
-                if goldstein > -3:
-                    continue
-                if num_mentions < 5:
-                    continue
-                if event_code not in HIGH_SIGNAL_CAMEO:
-                    continue
-                if country not in COUNTRY_REGION_MAP:
-                    continue
-
-                signals.append({
+                events.append({
                     "event_id":     event_id,
-                    "event_code":   event_code,
-                    "event_type":   HIGH_SIGNAL_CAMEO[event_code],
+                    "cameo":        cameo,
                     "goldstein":    goldstein,
                     "num_mentions": num_mentions,
                     "avg_tone":     avg_tone,
                     "country":      country,
-                    "region":       COUNTRY_REGION_MAP[country],
-                    "source_url":   source_url,
                     "geo_lat":      geo_lat,
                     "geo_lng":      geo_lng,
+                    "source_url":   source_url,
                 })
 
-    return signals
+    print(f"[RULE_OSINT] Parsed {len(events)} raw GDELT events")
+    return events
+
+
+def _filter_hostile(events: list[dict]) -> list[dict]:
+    """Keep only hostile, high-mention events in tracked countries."""
+    hostile: list[dict] = []
+    for e in events:
+        if e["goldstein"] >= -3:
+            continue
+        if e["num_mentions"] < 5:
+            continue
+        if e["country"] not in COUNTRY_REGION_MAP:
+            continue
+        cameo_match = any(e["cameo"].startswith(k) for k in HIGH_SIGNAL_CAMEO)
+        if not cameo_match and e["goldstein"] >= -6:
+            continue
+        event_type = next(
+            (v for k, v in HIGH_SIGNAL_CAMEO.items() if e["cameo"].startswith(k)),
+            "Hostile event",
+        )
+        hostile.append({**e, "event_type": event_type, "region": COUNTRY_REGION_MAP[e["country"]]})
+    print(f"[RULE_OSINT] {len(hostile)} candidate events after filtering")
+    return hostile
 
 
 def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
@@ -129,12 +141,12 @@ def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
 
 def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
     try:
-        events = _fetch_gdelt_events()
+        raw    = _fetch_gdelt_events()
+        events = _filter_hostile(raw)
     except Exception as e:
         print(f"[RULE_OSINT] GDELT fetch failed: {e}")
         return 0
 
-    print(f"[RULE_OSINT] GDELT: {len(events)} candidate events after filtering")
     emitted = 0
 
     for event in events:
@@ -163,11 +175,11 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
             f"Mentioned in {event['num_mentions']} sources. "
             f"Tone: {event['avg_tone']:.1f}."
         )
-        tags_obj = {
+        tags_obj: dict = {
             "source_url": event["source_url"],
             "region":     region,
             "goldstein":  event["goldstein"],
-            "cameo":      event["event_code"],
+            "cameo":      event["cameo"],
             "tickers":    tickers[:3],
             "source":     "GDELT",
         }
@@ -194,7 +206,7 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
                 (event["event_id"],),
             )
 
-            # Auto-trigger RULE_10 if corroborating signal exists within 48h
+            # Auto-corroborate: RULE_10 if another rule already fired on this ticker
             for ticker in tickers[:3]:
                 corr = conn.execute(
                     """SELECT COUNT(DISTINCT rule) FROM alerts
@@ -204,12 +216,6 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
                     (ticker,),
                 ).fetchone()[0]
                 if corr >= 1:
-                    corr_tags = json.dumps({
-                        "rules": ["RULE_OSINT", "RULE_10"],
-                        "rule_count": 2,
-                        "rules_fired": "RULE_OSINT",
-                        "source": "GDELT",
-                    })
                     conn.execute(
                         """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
                            VALUES ('RULE_10', ?, 'CRITICAL', ?, ?, ?)""",
@@ -218,7 +224,11 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
                             f"[Corroboration] {ticker}: OSINT + existing signals converged within 48h",
                             f"Geopolitical event ({event['event_type']} in {region}) "
                             f"corroborates existing Scope signals on {ticker}.",
-                            corr_tags,
+                            json.dumps({
+                                "rules": ["RULE_OSINT"],
+                                "rule_count": 2,
+                                "source": "GDELT",
+                            }),
                         ),
                     )
 
@@ -229,98 +239,18 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
     return emitted
 
 
-# ── GDELT Doc API (news search by country, no auth) ──────────────────────────
-
-COUNTRY_TO_REGION = {
-    "Israel": "Middle East", "Palestine": "Middle East", "Iran": "Middle East",
-    "Lebanon": "Middle East", "Syria": "Middle East", "Yemen": "Middle East",
-    "Ukraine": "Eastern Europe", "Russia": "Russia",
-    "Taiwan": "Taiwan Strait",
-    "South Korea": "Korean Peninsula", "North Korea": "Korean Peninsula",
-    "Philippines": "South China Sea",
-    "Pakistan": "South Asia", "Afghanistan": "South Asia",
-}
-
-CONFLICT_TERMS = "war OR military OR attack OR conflict OR missile OR troops OR sanctions"
-
-
-def _fetch_gdelt_news(country: str) -> list[dict]:
-    try:
-        params = {
-            "query":    f"{country} ({CONFLICT_TERMS})",
-            "mode":     "artlist",
-            "maxrecords": 5,
-            "format":   "json",
-            "timespan": "1d",
-        }
-        r = requests.get(GDELT_DOC_URL, params=params, timeout=15, headers=HEADERS)
-        r.raise_for_status()
-        return r.json().get("articles", [])
-    except Exception as e:
-        print(f"[RULE_OSINT] GDELT-News error for {country}: {e}")
-        return []
-
-
-def _run_gdelt_news(conn, emit: bool, dry_run: bool) -> int:
-    emitted = 0
-
-    for country in MONITORED_COUNTRIES_RW:
-        articles = _fetch_gdelt_news(country)
-        time.sleep(2.0)
-
-        for art in articles:
-            title  = art.get("title", "")
-            url    = art.get("url", "")
-            source = art.get("domain", "news")
-            region = COUNTRY_TO_REGION.get(country, country)
-            tickers = REGION_TICKERS.get(region, [])
-
-            if not tickers or not title or not url:
-                continue
-
-            existing = conn.execute(
-                "SELECT 1 FROM alerts WHERE rule='RULE_OSINT' AND tags LIKE ?",
-                (f"%{url[:80]}%",),
-            ).fetchone()
-            if existing:
-                continue
-
-            ticker   = tickers[0]
-            headline = f"Geopolitical — {country}: {title[:80]}"
-            tags_str = json.dumps({
-                "url": url, "country": country, "region": region,
-                "tickers": tickers, "source": source,
-            })
-
-            print(
-                f"[RULE_OSINT] GDELT-News {'[dry]' if dry_run else '[emit]'} "
-                f"{country} → {ticker}: {title[:60]}"
-            )
-
-            if not dry_run and emit:
-                conn.execute(
-                    """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                       VALUES ('RULE_OSINT', ?, 'HIGH', ?, ?, ?)""",
-                    (headline, tags_str, ticker, source),
-                )
-                conn.commit()
-                emitted += 1
-
-    print(f"[RULE_OSINT] GDELT-News: {emitted} new alerts emitted")
-    return emitted
-
-
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
     conn = db_connection()
     _run_gdelt(conn, emit=emit, dry_run=dry_run)
-    _run_gdelt_news(conn, emit=emit, dry_run=dry_run)
     conn.close()
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="RULE_OSINT — Geopolitical event detection (GDELT + ReliefWeb)")
+    p = argparse.ArgumentParser(
+        description="RULE_OSINT — Geopolitical event detection via GDELT Event Stream"
+    )
     p.add_argument("--emit-alerts", action="store_true")
     p.add_argument("--dry-run",     action="store_true")
     args = p.parse_args()

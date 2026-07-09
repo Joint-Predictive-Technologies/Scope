@@ -570,11 +570,18 @@ REGION_COORDS = {
 
 
 _DEMO_HOTSPOTS = [
-    {"region": "Middle East",      "lat": 29.5,  "lng": 45.0,  "severity": "HIGH",   "count": 1, "ticker_list": ["USO", "XLE"], "last_at": None},
-    {"region": "Eastern Europe",   "lat": 49.0,  "lng": 31.0,  "severity": "HIGH",   "count": 1, "ticker_list": ["LMT", "RTX"], "last_at": None},
-    {"region": "Taiwan Strait",    "lat": 24.0,  "lng": 121.0, "severity": "MEDIUM", "count": 1, "ticker_list": ["TSM", "NVDA"], "last_at": None},
-    {"region": "Korean Peninsula", "lat": 37.5,  "lng": 127.5, "severity": "MEDIUM", "count": 1, "ticker_list": ["LMT"], "last_at": None},
-    {"region": "South Asia",       "lat": 28.0,  "lng": 77.0,  "severity": "MEDIUM", "count": 1, "ticker_list": ["LMT", "RTX"], "last_at": None},
+    {"region": "Middle East",      "lat": 29.5,  "lng": 45.0,   "severity": "HIGH",     "count": 3, "ticker_list": ["USO", "XLE", "LMT"],        "last_at": None},
+    {"region": "Eastern Europe",   "lat": 49.0,  "lng": 31.0,   "severity": "HIGH",     "count": 2, "ticker_list": ["LMT", "RTX", "NOC"],        "last_at": None},
+    {"region": "Russia",           "lat": 60.0,  "lng": 90.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
+    {"region": "Taiwan Strait",    "lat": 24.0,  "lng": 121.0,  "severity": "CRITICAL", "count": 2, "ticker_list": ["TSM", "NVDA", "AMAT"],      "last_at": None},
+    {"region": "Korean Peninsula", "lat": 37.5,  "lng": 127.5,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
+    {"region": "South China Sea",  "lat": 12.0,  "lng": 114.0,  "severity": "HIGH",     "count": 2, "ticker_list": ["TSM", "LMT", "NOC"],        "last_at": None},
+    {"region": "South Asia",       "lat": 28.0,  "lng": 77.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
+    {"region": "West Africa",      "lat": 8.0,   "lng": 2.0,    "severity": "MEDIUM",   "count": 1, "ticker_list": ["XOM", "CVX"],               "last_at": None},
+    {"region": "East Africa",      "lat": 0.0,   "lng": 38.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["USO", "XLE"],               "last_at": None},
+    {"region": "Latin America",    "lat": -15.0, "lng": -60.0,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["XOM", "CVX"],               "last_at": None},
+    {"region": "North Africa",     "lat": 25.0,  "lng": 15.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["USO", "XLE"],               "last_at": None},
+    {"region": "Southeast Asia",   "lat": 10.0,  "lng": 106.0,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["TSM", "NVDA"],              "last_at": None},
 ]
 
 

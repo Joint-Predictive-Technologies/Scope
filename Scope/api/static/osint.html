@@ -245,7 +245,7 @@
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x0c0b09, 1);
+    renderer.setClearColor(0x000008, 1);
 
     scene = new THREE.Scene();
 
@@ -253,24 +253,23 @@
     camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 4000);
     camera.position.set(0, 0, 600);
 
-    // Lights
-    scene.add(new THREE.AmbientLight(0x404040, 1.2));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5, 3, 5);
-    scene.add(dir);
+    // Lights — sun-like for satellite look
+    scene.add(new THREE.AmbientLight(0x223355, 0.6));
+    const sun = new THREE.DirectionalLight(0xfffaee, 1.5);
+    sun.position.set(5, 3, 5);
+    scene.add(sun);
 
-    // Globe sphere
+    // Globe sphere with NASA Blue Marble satellite texture
+    const texLoader = new THREE.TextureLoader();
+    const earthTex  = texLoader.load('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg');
     const sphereGeo = new THREE.SphereGeometry(GLOBE_R, 64, 64);
-    const sphereMat = new THREE.MeshPhongMaterial({ color: 0x0a1628, shininess: 40 });
-    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+    const sphereMat = new THREE.MeshPhongMaterial({ map: earthTex, shininess: 8 });
+    const sphere    = new THREE.Mesh(sphereGeo, sphereMat);
     scene.add(sphere);
 
-    // Wireframe overlay
-    const wireGeo = new THREE.SphereGeometry(GLOBE_R + 0.5, 32, 32);
-    const edges   = new THREE.EdgesGeometry(wireGeo);
-    const wireMat = new THREE.LineBasicMaterial({ color: 0x1a3a5c, transparent: true, opacity: 0.3 });
-    const wire    = new THREE.LineSegments(edges, wireMat);
-    scene.add(wire);
+    // Atmosphere glow
+    const atmMat = new THREE.MeshPhongMaterial({ color: 0x3366cc, transparent: true, opacity: 0.10, side: THREE.BackSide });
+    scene.add(new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R * 1.025, 32, 32), atmMat));
 
     // OrbitControls
     controls = new THREE.OrbitControls(camera, renderer.domElement);
