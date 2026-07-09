@@ -53,6 +53,31 @@ LIVE_RULES = [
 ]
 REFRESH_INTERVAL_HOURS = 4
 
+# ── Per-rule cadences (minutes) ────────────────────────────────────────────────
+_RULE_SCHEDULE = {
+    # every 15 min — fast sources
+    "scripts/rule_osint.py":              15,
+    "scripts/rule_adsb.py":               5,
+    "scripts/rule_options_correlation.py": 15,
+    "rule_07_polymarket.py":              15,
+    # every 60 min — medium frequency
+    "rule_06_form4.py":                   60,
+    "scripts/rule_reddit.py":             60,
+    "scripts/rule_11_contracts.py":       60,
+    "scripts/rule_anomaly.py":            60,
+    "scripts/rule_telegram_osint.py":     60,
+    "scripts/rule_10_corroboration.py":   60,
+    "scripts/rule_01b_first_touch.py":    60,
+    # every 6 hours — slower sources
+    "rule_08_federal_register.py":        360,
+    "rule_09_lobbying.py":                360,
+    "scripts/rule_12_fara.py":            360,
+    "scripts/rule_13_fec.py":             1440,  # daily
+    "scripts/rule_14_patents.py":         1440,
+    "scripts/rule_15_earnings_nlp.py":    1440,
+    "scripts/telegram_bot.py":            60,
+}
+
 
 def _alert_count() -> int:
     import sqlite3
@@ -84,37 +109,77 @@ def _hours_since_last_alert() -> float:
         return float("inf")
 
 
-def _run_rules(rules: list[str]) -> dict[str, str]:
-    results = {}
-    for rule in rules:
+def _run_rule(rule: str) -> str:
+    """Run a single rule script; return 'ok' or the last 300 chars of stderr."""
+    try:
         r = subprocess.run(
             [sys.executable, rule, "--emit-alerts"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=300,
             cwd=str(CODE_DIR),
         )
-        results[rule] = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
-        print(f"[rules] {rule}: {results[rule]}", flush=True)
-    return results
+        result = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
+    except subprocess.TimeoutExpired:
+        result = "timeout after 300s"
+    except Exception as e:
+        result = str(e)[:200]
+    print(f"[scheduler] {rule}: {result}", flush=True)
+    return result
 
 
-async def _refresh_loop():
-    """Background task: re-run all live rules every REFRESH_INTERVAL_HOURS."""
-    while True:
-        await asyncio.sleep(REFRESH_INTERVAL_HOURS * 3600)
-        print("[scheduler] running live rules …", flush=True)
-        await asyncio.to_thread(_run_rules, LIVE_RULES)
+def _run_rules(rules: list[str]) -> dict[str, str]:
+    return {rule: _run_rule(rule) for rule in rules}
+
+
+_scheduler = None
+_job_last_run: dict[str, str] = {}
+
+
+def _start_scheduler() -> None:
+    global _scheduler
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.interval import IntervalTrigger
+    except ImportError:
+        print("[scheduler] apscheduler not installed — falling back to single loop", flush=True)
+        return
+
+    _scheduler = BackgroundScheduler(daemon=True)
+
+    for rule, minutes in _RULE_SCHEDULE.items():
+        def _make_job(r=rule):
+            def _job():
+                _job_last_run[r] = "running"
+                _job_last_run[r] = _run_rule(r)
+            return _job
+
+        _scheduler.add_job(
+            _make_job(),
+            IntervalTrigger(minutes=minutes),
+            id=rule.replace("/", "_").replace(".", "_"),
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=60,
+        )
+
+    _scheduler.start()
+    print(f"[scheduler] APScheduler started — {len(_RULE_SCHEDULE)} jobs scheduled", flush=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     hours_stale = _hours_since_last_alert()
     if hours_stale >= REFRESH_INTERVAL_HOURS:
-        print(f"[startup] data is {hours_stale:.1f}h old — background refresh starting …", flush=True)
+        print(f"[startup] data is {hours_stale:.1f}h old — running all rules now …", flush=True)
         asyncio.create_task(asyncio.to_thread(_run_rules, LIVE_RULES))
     else:
-        print(f"[startup] data is fresh ({hours_stale:.1f}h old) — skipping seed", flush=True)
-    asyncio.create_task(_refresh_loop())
+        print(f"[startup] data is fresh ({hours_stale:.1f}h old)", flush=True)
+
+    # Start APScheduler (non-blocking background thread)
+    _start_scheduler()
     yield
+
+    if _scheduler and _scheduler.running:
+        _scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -172,6 +237,32 @@ def health():
         "alert_count": alert_count,
         "groq_key_set": groq_set,
         "cwd": os.getcwd(),
+    }
+
+
+@app.get("/api/scheduler-status", tags=["Admin"])
+def scheduler_status():
+    """Return the state of each scheduled rule job."""
+    if _scheduler is None:
+        return {"status": "not_started", "jobs": []}
+    jobs = []
+    for job in _scheduler.get_jobs():
+        jobs.append({
+            "id":       job.id,
+            "next_run": str(job.next_run_time) if job.next_run_time else None,
+            "last_result": _job_last_run.get(
+                next((r for r in _RULE_SCHEDULE if r.replace("/","_").replace(".","_") == job.id), ""),
+                "pending"
+            ),
+            "interval_minutes": _RULE_SCHEDULE.get(
+                next((r for r in _RULE_SCHEDULE if r.replace("/","_").replace(".","_") == job.id), ""),
+                None
+            ),
+        })
+    return {
+        "status":    "running" if _scheduler.running else "stopped",
+        "job_count": len(jobs),
+        "jobs":      sorted(jobs, key=lambda j: j["interval_minutes"] or 9999),
     }
 
 
@@ -478,10 +569,20 @@ REGION_COORDS = {
 }
 
 
+_DEMO_HOTSPOTS = [
+    {"region": "Middle East",      "lat": 29.5,  "lng": 45.0,  "severity": "HIGH",   "count": 1, "ticker_list": ["USO", "XLE"], "last_at": None},
+    {"region": "Eastern Europe",   "lat": 49.0,  "lng": 31.0,  "severity": "HIGH",   "count": 1, "ticker_list": ["LMT", "RTX"], "last_at": None},
+    {"region": "Taiwan Strait",    "lat": 24.0,  "lng": 121.0, "severity": "MEDIUM", "count": 1, "ticker_list": ["TSM", "NVDA"], "last_at": None},
+    {"region": "Korean Peninsula", "lat": 37.5,  "lng": 127.5, "severity": "MEDIUM", "count": 1, "ticker_list": ["LMT"], "last_at": None},
+    {"region": "South Asia",       "lat": 28.0,  "lng": 77.0,  "severity": "MEDIUM", "count": 1, "ticker_list": ["LMT", "RTX"], "last_at": None},
+]
+
+
 @app.get("/api/osint-hotspots", tags=["OSINT"])
 def osint_hotspots():
     """Return grouped RULE_OSINT alerts from last 14 days as globe hotspots."""
     import json as _json
+    from datetime import datetime as _dt, timezone as _tz
     from jpt_common import db_connection as _dbc, REGION_TICKERS
     conn = _dbc()
     rows = conn.execute("""
@@ -496,21 +597,17 @@ def osint_hotspots():
     groups: dict = {}
     for row in rows:
         tags_raw = row["tags"] or ""
-        # Try to find a region from tags or REGION_COORDS keys
         region = None
-        # Check if tags is JSON
         try:
             tags_obj = _json.loads(tags_raw)
             region = tags_obj.get("region")
         except Exception:
-            # Fallback: check region names in raw tags string
             for rname in REGION_COORDS:
                 if rname.lower() in tags_raw.lower():
                     region = rname
                     break
 
         if not region:
-            # Try to match ticker to REGION_TICKERS
             ticker = (row["ticker"] or "").replace("$", "").split()[0]
             for rname, tickers in REGION_TICKERS.items():
                 if ticker in tickers:
@@ -518,30 +615,24 @@ def osint_hotspots():
                     break
 
         if not region:
-            region = "Middle East"  # default fallback
+            region = "Middle East"
 
         if region not in groups:
-            coords = REGION_COORDS.get(region, (0.0, 0.0))
-            # Try to get lat/lng from tags JSON
+            coords = REGION_COORDS.get(region, (31.0, 35.0))
             try:
                 tags_obj = _json.loads(tags_raw)
-                lat = float(tags_obj.get("lat", coords[0]))
-                lng = float(tags_obj.get("lng", coords[1]))
+                lat = float(tags_obj.get("lat") or coords[0])
+                lng = float(tags_obj.get("lng") or coords[1])
             except Exception:
                 lat, lng = coords
             groups[region] = {
-                "region": region,
-                "lat": lat,
-                "lng": lng,
-                "count": 0,
-                "severity": "MEDIUM",
-                "ticker_list": [],
-                "last_at": None,
+                "region": region, "lat": lat, "lng": lng,
+                "count": 0, "severity": "MEDIUM",
+                "ticker_list": [], "last_at": None,
             }
 
         g = groups[region]
         g["count"] += 1
-        # Escalate severity
         sev_rank = {"CRITICAL": 3, "HIGH": 2, "MEDIUM": 1, "LOW": 0}
         if sev_rank.get(row["severity"], 0) > sev_rank.get(g["severity"], 0):
             g["severity"] = row["severity"]
@@ -551,7 +642,14 @@ def osint_hotspots():
         if not g["last_at"] or row["created_at"] > g["last_at"]:
             g["last_at"] = row["created_at"]
 
-    return list(groups.values())
+    result = list(groups.values())
+
+    # Globe must never be blank — show demo hotspots if no OSINT data yet
+    if not result:
+        now = _dt.now(_tz.utc).isoformat()
+        result = [{**h, "last_at": now, "demo": True} for h in _DEMO_HOTSPOTS]
+
+    return result
 
 
 @app.get("/api/osint-summary", tags=["OSINT"])
@@ -630,14 +728,14 @@ def osint_summary(region: str):
 
 @app.get("/api/conflict-news", tags=["OSINT"])
 def conflict_news():
-    """Return the 30 most recent RULE_OSINT alert headlines for the conflict RSS tape."""
+    """Return recent conflict headlines — from RULE_OSINT DB alerts, then static fallback."""
     import json as _json
     from jpt_common import db_connection as _dbc
     conn = _dbc()
     rows = conn.execute("""
         SELECT headline, tags, created_at
         FROM alerts
-        WHERE rule = 'RULE_OSINT'
+        WHERE rule IN ('RULE_OSINT', 'RULE_ADSB', 'RULE_TELEGRAM_OSINT')
         ORDER BY created_at DESC
         LIMIT 30
     """).fetchall()
@@ -654,7 +752,19 @@ def conflict_news():
             url = tags_obj.get("source_url")
         except Exception:
             pass
-        items.append({"title": row["headline"], "source": source, "url": url})
+        items.append({"title": row["headline"], "source": source, "url": url or "/feed?rule=RULE_OSINT"})
+
+    # Static fallback so tape never shows "Loading…"
+    if not items:
+        items = [
+            {"title": "Middle East tensions — monitoring GDELT + ADS-B feeds", "source": "Scope OSINT", "url": "/feed"},
+            {"title": "Eastern Europe — tracking military movements via open-source signals", "source": "Scope OSINT", "url": "/feed"},
+            {"title": "Taiwan Strait — semiconductor supply chain risk monitor active", "source": "Scope OSINT", "url": "/feed"},
+            {"title": "OSINT pipeline active — run rule_osint.py to populate live signals", "source": "Scope", "url": "/feed"},
+            {"title": "Korean Peninsula — monitoring via GDELT event classification", "source": "Scope OSINT", "url": "/feed"},
+            {"title": "South China Sea — ADS-B military flight tracking enabled", "source": "Scope OSINT", "url": "/feed"},
+        ]
+
     return items
 
 
