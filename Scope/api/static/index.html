@@ -1067,7 +1067,7 @@
       if (d.headlines?.length) {
         html += '<div class="cmd-group-label">Signals</div>';
         html += d.headlines.map(h => {
-          const rule = (h.rule_path||'').split('/').pop().replace('.py','').toUpperCase();
+          const rule = (h.rule||'');
           return `<a class="cmd-item" href="/feed?ticker=${h.ticker||''}"><span class="cmd-item-icon">⚡</span><div><div class="cmd-item-main">${(h.headline||'').slice(0,72)}</div><div class="cmd-item-sub">${h.ticker||''} · ${rule}</div></div><span class="cmd-badge cmd-badge-${h.severity||'MEDIUM'}">${h.severity||''}</span></a>`;
         }).join('');
       }

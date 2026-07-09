@@ -935,8 +935,8 @@ def search(q: str = ""):
     like = f"%{q}%"
 
     ticker_rows = conn.execute(
-        """SELECT DISTINCT raw_ticker_string AS ticker FROM alerts
-           WHERE raw_ticker_string LIKE ? AND raw_ticker_string != ''
+        """SELECT DISTINCT ticker FROM alerts
+           WHERE ticker LIKE ? AND ticker != ''
            LIMIT 6""",
         (like,),
     ).fetchall()
@@ -948,7 +948,7 @@ def search(q: str = ""):
     ).fetchall()
 
     headline_rows = conn.execute(
-        """SELECT id, headline, raw_ticker_string AS ticker, severity, rule_path
+        """SELECT id, headline, ticker, severity, rule
            FROM alerts WHERE headline LIKE ?
            ORDER BY created_at DESC LIMIT 6""",
         (like,),
