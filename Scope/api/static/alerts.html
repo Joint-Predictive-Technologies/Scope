@@ -324,8 +324,9 @@
     const normalized = ts.replace(' ', 'T');
     return new Date(normalized + (normalized.includes('Z') ? '' : 'Z')).toLocaleString();
   }
-  function sourceInfo(rule, ticker) {
-    const t = (ticker||'').replace(/\$/g,'').split(' ')[0];
+  function sourceInfo(a) {
+    const rule = a.rule, ticker = a.ticker || '', tags = a.tags || '';
+    const t = ticker.replace(/\$/g,'').split(' ')[0];
     if (['RULE_01','RULE_01B','RULE_02'].includes(rule))
       return { label: 'House Clerk', url: 'https://disclosures-clerk.house.gov' };
     if (rule === 'RULE_06')
@@ -336,6 +337,15 @@
     if (rule === 'RULE_10') return { label: 'Cross-reference', url: null };
     if (rule === 'RULE_11') return { label: 'USASpending.gov', url: 'https://usaspending.gov' };
     if (rule === 'RULE_ANOMALY') return { label: 'Internal signal', url: null };
+    if (rule === 'RULE_OSINT') {
+      if (a.source_url) return { label: 'Google News', url: a.source_url };
+      try {
+        const tj = JSON.parse(tags);
+        const q = encodeURIComponent((tj.event_type||'conflict') + ' ' + (tj.region||''));
+        return { label: 'Google News', url: `https://news.google.com/search?q=${q}&hl=en-US&gl=US&ceid=US:en` };
+      } catch {}
+      return { label: 'GDELT', url: 'https://www.gdeltproject.org' };
+    }
     return { label: 'Source', url: null };
   }
   function escHtml(s) {
@@ -720,7 +730,7 @@
         inlineDelay = delayBadge(r01b.delay);
       }
 
-      const src = sourceInfo(a.rule, a.ticker);
+      const src = sourceInfo(a);
       const srcChip = src.url
         ? `<span class="badge badge-source"><a href="${src.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SOURCE: ${src.label}</a></span>`
         : `<span class="badge badge-source">SOURCE: ${src.label}</span>`;

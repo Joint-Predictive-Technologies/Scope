@@ -17,6 +17,7 @@ import io
 import json
 import os
 import sys
+import urllib.parse
 import zipfile
 
 import requests
@@ -162,6 +163,10 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
             f"Mentioned in {event['num_mentions']} sources. "
             f"Tone: {event['avg_tone']:.1f}."
         )
+        # Google News search URL — always English, always relevant
+        news_q = urllib.parse.quote(f"{event['event_type']} {region}")
+        news_url = f"https://news.google.com/search?q={news_q}&hl=en-US&gl=US&ceid=US:en"
+
         tags_obj: dict = {
             "source_url": event["source_url"],
             "region":     region,
@@ -169,6 +174,7 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
             "cameo":      event["cameo"],
             "tickers":    tickers[:3],
             "source":     "GDELT",
+            "event_type": event["event_type"],
         }
         if event.get("geo_lat") is not None:
             tags_obj["lat"] = event["geo_lat"]
@@ -183,9 +189,9 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
         if not dry_run and emit:
             for ticker in tickers[:3]:
                 conn.execute(
-                    """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
-                       VALUES ('RULE_OSINT', ?, ?, ?, ?, ?)""",
-                    (ticker, severity, headline, detail, tags_str),
+                    """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags, source_url)
+                       VALUES ('RULE_OSINT', ?, ?, ?, ?, ?, ?)""",
+                    (ticker, severity, headline, detail, tags_str, news_url),
                 )
 
             conn.execute(

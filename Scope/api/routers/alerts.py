@@ -124,7 +124,7 @@ def get_alerts(
     base_select = f"""
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
-            a.tags, a.member_id, a.created_at,
+            a.tags, a.member_id, a.created_at, a.source_url,
             m.full_name, m.party, m.state
         FROM alerts a
         LEFT JOIN members m ON a.member_id = m.bioguide_id
@@ -211,7 +211,7 @@ def get_alert(alert_id: int):
         """
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
-            a.tags, a.member_id, a.created_at,
+            a.tags, a.member_id, a.created_at, a.source_url,
             m.full_name, m.party, m.state
         FROM alerts a
         LEFT JOIN members m ON a.member_id = m.bioguide_id
