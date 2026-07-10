@@ -13,12 +13,17 @@ def _classify(ticker: str, text: str) -> str:
 
 @router.get("/data")
 def get_sectors(days: int = Query(default=30, ge=1, le=90)):
+    # Exclude high-volume noisy rules — same set excluded from heat index calculation
+    _NOISY = ("'RULE_07'", "'RULE_OSINT'", "'RULE_REDDIT'", "'RULE_ANOMALY'")
+    _excl  = ",".join(_NOISY)
+
     conn = db_connection()
     rows = conn.execute(
-        """
+        f"""
         SELECT id, rule, severity, headline, tags, ticker, created_at
         FROM alerts
         WHERE datetime(created_at) >= datetime('now', ?)
+          AND rule NOT IN ({_excl})
         """,
         (f"-{days} days",),
     ).fetchall()
@@ -26,11 +31,12 @@ def get_sectors(days: int = Query(default=30, ge=1, le=90)):
 
     prev_conn = db_connection()
     prev_rows = prev_conn.execute(
-        """
+        f"""
         SELECT id, rule, severity, headline, tags, ticker
         FROM alerts
         WHERE datetime(created_at) >= datetime('now', ?)
           AND datetime(created_at) < datetime('now', ?)
+          AND rule NOT IN ({_excl})
         """,
         (f"-{days * 2} days", f"-{days} days"),
     ).fetchall()

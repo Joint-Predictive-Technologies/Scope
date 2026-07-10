@@ -35,7 +35,8 @@ EXCLUDED_FROM_CORROBORATION = {
     "RULE_ANOMALY",  # ML anomaly — not a fundamental signal
 }
 
-DEDUP_WINDOW_DAYS = 7
+DEDUP_WINDOW_DAYS   = 7
+MIN_DISTINCT_RULES  = 4   # 4 independent rule types required (raised from 2)
 
 
 def _candidate_alerts(conn, window_hours: int) -> list:
@@ -76,19 +77,19 @@ def find_corroborated_tickers(conn, window_hours: int) -> dict[str, list]:
         ticker_rules[row["ticker"]].add(row["rule"])
         ticker_alerts[row["ticker"]].append(row)
 
-    # Require 2+ distinct rule types AND no RULE_10 already in last 7 days
+    # Require 4+ distinct rule types AND no RULE_10 already in last 7 days
     return {
         ticker: alerts
         for ticker, alerts in ticker_alerts.items()
-        if len(ticker_rules[ticker]) >= 2
+        if len(ticker_rules[ticker]) >= MIN_DISTINCT_RULES
         and not _already_corroborated(conn, ticker)
     }
 
 
-def _build_narrative(ticker: str, alerts: list, rules_fired: str) -> str:
+def _build_narrative(ticker: str, alerts: list, rules_fired: str, window_hours: int = 24) -> str:
     headlines = " | ".join(a["headline"] for a in alerts[:6])
     fallback = (
-        f"Signals from {rules_fired} converged on {ticker} within 48 hours. "
+        f"Signals from {rules_fired} converged on {ticker} within {window_hours}h. "
         "See individual rule alerts for details."
     )
     api_key = os.getenv("GROQ_API_KEY", "").strip()
@@ -120,7 +121,7 @@ In 2-3 sentences, explain why this convergence of signals is notable for an inve
 MAX_PER_RUN = 10  # hard cap — prevents any future flood
 
 
-def run(dry_run: bool, window_hours: int = 48) -> tuple[int, int]:
+def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
     load_dotenv()
     conn = db_connection()
 
@@ -152,10 +153,10 @@ def run(dry_run: bool, window_hours: int = 48) -> tuple[int, int]:
         if dry_run:
             continue
 
-        narrative = _build_narrative(ticker, alerts, rules_fired)
+        narrative = _build_narrative(ticker, alerts, rules_fired, window_hours)
         print(f"    narrative: {narrative[:120]}")
 
-        severity = "CRITICAL" if rule_count >= 3 or "CRITICAL" in severities else "HIGH"
+        severity = "CRITICAL" if rule_count >= MIN_DISTINCT_RULES or "CRITICAL" in severities else "HIGH"
         headline = (
             f"[CORROBORATION] {ticker}: {rule_count} independent signals "
             f"in {window_hours}h ({rules_fired})"
@@ -192,8 +193,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dry-run", action="store_true",
                         help="Print clusters without writing to DB or calling LLM.")
-    parser.add_argument("--window-hours", type=int, default=48,
-                        help="Lookback window in hours (default: 48).")
+    parser.add_argument("--window-hours", type=int, default=24,
+                        help="Lookback window in hours (default: 24).")
     return parser
 
 

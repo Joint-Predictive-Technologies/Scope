@@ -507,12 +507,12 @@
       <div class="how-num">01</div>
       <div class="how-title">Raw data ingested</div>
       <div class="how-desc">Scope monitors eight live data streams — congressional disclosures, SEC Form 4 insider filings, Federal Register proposals, Senate lobby reports, USASpending.gov contracts, Polymarket odds, Reddit, and geopolitical OSINT — every four hours.</div>
-      <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> 2 rules converge → RULE_10 queued</div>
+      <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> RULE_08 + RULE_09 fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> 4 rules converge → RULE_10 queued</div>
     </div>
     <div class="how-step">
       <div class="how-num">02</div>
       <div class="how-title">Rules score every signal</div>
-      <div class="how-desc">Eight detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When two or more independent rules fire on the same ticker within 48 hours, RULE_10 generates an AI-written analyst narrative.</div>
+      <div class="how-desc">Eight detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When four or more independent rules fire on the same ticker within 24 hours, RULE_10 generates an AI-written analyst narrative.</div>
       <div class="how-example">Signal score = sev × 0.5^(h/48)<br>× rule_multiplier<br><span class="hi">RULE_10</span> multiplier: <span class="ok">2.0×</span><br><span class="hi">RULE_06</span> multiplier: <span class="ok">1.5×</span></div>
     </div>
     <div class="how-step">
@@ -699,7 +699,7 @@
     const el = document.getElementById('corr-hero-cards');
     if (!el) return;
     if (!Array.isArray(data) || !data.length) {
-      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 2+ rules converge on the same ticker.</div>';
+      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 4+ independent rules converge on the same ticker within 24h.</div>';
       return;
     }
     el.innerHTML = data.map(a => {
