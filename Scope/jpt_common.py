@@ -470,6 +470,87 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m007_backfill_event_date')")
         conn.commit()
 
+    # m008: Phase-2 intelligence data model — themes, theme_signals, activity_log,
+    # thesis_outcomes + scoring columns on alerts. Additive only.
+    conn.execute("""CREATE TABLE IF NOT EXISTS themes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL, region TEXT, sector TEXT,
+        status TEXT DEFAULT 'Emerging',
+        first_signal_at TEXT, last_updated TEXT,
+        signal_count INTEGER DEFAULT 0,
+        novelty_score REAL DEFAULT 1.0,
+        absorption_pct REAL DEFAULT 0.0,
+        evidence_confidence REAL DEFAULT 0.0,
+        opportunity_score REAL DEFAULT 0.0,
+        time_horizon TEXT DEFAULT 'SHORT',
+        supporting_rules TEXT, conflicting_evidence TEXT,
+        conflict_status TEXT DEFAULT 'Insufficient Evidence',
+        invalidation_conditions TEXT, watch_triggers TEXT,
+        historical_analogue TEXT, what_changed TEXT,
+        primary_ticker TEXT, affected_tickers TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS theme_signals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        theme_id INTEGER, alert_id INTEGER,
+        added_at TEXT DEFAULT (datetime('now'))
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        events_scanned INTEGER DEFAULT 0,
+        events_flagged INTEGER DEFAULT 0,
+        alerts_emitted INTEGER DEFAULT 0,
+        run_at TEXT DEFAULT (datetime('now')),
+        duration_seconds REAL, notes TEXT
+    )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS thesis_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        theme_id INTEGER, ticker TEXT,
+        price_at_thesis_start REAL, price_at_resolution REAL,
+        move_pct REAL, direction TEXT,
+        resolved_at TEXT, notes TEXT
+    )""")
+    conn.commit()
+
+    _alerts_cols = {r[1] for r in conn.execute("PRAGMA table_info(alerts)").fetchall()}
+    _new_cols = [
+        ("novelty_score", "REAL DEFAULT 1.0"),
+        ("absorption_pct", "REAL DEFAULT 0.0"),
+        ("time_horizon", "TEXT DEFAULT 'SHORT'"),
+        ("evidence_confidence", "REAL DEFAULT 0.0"),
+        ("opportunity_score", "REAL DEFAULT 0.0"),
+        ("source_quality", "TEXT DEFAULT 'Secondary'"),
+        ("verify_url", "TEXT"),
+        ("theme_id", "INTEGER"),
+        ("price_at_detection", "REAL"),
+        ("price_move_since_detection", "REAL"),
+    ]
+    for col, decl in _new_cols:
+        if col not in _alerts_cols:
+            try:
+                conn.execute(f"ALTER TABLE alerts ADD COLUMN {col} {decl}")
+            except Exception:
+                pass
+    conn.commit()
+
+    # m008b: backfill deterministic time_horizon + source_quality by rule.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m008_intel_backfill'"
+    ).fetchone():
+        for rule, horizon in RULE_TIME_HORIZONS.items():
+            conn.execute(
+                "UPDATE alerts SET time_horizon=? WHERE rule=? AND (time_horizon IS NULL OR time_horizon='SHORT')",
+                (horizon, rule),
+            )
+        for rule, quality in RULE_SOURCE_QUALITY.items():
+            conn.execute(
+                "UPDATE alerts SET source_quality=? WHERE rule=?",
+                (quality, rule),
+            )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m008_intel_backfill')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -573,6 +654,92 @@ def resolve_org(query: str) -> tuple:
         if any(q in h or h in q for h in hay):
             return (rec, 85, "partial")
     return (None, 0, None)
+
+
+# ── Phase-2 intelligence scoring (Evidence Confidence / Opportunity / Novelty) ──
+# Rule → default time horizon and source quality (spec §7, §11).
+RULE_TIME_HORIZONS: dict[str, str] = {
+    "RULE_01B": "SHORT", "RULE_02": "SHORT", "RULE_03": "MEDIUM", "RULE_04": "SHORT",
+    "RULE_05": "IMMEDIATE", "RULE_06": "MEDIUM", "RULE_07": "IMMEDIATE",
+    "RULE_08": "MEDIUM", "RULE_09": "MEDIUM", "RULE_10": "SHORT", "RULE_11": "SHORT",
+    "RULE_12": "LONG", "RULE_13": "SHORT", "RULE_14": "LONG", "RULE_15": "SHORT",
+    "RULE_OSINT": "IMMEDIATE", "RULE_REDDIT": "IMMEDIATE", "RULE_ANOMALY": "SHORT",
+}
+# Primary = direct from an authoritative filing; Derived = synthesized/social.
+RULE_SOURCE_QUALITY: dict[str, str] = {
+    "RULE_01B": "Primary", "RULE_02": "Primary", "RULE_06": "Primary",
+    "RULE_08": "Primary", "RULE_09": "Primary", "RULE_11": "Primary",
+    "RULE_12": "Primary", "RULE_13": "Primary", "RULE_14": "Primary",
+    "RULE_15": "Secondary", "RULE_07": "Secondary", "RULE_OSINT": "Secondary",
+    "RULE_REDDIT": "Derived", "RULE_ANOMALY": "Derived", "RULE_10": "Derived",
+}
+_SOURCE_QUALITY_WEIGHT = {"Primary": 1.0, "Secondary": 0.6, "Derived": 0.3}
+
+
+def calculate_evidence_confidence(distinct_rule_count, source_quality_scores,
+                                  has_conflicting_evidence=False) -> float:
+    """How strongly is the thesis supported? (Not whether opportunity remains.)"""
+    base = 0.0
+    if distinct_rule_count >= 4:
+        base = 40.0
+    if distinct_rule_count >= 5:
+        base = 60.0
+    if distinct_rule_count >= 6:
+        base = 75.0
+    avg_quality = (sum(source_quality_scores) / len(source_quality_scores)
+                   if source_quality_scores else 0.5)
+    base += avg_quality * 20.0
+    if has_conflicting_evidence:
+        base *= 0.7
+    return min(round(base, 1), 100.0)
+
+
+def calculate_opportunity_score(novelty_score, absorption_pct, time_horizon,
+                                liquidity_score=1.0, historical_win_rate=0.5) -> float:
+    """Is there still likely actionable opportunity? Separate from evidence."""
+    horizon_scores = {"IMMEDIATE": 1.0, "SHORT": 0.85, "MEDIUM": 0.65, "LONG": 0.45}
+    raw = (novelty_score * 40.0
+           - (absorption_pct / 100.0) * 30.0
+           + horizon_scores.get(time_horizon, 0.7) * 20.0
+           + historical_win_rate * 10.0)
+    return min(max(round(raw * liquidity_score, 1), 0.0), 100.0)
+
+
+def calculate_novelty_score(rule, region_or_sector, conn) -> float:
+    """1.0 for a first-ever signal of this type in this region/sector; decays
+    logarithmically with prior 30-day occurrences of the same pattern."""
+    import math
+    count = conn.execute(
+        """SELECT COUNT(*) FROM alerts
+           WHERE rule = ?
+             AND (headline LIKE ? OR COALESCE(why_matters,'') LIKE ?)
+             AND created_at >= datetime('now', '-30 days')""",
+        (rule, f"%{region_or_sector}%", f"%{region_or_sector}%"),
+    ).fetchone()[0]
+    if count == 0:
+        return 1.0
+    return round(1 / (1 + math.log(count + 1)), 3)
+
+
+def assign_time_horizon(rule, ticker=None, conn=None) -> str:
+    """IMMEDIATE / SHORT / MEDIUM / LONG based on the rule family."""
+    return RULE_TIME_HORIZONS.get(rule, "SHORT")
+
+
+def log_activity(conn, source, scanned=0, flagged=0, emitted=0,
+                 duration_seconds=None, notes=None) -> None:
+    """Record a rule/scan run so the activity log can show 'clear airspace'."""
+    try:
+        conn.execute(
+            """INSERT INTO activity_log
+               (source, events_scanned, events_flagged, alerts_emitted, duration_seconds, notes)
+               VALUES (?,?,?,?,?,?)""",
+            (source, int(scanned or 0), int(flagged or 0), int(emitted or 0),
+             duration_seconds, notes),
+        )
+        conn.commit()
+    except Exception:
+        pass
 
 
 # ── Federal contractor → public equity resolution ───────────────────────────

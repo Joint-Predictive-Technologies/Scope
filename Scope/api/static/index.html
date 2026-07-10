@@ -602,6 +602,37 @@
   </div>
 </div>
 
+<!-- ACTIVITY LOG — "clear airspace": what Scope scanned recently -->
+<div class="section" style="padding-top:0">
+  <details class="learn-details">
+    <summary><span class="section-label" style="margin:0">System</span> <span style="font-family:'Playfair Display',serif;font-size:1.2rem;color:var(--cream)">Live activity log</span> <span style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--muted)">— what Scope scanned recently</span></summary>
+    <div id="activity-log" style="margin-top:1rem;overflow-x:auto"><div class="today-skel" style="height:80px"></div></div>
+  </details>
+</div>
+<script>
+  (function loadActivityLog(){
+    const el = document.getElementById('activity-log');
+    fetch('/api/activity-log?limit=15').then(r=>r.json()).then(rows => {
+      if (!Array.isArray(rows) || !rows.length) { el.innerHTML = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted);padding:0.5rem">No scan runs recorded yet — the scheduler logs each run here.</div>'; return; }
+      const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
+      el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:0.66rem">
+        <thead><tr style="color:var(--muted);text-align:left">
+          <th style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border2)">Source</th>
+          <th style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border2)">Emitted</th>
+          <th style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border2)">Duration</th>
+          <th style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border2)">When</th>
+        </tr></thead><tbody>
+        ${rows.map(r=>`<tr>
+          <td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border);color:var(--cream2)">${(r.source||'').slice(0,28)}</td>
+          <td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border);color:${r.alerts_emitted>0?'var(--amber2)':'var(--muted)'}">${r.alerts_emitted>0?r.alerts_emitted+' new':'clear'}</td>
+          <td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border);color:var(--muted)">${r.duration_seconds!=null?r.duration_seconds+'s':'—'}</td>
+          <td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border);color:var(--muted)">${ago(r.run_at)}</td>
+        </tr>`).join('')}
+        </tbody></table>`;
+    }).catch(()=>{ el.innerHTML = '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted);padding:0.5rem">Activity log unavailable.</div>'; });
+  })();
+</script>
+
 <!-- HOW SCOPE WORKS (collapsed by default) -->
 <div class="section" style="padding-top:0">
   <details class="learn-details">

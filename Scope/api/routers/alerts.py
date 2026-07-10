@@ -107,6 +107,7 @@ def get_alerts(
     page: int | None    = Query(default=None, ge=1),
     per_page: int       = Query(default=PER_PAGE, ge=1, le=100),
     since: str | None   = Query(default=None),
+    mode: str | None    = Query(default=None, description="overwatch | scanner"),
 ):
     conn = db_connection()
 
@@ -119,17 +120,30 @@ def get_alerts(
         watchlist=watchlist,
         since=since,
     )
+
+    # Two-mode intelligence view (spec §11 / Priority 7).
+    order = "datetime(a.created_at) DESC"
+    if mode == "scanner":
+        # Retail/penny: near-term catalysts, freshest + highest opportunity first.
+        conditions.append("a.time_horizon IN ('IMMEDIATE','SHORT')")
+        order = "a.opportunity_score DESC, datetime(a.created_at) DESC"
+    elif mode == "overwatch":
+        # Macro: structural rules, best-supported theses first; de-noise.
+        conditions.append("a.rule NOT IN ('RULE_07','RULE_REDDIT')")
+        order = "a.evidence_confidence DESC, datetime(a.created_at) DESC"
     where = " AND ".join(conditions)
 
     base_select = f"""
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
             a.tags, a.member_id, a.created_at, a.source_url,
+            a.time_horizon, a.novelty_score, a.opportunity_score,
+            a.evidence_confidence, a.source_quality, a.verify_url,
             m.full_name, m.party, m.state
         FROM alerts a
         LEFT JOIN members m ON a.member_id = m.bioguide_id
         WHERE {where}
-        ORDER BY datetime(a.created_at) DESC
+        ORDER BY {order}
     """
 
     if page is not None:

@@ -39,6 +39,60 @@ MIN_UPVOTES = 50
 
 HEADERS = {"User-Agent": "Scope Political Intelligence v1.0"}
 
+# ── Authenticity scoring / subreddit weighting (spec §9) ─────────────────────
+SUBREDDIT_WEIGHTS = {
+    "wallstreetbets": 3.0, "smallstreetbets": 2.5, "pennystocks": 2.0,
+    "SecurityAnalysis": 2.0, "SPACs": 2.0, "Superstonk": 2.0,
+    "stocks": 1.5, "investing": 1.5, "thetagang": 1.5,
+    "RobinHoodPennyStocks": 1.5, "ValueInvesting": 1.5,
+}
+
+_AUTH_POS_FILING = ["10-k", "10-q", "sec filing", "earnings", "revenue", "contract", "patent"]
+_AUTH_POS_ANALYSIS = ["price target", "my analysis", "dd:", "due diligence"]
+_AUTH_NEG_HYPE = ["to the moon", "10x", "don't miss", "life changing", "next gme",
+                  "hidden gem", "massive potential", "huge catalyst",
+                  "about to explode", "going parabolic"]
+
+
+def authenticity_score(post: dict) -> float:
+    """0–10. Below 4 = likely slop/pump; 7+ = organic signal."""
+    score = 5.0
+    text = ((post.get("title", "") or "") + " " + (post.get("selftext", "") or "")).lower()
+    if any(w in text for w in _AUTH_POS_FILING):
+        score += 2
+    if any(w in text for w in _AUTH_POS_ANALYSIS):
+        score += 1.5
+    if (post.get("num_comments") or 0) > 50:
+        score += 1
+    if (post.get("upvote_ratio") or 1.0) > 0.85:
+        score += 0.5
+    if any(w in text for w in _AUTH_NEG_HYPE):
+        score -= 2
+    if (post.get("author_post_count", 10) or 10) < 3:
+        score -= 2  # new account
+    return max(0.0, min(10.0, score))
+
+
+def signal_type(authenticity: float, upvote_velocity: float, score: float):
+    """ORGANIC_MOMENTUM / POSSIBLE_PUMP / DEVELOPING / None."""
+    if authenticity >= 7 and score > 100:
+        return "ORGANIC_MOMENTUM"
+    if authenticity < 4 and upvote_velocity > 50:
+        return "POSSIBLE_PUMP"      # still actionable — flag honestly
+    if authenticity >= 6:
+        return "DEVELOPING"
+    return None
+
+
+def reddit_severity(sig_type, subreddit_weight: float, score: float) -> str:
+    if sig_type == "POSSIBLE_PUMP" and subreddit_weight >= 2.5:
+        return "HIGH"
+    if sig_type == "ORGANIC_MOMENTUM" and subreddit_weight >= 2.0:
+        return "HIGH"
+    if sig_type == "ORGANIC_MOMENTUM":
+        return "MEDIUM"
+    return "LOW"
+
 
 def _fetch_subreddit(subreddit: str) -> list[dict]:
     try:
