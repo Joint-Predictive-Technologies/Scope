@@ -1064,11 +1064,34 @@ def search(q: str = ""):
         (like,),
     ).fetchall()
 
+    # Influence organizations (lobbying entities) — resolve aliases like AIPAC.
+    orgs = []
+    try:
+        from jpt_common import resolve_org
+        rec, conf, _by = resolve_org(q)
+        seen = set()
+        if rec:
+            orgs.append({"name": rec["canonical"], "confidence": conf})
+            seen.add(rec["canonical"].lower())
+        for r in conn.execute(
+            """SELECT client_name, SUM(amount) AS spend FROM lobbying_filings
+               WHERE client_name LIKE ? GROUP BY client_name
+               ORDER BY spend DESC LIMIT 5""",
+            (like,),
+        ).fetchall():
+            nm = r["client_name"]
+            if nm and nm.lower() not in seen:
+                orgs.append({"name": nm, "spend": r["spend"] or 0})
+                seen.add(nm.lower())
+    except Exception:
+        pass
+
     conn.close()
     return {
         "tickers":   [{"ticker": r["ticker"]} for r in ticker_rows],
         "members":   [dict(r) for r in member_rows],
         "headlines": [dict(r) for r in headline_rows],
+        "orgs":      orgs[:6],
     }
 
 

@@ -149,6 +149,9 @@
     .corr-pill { font-family: 'IBM Plex Mono', monospace; font-size: 0.55rem; letter-spacing: 0.05em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border2); color: var(--cream2); }
     .corr-narrative { font-size: 0.8rem; color: var(--cream2); line-height: 1.6; font-style: italic; flex: 1; }
     .corr-sentiment { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 500; }
+    .corr-expand { align-self: flex-start; font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.04em; background: transparent; border: 1px solid var(--border2); color: var(--amber); padding: 3px 10px; border-radius: 4px; cursor: pointer; }
+    .corr-expand:hover { border-color: var(--amber); background: rgba(200,146,42,0.08); }
+    .corr-detail { display: flex; flex-direction: column; gap: 0.6rem; }
     .corr-horizon { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
     .corr-card-foot { padding: 0.65rem 1.4rem; border-top: 1px solid var(--border); display: flex; gap: 0.6rem; }
     .corr-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 3px 9px; border-radius: 3px; }
@@ -216,12 +219,37 @@
     .hm-legend { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--cream2); flex-wrap: wrap; }
     .hm-legend .hm-key { width: 16px; height: 12px; border-radius: 2px; border: 1px solid var(--border); }
     .hm-cell.hm-backfill { background-image: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.25) 3px, rgba(0,0,0,0.25) 4px); }
+    /* ── RULE RAIL ── */
+    .rail { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .rail-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.03em; background: var(--bg2); border: 1px solid var(--border2); color: var(--cream2); padding: 7px 12px; border-radius: 6px; cursor: pointer; transition: all 0.12s; }
+    .rail-chip:hover { border-color: var(--amber); color: var(--amber); }
+    .rail-chip.active { background: rgba(200,146,42,0.15); border-color: var(--amber); color: var(--amber); }
+    .rail-chip:focus { outline: 2px solid var(--amber2); outline-offset: 1px; }
+    .rail-corr { margin-top: 0.5rem; }
+    .rail-chip.corr { background: linear-gradient(135deg, var(--bg2), #1a1508); border-color: rgba(200,146,42,0.35); color: var(--amber2); font-size: 0.72rem; padding: 9px 16px; }
+    .rail-detail { margin-top: 0.8rem; }
+    .rail-detail-inner { background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px; padding: 1.1rem 1.3rem; animation: railIn 0.15s ease; }
+    @keyframes railIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+    .rail-detail-head { display: flex; align-items: baseline; gap: 0.6rem; }
+    .rail-detail-id { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--amber); }
+    .rail-detail-name { font-family: 'Playfair Display', serif; font-size: 1.1rem; color: var(--cream); font-weight: 600; }
+    .rail-detail-desc { font-size: 0.84rem; color: var(--cream2); line-height: 1.6; margin: 0.5rem 0 0.9rem; max-width: 620px; }
+    .rail-stats { display: flex; gap: 1.6rem; flex-wrap: wrap; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; }
+    .rail-stats .rl { display: block; color: var(--muted); font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .rail-stats .rv { color: var(--cream); }
+    .rail-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+
     .hm-toggle { display: inline-flex; border: 1px solid var(--border2); border-radius: 6px; overflow: hidden; }
     .hm-mode { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.04em; background: transparent; color: var(--muted); border: none; padding: 5px 11px; cursor: pointer; }
     .hm-mode.active { background: rgba(200,146,42,0.15); color: var(--amber); }
     .hm-mode:not(.active):hover { color: var(--cream2); }
 
     /* ── ONBOARDING ──────────────────────────────────────── */
+    .learn-details { border: 1px solid var(--border); border-radius: 10px; background: var(--bg2); padding: 0.4rem 1.2rem; }
+    .learn-details summary { cursor: pointer; padding: 0.7rem 0; display: flex; align-items: baseline; gap: 0.7rem; list-style: none; }
+    .learn-details summary::-webkit-details-marker { display: none; }
+    .learn-details summary::after { content: '▾'; margin-left: auto; color: var(--muted); }
+    .learn-details[open] summary::after { content: '▴'; }
     .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4rem; }
     .how-step { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.4rem 1.6rem; }
     .how-num { font-family: 'Playfair Display', serif; font-size: 2.2rem; font-weight: 900; color: rgba(200,146,42,0.2); line-height: 1; margin-bottom: 0.6rem; }
@@ -484,103 +512,78 @@
   </aside>
 </div>
 
-<!-- RULES GRID -->
+<!-- RULE RAIL -->
 <div class="section" style="padding-top:0">
   <div class="section-label">Signal Architecture</div>
-  <div class="section-title">14 detection rules plus one corroboration engine.</div>
-  <div class="rules-grid">
-    <div class="rule-card">
-      <div class="rule-id">RULE_01B</div>
-      <div class="rule-name">First Touch</div>
-      <div class="rule-desc">Fires when a member opens a brand-new position — no prior disclosed history in that name.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_02</div>
-      <div class="rule-name">Congressional Clusters</div>
-      <div class="rule-desc">Fires when 3+ members trade the same ticker within a 7-day window.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_06</div>
-      <div class="rule-name">Insider Trades</div>
-      <div class="rule-desc">Executive Form 4 trades 2× or more above the insider's historical average.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_07</div>
-      <div class="rule-name">Polymarket</div>
-      <div class="rule-desc">Politically-linked prediction markets with a move of 20+ percentage points and $500k+ volume in 24 hours.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_08</div>
-      <div class="rule-name">Federal Register</div>
-      <div class="rule-desc">New proposed regulations containing sector keywords mapped to tracked equities.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_09</div>
-      <div class="rule-name">Lobbying Spikes</div>
-      <div class="rule-desc">Companies with quarterly lobbying spend up more than 50% year-over-year.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_11</div>
-      <div class="rule-name">Gov Contracts</div>
-      <div class="rule-desc">$50M+ federal contracts awarded to publicly traded companies via USASpending.gov.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_ANOMALY</div>
-      <div class="rule-name">Attention Spike</div>
-      <div class="rule-desc">Fires when a ticker receives 2.5× its normal signal rate in 30 days. Also flags first-ever appearances in Scope data.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_REDDIT</div>
-      <div class="rule-name">Reddit Signal</div>
-      <div class="rule-desc">High-upvote posts in investing subreddits that mention tracked tickers alongside political keywords.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_OSINT</div>
-      <div class="rule-name">Geopolitical OSINT</div>
-      <div class="rule-desc">Conflict and humanitarian events from GDELT Project and ReliefWeb mapped to market exposure via region→sector→ticker logic. Updates every 15 minutes.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_12</div>
-      <div class="rule-name">Foreign Lobbying (LDA)</div>
-      <div class="rule-desc">Foreign entities disclosed on Senate LDA filings — the FARA-equivalent foreign-principal signal — lobbying in tracked sectors. Source: Senate Lobbying Disclosure Act, foreign-entity field.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_13</div>
-      <div class="rule-name">PAC Campaign Finance</div>
-      <div class="rule-desc">Large PAC contributions from industry-specific groups, mapped to sectors that may benefit from related committee votes.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_14</div>
-      <div class="rule-name">USPTO Patent Clusters</div>
-      <div class="rule-desc">Companies filing 5+ patents in a single sector vertical within 90 days, or a 100%+ quarter-over-quarter surge in filing rate.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card">
-      <div class="rule-id">RULE_15</div>
-      <div class="rule-name">Earnings Call NLP</div>
-      <div class="rule-desc">SEC 8-K filings with elevated political keyword density — regulation, tariff, contract, legislation — above a sector-specific baseline.</div>
-      <div class="rule-status">● Live</div>
-    </div>
-    <div class="rule-card featured">
-      <div class="rule-id">RULE_10 — Marquee Signal</div>
-      <div class="rule-name">Cross-Source Corroboration</div>
-      <div class="rule-desc">Fires when 4+ distinct eligible rules converge on the same ticker within 24 hours. Polymarket, OSINT, Reddit, and anomaly signals are excluded from the eligible set. Generates a plain-English analyst narrative via LLM.</div>
-      <div class="rule-status">● Live</div>
-    </div>
+  <div class="section-title" style="margin-bottom:1rem">14 detection rules plus one corroboration engine.</div>
+  <div class="rail" id="rule-rail" role="tablist" aria-label="Detection rules"></div>
+  <div class="rail-corr">
+    <button class="rail-chip corr" data-rule="RULE_10" role="tab" aria-label="RULE_10 Corroboration Engine">RULE_10 · Corroboration Engine ★</button>
   </div>
+  <div class="rail-detail" id="rail-detail" aria-live="polite"></div>
 </div>
+<script>
+  const RULE_META = {
+    RULE_01B:{n:'First Touch',s:'House Clerk disclosures',d:'A member opens a brand-new position — no prior disclosed history in that name.'},
+    RULE_02:{n:'Congressional Clusters',s:'House Clerk disclosures',d:'3+ members trade the same ticker within a 7-day window.'},
+    RULE_06:{n:'Insider Trades',s:'SEC Form 4',d:'Executive Form 4 trades 2x or more above the insider\'s historical average.'},
+    RULE_07:{n:'Polymarket',s:'Polymarket',d:'Politically-linked prediction markets with a 20+pp move and $500k+ volume in 24h.'},
+    RULE_08:{n:'Federal Register',s:'Federal Register',d:'New proposed regulations containing sector keywords mapped to tracked equities.'},
+    RULE_09:{n:'Lobbying Spikes',s:'Senate LDA',d:'Companies with quarterly lobbying spend up >50% year-over-year.'},
+    RULE_11:{n:'Gov Contracts',s:'USASpending.gov',d:'$50M+ federal contracts awarded to publicly traded companies.'},
+    RULE_12:{n:'Foreign Lobbying (LDA)',s:'Senate LDA foreign-entity field',d:'Foreign entities disclosed on LDA filings lobbying in tracked sectors.'},
+    RULE_13:{n:'PAC Campaign Finance',s:'FEC',d:'Large industry PAC contributions mapped to sectors that may benefit.'},
+    RULE_14:{n:'USPTO Patent Clusters',s:'PatentsView',d:'5+ patents in a sector within 90 days, or a 100%+ QoQ filing surge.'},
+    RULE_15:{n:'Earnings Call NLP',s:'SEC 8-K',d:'Elevated political-keyword density above a sector baseline.'},
+    RULE_ANOMALY:{n:'Attention Spike',s:'Internal',d:'A ticker receives 2.5x its normal signal rate in 30 days.'},
+    RULE_REDDIT:{n:'Reddit Signal',s:'Reddit',d:'High-upvote posts pairing tracked tickers with political keywords.'},
+    RULE_OSINT:{n:'Geopolitical OSINT',s:'GDELT',d:'Conflict events mapped to market exposure via region-sector-ticker logic.'},
+    RULE_10:{n:'Corroboration Engine',s:'Cross-source synthesis',d:'Fires when 4+ distinct eligible rules converge on the same ticker within 24h. Polymarket, OSINT, Reddit and anomaly are excluded. Generates an LLM analyst narrative.'},
+  };
+  const RAIL_ORDER = ['RULE_01B','RULE_02','RULE_06','RULE_07','RULE_08','RULE_09','RULE_11','RULE_12','RULE_13','RULE_14','RULE_15','RULE_ANOMALY','RULE_REDDIT','RULE_OSINT'];
+  let _railStats = {}, _railLocked = null;
+  (function initRail(){
+    const rail = document.getElementById('rule-rail');
+    rail.innerHTML = RAIL_ORDER.map(r => {
+      const short = r.replace('RULE_','').replace('ANOMALY','ANOM');
+      return `<button class="rail-chip" data-rule="${r}" role="tab" aria-label="${r} ${RULE_META[r].n}"
+        onmouseenter="railPreview('${r}')" onclick="railLock('${r}')"
+        onkeydown="if(event.key==='Enter'){railLock('${r}')}">${short}</button>`;
+    }).join('');
+    document.querySelector('.rail-chip.corr').addEventListener('mouseenter', ()=>railPreview('RULE_10'));
+    document.querySelector('.rail-chip.corr').addEventListener('click', ()=>railLock('RULE_10'));
+    // load live stats (best-effort)
+    fetch('/api/performance/rules?days=30').then(r=>r.json()).then(d => {
+      (d.rules||[]).forEach(x => _railStats[x.rule] = x);
+    }).catch(()=>{});
+  })();
+  function railFresh(s){ if(!s) return ''; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return''; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; }
+  function railRender(r){
+    const m = RULE_META[r], st = _railStats[r] || {};
+    const tickers = (st.top_tickers||[]).map(t=>`<span class="ev-chip">${(t.ticker||'').replace(/\$/g,'').split(' ')[0]}</span>`).join('') || '<span style="color:var(--muted)">—</span>';
+    document.querySelectorAll('.rail-chip').forEach(b=>b.classList.toggle('active', b.dataset.rule===r));
+    document.getElementById('rail-detail').innerHTML = `
+      <div class="rail-detail-inner">
+        <div class="rail-detail-head"><span class="rail-detail-id">${r}</span> <span class="rail-detail-name">${m.n}</span></div>
+        <div class="rail-detail-desc">${m.d}</div>
+        <div class="rail-stats">
+          <div><span class="rl">Source</span><span class="rv">${m.s}</span></div>
+          <div><span class="rl">Active (30d)</span><span class="rv">${st.total_window!=null?st.total_window:'—'}</span></div>
+          <div><span class="rl">Last fired</span><span class="rv">${railFresh(st.last_fired)||'—'}</span></div>
+          <div><span class="rl">Corroboration rate</span><span class="rv">${st.corroboration_rate!=null?st.corroboration_rate+'%':'—'}</span></div>
+        </div>
+        <div class="rail-stats" style="margin-top:0.4rem"><div style="flex:1"><span class="rl">Top tickers</span> ${tickers}</div></div>
+        <div class="rail-actions">
+          <a class="ev-btn primary" href="/feed?rule=${r}">View alerts</a>
+          <a class="ev-btn" href="/docs">Methodology</a>
+        </div>
+      </div>`;
+  }
+  function railPreview(r){ if(!_railLocked) railRender(r); }
+  function railLock(r){ _railLocked = (_railLocked===r)?null:r; if(_railLocked) railRender(r); else { document.getElementById('rail-detail').innerHTML=''; document.querySelectorAll('.rail-chip').forEach(b=>b.classList.remove('active')); } }
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && _railLocked){ _railLocked=null; document.getElementById('rail-detail').innerHTML=''; document.querySelectorAll('.rail-chip').forEach(b=>b.classList.remove('active')); } });
+  document.getElementById('rule-rail').addEventListener('mouseleave', ()=>{ if(!_railLocked) document.getElementById('rail-detail').innerHTML=''; });
+</script>
 
 <!-- SIGNAL HEAT MAP -->
 <div class="section" style="padding-top:0">
@@ -599,11 +602,11 @@
   </div>
 </div>
 
-<!-- HOW SCOPE WORKS -->
+<!-- HOW SCOPE WORKS (collapsed by default) -->
 <div class="section" style="padding-top:0">
-  <div class="section-label">Platform Guide</div>
-  <div class="section-title">How Scope Works</div>
-  <div class="how-grid">
+  <details class="learn-details">
+    <summary><span class="section-label" style="margin:0">Learn</span> <span style="font-family:'Playfair Display',serif;font-size:1.2rem;color:var(--cream)">How Scope works</span></summary>
+  <div class="how-grid" style="margin-top:1.2rem">
     <div class="how-step">
       <div class="how-num">01</div>
       <div class="how-title">Raw data ingested</div>
@@ -623,6 +626,7 @@
       <div class="how-example"><span class="hi">→ /feed</span> — live alert stream<br><span class="hi">→ /brief</span> — AI daily synthesis<br><span class="hi">→ /ask</span> — natural language query<br><span class="hi">→ /backtest</span> — historical signal performance</div>
     </div>
   </div>
+  </details>
 </div>
 
 <!-- BACKTEST TEASER -->
@@ -781,6 +785,22 @@
     if (rules.some(r => ['RULE_08','RULE_09'].includes(r))) return '1–6 months (regulatory)';
     return '2–8 weeks (typical signal lag)';
   }
+  // Human rule-family summary for the collapsed corroboration card.
+  function corrFamilies(rules) {
+    const map = {RULE_01B:'Congressional',RULE_02:'Congressional',RULE_06:'Insider',
+      RULE_08:'Regulation',RULE_09:'Lobbying',RULE_11:'Contract',RULE_12:'Foreign',
+      RULE_13:'PAC',RULE_14:'Patent',RULE_15:'Earnings'};
+    const fams = [...new Set((rules||[]).map(r => map[r]).filter(Boolean))];
+    return fams.join(' + ') || 'Multi-source';
+  }
+  function toggleCorr(id) {
+    const d = document.getElementById('corr-detail-' + id);
+    const btn = document.querySelector('#corr-' + id + ' .corr-expand');
+    if (!d) return;
+    const open = d.style.display !== 'none';
+    d.style.display = open ? 'none' : 'block';
+    if (btn) { btn.setAttribute('aria-expanded', String(!open)); btn.textContent = open ? 'Why this fired ▾' : 'Hide detail ▴'; }
+  }
 
   safeFetch('/alerts?rule=RULE_10&days=30&limit=3', { signal: withTimeout(8000) }).then(data => {
     const el = document.getElementById('corr-hero-cards');
@@ -798,29 +818,34 @@
         const sentiment = corrSentiment(rules);
         const horizon = corrHorizon(rules);
         const narrative = (a.detail || a.headline || '').slice(0, 240);
+        const families = corrFamilies(rules);
         return `
-          <div class="corr-card">
+          <div class="corr-card" id="corr-${a.id}">
             <div class="corr-card-top">
               <span class="corr-card-ticker">★ ${sym || (a.ticker||'—').slice(0,10)}</span>
               <span class="badge-${a.severity}" style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.06em;padding:1px 6px;border-radius:2px">${a.severity}</span>
             </div>
             <div class="corr-card-body">
+              <!-- Collapsed summary: ticker · severity · score · rule families -->
               <div class="corr-score-line">
-                Confidence:
                 <span class="conf-wrap">
                   <strong style="cursor:help;border-bottom:1px dashed var(--amber)">${conf.total}/100</strong>
                   ${corrConfidenceTooltip(conf)}
                 </span>
-                · Rules: ${conf.ruleCount}
+                · ${conf.ruleCount} eligible rules
               </div>
-              <div class="corr-rule-pills">${rules.map(r=>`<span class="corr-pill">${r}</span>`).join('')}</div>
-              ${narrative ? `<div class="corr-narrative">${narrative}${(a.detail||'').length > 240 ? '…' : ''}</div>` : ''}
-              <div class="corr-sentiment" style="color:${sentiment.color}">${sentiment.label}</div>
-              <div class="corr-horizon">Impact horizon: ${horizon}</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:0.66rem;color:var(--cream2)">${families}</div>
+              <button class="corr-expand" aria-expanded="false" onclick="toggleCorr(${a.id})">Why this fired ▾</button>
+              <div class="corr-detail" id="corr-detail-${a.id}" style="display:none">
+                <div class="corr-rule-pills" style="margin-top:0.5rem">${rules.map(r=>`<span class="corr-pill">${r}</span>`).join('')}</div>
+                ${narrative ? `<div class="corr-narrative">${narrative}${(a.detail||'').length > 240 ? '…' : ''}</div>` : ''}
+                <div class="corr-sentiment" style="color:${sentiment.color}">${sentiment.label}</div>
+                <div class="corr-horizon">Impact horizon: ${horizon}</div>
+                ${a.why_matters ? `<div class="why-matters" style="margin:0.5rem 0 0;padding:0.5rem 0 0;border-top:1px solid var(--border)">Why this matters: ${a.why_matters}</div>` : ''}
+              </div>
             </div>
-            ${a.why_matters ? `<div class="why-matters">Why this matters: ${a.why_matters}</div>` : ''}
             <div class="corr-card-foot">
-              <a href="#" class="corr-link" onclick="event.preventDefault();openEvidence('alert', ${a.id})">View Evidence →</a>
+              <a href="#" class="corr-link" onclick="event.preventDefault();openEvidence('alert', ${a.id})">Full evidence →</a>
               <a href="/feed?rule=RULE_10&ticker=${sym}" class="corr-link">All signals →</a>
             </div>
           </div>`;
@@ -1339,6 +1364,10 @@
       if (d.tickers?.length) {
         html += '<div class="cmd-group-label">Tickers</div>';
         html += d.tickers.map(t => `<a class="cmd-item" href="/ticker/${t.ticker}"><span class="cmd-item-icon">◎</span><div><div class="cmd-item-main">${t.ticker}</div></div></a>`).join('');
+      }
+      if (d.orgs?.length) {
+        html += '<div class="cmd-group-label">Organizations</div>';
+        html += d.orgs.map(o => `<a class="cmd-item" href="/lobbying?org=${encodeURIComponent(o.name)}"><span class="cmd-item-icon">◆</span><div><div class="cmd-item-main">${(o.name||'').slice(0,48)}</div><div class="cmd-item-sub">Influence profile${o.confidence?` · match ${o.confidence}%`:''}</div></div></a>`).join('');
       }
       if (d.members?.length) {
         html += '<div class="cmd-group-label">Members</div>';

@@ -99,6 +99,8 @@
   </div>
   <div class="cat-row" id="cats"></div>
 
+  <div id="entity-panel" style="display:none;margin-bottom:1.6rem"></div>
+
   <div class="section-label">Top Lobbying Spenders <span class="cnt" id="top-count"></span></div>
   <div class="lob-list" id="top-list"><div class="loading">Loading lobbying data…</div></div>
 
@@ -138,8 +140,68 @@
   }
   let _t = null;
   document.getElementById('search').addEventListener('input', e => {
-    clearTimeout(_t); searchQ = e.target.value.trim(); _t = setTimeout(loadTop, 250);
+    clearTimeout(_t); searchQ = e.target.value.trim();
+    _t = setTimeout(() => { loadTop(); maybeEntity(searchQ); }, 250);
   });
+
+  // ── Entity profile (AIPAC etc.) ──
+  const KNOWN_ORGS = ['aipac','american israel','j street','nra','national rifle','chamber of commerce','phrma','pharmaceutical research'];
+  function maybeEntity(q) {
+    const lq = (q||'').toLowerCase();
+    if (lq.length >= 3 && KNOWN_ORGS.some(o => o.includes(lq) || lq.includes(o))) loadEntity(q);
+    else if (!lq) document.getElementById('entity-panel').style.display = 'none';
+  }
+  function loadEntity(q) {
+    const panel = document.getElementById('entity-panel');
+    panel.style.display = 'block';
+    panel.innerHTML = '<div class="loading">Resolving entity…</div>';
+    fetch(`/api/lobbying/entity?q=${encodeURIComponent(q)}`).then(r=>r.json()).then(d => {
+      const e = d.entity, lob = d.lobbying, cf = d.campaign_finance, fp = d.foreign_principal;
+      if (!lob.available && !e.resolved) { panel.style.display = 'none'; return; }
+      const bars = (lob.by_year||[]).map(y => {
+        const max = Math.max(...lob.by_year.map(x=>x.spend), 1);
+        return `<div style="display:flex;align-items:center;gap:0.6rem;font-family:'IBM Plex Mono',monospace;font-size:0.66rem">
+          <span style="width:38px;color:var(--muted)">${y.year}</span>
+          <span style="flex:1;background:var(--bg3);border-radius:3px;overflow:hidden"><span style="display:block;height:8px;width:${(y.spend/max*100).toFixed(0)}%;background:var(--amber)"></span></span>
+          <span style="width:64px;text-align:right;color:var(--amber2)">${money(y.spend)}</span></div>`;
+      }).join('');
+      panel.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:1.3rem 1.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'Playfair Display',serif;font-size:1.4rem;font-weight:700;color:var(--cream)">${esc(e.canonical)}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted);margin-top:0.2rem">${esc(e.kind)} · aliases: ${(e.aliases||[]).map(esc).join(', ')||'—'} · entity match ${e.match_confidence}%${e.matched_by?` (${e.matched_by})`:''}</div>
+          </div>
+          <button onclick="document.getElementById('entity-panel').style.display='none'" style="background:transparent;border:1px solid var(--border2);color:var(--muted);border-radius:4px;padding:3px 9px;cursor:pointer">✕</button>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-top:1.1rem">
+          <div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:0.5rem">Lobbying disclosures · Senate LDA</div>
+            ${lob.available ? `
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--cream2);line-height:1.8">
+                Total reported: <span style="color:var(--green)">${money(lob.total_spend)}</span> across ${lob.filing_count} filings<br>
+                ${lob.yoy_pct!=null ? `YoY: <span style="color:${lob.yoy_pct>=0?'var(--green)':'var(--red)'}">${lob.yoy_pct>=0?'+':''}${lob.yoy_pct}%</span>` : (lob.yoy_note?`<span style="color:var(--muted)">${esc(lob.yoy_note)}</span>`:'')}
+              </div>
+              <div style="margin-top:0.6rem;display:flex;flex-direction:column;gap:4px">${bars}</div>
+              <div style="margin-top:0.6rem;font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted)">Top issues: ${(lob.top_issues||[]).map(i=>esc(i.issue)).join(' · ')||'—'}</div>
+              <a href="${esc(lob.source_url)}" target="_blank" rel="noopener" style="font-family:'IBM Plex Mono',monospace;font-size:0.64rem;color:var(--amber);display:inline-block;margin-top:0.5rem">Source filings ↗</a>
+            ` : `<div class="empty" style="text-align:left;padding:0.5rem 0">No Senate LDA lobbying records found for this entity in the selected dataset.</div>`}
+          </div>
+          <div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:0.5rem">Other influence categories</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--cream2);line-height:1.7">
+              <div><span style="color:var(--muted)">Campaign finance / PAC (FEC):</span> ${cf.available?'available':'<span style="color:var(--red-light)">not ingested for this entity</span>'}</div>
+              <div style="color:var(--muted);font-size:0.6rem;margin:0.2rem 0 0.6rem">${esc(cf.note)}</div>
+              <div><span style="color:var(--muted)">Foreign principal (FARA):</span> ${fp.available?'available':'<span style="color:var(--red-light)">none found</span>'}</div>
+              ${e.sectors&&e.sectors.length?`<div style="margin-top:0.6rem"><span style="color:var(--muted)">Related sectors:</span> ${e.sectors.map(esc).join(', ')}</div>`:''}
+            </div>
+          </div>
+        </div>
+        ${d.related_alerts&&d.related_alerts.length?`<div style="margin-top:1rem;font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted)">Related alerts: ${d.related_alerts.length}</div>`:''}
+      </div>`;
+    }).catch(() => { panel.style.display='none'; });
+  }
 
   function loadTop() {
     const el = document.getElementById('top-list');
@@ -158,7 +220,7 @@
         return `<div class="lob-card">
           <div class="lob-rank">${i+1}</div>
           <div class="lob-main">
-            <div class="lob-name">${esc(titleCase(r.client_name))}</div>
+            <div class="lob-name" style="cursor:pointer" onclick="loadEntity('${esc(r.client_name).replace(/'/g,"\\'")}');window.scrollTo({top:0,behavior:'smooth'})" title="View influence profile">${esc(titleCase(r.client_name))}</div>
             <div class="lob-meta">
               <span class="cat-tag">${esc(r.category||'')}</span>
               ${r.is_foreign ? '<span class="foreign-tag">⚑ FOREIGN</span>' : ''}
@@ -178,6 +240,11 @@
   function titleCase(s){ return (s||'').toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()).replace(/\b(Llc|Llp|Inc|Pac)\b/g, m=>m.toUpperCase()); }
 
   loadTop();
+  // Deep link: /lobbying?org=AIPAC opens the entity profile directly.
+  (function initOrg(){
+    const org = new URLSearchParams(location.search).get('org');
+    if (org) { document.getElementById('search').value = org; searchQ = org; loadEntity(org); loadTop(); }
+  })();
 
   // ── RULE_09 spike alerts (kept below) ──
   function timeAgo(d){ if(!d) return ''; const t=new Date(String(d).replace(' ','T')+(String(d).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return''; const s=Math.floor((Date.now()-t)/1000); if(s<3600)return Math.floor(s/60)+'m ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }

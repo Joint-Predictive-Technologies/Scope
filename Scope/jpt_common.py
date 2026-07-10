@@ -519,6 +519,62 @@ def rule10_rules_from_tags(tags: str) -> list[str]:
     return []
 
 
+# ── Influence-organization entity resolution (lobbying / AIPAC etc.) ─────────
+# Canonical org records + aliases so a search like "AIPAC" resolves to the full
+# registered name used in Senate LDA filings. Kept small and evidence-backed —
+# every entry corresponds to a real client name in the lobbying dataset.
+ORG_ENTITIES: dict[str, dict] = {
+    "american israel public affairs committee": {
+        "canonical": "American Israel Public Affairs Committee",
+        "aliases":   ["aipac", "american israel public affairs", "israel public affairs"],
+        "sectors":   ["Defense & Aerospace"],
+        "kind":      "Advocacy organization",
+    },
+    "j street": {
+        "canonical": "J Street", "aliases": ["jstreet"],
+        "sectors": ["Defense & Aerospace"], "kind": "Advocacy organization",
+    },
+    "national rifle association": {
+        "canonical": "National Rifle Association of America",
+        "aliases": ["nra", "national rifle association"],
+        "sectors": [], "kind": "Advocacy organization",
+    },
+    "us chamber of commerce": {
+        "canonical": "US Chamber of Commerce",
+        "aliases": ["chamber of commerce", "u.s. chamber", "uschamber"],
+        "sectors": [], "kind": "Business federation",
+    },
+    "pharmaceutical research and manufacturers": {
+        "canonical": "Pharmaceutical Research and Manufacturers of America",
+        "aliases": ["phrma", "pharmaceutical research"],
+        "sectors": ["Healthcare & Pharma"], "kind": "Trade association",
+    },
+}
+
+
+def resolve_org(query: str) -> tuple:
+    """
+    Resolve a free-text org query to a canonical entity.
+
+    Returns (record | None, confidence 0-100, matched_by). Never fabricates — a
+    non-match returns (None, 0, None) and callers fall back to raw client search.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return (None, 0, None)
+    for key, rec in ORG_ENTITIES.items():
+        if q == key or q == rec["canonical"].lower():
+            return (rec, 100, "canonical")
+        if q in rec["aliases"]:
+            return (rec, 100, "alias")
+    # partial containment against canonical/aliases
+    for key, rec in ORG_ENTITIES.items():
+        hay = [key, rec["canonical"].lower(), *rec["aliases"]]
+        if any(q in h or h in q for h in hay):
+            return (rec, 85, "partial")
+    return (None, 0, None)
+
+
 # ── Federal contractor → public equity resolution ───────────────────────────
 # Government contractors are a known, finite set, so an explicit table beats
 # fuzzy matching — which produced false positives like
