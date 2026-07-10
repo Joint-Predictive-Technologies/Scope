@@ -31,51 +31,47 @@ from api.routers import (
 STATIC_DIR = Path(__file__).parent / "static"
 CODE_DIR   = Path(__file__).resolve().parent.parent
 
-LIVE_RULES = [
-    "rule_06_form4.py",
-    "rule_07_polymarket.py",
-    "rule_08_federal_register.py",
-    "rule_09_lobbying.py",
-    "scripts/rule_01b_first_touch.py",
-    "scripts/rule_anomaly.py",
-    "scripts/rule_10_corroboration.py",
-    "scripts/rule_11_contracts.py",
-    "scripts/rule_12_fara.py",
-    "scripts/rule_13_fec.py",
-    "scripts/rule_14_patents.py",
-    "scripts/rule_15_earnings_nlp.py",
-    "scripts/rule_reddit.py",
-    "scripts/rule_osint.py",
-    "scripts/rule_adsb.py",
-    "scripts/rule_telegram_osint.py",
-    "scripts/rule_options_correlation.py",
-    "scripts/telegram_bot.py",
-]
 REFRESH_INTERVAL_HOURS = 4
 
-# ── Per-rule cadences (minutes) ────────────────────────────────────────────────
-_RULE_SCHEDULE = {
-    # every 15 min — fast sources
-    "scripts/rule_osint.py":              15,
-    "scripts/rule_adsb.py":               5,
+# ── Per-rule cadences ─────────────────────────────────────────────────────────
+# interval jobs: {script: minutes}
+_RULE_SCHEDULE: dict[str, int] = {
+    # GDELT updates every 15 min
+    "scripts/rule_osint.py":               15,
+    # ADS-B flight tracking
+    "scripts/rule_adsb.py":                5,
     "scripts/rule_options_correlation.py": 15,
-    "rule_07_polymarket.py":              15,
-    # every 60 min — medium frequency
-    "rule_06_form4.py":                   60,
-    "scripts/rule_reddit.py":             60,
-    "scripts/rule_11_contracts.py":       60,
-    "scripts/rule_anomaly.py":            60,
-    "scripts/rule_telegram_osint.py":     60,
-    "scripts/rule_10_corroboration.py":   60,
-    "scripts/rule_01b_first_touch.py":    60,
-    # every 6 hours — slower sources
-    "rule_08_federal_register.py":        360,
-    "rule_09_lobbying.py":                360,
-    "scripts/rule_12_fara.py":            360,
-    "scripts/rule_13_fec.py":             1440,  # daily
-    "scripts/rule_14_patents.py":         1440,
-    "scripts/rule_15_earnings_nlp.py":    1440,
-    "scripts/telegram_bot.py":            60,
+    # Polymarket prices shift continuously
+    "rule_07_polymarket.py":               20,
+    # Reddit sentiment
+    "scripts/rule_reddit.py":              30,
+    # Congress first-touch + SEC form-4 — House updates daily
+    "scripts/rule_01b_first_touch.py":     120,
+    "rule_06_form4.py":                    120,
+    # Corroboration runs after other rules
+    "scripts/rule_10_corroboration.py":    60,
+    # Anomaly detection
+    "scripts/rule_anomaly.py":             180,
+    # Government contracts
+    "scripts/rule_11_contracts.py":        360,
+    # Federal Register publishes daily ~6am ET, check every 4h
+    "rule_08_federal_register.py":         240,
+    # Telegram OSINT
+    "scripts/rule_telegram_osint.py":      60,
+    # Slower / daily sources
+    "scripts/rule_12_fara.py":             360,
+    "scripts/rule_13_fec.py":              1440,
+    "scripts/rule_14_patents.py":          1440,
+    "scripts/rule_15_earnings_nlp.py":     1440,
+    "scripts/telegram_bot.py":             60,
+}
+
+# cron jobs: {script: {"hour": H, "minute": M}}
+_CRON_SCHEDULE: dict[str, dict] = {
+    # LDA lobbying filings are quarterly — daily scan at 3am is enough
+    "rule_09_lobbying.py":     {"hour": 3,  "minute": 0},
+    # Daily brief after overnight data collection
+    "generate_brief.py":       {"hour": 6,  "minute": 30},
 }
 
 
@@ -139,21 +135,22 @@ def _start_scheduler() -> None:
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
+        from apscheduler.triggers.cron import CronTrigger
     except ImportError:
         print("[scheduler] apscheduler not installed — falling back to single loop", flush=True)
         return
 
     _scheduler = BackgroundScheduler(daemon=True)
 
-    for rule, minutes in _RULE_SCHEDULE.items():
-        def _make_job(r=rule):
-            def _job():
-                _job_last_run[r] = "running"
-                _job_last_run[r] = _run_rule(r)
-            return _job
+    def _make_job(r: str):
+        def _job():
+            _job_last_run[r] = "running"
+            _job_last_run[r] = _run_rule(r)
+        return _job
 
+    for rule, minutes in _RULE_SCHEDULE.items():
         _scheduler.add_job(
-            _make_job(),
+            _make_job(rule),
             IntervalTrigger(minutes=minutes),
             id=rule.replace("/", "_").replace(".", "_"),
             replace_existing=True,
@@ -161,8 +158,22 @@ def _start_scheduler() -> None:
             misfire_grace_time=60,
         )
 
+    for rule, cron_kwargs in _CRON_SCHEDULE.items():
+        _scheduler.add_job(
+            _make_job(rule),
+            CronTrigger(**cron_kwargs),
+            id=rule.replace("/", "_").replace(".", "_"),
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=300,
+        )
+
+    import atexit
+    atexit.register(lambda: _scheduler.shutdown(wait=False))
+
     _scheduler.start()
-    print(f"[scheduler] APScheduler started — {len(_RULE_SCHEDULE)} jobs scheduled", flush=True)
+    total = len(_RULE_SCHEDULE) + len(_CRON_SCHEDULE)
+    print(f"[scheduler] APScheduler started — {total} jobs scheduled", flush=True)
 
 
 @asynccontextmanager
@@ -170,7 +181,7 @@ async def lifespan(app: FastAPI):
     hours_stale = _hours_since_last_alert()
     if hours_stale >= REFRESH_INTERVAL_HOURS:
         print(f"[startup] data is {hours_stale:.1f}h old — running all rules now …", flush=True)
-        asyncio.create_task(asyncio.to_thread(_run_rules, LIVE_RULES))
+        asyncio.create_task(asyncio.to_thread(_run_rules, [*_RULE_SCHEDULE, *_CRON_SCHEDULE]))
     else:
         print(f"[startup] data is fresh ({hours_stale:.1f}h old)", flush=True)
 
@@ -250,19 +261,13 @@ def scheduler_status():
         jobs.append({
             "id":       job.id,
             "next_run": str(job.next_run_time) if job.next_run_time else None,
-            "last_result": _job_last_run.get(
-                next((r for r in _RULE_SCHEDULE if r.replace("/","_").replace(".","_") == job.id), ""),
-                "pending"
-            ),
-            "interval_minutes": _RULE_SCHEDULE.get(
-                next((r for r in _RULE_SCHEDULE if r.replace("/","_").replace(".","_") == job.id), ""),
-                None
-            ),
+            "last_result": _job_last_run.get(job.id.replace("_py","_py"), "pending"),
+            "trigger": str(job.trigger),
         })
     return {
         "status":    "running" if _scheduler.running else "stopped",
         "job_count": len(jobs),
-        "jobs":      sorted(jobs, key=lambda j: j["interval_minutes"] or 9999),
+        "jobs":      sorted(jobs, key=lambda j: j["next_run"] or ""),
     }
 
 

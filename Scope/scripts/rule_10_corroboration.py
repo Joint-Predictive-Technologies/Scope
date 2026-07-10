@@ -117,6 +117,9 @@ In 2-3 sentences, explain why this convergence of signals is notable for an inve
         return fallback
 
 
+MAX_PER_RUN = 10  # hard cap — prevents any future flood
+
+
 def run(dry_run: bool, window_hours: int = 48) -> tuple[int, int]:
     load_dotenv()
     conn = db_connection()
@@ -130,7 +133,16 @@ def run(dry_run: bool, window_hours: int = 48) -> tuple[int, int]:
         conn.close()
         return 0, 0
 
-    for ticker, alerts in sorted(clusters.items()):
+    # Sort by distinct rule count desc (most corroborated first), cap at MAX_PER_RUN
+    ranked = sorted(
+        clusters.items(),
+        key=lambda kv: len({a["rule"] for a in kv[1]}),
+        reverse=True,
+    )[:MAX_PER_RUN]
+    if len(clusters) > MAX_PER_RUN:
+        print(f"  [{len(clusters)} qualified — capped at {MAX_PER_RUN} per run]")
+
+    for ticker, alerts in ranked:
         rules_fired = ",".join(sorted({a["rule"] for a in alerts}))
         rule_count = len({a["rule"] for a in alerts})
         severities = {a["severity"] for a in alerts}
