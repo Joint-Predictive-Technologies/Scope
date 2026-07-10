@@ -215,6 +215,11 @@
     .hm-cnt { font-family: 'IBM Plex Mono', monospace; font-size: 0.5rem; color: var(--bg); font-weight: 600; }
     .hm-legend { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--cream2); flex-wrap: wrap; }
     .hm-legend .hm-key { width: 16px; height: 12px; border-radius: 2px; border: 1px solid var(--border); }
+    .hm-cell.hm-backfill { background-image: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.25) 3px, rgba(0,0,0,0.25) 4px); }
+    .hm-toggle { display: inline-flex; border: 1px solid var(--border2); border-radius: 6px; overflow: hidden; }
+    .hm-mode { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.04em; background: transparent; color: var(--muted); border: none; padding: 5px 11px; cursor: pointer; }
+    .hm-mode.active { background: rgba(200,146,42,0.15); color: var(--amber); }
+    .hm-mode:not(.active):hover { color: var(--cream2); }
 
     /* ── ONBOARDING ──────────────────────────────────────── */
     .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4rem; }
@@ -580,7 +585,13 @@
 <!-- SIGNAL HEAT MAP -->
 <div class="section" style="padding-top:0">
   <div class="section-label">Signal Activity</div>
-  <div class="section-title">14-Day Signal Heat Map</div>
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:0.8rem">
+    <div class="section-title" style="margin-bottom:0">14-Day Signal Heat Map</div>
+    <div class="hm-toggle" role="group" aria-label="Heat map date basis">
+      <button class="hm-mode active" data-mode="signal" onclick="setHeatMode('signal')" title="Bucket by the real event date where known">Signal date</button>
+      <button class="hm-mode" data-mode="ingestion" onclick="setHeatMode('ingestion')" title="Bucket by when the alert was written (shows bulk imports)">Ingestion date</button>
+    </div>
+  </div>
   <div class="heatmap-wrap">
     <table class="heatmap-table" id="heatmap-table">
       <tbody><tr><td colspan="16" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:var(--muted)">Loading activity data…</td></tr></tbody>
@@ -982,71 +993,79 @@
     RULE_01B:'Congressional', RULE_06:'Insider', RULE_07:'Polymarket',
     RULE_08:'Fed Register', RULE_11:'Gov Contract', RULE_10:'Corroboration',
   };
-  safeFetch('/api/activity', { signal: withTimeout(8000) }).then(data => {
+  let _hmMode = 'signal';
+  function setHeatMode(mode) {
+    _hmMode = mode;
+    document.querySelectorAll('.hm-mode').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+    loadHeatMap();
+  }
+  function loadHeatMap() {
     const tbl = document.getElementById('heatmap-table');
-    if (!tbl || !data) return;
+    if (tbl) tbl.innerHTML = '<tbody><tr><td colspan="16" class="today-skel" style="height:120px;margin:0"></td></tr></tbody>';
+    safeFetch(`/api/activity?mode=${_hmMode}&days=14`, { signal: withTimeout(8000) }).then(resp => {
+      if (!tbl) return;
+      if (!resp || !resp.data) { tbl.innerHTML = '<tbody><tr><td colspan="16" style="font-family:\'IBM Plex Mono\',monospace;font-size:0.72rem;color:var(--muted);padding:1rem">Activity data unavailable. <button class="today-retry" onclick="loadHeatMap()">Retry</button></td></tr></tbody>'; return; }
+      const data = resp.data;
+      const cellOf = (day, rule) => (data[day] && data[day][rule]) || { count: 0, tickers: 0, high_crit: 0, backfilled: 0 };
 
-    // Build sorted day list (last 14)
-    const days = [];
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date(Date.now() - i * 86400000);
-      days.push(d.toISOString().slice(0, 10));
-    }
+      const days = [];
+      for (let i = 13; i >= 0; i--) days.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
 
-    // Per-rule max + 14-day average for color intensity and baseline comparison
-    const ruleMax = {}, ruleAvg = {};
-    for (const rule of HM_RULES) {
-      const series = days.map(day => (data[day] && data[day][rule]) || 0);
-      ruleMax[rule] = Math.max(1, ...series);
-      ruleAvg[rule] = series.reduce((a, b) => a + b, 0) / series.length;
-    }
+      const ruleMax = {}, ruleAvg = {};
+      for (const rule of HM_RULES) {
+        const series = days.map(day => cellOf(day, rule).count);
+        ruleMax[rule] = Math.max(1, ...series);
+        ruleAvg[rule] = series.reduce((a, b) => a + b, 0) / series.length;
+      }
 
-    // Header row
-    const headRow = `<tr>
-      <td class="hm-rule-label"></td>
-      ${days.map(d => {
-        const dt = new Date(d + 'T12:00:00Z');
-        const label = dt.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+      const headRow = `<tr><td class="hm-rule-label"></td>${days.map(d => {
+        const label = new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
         return `<td class="hm-day-label">${label}</td>`;
-      }).join('')}
-    </tr>`;
+      }).join('')}</tr>`;
 
-    // Data rows — each cell carries its count as text + an accessible label,
-    // is keyboard-focusable, and drills into that rule/day's feed on activate.
-    const dataRows = HM_RULES.map(rule => {
-      const label = HM_RULE_LABELS[rule] || rule;
-      const cells = days.map(day => {
-        const cnt = (data[day] && data[day][rule]) || 0;
-        const intensity = cnt ? Math.max(0.1, cnt / ruleMax[rule]) : 0;
-        const bg = cnt ? `rgba(200,146,42,${intensity.toFixed(2)})` : 'rgba(255,255,255,0.04)';
-        const avg = ruleAvg[rule] || 0;
-        const pct = avg > 0 ? Math.round((cnt - avg) / avg * 100) : 0;
-        const cmp = avg > 0 ? `${pct >= 0 ? '+' : ''}${pct}% vs 14-day avg` : 'no baseline';
-        const dLabel = new Date(day + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const aria = `${label} — ${dLabel}: ${cnt} alert${cnt !== 1 ? 's' : ''}, ${cmp}`;
-        const feed = `/feed?rule=${rule}`;
-        return `<td><div class="hm-cell" style="background:${bg}" role="button" tabindex="0"
-          aria-label="${aria}" title="${aria}"
-          onclick="location.href='${feed}'"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${feed}'}"
-          >${cnt ? `<span class="hm-cnt">${cnt}</span>` : ''}</div></td>`;
+      const dataRows = HM_RULES.map(rule => {
+        const label = HM_RULE_LABELS[rule] || rule;
+        const cells = days.map(day => {
+          const c = cellOf(day, rule);
+          const cnt = c.count;
+          const intensity = cnt ? Math.max(0.1, cnt / ruleMax[rule]) : 0;
+          const isBackfill = c.backfilled > 0 && c.backfilled >= cnt * 0.5;
+          const bg = cnt ? (isBackfill
+              ? `rgba(106,176,224,${intensity.toFixed(2)})`      // blue = backfilled
+              : `rgba(200,146,42,${intensity.toFixed(2)})`)      // amber = live
+            : 'rgba(255,255,255,0.04)';
+          const avg = ruleAvg[rule] || 0;
+          const pct = avg > 0 ? Math.round((cnt - avg) / avg * 100) : 0;
+          const cmp = avg > 0 ? `${pct >= 0 ? '+' : ''}${pct}% vs 14-day avg` : 'no baseline';
+          const dLabel = new Date(day + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const aria = `${label} — ${dLabel}: ${cnt} alert${cnt !== 1 ? 's' : ''}, ${c.tickers} tickers, ${c.high_crit} high/critical${c.backfilled ? `, ${c.backfilled} backfilled` : ''}, ${cmp}`;
+          const feed = `/feed?rule=${rule}`;
+          return `<td><div class="hm-cell${isBackfill ? ' hm-backfill' : ''}" style="background:${bg}" role="button" tabindex="0"
+            aria-label="${aria}" title="${aria}"
+            onclick="location.href='${feed}'"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${feed}'}"
+            >${cnt ? `<span class="hm-cnt">${cnt}</span>` : ''}</div></td>`;
+        }).join('');
+        return `<tr><td class="hm-rule-label">${label}</td>${cells}</tr>`;
       }).join('');
-      return `<tr><td class="hm-rule-label">${label}</td>${cells}</tr>`;
-    }).join('');
 
-    const legend = `<div class="hm-legend" aria-hidden="false">
-      <span>Fewer</span>
-      <span class="hm-key" style="background:rgba(255,255,255,0.04)"></span>
-      <span class="hm-key" style="background:rgba(200,146,42,0.3)"></span>
-      <span class="hm-key" style="background:rgba(200,146,42,0.6)"></span>
-      <span class="hm-key" style="background:rgba(200,146,42,1)"></span>
-      <span>More alerts</span>
-      <span style="margin-left:auto;color:var(--muted)">Cell shows daily alert count · click to open that rule's feed</span>
-    </div>`;
-    tbl.innerHTML = `<thead>${headRow}</thead><tbody>${dataRows}</tbody>`;
-    const wrap = tbl.closest('.heatmap-wrap');
-    if (wrap && !wrap.querySelector('.hm-legend')) wrap.insertAdjacentHTML('afterend', legend);
-  });
+      const legend = `<div class="hm-legend" aria-hidden="false">
+        <span>Fewer</span>
+        <span class="hm-key" style="background:rgba(255,255,255,0.04)"></span>
+        <span class="hm-key" style="background:rgba(200,146,42,0.4)"></span>
+        <span class="hm-key" style="background:rgba(200,146,42,1)"></span>
+        <span>More</span>
+        <span class="hm-key" style="background:rgba(106,176,224,0.7)"></span><span>Backfilled</span>
+        <span style="margin-left:auto;color:var(--muted)">${_hmMode === 'signal' ? 'By event date where known' : 'By ingestion date (shows bulk imports)'} · click a cell to open its feed</span>
+      </div>`;
+      tbl.innerHTML = `<thead>${headRow}</thead><tbody>${dataRows}</tbody>`;
+      const wrap = tbl.closest('.heatmap-wrap');
+      const old = wrap && wrap.parentElement.querySelector('.hm-legend');
+      if (old) old.remove();
+      if (wrap) wrap.insertAdjacentHTML('afterend', legend);
+    });
+  }
+  loadHeatMap();
 
   // ── 8s fallback for stuck loading states ─────────────────────────────────
   setTimeout(() => {

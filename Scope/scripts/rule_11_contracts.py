@@ -115,10 +115,13 @@ def _emit_alert(conn, ticker: str, recipient: str, amount: float,
             )
         return False
 
+    # event_date = the contract award date (real event timing, distinct from
+    # ingestion time) so the heat map's signal-date mode is accurate.
+    _ev = award_date[:10] if award_date else None
     conn.execute(
-        """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-           VALUES ('RULE_11', ?, ?, ?, ?, ?)""",
-        (headline, sev, tags, ticker, detail),
+        """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail, event_date)
+           VALUES ('RULE_11', ?, ?, ?, ?, ?, ?)""",
+        (headline, sev, tags, ticker, detail, _ev),
     )
     print(f"[RULE_11] Emitted alert for {ticker} — {recipient} ${amount:,.0f} ({sev})")
     return True

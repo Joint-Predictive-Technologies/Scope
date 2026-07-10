@@ -431,6 +431,45 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m006_invalidate_stale_briefs')")
         conn.commit()
 
+    # m007: event_date column + backfill, so the heat map can distinguish real
+    # signal/event timing from bulk-ingestion (created_at) timing.
+    if "event_date" not in existing_alerts:
+        try:
+            conn.execute("ALTER TABLE alerts ADD COLUMN event_date TEXT")
+            conn.commit()
+        except Exception:
+            pass
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m007_backfill_event_date'"
+    ).fetchone():
+        import re as _re
+        _date_re = _re.compile(r"\d{4}-\d{2}-\d{2}")
+
+        def _extract(rule: str, tags: str) -> str | None:
+            if not tags:
+                return None
+            if rule == "RULE_01B":
+                parts = tags.split("|")
+                if len(parts) >= 4 and _date_re.match(parts[3].strip()):
+                    return parts[3].strip()[:10]
+            if rule == "RULE_11":
+                seg = tags.split("|")[1] if "|" in tags else (
+                    tags.split(",")[1] if "," in tags else "")
+                m = _date_re.match((seg or "").strip())
+                if m:
+                    return m.group(0)
+            return None
+
+        for a in conn.execute(
+            "SELECT id, rule, tags FROM alerts WHERE rule IN ('RULE_01B','RULE_11') "
+            "AND event_date IS NULL"
+        ).fetchall():
+            ev = _extract(a[1], a[2] or "")
+            if ev:
+                conn.execute("UPDATE alerts SET event_date=? WHERE id=?", (ev, a[0]))
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m007_backfill_event_date')")
+        conn.commit()
+
     conn.commit()
 
 

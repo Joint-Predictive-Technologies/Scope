@@ -432,25 +432,50 @@ def api_stats():
 
 
 @app.get("/api/activity", tags=["Meta"])
-def api_activity():
-    """Daily alert counts by rule for the last 14 days — used for the signal heat map."""
+def api_activity(mode: str = "signal", days: int = 14):
+    """
+    Daily per-rule signal activity for the heat map.
+
+    mode="signal" (default) buckets by the real event date where known
+    (event_date), falling back to created_at. mode="ingestion" buckets by
+    created_at (when the alert was written — reflects bulk imports/backfill).
+
+    Each cell reports count, unique tickers, high/critical count, and how many
+    were backfilled (event_date differs from the ingestion day), so a bulk
+    import can't masquerade as a genuine same-day market event.
+    """
     from jpt_common import db_connection as _dbc
     conn = _dbc()
-    rows = conn.execute("""
-        SELECT date(created_at) as day, rule, COUNT(*) as count
+    mode = "ingestion" if mode == "ingestion" else "signal"
+    day_expr = ("date(created_at)" if mode == "ingestion"
+                else "date(COALESCE(event_date, created_at))")
+    rows = conn.execute(
+        f"""
+        SELECT {day_expr} AS day, rule,
+               COUNT(*) AS count,
+               COUNT(DISTINCT ticker) AS tickers,
+               SUM(CASE WHEN severity IN ('HIGH','CRITICAL') THEN 1 ELSE 0 END) AS high_crit,
+               SUM(CASE WHEN event_date IS NOT NULL
+                         AND date(event_date) != date(created_at) THEN 1 ELSE 0 END) AS backfilled
         FROM alerts
-        WHERE datetime(created_at) >= datetime('now', '-14 days')
+        WHERE {day_expr} >= date('now', ?)
+          AND {day_expr} <= date('now')
         GROUP BY day, rule
         ORDER BY day, rule
-    """).fetchall()
+        """,
+        (f"-{int(days)} days",),
+    ).fetchall()
     conn.close()
     result: dict = {}
     for row in rows:
         day = row["day"]
-        if day not in result:
-            result[day] = {}
-        result[day][row["rule"]] = row["count"]
-    return result
+        result.setdefault(day, {})[row["rule"]] = {
+            "count":      row["count"],
+            "tickers":    row["tickers"] or 0,
+            "high_crit":  row["high_crit"] or 0,
+            "backfilled": row["backfilled"] or 0,
+        }
+    return {"mode": mode, "days": days, "data": result}
 
 
 @app.get("/api/ticker-tape", tags=["Meta"])
