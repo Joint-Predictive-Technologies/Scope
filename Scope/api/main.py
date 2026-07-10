@@ -53,6 +53,8 @@ _RULE_SCHEDULE: dict[str, int] = {
     "rule_06_form4.py":                    120,
     # Corroboration runs after other rules
     "scripts/rule_10_corroboration.py":    60,
+    # Phase-2 scoring — score any newly-inserted alerts every 10 min
+    "scripts/enrich_scores.py":            10,
     # Anomaly detection
     "scripts/rule_anomaly.py":             180,
     # Government contracts
@@ -82,6 +84,7 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "scripts/rule_14_patents.py":       {"day_of_week": "tue,fri", "hour": 4, "minute": 30},
     # Alert severity decay — daily at 1am, keeps the feed and counts honest
     "scripts/decay_alerts.py":          {"hour": 1,  "minute": 0},
+    # (interval job for scoring is registered in _RULE_SCHEDULE)
     # Backtest rebuild — weekly Sunday 2am (Yahoo Finance price lookups)
     "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},
 }

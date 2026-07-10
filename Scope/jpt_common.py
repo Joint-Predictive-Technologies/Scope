@@ -726,6 +726,101 @@ def assign_time_horizon(rule, ticker=None, conn=None) -> str:
     return RULE_TIME_HORIZONS.get(rule, "SHORT")
 
 
+def _distinct_rule_count(rule: str, tags: str) -> tuple:
+    """(distinct_rule_count, source_quality_weights) for scoring an alert."""
+    if rule == "RULE_10":
+        elig = rule10_eligible_rules(rule10_rules_from_tags(tags or ""))
+        weights = [_SOURCE_QUALITY_WEIGHT.get(RULE_SOURCE_QUALITY.get(x, "Secondary"), 0.6)
+                   for x in elig] or [0.3]
+        return max(len(elig), 1), weights
+    q = RULE_SOURCE_QUALITY.get(rule, "Secondary")
+    return 1, [_SOURCE_QUALITY_WEIGHT.get(q, 0.6)]
+
+
+def score_alert_fields(conn, rule: str, ticker: str, headline: str,
+                       tags: str = "", conflict_score=None) -> dict:
+    """Compute the full Phase-2 score set for one alert from live DB context."""
+    anchor = (ticker or (headline or "")[:30]) or rule
+    novelty = calculate_novelty_score(rule, anchor, conn)
+    horizon = assign_time_horizon(rule)
+    quality = RULE_SOURCE_QUALITY.get(rule, "Secondary")
+    drc, sq_scores = _distinct_rule_count(rule, tags)
+    has_conflict = bool(conflict_score and float(conflict_score) > 0.3)
+    return {
+        "novelty_score":       novelty,
+        "time_horizon":        horizon,
+        "source_quality":      quality,
+        "evidence_confidence": calculate_evidence_confidence(drc, sq_scores, has_conflict),
+        "opportunity_score":   calculate_opportunity_score(novelty, 0.0, horizon),
+    }
+
+
+def enrich_alert_scores(conn, only_unscored: bool = True) -> int:
+    """
+    Compute and store Phase-2 scores for alerts. When only_unscored, targets rows
+    still at schema defaults (opportunity_score=0 AND evidence_confidence=0) — so
+    it is cheap to run frequently and picks up every newly-inserted alert
+    regardless of which rule script wrote it. Returns the number updated.
+    """
+    where = ("WHERE COALESCE(opportunity_score,0)=0 AND COALESCE(evidence_confidence,0)=0"
+             if only_unscored else "")
+    rows = conn.execute(
+        f"SELECT id, rule, ticker, headline, tags, conflict_score FROM alerts {where}"
+    ).fetchall()
+    n = 0
+    for r in rows:
+        s = score_alert_fields(conn, r["rule"] or "", r["ticker"] or "",
+                               r["headline"] or "", r["tags"] or "",
+                               r["conflict_score"] if "conflict_score" in r.keys() else None)
+        conn.execute(
+            """UPDATE alerts SET novelty_score=?, time_horizon=?, source_quality=?,
+                   evidence_confidence=?, opportunity_score=? WHERE id=?""",
+            (s["novelty_score"], s["time_horizon"], s["source_quality"],
+             s["evidence_confidence"], s["opportunity_score"], r["id"]),
+        )
+        n += 1
+    conn.commit()
+    return n
+
+
+def insert_alert(conn, rule, ticker, severity, headline, why_matters=None,
+                 tags=None, member_id=None, source_url=None, verify_url=None,
+                 detail=None, event_date=None, theme_id=None,
+                 distinct_rule_count=None, has_conflict=False,
+                 absorption_pct=0.0) -> int:
+    """
+    Single entry point for alert inserts that computes Phase-2 scores inline.
+    Available for rule scripts to adopt; alerts inserted by other paths are still
+    scored by enrich_alert_scores() on the scheduler. Returns the new row id.
+    (Telegram delivery is handled by the polling scripts/telegram_bot.py job.)
+    """
+    import json as _json
+    anchor = (ticker or (headline or "")[:30]) or rule
+    novelty = calculate_novelty_score(rule, anchor, conn)
+    horizon = assign_time_horizon(rule)
+    quality = RULE_SOURCE_QUALITY.get(rule, "Secondary")
+    if distinct_rule_count is None:
+        distinct_rule_count, sq_scores = _distinct_rule_count(rule, tags if isinstance(tags, str) else "")
+    else:
+        sq_scores = [_SOURCE_QUALITY_WEIGHT.get(quality, 0.6)]
+    evidence = calculate_evidence_confidence(distinct_rule_count, sq_scores, has_conflict)
+    opportunity = calculate_opportunity_score(novelty, absorption_pct, horizon)
+    tags_str = _json.dumps(tags) if isinstance(tags, dict) else tags
+    cur = conn.execute(
+        """INSERT INTO alerts (
+               rule, ticker, severity, headline, why_matters, tags, member_id,
+               source_url, verify_url, detail, event_date, theme_id,
+               novelty_score, absorption_pct, time_horizon,
+               evidence_confidence, opportunity_score, source_quality, created_at
+           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))""",
+        (rule, ticker, severity, headline, why_matters, tags_str, member_id,
+         source_url, verify_url, detail, event_date, theme_id,
+         novelty, absorption_pct, horizon, evidence, opportunity, quality),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
 def log_activity(conn, source, scanned=0, flagged=0, emitted=0,
                  duration_seconds=None, notes=None) -> None:
     """Record a rule/scan run so the activity log can show 'clear airspace'."""

@@ -113,6 +113,47 @@ def test_reddit_severity_weighting():
     assert reddit.reddit_severity("ORGANIC_MOMENTUM", 1.5, 200) == "MEDIUM"
 
 
+# ── Scoring actually runs (regression for the "all defaults" bug) ────────────
+def test_scores_are_not_all_defaults():
+    """After enrichment, alerts must carry computed (non-default) scores."""
+    from jpt_common import enrich_alert_scores
+    conn = db_connection()
+    enrich_alert_scores(conn, only_unscored=True)
+    total = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
+    if total == 0:
+        conn.close(); return
+    distinct_opp = conn.execute("SELECT COUNT(DISTINCT opportunity_score) FROM alerts").fetchone()[0]
+    default_ev = conn.execute(
+        "SELECT COUNT(*) FROM alerts WHERE opportunity_score=0 AND evidence_confidence=0"
+    ).fetchone()[0]
+    conn.close()
+    assert distinct_opp > 1          # varied, not one default value
+    assert default_ev == 0           # nothing left at (0,0)
+
+
+def test_rule10_evidence_exceeds_single_rule():
+    from jpt_common import score_alert_fields
+    import json as _j
+    conn = db_connection()
+    r10 = score_alert_fields(conn, "RULE_10", "TSM", "x",
+                             _j.dumps({"rules": ["RULE_01B", "RULE_02", "RULE_06", "RULE_08"]}))
+    single = score_alert_fields(conn, "RULE_06", "TSM", "x", "")
+    conn.close()
+    assert r10["evidence_confidence"] > single["evidence_confidence"]
+
+
+def test_incremental_scoring_idempotent():
+    from jpt_common import enrich_alert_scores
+    conn = db_connection()
+    conn.execute("INSERT INTO alerts (rule,ticker,severity,headline) VALUES ('RULE_06','QQTEST','HIGH','t')")
+    conn.commit()
+    first = enrich_alert_scores(conn, only_unscored=True)
+    second = enrich_alert_scores(conn, only_unscored=True)
+    conn.execute("DELETE FROM alerts WHERE ticker='QQTEST'"); conn.commit()
+    conn.close()
+    assert first >= 1 and second == 0
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
