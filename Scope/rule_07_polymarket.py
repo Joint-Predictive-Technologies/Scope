@@ -28,13 +28,15 @@ CLOB_PRICE_HISTORY = "https://clob.polymarket.com/prices-history"
 HEADERS = {"User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com"}
 SLEEP = 0.3
 
-# Trigger thresholds
-MIN_PP_MOVE = 15.0        # percentage points
-MIN_VOLUME_24H = 100_000  # USD
+# Trigger thresholds — require BOTH a meaningful price move AND meaningful volume
+MIN_PP_MOVE = 20.0        # percentage points
+MIN_VOLUME_24H = 500_000  # USD
 
 # Alert severity thresholds
-HIGH_PP = 15.0
-HIGH_VOL = 200_000
+HIGH_PP = 20.0
+HIGH_VOL = 500_000
+CRITICAL_PP = 30.0
+CRITICAL_VOL = 1_000_000
 
 # ---------------------------------------------------------------------------
 # Blocklist — skip sports, esports, and other noise questions.
@@ -240,7 +242,7 @@ def alert_exists(conn, headline: str) -> bool:
         SELECT 1 FROM alerts
         WHERE rule = ?
           AND headline = ?
-          AND datetime(created_at) >= datetime('now', '-1 days')
+          AND datetime(created_at) >= datetime('now', '-3 days')
         LIMIT 1
         """,
         (RULE, headline),
@@ -304,13 +306,14 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         triggered_pp = abs_pp >= MIN_PP_MOVE
         triggered_vol = volume_24h >= MIN_VOLUME_24H
 
-        if not (triggered_pp or triggered_vol):
+        if not (triggered_pp and triggered_vol):
             continue
 
         triggered += 1
 
         tickers = map_tickers(question)
-        ticker_str = " ".join(tickers) if tickers else None
+        # Use primary ticker only — multi-ticker strings break sector mapping
+        ticker_str = tickers[0] if tickers else None
 
         direction = f"+{abs_pp:.1f}pp" if pp_change >= 0 else f"-{abs_pp:.1f}pp"
         ticker_label = f" — related: {ticker_str}" if ticker_str else ""
@@ -319,9 +322,9 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         )
 
         severity = (
-            "HIGH"
-            if abs_pp >= HIGH_PP or volume_24h >= HIGH_VOL
-            else "MEDIUM"
+            "CRITICAL"
+            if abs_pp >= CRITICAL_PP and volume_24h >= CRITICAL_VOL
+            else "HIGH"
         )
 
         tags = f"{question[:100]},{direction},{volume_24h:.0f}"

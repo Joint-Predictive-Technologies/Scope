@@ -101,9 +101,9 @@ def _filter_hostile(events: list[dict]) -> list[dict]:
     """Keep only hostile, high-mention events in tracked countries."""
     hostile: list[dict] = []
     for e in events:
-        if e["goldstein"] >= -3:
+        if e["goldstein"] >= -4:
             continue
-        if e["num_mentions"] < 5:
+        if e["num_mentions"] < 10:
             continue
         if e["country"] not in COUNTRY_REGION_MAP:
             continue
@@ -120,9 +120,9 @@ def _filter_hostile(events: list[dict]) -> list[dict]:
 
 
 def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
-    if goldstein <= -7 and num_mentions >= 20:
+    if goldstein <= -8 and num_mentions >= 30:
         return "CRITICAL"
-    if goldstein <= -5 or num_mentions >= 15:
+    if goldstein <= -6 and num_mentions >= 20:
         return "HIGH"
     return "MEDIUM"
 
@@ -198,32 +198,6 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
                 "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
                 (event["event_id"],),
             )
-
-            # Auto-corroborate: RULE_10 if another rule already fired on this ticker
-            for ticker in tickers[:3]:
-                corr = conn.execute(
-                    """SELECT COUNT(DISTINCT rule) FROM alerts
-                       WHERE ticker = ?
-                         AND rule NOT IN ('RULE_OSINT', 'RULE_10')
-                         AND datetime(created_at) >= datetime('now', '-48 hours')""",
-                    (ticker,),
-                ).fetchone()[0]
-                if corr >= 1:
-                    conn.execute(
-                        """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
-                           VALUES ('RULE_10', ?, 'CRITICAL', ?, ?, ?)""",
-                        (
-                            ticker,
-                            f"[Corroboration] {ticker}: OSINT + existing signals converged within 48h",
-                            f"Geopolitical event ({event['event_type']} in {region}) "
-                            f"corroborates existing Scope signals on {ticker}.",
-                            json.dumps({
-                                "rules": ["RULE_OSINT"],
-                                "rule_count": 2,
-                                "source": "GDELT",
-                            }),
-                        ),
-                    )
 
             conn.commit()
             emitted += 1

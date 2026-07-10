@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 from pathlib import Path
@@ -516,7 +517,7 @@ def calculate_heat_index(
             prev_half += contrib
 
     raw_score = sum(rule_scores.values()) / max(days, 1)
-    score     = round(min(raw_score * 10, 100.0), 1)
+    score     = round(min(math.log1p(raw_score * 3) * 25, 100.0), 1)
 
     if prev_half > 0:
         ratio = current_half / prev_half

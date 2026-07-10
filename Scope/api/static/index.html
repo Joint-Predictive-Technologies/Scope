@@ -279,7 +279,6 @@
 <!-- TICKER TAPE -->
 <div class="tape">
   <div class="tape-inner" id="tape">
-    <span class="tape-item"><span>SCOPE</span> Loading live signals… <span class="val">●</span></span>
   </div>
 </div>
 
@@ -317,7 +316,7 @@
     <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying records, and government contracts — synthesizing them into actionable signals.</p>
     <div class="hero-stats" id="hero-stats">
       <span id="corr-count">—</span> corroborated signals this month ·
-      <span id="week-tickers">—</span> tickers under watch ·
+      <span id="week-tickers">—</span> tracked securities ·
       <span id="member-count">—</span> political figures tracked
     </div>
     <div class="hero-actions">
@@ -416,7 +415,7 @@
 <!-- RULES GRID -->
 <div class="section" style="padding-top:0">
   <div class="section-label">Signal Architecture</div>
-  <div class="section-title">Eight rules. One picture.</div>
+  <div class="section-title">14 detection rules. One picture.</div>
   <div class="rules-grid">
     <div class="rule-card">
       <div class="rule-id">RULE_01B</div>
@@ -506,19 +505,19 @@
     <div class="how-step">
       <div class="how-num">01</div>
       <div class="how-title">Raw data ingested</div>
-      <div class="how-desc">Scope monitors eight live data streams — congressional disclosures, SEC Form 4 insider filings, Federal Register proposals, Senate lobby reports, USASpending.gov contracts, Polymarket odds, Reddit, and geopolitical OSINT — every four hours.</div>
+      <div class="how-desc">Scope monitors 14 data sources — congressional disclosures, SEC Form 4 filings, Federal Register proposals, Senate lobbying records, FARA foreign filings, FEC campaign finance, USPTO patents, USASpending.gov contracts, Polymarket odds, Reddit, geopolitical OSINT, and corporate earnings calls — on source-specific schedules from 15 minutes to daily.</div>
       <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> RULE_08 + RULE_09 fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> 4 rules converge → RULE_10 queued</div>
     </div>
     <div class="how-step">
       <div class="how-num">02</div>
       <div class="how-title">Rules score every signal</div>
-      <div class="how-desc">Eight detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When four or more independent rules fire on the same ticker within 24 hours, RULE_10 generates an AI-written analyst narrative.</div>
+      <div class="how-desc">14 detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When four or more independent rules fire on the same ticker within 24 hours, RULE_10 generates an AI-written analyst narrative.</div>
       <div class="how-example">Signal score = sev × 0.5^(h/48)<br>× rule_multiplier<br><span class="hi">RULE_10</span> multiplier: <span class="ok">2.0×</span><br><span class="hi">RULE_06</span> multiplier: <span class="ok">1.5×</span></div>
     </div>
     <div class="how-step">
       <div class="how-num">03</div>
       <div class="how-title">You're positioned early</div>
-      <div class="how-desc">Signals surface before earnings announcements, before regulatory decisions become public, and before retail coverage. The Daily Brief synthesizes overnight intelligence into actionable context. Use the /ask terminal to query the full alert database conversationally.</div>
+      <div class="how-desc">Signals surface before earnings announcements, before they receive broad market coverage, and ahead of retail attention. The Daily Brief synthesizes overnight intelligence into actionable context. Use the /ask terminal to query the full alert database conversationally.</div>
       <div class="how-example"><span class="hi">→ /feed</span> — live alert stream<br><span class="hi">→ /brief</span> — AI daily synthesis<br><span class="hi">→ /ask</span> — natural language query<br><span class="hi">→ /backtest</span> — historical signal performance</div>
     </div>
   </div>
@@ -576,8 +575,10 @@
   }
   function loadTape() {
     safeFetch('/api/ticker-tape', { signal: withTimeout(8000) }).then(items => {
-      if (!Array.isArray(items) || !items.length) return;
-      document.getElementById('tape').innerHTML = buildTapeHTML(items);
+      const el = document.getElementById('tape');
+      if (!el) return;
+      if (!Array.isArray(items) || !items.length) { el.innerHTML = ''; return; }
+      el.innerHTML = buildTapeHTML(items);
     });
   }
   loadTape();
@@ -642,11 +643,16 @@
     el.innerHTML = valid.slice(0, 5).map(t => {
       const sym = (t.ticker||'').replace(/\$/g,'').split(' ')[0];
       const cls = txClass(t.transaction_type);
+      const delay = parseInt(t.filing_delay) || 0;
+      const delayFlag = delay > 14
+        ? `<span title="Filed ${delay} days after trade" style="color:var(--amber);font-size:0.6rem;margin-left:3px">+${delay}d</span>`
+        : '';
+      const filedDate = t.filing_date ? ` · filed ${fmtTradeDate(t.filing_date)}${delayFlag}` : '';
       return `<div class="trade-row">
         <a href="${sym ? '/ticker/'+sym : '#'}" class="trade-ticker">${sym || '—'}</a>
         <span class="trade-type ${cls}">${txLabel(t.transaction_type)}</span>
         <span class="trade-meta">${(t.full_name||'').split(',')[0]} · ${t.amount_band||''}</span>
-        <span class="trade-time">${fmtTradeDate(t.transaction_date)}</span>
+        <span class="trade-time">${fmtTradeDate(t.transaction_date)}${filedDate}</span>
       </div>`;
     }).join('');
   });
@@ -656,9 +662,14 @@
     let tags = {};
     try { tags = JSON.parse(alert.tags || '{}'); } catch {}
     const rules = tags.rules || [];
-    const ruleScore = Math.min(rules.length * 20, 40);
+    // Scale with rule count: 4 rules = 40pts, 6 rules = 60pts, cap 60
+    const ruleScore = Math.min(rules.length * 10, 60);
     const sevScore  = alert.severity === 'CRITICAL' ? 20 : 10;
-    const timePts   = 5;
+    // Recency bonus: decays from 15pts within 6h to 0 after 48h
+    const ageH = alert.created_at
+      ? (Date.now() - new Date(alert.created_at).getTime()) / 3600000
+      : 48;
+    const timePts = ageH < 6 ? 15 : ageH < 24 ? 10 : ageH < 48 ? 5 : 0;
     const insScore  = rules.includes('RULE_06') ? 15 : 0;
     const conScore  = rules.includes('RULE_11') ? 10 : 0;
     return {
@@ -969,7 +980,7 @@
       const cells = days.map(day => {
         const cnt = (data[day] && data[day][rule]) || 0;
         const intensity = cnt ? Math.max(0.1, cnt / ruleMax[rule]) : 0;
-        const bg = cnt ? `rgba(200,146,42,${intensity.toFixed(2)})` : 'var(--bg3)';
+        const bg = cnt ? `rgba(200,146,42,${intensity.toFixed(2)})` : 'rgba(255,255,255,0.04)';
         return `<td><div class="hm-cell" style="background:${bg}" title="${HM_RULE_LABELS[rule]||rule} · ${day} · ${cnt} signals"></div></td>`;
       }).join('');
       return `<tr><td class="hm-rule-label">${HM_RULE_LABELS[rule]||rule}</td>${cells}</tr>`;
@@ -1014,7 +1025,7 @@
         return `<a href="/sectors" class="heat-chip">
           <div class="heat-chip-name">${d.sector}</div>
           <div class="heat-chip-bar-track"><div class="heat-chip-bar-fill" style="width:${pct}%;background:${col}"></div></div>
-          <div class="heat-chip-score" style="color:${col}">${d.score} <span style="color:var(--muted);font-size:0.55rem">${trendSym} ${d.alert_count}a</span></div>
+          <div class="heat-chip-score" style="color:${col}">${d.score} <span style="color:var(--muted);font-size:0.55rem">${trendSym} ${d.alert_count} alerts</span></div>
         </a>`;
       }).join('');
     } catch { /* leave default */ }
