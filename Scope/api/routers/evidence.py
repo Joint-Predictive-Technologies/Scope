@@ -124,12 +124,37 @@ def alert_evidence(alert_id: int):
     conn.close()
 
     src = _SOURCE.get(alert.get("rule", ""), ("Source", None))
+
+    # Contract mapping transparency (RULE_11): tags are
+    # recipient|award_date|award_id|public_parent|mapping_confidence
+    contract = None
+    if alert.get("rule") == "RULE_11":
+        parts = (alert.get("tags") or "").split("|")
+        recipient = parts[0].strip() if parts else ""
+        award_id = parts[2].strip() if len(parts) > 2 else ""
+        parent = parts[3].strip() if len(parts) > 3 else ""
+        conf = parts[4].strip() if len(parts) > 4 else ""
+        usa = (f"https://www.usaspending.gov/award/{award_id}/" if award_id
+               else f"https://www.usaspending.gov/search/?query={recipient.replace(' ', '%20')}")
+        contract = {
+            "recipient": recipient,
+            "public_parent": parent or None,
+            "mapping_confidence": int(conf) if conf.isdigit() else None,
+            "verified_ticker": tk or None,
+            "has_verified_ticker": bool(tk),
+            "award_id": award_id or None,
+            "awarding_agency": None,  # agency lives in headline; parsed client-side
+            "usaspending_url": usa,
+            "mapping_source": "Scope curated contractor table + strict token match",
+        }
+
     return {
         "alert": alert,
         "ticker": tk,
         "why": alert.get("why_matters") or _WHY.get(alert.get("rule", ""), ""),
         "source": {"label": src[0], "url": alert.get("source_url") or src[1]},
         "confidence": _confidence_breakdown(alert, related),
+        "contract": contract,
         "related": related,
         "timeline": list(reversed(related))[-8:],
         "related_rules": sorted({r["rule"] for r in related if r.get("rule")}),

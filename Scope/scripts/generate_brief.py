@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection
+from jpt_common import db_connection, rule10_is_valid, rule10_rules_from_tags
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
@@ -26,7 +26,7 @@ def _gather_data(conn, days: float = 2) -> dict:
 
     signals = conn.execute(
         """
-        SELECT id, rule, ticker, headline, detail, severity, created_at
+        SELECT id, rule, ticker, headline, detail, severity, tags, created_at
         FROM alerts
         WHERE created_at >= datetime('now', ?)
           AND severity IN ('CRITICAL', 'HIGH')
@@ -36,7 +36,6 @@ def _gather_data(conn, days: float = 2) -> dict:
                 WHEN 'RULE_10' THEN 1
                 WHEN 'RULE_11' THEN 2
                 WHEN 'RULE_06' THEN 3
-                WHEN 'RULE_OSINT' THEN 4
                 ELSE 5
             END,
             created_at DESC
@@ -45,10 +44,13 @@ def _gather_data(conn, days: float = 2) -> dict:
         (window,),
     ).fetchall()
 
-    # Group by rule for structured sections
+    # Group by rule; only VALID RULE_10 (4+ distinct eligible rules) may be
+    # grouped as a corroboration — this is what the brief is allowed to cite.
     by_rule: dict = {}
     for r in signals:
         rule = r["rule"] or "OTHER"
+        if rule == "RULE_10" and not rule10_is_valid(rule10_rules_from_tags(r["tags"] or "")):
+            continue  # drop invalid/legacy corroborations entirely
         by_rule.setdefault(rule, []).append(dict(r))
 
     # Congressional trades (separate data source)
@@ -64,20 +66,28 @@ def _gather_data(conn, days: float = 2) -> dict:
         (window,),
     ).fetchall()
 
+    # Drop invalid/legacy RULE_10 from the cited signal set entirely so the
+    # brief's evidence never references an expired corroboration.
+    clean_signals = [
+        dict(r) for r in signals
+        if not (r["rule"] == "RULE_10"
+                and not rule10_is_valid(rule10_rules_from_tags(r["tags"] or "")))
+    ]
+
     # Evidence map: ticker -> list of {id, rule} that back a claim about it.
     evidence: dict = {}
     alert_ids: list = []
-    for r in signals:
+    for r in clean_signals:
         alert_ids.append(r["id"])
         tk = (r["ticker"] or "").replace("$", "").split()[0] if r["ticker"] else ""
         if tk:
             evidence.setdefault(tk, []).append({"id": r["id"], "rule": r["rule"]})
 
     return {
-        "signals":     [dict(r) for r in signals],
+        "signals":     clean_signals,
         "by_rule":     by_rule,
         "congressional": [dict(r) for r in congressional],
-        "total":       len(signals),
+        "total":       len(clean_signals),
         "alert_ids":   alert_ids,
         "evidence":    evidence,
     }
@@ -109,7 +119,7 @@ def _build_prompt(data: dict, date_str: str) -> str:
     rule10 = by_rule.get("RULE_10", [])
     rule10_block = "\n".join(
         f"  ★ {r.get('ticker','—')} | {r.get('headline','')[:100]}" for r in rule10
-    ) or "  (none in this window)"
+    ) or "  NONE — there are no valid cross-source corroborations in this window."
 
     cong_block = "\n".join(
         f"  {r.get('ticker','—')} | {r.get('transaction_type','')} | {r.get('amount_band','')} | {r.get('full_name','')}"
@@ -120,7 +130,17 @@ def _build_prompt(data: dict, date_str: str) -> str:
 
 You MUST reference the specific signals below. Do NOT say there are no signals — there are {total} high-priority signals active right now.
 
-=== CORROBORATIONS — RULE_10 (LEAD WITH THESE if present) ===
+CRITICAL RULES ABOUT CORROBORATION:
+- Only a RULE_10 entry in the CORROBORATIONS section below may be described as
+  "corroborated" or as a "cross-source corroboration".
+- RULE_07 (Polymarket), RULE_OSINT, RULE_REDDIT and RULE_ANOMALY are NOT
+  corroboration. Never say a signal is corroborated because OSINT, a prediction
+  market, Reddit, or an anomaly agrees with it.
+- If the CORROBORATIONS section says NONE, you MUST state plainly that there are
+  no cross-source corroborations in this window, and lead instead with the
+  strongest individual signal (insider, contract, congressional).
+
+=== CORROBORATIONS — RULE_10 (the ONLY thing you may call "corroborated") ===
 {rule10_block}
 
 === ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by severity then rule) ===

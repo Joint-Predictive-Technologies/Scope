@@ -418,6 +418,19 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m005_brief_evidence')")
         conn.commit()
 
+    # m006: invalidate daily briefs generated under the old RULE_10 logic (which
+    # cited OSINT/Polymarket as corroboration). They regenerate on next request
+    # from valid records only.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m006_invalidate_stale_briefs'"
+    ).fetchone():
+        try:
+            conn.execute("DELETE FROM daily_briefs")
+        except Exception:
+            pass
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m006_invalidate_stale_briefs')")
+        conn.commit()
+
     conn.commit()
 
 

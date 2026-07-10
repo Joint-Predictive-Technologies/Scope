@@ -14,6 +14,7 @@ each market's first CLOB token ID and a 24-hour startTs/endTs window.
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from datetime import datetime, timezone
 
@@ -23,6 +24,12 @@ from jpt_common import db_connection
 
 
 RULE = "RULE_07"
+
+# Dedup: one evolving alert per market thesis (market_id + direction + threshold
+# bucket). A new alert is only emitted when the direction flips, the move crosses
+# into a higher bucket, volume changes materially, or a cooldown has elapsed.
+COOLDOWN_HOURS = 24
+VOLUME_MATERIAL_PCT = 0.5  # 50%
 GAMMA_MARKETS = "https://gamma-api.polymarket.com/markets"
 CLOB_PRICE_HISTORY = "https://clob.polymarket.com/prices-history"
 HEADERS = {"User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com"}
@@ -250,6 +257,58 @@ def alert_exists(conn, headline: str) -> bool:
     return row is not None
 
 
+def market_id_of(m: dict) -> str:
+    """Stable identifier for a Polymarket market."""
+    return str(m.get("conditionId") or m.get("id") or m.get("slug") or "")
+
+
+def threshold_bucket(abs_pp: float) -> int:
+    """Coarse move buckets so small refreshes don't spawn new alerts."""
+    if abs_pp >= 50:
+        return 2
+    if abs_pp >= 30:
+        return 1
+    return 0
+
+
+def _find_existing(conn, market_id: str):
+    return conn.execute(
+        """SELECT id, tags, created_at FROM alerts
+           WHERE rule = ? AND tags LIKE ?
+           ORDER BY datetime(created_at) DESC LIMIT 1""",
+        (RULE, f'%"market_id": "{market_id}"%'),
+    ).fetchone()
+
+
+def dedup_decision(existing_row, direction_sign: str, bucket: int, volume: float) -> str:
+    """Return 'new', 'update', or 'skip' for a triggering market snapshot."""
+    if existing_row is None:
+        return "new"
+    try:
+        prev = json.loads(existing_row["tags"] or "{}")
+    except Exception:
+        prev = {}
+    prev_dir = prev.get("direction_sign")
+    prev_bucket = prev.get("bucket", -1)
+    prev_vol = float(prev.get("volume") or 0)
+
+    import datetime as _dt
+    try:
+        ts = _dt.datetime.fromisoformat((existing_row["created_at"] or "").replace(" ", "T"))
+        age_h = (_dt.datetime.utcnow() - ts).total_seconds() / 3600
+    except Exception:
+        age_h = 1e9
+
+    material = (
+        prev_dir != direction_sign
+        or (isinstance(prev_bucket, int) and bucket > prev_bucket)
+        or (prev_vol > 0 and abs(volume - prev_vol) / prev_vol >= VOLUME_MATERIAL_PCT)
+    )
+    if material or age_h >= COOLDOWN_HOURS:
+        return "new"
+    return "update"
+
+
 def insert_alert(
     conn,
     headline: str,
@@ -316,6 +375,10 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         ticker_str = tickers[0] if tickers else None
 
         direction = f"+{abs_pp:.1f}pp" if pp_change >= 0 else f"-{abs_pp:.1f}pp"
+        direction_sign = "up" if pp_change >= 0 else "down"
+        bucket = threshold_bucket(abs_pp)
+        mkt_id = market_id_of(m)
+        slug = str(m.get("slug") or "")
         ticker_label = f" — related: {ticker_str}" if ticker_str else ""
         headline = (
             f"Polymarket: '{question[:60]}' moved {direction}{ticker_label}"
@@ -327,7 +390,19 @@ def run(emit_alerts: bool) -> tuple[int, int]:
             else "HIGH"
         )
 
-        tags = f"{question[:100]},{direction},{volume_24h:.0f}"
+        # Structured tags — carry the stable market identity for dedup + a
+        # specific verify link. All related tickers travel with the one alert.
+        tags = json.dumps({
+            "market_id":      mkt_id,
+            "slug":           slug,
+            "question":       question[:120],
+            "direction":      direction,
+            "direction_sign": direction_sign,
+            "bucket":         bucket,
+            "volume":         round(volume_24h),
+            "tickers":        tickers[:4],
+            "source":         "Polymarket",
+        })
 
         print(
             f"  [{severity}] {direction}  vol=${volume_24h:,.0f}  "
@@ -336,9 +411,25 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         )
 
         if emit_alerts and conn is not None:
-            if not alert_exists(conn, headline):
+            if not mkt_id:
+                # No stable id — fall back to headline-based dedup.
+                if not alert_exists(conn, headline):
+                    insert_alert(conn, headline, ticker_str, severity, tags)
+                    emitted += 1
+                continue
+            existing = _find_existing(conn, mkt_id)
+            decision = dedup_decision(existing, direction_sign, bucket, volume_24h)
+            if decision == "new":
                 insert_alert(conn, headline, ticker_str, severity, tags)
                 emitted += 1
+            elif decision == "update":
+                # Evolve the existing thesis in place — no new alert.
+                conn.execute(
+                    "UPDATE alerts SET headline=?, severity=?, tags=?, ticker=? WHERE id=?",
+                    (headline, severity, tags, ticker_str, existing["id"]),
+                )
+                conn.commit()
+            # decision == "skip": nothing to do
 
     if conn is not None:
         conn.close()

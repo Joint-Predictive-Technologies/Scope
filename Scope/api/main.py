@@ -415,15 +415,19 @@ def api_stats():
             "SELECT COUNT(DISTINCT ticker) FROM alerts "
             "WHERE datetime(created_at) >= datetime('now', '-7 days') AND ticker IS NOT NULL AND ticker != ''"
         ).fetchone()[0]
+        data_through = conn.execute("SELECT MAX(created_at) FROM alerts").fetchone()[0]
     finally:
         conn.close()
+    from datetime import datetime as _dt, timezone as _tz
     return {
-        "corr_count":    corr_count,
-        "ticker_count":  ticker_count,
+        "corr_count":    corr_count,     # 30 days
+        "ticker_count":  ticker_count,   # all-time distinct
         "member_count":  member_count,
-        "alert_count":   alert_count,
-        "crit_count":    crit_count,
-        "week_tickers":  week_tickers,
+        "alert_count":   alert_count,    # HIGH+ last 24h
+        "crit_count":    crit_count,     # CRITICAL last 24h
+        "week_tickers":  week_tickers,   # 7 days
+        "generated_at":  _dt.now(_tz.utc).isoformat(),
+        "data_through":  data_through,
     }
 
 

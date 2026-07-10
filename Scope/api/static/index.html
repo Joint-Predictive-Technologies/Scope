@@ -377,10 +377,11 @@
     <h1>Where <em>power</em> moves before markets do</h1>
     <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying, FARA foreign filings, FEC campaign finance, USPTO patents, government contracts, Polymarket odds, and geopolitical events — synthesizing them into actionable signals.</p>
     <div class="hero-stats" id="hero-stats">
-      <span id="corr-count">—</span> corroborated signals this month ·
-      <span id="week-tickers">—</span> tracked securities ·
+      <span id="corr-count">—</span> corroborated signals (30d) ·
+      <span id="week-tickers">—</span> tracked securities (7d) ·
       <span id="member-count">—</span> political figures tracked
     </div>
+    <div id="hero-fresh" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--muted);margin-top:0.4rem"></div>
     <div class="hero-actions">
       <a href="/feed" class="btn-primary">View Live Alerts</a>
       <a href="/ask" class="btn-secondary">Ask Scope</a>
@@ -407,7 +408,7 @@
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_14  USPTO patent clusters</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_15  earnings call NLP</span></div>
       <div class="t-spacer"></div>
-      <div class="t-line"><span class="t-prompt">›</span><span class="t-text" id="t-live"><span class="crit">●</span> <span id="alert-count">—</span> alerts · <span id="crit-count">—</span> critical</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text" id="t-live"><span class="crit">●</span> <span id="alert-count">—</span> HIGH+ alerts (24h) · <span id="crit-count">—</span> critical (24h)</span></div>
     </div>
   </div>
 </div>
@@ -449,10 +450,11 @@
   <div class="today">
     <div class="today-tabs" id="today-tabs" role="tablist">
       <button class="today-tab active" role="tab" data-tab="signals" onclick="setToday('signals')">Top Signals</button>
-      <button class="today-tab" role="tab" data-tab="sectors" onclick="setToday('sectors')">Sectors</button>
       <button class="today-tab" role="tab" data-tab="congress" onclick="setToday('congress')">Congress</button>
       <button class="today-tab" role="tab" data-tab="insiders" onclick="setToday('insiders')">Insiders</button>
       <button class="today-tab" role="tab" data-tab="contracts" onclick="setToday('contracts')">Contracts</button>
+      <button class="today-tab" role="tab" data-tab="regulation" onclick="setToday('regulation')">Regulation</button>
+      <button class="today-tab" role="tab" data-tab="lobbying" onclick="setToday('lobbying')">Lobbying</button>
       <button class="today-tab" role="tab" data-tab="osint" onclick="setToday('osint')">OSINT</button>
     </div>
     <div class="today-body" id="today-body" role="tabpanel" aria-live="polite">
@@ -961,6 +963,17 @@
     _setEl('member-count', s.member_count != null ? s.member_count.toLocaleString() : '—');
     _setEl('week-tickers', s.week_tickers != null ? s.week_tickers : '—');
     _setEl('corr-count',   s.corr_count   != null ? s.corr_count   : '—');
+    // Freshness line: when the data was last updated + latest signal timestamp
+    const fresh = document.getElementById('hero-fresh');
+    if (fresh) {
+      const upd = s.generated_at ? 'Updated ' + timeAgo(s.generated_at) : '';
+      let through = '';
+      if (s.data_through) {
+        const d = new Date(String(s.data_through).replace(' ','T') + (String(s.data_through).includes('Z')?'':'Z'));
+        if (!isNaN(d)) through = ' · data through ' + d.toISOString().slice(11,16) + ' UTC';
+      }
+      fresh.textContent = upd + through;
+    }
   });
 
   // ── Signal Heat Map ───────────────────────────────────────────────────────
@@ -1083,12 +1096,13 @@
   const firstTk = t => (t||'').replace(/\$/g,'').split(' ')[0];
   const sevBadge = s => `<span class="t-badge badge-${s}">${s}</span>`;
   const TODAY_CFG = {
-    signals:  { url: '/alerts?days=7&severity_min=HIGH&limit=8', all: '/feed' },
-    sectors:  { url: '/api/heat-index?days=30',                  all: '/sectors' },
-    congress: { url: '/congress/trades?days=90&limit=8',         all: '/congress' },
-    insiders: { url: '/alerts?rule=RULE_06&days=30&limit=8',      all: '/feed?rule=RULE_06' },
-    contracts:{ url: '/alerts?rule=RULE_11&days=45&limit=8',      all: '/feed?rule=RULE_11' },
-    osint:    { url: '/alerts?rule=RULE_OSINT&days=14&limit=8',   all: '/feed?rule=RULE_OSINT' },
+    signals:   { url: '/alerts?days=7&severity_min=HIGH&limit=8', all: '/feed' },
+    congress:  { url: '/congress/trades?days=90&limit=8',         all: '/congress' },
+    insiders:  { url: '/alerts?rule=RULE_06&days=30&limit=8',      all: '/feed?rule=RULE_06' },
+    contracts: { url: '/alerts?rule=RULE_11&days=45&limit=8',      all: '/feed?rule=RULE_11' },
+    regulation:{ url: '/alerts?rule=RULE_08&days=45&limit=8',      all: '/feed?rule=RULE_08' },
+    lobbying:  { url: '/alerts?rule=RULE_09&days=120&limit=8',     all: '/lobbying' },
+    osint:     { url: '/alerts?rule=RULE_OSINT&days=14&limit=8',   all: '/feed?rule=RULE_OSINT' },
   };
   let _todayTab = 'signals';
 
@@ -1204,9 +1218,22 @@
       ? `<div class="ev-src"><a href="${d.source.url}" target="_blank" rel="noopener">Verify at ${escH(d.source.label)} ↗</a></div>`
       : `<div class="ev-src" style="color:var(--muted);font-size:0.72rem">Source: ${escH((d.source&&d.source.label)||'internal')}</div>`;
     const tk = d.ticker || firstTk(a.ticker);
+    const ct = d.contract;
+    const contractBlock = ct ? `
+      <div class="ev-label">Contract mapping</div>
+      <div class="ev-why" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;line-height:1.8">
+        Recipient: ${escH(ct.recipient||'—')}<br>
+        ${ct.has_verified_ticker
+          ? `Public parent: ${escH(ct.public_parent||tk)}<br>Verified ticker: <span style="color:var(--amber)">${tk}</span><br>Mapping confidence: ${ct.mapping_confidence!=null?ct.mapping_confidence+'%':'—'}`
+          : `<span style="color:var(--red-light)">No verified public ticker mapping</span>${ct.public_parent?`<br>Entity: ${escH(ct.public_parent)}`:''}`}
+        ${ct.award_id?`<br>Award ID: ${escH(ct.award_id)}`:''}
+        <br><span style="color:var(--muted)">Source: ${escH(ct.mapping_source)}</span>
+        <br><a href="${ct.usaspending_url}" target="_blank" rel="noopener" style="color:var(--amber)">Verify on USASpending ↗</a>
+      </div>` : '';
     document.getElementById('ev-content').innerHTML = `
       <div class="ev-label">Why this fired</div>
       <div class="ev-why">${escH(d.why || a.detail || '—')}</div>
+      ${contractBlock}
       <div class="ev-label">Confidence</div>
       <div class="ev-conf-total">${c.total ?? '—'}<span style="font-size:0.8rem;color:var(--muted)">/100</span></div>
       <div class="ev-conf-bar"><div class="ev-conf-fill" style="width:${c.total||0}%"></div></div>
