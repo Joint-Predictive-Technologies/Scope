@@ -209,6 +209,8 @@ app = FastAPI(
     description="Real-time alerts on congressional trading, insider activity, lobbying, and regulatory proposals.",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/swagger",   # move interactive Swagger; /docs is the canonical human API docs page
+    redoc_url=None,
 )
 
 app.add_middleware(
@@ -610,9 +612,14 @@ def region_page(region_name: str):
 def performance_page():
     return FileResponse(STATIC_DIR / "performance.html")
 
-@app.get("/api-docs", response_class=HTMLResponse, include_in_schema=False)
-def api_docs_page():
+@app.get("/docs", response_class=HTMLResponse, include_in_schema=False)
+def docs_page():
     return FileResponse(STATIC_DIR / "api_docs.html")
+
+@app.get("/api-docs", include_in_schema=False)
+def api_docs_redirect():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs", status_code=308)
 
 @app.get("/foreign-influence", response_class=HTMLResponse, include_in_schema=False)
 def foreign_influence_page():

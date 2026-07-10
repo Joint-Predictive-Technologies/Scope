@@ -34,6 +34,7 @@
     /* ── TICKER TAPE ─────────────────────────────────────── */
     .tape { background: var(--bg2); border-bottom: 1px solid var(--border); height: 32px; line-height: 32px; overflow: hidden; white-space: nowrap; }
     .tape-inner { display: inline-flex; gap: 2.5rem; animation: scroll 50s linear infinite; height: 32px; align-items: center; }
+    .tape-track { display: contents; }
     .tape-item { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; white-space: nowrap; }
     .tape-item span { color: var(--amber); margin-right: 4px; }
     .tape-item.up .val { color: var(--green); }
@@ -208,8 +209,12 @@
     .heatmap-table { border-collapse: collapse; width: 100%; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; }
     .hm-rule-label { color: var(--muted); white-space: nowrap; padding: 4px 10px 4px 0; text-align: right; font-size: 0.6rem; letter-spacing: 0.04em; min-width: 80px; }
     .hm-day-label { color: var(--muted); text-align: center; padding: 2px 3px 6px; font-size: 0.55rem; letter-spacing: 0.03em; }
-    .hm-cell { width: 28px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: default; transition: transform 0.1s; }
+    .hm-cell { width: 28px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; transition: transform 0.1s; display: flex; align-items: center; justify-content: center; }
     .hm-cell:hover { transform: scale(1.15); z-index: 1; position: relative; }
+    .hm-cell:focus { outline: 2px solid var(--amber2); outline-offset: 1px; }
+    .hm-cnt { font-family: 'IBM Plex Mono', monospace; font-size: 0.5rem; color: var(--bg); font-weight: 600; }
+    .hm-legend { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--cream2); flex-wrap: wrap; }
+    .hm-legend .hm-key { width: 16px; height: 12px; border-radius: 2px; border: 1px solid var(--border); }
 
     /* ── ONBOARDING ──────────────────────────────────────── */
     .how-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.4rem; }
@@ -275,13 +280,7 @@
 </head>
 <body>
 
-<!-- NOTHING renders above this line except the ticker tape and nav -->
-<!-- TICKER TAPE -->
-<div class="tape">
-  <div class="tape-inner" id="tape">
-  </div>
-</div>
-
+<!-- NOTHING renders above <nav>. The live ticker tape renders directly below it. -->
 <!-- NAV -->
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
@@ -296,10 +295,15 @@
     <a href="/performance">Performance</a>
     <a href="/ask">Ask Scope</a>
     <a href="/feed">Alerts</a>
-    <a href="/api-docs">API</a>
+    <a href="/docs">API</a>
   </div>
   <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);background:var(--bg2);border:1px solid var(--border);padding:4px 10px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:0.4rem">⌘K</button>
 </nav>
+
+<!-- LIVE TICKER TAPE (renders once, below nav) -->
+<div class="tape" role="marquee" aria-label="Live signal ticker">
+  <div class="tape-inner" id="tape"></div>
+</div>
 
 <!-- CMD PALETTE -->
 <div id="cmd-backdrop" onclick="if(event.target===this)closeCmd()">
@@ -342,7 +346,7 @@
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_09  lobbying spend spikes</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_10  corroboration + LLM</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_11  government contracts</span></div>
-      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_12  FARA foreign lobbying</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_12  foreign lobbying (LDA)</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_13  PAC campaign finance</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_14  USPTO patent clusters</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_15  earnings call NLP</span></div>
@@ -421,7 +425,7 @@
 <!-- RULES GRID -->
 <div class="section" style="padding-top:0">
   <div class="section-label">Signal Architecture</div>
-  <div class="section-title">14 detection rules. One picture.</div>
+  <div class="section-title">14 detection rules plus one corroboration engine.</div>
   <div class="rules-grid">
     <div class="rule-card">
       <div class="rule-id">RULE_01B</div>
@@ -485,8 +489,8 @@
     </div>
     <div class="rule-card">
       <div class="rule-id">RULE_12</div>
-      <div class="rule-name">FARA Foreign Lobbying</div>
-      <div class="rule-desc">Foreign governments and entities filing under Senate LDA with active lobbying in tracked sectors.</div>
+      <div class="rule-name">Foreign Lobbying (LDA)</div>
+      <div class="rule-desc">Foreign entities disclosed on Senate LDA filings — the FARA-equivalent foreign-principal signal — lobbying in tracked sectors. Source: Senate Lobbying Disclosure Act, foreign-entity field.</div>
       <div class="rule-status">● Live</div>
     </div>
     <div class="rule-card">
@@ -510,7 +514,7 @@
     <div class="rule-card featured">
       <div class="rule-id">RULE_10 — Marquee Signal</div>
       <div class="rule-name">Cross-Source Corroboration</div>
-      <div class="rule-desc">Fires when 4+ independent rules converge on the same ticker within 24 hours. Polymarket, OSINT, and anomaly rules are excluded from the input set. Generates a plain-English analyst narrative via LLM.</div>
+      <div class="rule-desc">Fires when 4+ distinct eligible rules converge on the same ticker within 24 hours. Polymarket, OSINT, Reddit, and anomaly signals are excluded from the eligible set. Generates a plain-English analyst narrative via LLM.</div>
       <div class="rule-status">● Live</div>
     </div>
   </div>
@@ -535,7 +539,7 @@
     <div class="how-step">
       <div class="how-num">01</div>
       <div class="how-title">Raw data ingested</div>
-      <div class="how-desc">Scope monitors 14 data sources — congressional disclosures, SEC Form 4 filings, Federal Register proposals, Senate lobbying records, FARA foreign filings, FEC campaign finance, USPTO patents, USASpending.gov contracts, Polymarket odds, Reddit, geopolitical OSINT, and corporate earnings calls — on source-specific schedules from 15 minutes to daily.</div>
+      <div class="how-desc">Scope continuously monitors political, regulatory, corporate, market, and geopolitical sources — congressional disclosures, SEC Form 4 filings, the Federal Register, Senate lobbying records, foreign-lobbying filings, FEC campaign finance, USPTO patents, USASpending.gov contracts, Polymarket odds, Reddit, geopolitical OSINT, and corporate earnings calls — on source-specific schedules from 15 minutes to daily.</div>
       <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> RULE_08 + RULE_09 fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> 4 rules converge → RULE_10 queued</div>
     </div>
     <div class="how-step">
@@ -601,7 +605,10 @@
       const cls = DOWN_RULES.has(item.rule) ? 'down' : 'up';
       return `<span class="tape-item ${cls}"><span>${item.rule}</span> ${item.text} <span class="val">${item.icon}</span></span>`;
     }).join('');
-    return half + half; // duplicate for seamless CSS loop
+    // Real content once; the second copy is decorative (for the seamless CSS
+    // loop) and hidden from the accessibility tree so no text is duplicated.
+    return `<span class="tape-track">${half}</span>` +
+           `<span class="tape-track" aria-hidden="true">${half}</span>`;
   }
   function loadTape() {
     safeFetch('/api/ticker-tape', { signal: withTimeout(8000) }).then(items => {
@@ -673,11 +680,18 @@
     el.innerHTML = valid.slice(0, 5).map(t => {
       const sym = (t.ticker||'').replace(/\$/g,'').split(' ')[0];
       const cls = txClass(t.transaction_type);
-      const delay = parseInt(t.filing_delay) || 0;
-      const delayFlag = delay > 14
-        ? `<span title="Filed ${delay} days after trade" style="color:var(--amber);font-size:0.6rem;margin-left:3px">+${delay}d</span>`
-        : '';
-      const filedDate = t.filing_date ? ` · filed ${fmtTradeDate(t.filing_date)}${delayFlag}` : '';
+      const delay = parseInt(t.filing_delay);
+      // filing must not precede the transaction — flag impossible ordering
+      const dateValid = t.date_valid !== 0 && !(Number.isFinite(delay) && delay < 0);
+      let filedDate;
+      if (!dateValid) {
+        filedDate = ` · <span title="Filing date precedes transaction date — flagged as unverified" style="color:var(--red-light);font-size:0.6rem">⚠ dates unverified</span>`;
+      } else {
+        const delayFlag = Number.isFinite(delay) && delay > 14
+          ? `<span title="Filed ${delay} days after trade" style="color:var(--amber);font-size:0.6rem;margin-left:3px">+${delay}d late</span>`
+          : (Number.isFinite(delay) ? `<span title="Filed ${delay} days after trade" style="color:var(--muted);font-size:0.6rem;margin-left:3px">+${delay}d</span>` : '');
+        filedDate = t.filing_date ? ` · filed ${fmtTradeDate(t.filing_date)} ${delayFlag}` : '';
+      }
       return `<div class="trade-row">
         <a href="${sym ? '/ticker/'+sym : '#'}" class="trade-ticker">${sym || '—'}</a>
         <span class="trade-type ${cls}">${txLabel(t.transaction_type)}</span>
@@ -740,7 +754,7 @@
     const el = document.getElementById('corr-hero-cards');
     if (!el) return;
     if (!Array.isArray(data) || !data.length) {
-      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 4+ independent rules converge on the same ticker within 24h.</div>';
+      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 4+ distinct eligible rules converge on the same ticker within 24h.</div>';
       return;
     }
     el.innerHTML = data.map(a => {
@@ -989,10 +1003,12 @@
       days.push(d.toISOString().slice(0, 10));
     }
 
-    // Per-rule max for per-row color normalization
-    const ruleMax = {};
+    // Per-rule max + 14-day average for color intensity and baseline comparison
+    const ruleMax = {}, ruleAvg = {};
     for (const rule of HM_RULES) {
-      ruleMax[rule] = Math.max(1, ...days.map(day => (data[day] && data[day][rule]) || 0));
+      const series = days.map(day => (data[day] && data[day][rule]) || 0);
+      ruleMax[rule] = Math.max(1, ...series);
+      ruleAvg[rule] = series.reduce((a, b) => a + b, 0) / series.length;
     }
 
     // Header row
@@ -1005,18 +1021,41 @@
       }).join('')}
     </tr>`;
 
-    // Data rows — each rule uses its own max for color intensity
+    // Data rows — each cell carries its count as text + an accessible label,
+    // is keyboard-focusable, and drills into that rule/day's feed on activate.
     const dataRows = HM_RULES.map(rule => {
+      const label = HM_RULE_LABELS[rule] || rule;
       const cells = days.map(day => {
         const cnt = (data[day] && data[day][rule]) || 0;
         const intensity = cnt ? Math.max(0.1, cnt / ruleMax[rule]) : 0;
         const bg = cnt ? `rgba(200,146,42,${intensity.toFixed(2)})` : 'rgba(255,255,255,0.04)';
-        return `<td><div class="hm-cell" style="background:${bg}" title="${HM_RULE_LABELS[rule]||rule} · ${day} · ${cnt} signals"></div></td>`;
+        const avg = ruleAvg[rule] || 0;
+        const pct = avg > 0 ? Math.round((cnt - avg) / avg * 100) : 0;
+        const cmp = avg > 0 ? `${pct >= 0 ? '+' : ''}${pct}% vs 14-day avg` : 'no baseline';
+        const dLabel = new Date(day + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const aria = `${label} — ${dLabel}: ${cnt} alert${cnt !== 1 ? 's' : ''}, ${cmp}`;
+        const feed = `/feed?rule=${rule}`;
+        return `<td><div class="hm-cell" style="background:${bg}" role="button" tabindex="0"
+          aria-label="${aria}" title="${aria}"
+          onclick="location.href='${feed}'"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${feed}'}"
+          >${cnt ? `<span class="hm-cnt">${cnt}</span>` : ''}</div></td>`;
       }).join('');
-      return `<tr><td class="hm-rule-label">${HM_RULE_LABELS[rule]||rule}</td>${cells}</tr>`;
+      return `<tr><td class="hm-rule-label">${label}</td>${cells}</tr>`;
     }).join('');
 
+    const legend = `<div class="hm-legend" aria-hidden="false">
+      <span>Fewer</span>
+      <span class="hm-key" style="background:rgba(255,255,255,0.04)"></span>
+      <span class="hm-key" style="background:rgba(200,146,42,0.3)"></span>
+      <span class="hm-key" style="background:rgba(200,146,42,0.6)"></span>
+      <span class="hm-key" style="background:rgba(200,146,42,1)"></span>
+      <span>More alerts</span>
+      <span style="margin-left:auto;color:var(--muted)">Cell shows daily alert count · click to open that rule's feed</span>
+    </div>`;
     tbl.innerHTML = `<thead>${headRow}</thead><tbody>${dataRows}</tbody>`;
+    const wrap = tbl.closest('.heatmap-wrap');
+    if (wrap && !wrap.querySelector('.hm-legend')) wrap.insertAdjacentHTML('afterend', legend);
   });
 
   // ── 8s fallback for stuck loading states ─────────────────────────────────

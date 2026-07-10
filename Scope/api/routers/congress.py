@@ -48,6 +48,11 @@ def get_congress_trades(
             t.transaction_date,
             t.filing_date,
             CAST(julianday(t.filing_date) - julianday(t.transaction_date) AS INTEGER) AS filing_delay,
+            CASE
+              WHEN t.filing_date IS NOT NULL AND t.transaction_date IS NOT NULL
+                   AND julianday(t.filing_date) >= julianday(t.transaction_date)
+              THEN 1 ELSE 0
+            END AS date_valid,
             m.bioguide_id AS member_id,
             m.full_name,
             m.party,

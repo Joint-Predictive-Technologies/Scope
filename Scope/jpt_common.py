@@ -326,6 +326,83 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m001_severity_downgrade')")
         conn.commit()
 
+    # m002: purge RULE_10 records that don't satisfy the 4+ eligible-rule rule.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m002_purge_invalid_rule10'"
+    ).fetchone():
+        bad_ids = []
+        for r in conn.execute("SELECT id, tags FROM alerts WHERE rule='RULE_10'").fetchall():
+            if not rule10_is_valid(rule10_rules_from_tags(r[1])):
+                bad_ids.append(r[0])
+        for i in range(0, len(bad_ids), 400):
+            chunk = bad_ids[i:i + 400]
+            conn.execute(
+                f"DELETE FROM alerts WHERE id IN ({','.join('?' * len(chunk))})", chunk
+            )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m002_purge_invalid_rule10')")
+        conn.commit()
+
+    # m003: re-resolve RULE_11 contract tickers with the strict matcher; null out
+    # unverified mappings so no false company→ticker pairing is ever displayed.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m003_remap_contract_tickers'"
+    ).fetchone():
+        try:
+            tmap = [(row[0], row[1] or "")
+                    for row in conn.execute("SELECT symbol, company_name FROM tickers").fetchall()]
+        except Exception:
+            tmap = []
+        for a in conn.execute(
+            "SELECT id, ticker, tags FROM alerts WHERE rule='RULE_11'"
+        ).fetchall():
+            recipient = (a[2] or "").split("|")[0].strip()
+            if not recipient:
+                continue
+            tkr, _parent, conf = resolve_contractor(recipient, tmap)
+            new_ticker = tkr if (tkr and conf >= CONTRACTOR_MIN_CONFIDENCE) else None
+            if new_ticker != a[1]:
+                conn.execute("UPDATE alerts SET ticker=? WHERE id=?", (new_ticker, a[0]))
+        # Also fix the contracts table where present.
+        try:
+            for c in conn.execute("SELECT id, recipient_name FROM contracts").fetchall():
+                tkr, _p, conf = resolve_contractor(c[1] or "", tmap)
+                nt = tkr if (tkr and conf >= CONTRACTOR_MIN_CONFIDENCE) else None
+                conn.execute("UPDATE contracts SET ticker=? WHERE id=?", (nt, c[0]))
+        except Exception:
+            pass
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m003_remap_contract_tickers')")
+        conn.commit()
+
+    # m004: re-run the contract remap with the tightened matcher (2+ token rule
+    # + additional overrides) to clear single-token false positives.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m004_remap_contract_tickers_v2'"
+    ).fetchone():
+        try:
+            tmap = [(row[0], row[1] or "")
+                    for row in conn.execute("SELECT symbol, company_name FROM tickers").fetchall()]
+        except Exception:
+            tmap = []
+        for a in conn.execute(
+            "SELECT id, ticker, tags FROM alerts WHERE rule='RULE_11'"
+        ).fetchall():
+            recipient = (a[2] or "").split("|")[0].strip()
+            if not recipient:
+                continue
+            tkr, _p, conf = resolve_contractor(recipient, tmap)
+            new_ticker = tkr if (tkr and conf >= CONTRACTOR_MIN_CONFIDENCE) else None
+            if new_ticker != a[1]:
+                conn.execute("UPDATE alerts SET ticker=? WHERE id=?", (new_ticker, a[0]))
+        try:
+            for c in conn.execute("SELECT id, recipient_name FROM contracts").fetchall():
+                tkr, _p, conf = resolve_contractor(c[1] or "", tmap)
+                nt = tkr if (tkr and conf >= CONTRACTOR_MIN_CONFIDENCE) else None
+                conn.execute("UPDATE contracts SET ticker=? WHERE id=?", (nt, c[0]))
+        except Exception:
+            pass
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m004_remap_contract_tickers_v2')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -340,6 +417,158 @@ def classify_sector(ticker: str, text: str = "") -> str:
         if any(kw in low for kw in keywords):
             return sector
     return "Other"
+
+
+# ── RULE_10 corroboration — single authoritative definition ──────────────────
+# Fires when 4+ DISTINCT eligible rule families hit the same ticker within 24h.
+# Noise/synthesis rules are never eligible corroboration inputs.
+RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT", "RULE_10"}
+RULE_10_MIN_ELIGIBLE = 4
+
+
+def rule10_eligible_rules(rules) -> list[str]:
+    """Distinct, sorted eligible rule families from an arbitrary rule iterable."""
+    return sorted({(r or "").strip() for r in (rules or []) if (r or "").strip()
+                   and (r or "").strip() not in RULE_10_EXCLUDED})
+
+
+def rule10_is_valid(rules) -> bool:
+    """True iff 4+ distinct eligible rules are present."""
+    return len(rule10_eligible_rules(rules)) >= RULE_10_MIN_ELIGIBLE
+
+
+def rule10_rules_from_tags(tags: str) -> list[str]:
+    """Extract the rule list a RULE_10 alert recorded in its JSON tags."""
+    import json as _json
+    try:
+        t = _json.loads(tags or "{}")
+    except Exception:
+        return []
+    if isinstance(t, dict):
+        if isinstance(t.get("rules"), list):
+            return [str(x) for x in t["rules"]]
+        if t.get("rules_fired"):
+            return [s for s in str(t["rules_fired"]).split(",") if s]
+    return []
+
+
+# ── Federal contractor → public equity resolution ───────────────────────────
+# Government contractors are a known, finite set, so an explicit table beats
+# fuzzy matching — which produced false positives like
+# "RAYTHEON COMPANY" → HNST (Honest Company) because both contain "company".
+# value = (ticker or None, parent_label, confidence 0-100)
+CONTRACTOR_OVERRIDES: dict[str, tuple] = {
+    "lockheed martin":                    ("LMT", "Lockheed Martin Corporation", 99),
+    "raytheon":                           ("RTX", "RTX Corporation (Raytheon)", 98),
+    "rtx corporation":                    ("RTX", "RTX Corporation", 99),
+    "pratt & whitney":                    ("RTX", "RTX Corporation (Pratt & Whitney)", 95),
+    "collins aerospace":                  ("RTX", "RTX Corporation (Collins Aerospace)", 95),
+    "boeing":                             ("BA",  "The Boeing Company", 99),
+    "northrop grumman":                   ("NOC", "Northrop Grumman Corporation", 99),
+    "general dynamics":                   ("GD",  "General Dynamics Corporation", 99),
+    "l3harris":                           ("LHX", "L3Harris Technologies", 99),
+    "l-3 communications":                 ("LHX", "L3Harris Technologies", 90),
+    "huntington ingalls":                 ("HII", "Huntington Ingalls Industries", 99),
+    "leidos":                             ("LDOS", "Leidos Holdings", 99),
+    "science applications international":  ("SAIC", "SAIC", 98),
+    "booz allen":                         ("BAH", "Booz Allen Hamilton", 99),
+    "caci":                               ("CACI", "CACI International", 97),
+    "palantir":                           ("PLTR", "Palantir Technologies", 98),
+    "honeywell":                          ("HON", "Honeywell International", 96),
+    "general electric":                   ("GE",  "GE Aerospace", 90),
+    "ge aerospace":                       ("GE",  "GE Aerospace", 95),
+    "textron":                            ("TXT", "Textron Inc.", 96),
+    "amentum":                            ("AMTM", "Amentum Holdings", 92),
+    "jacobs":                             ("J",   "Jacobs Solutions", 88),
+    "kbr":                                ("KBR", "KBR Inc.", 95),
+    "parsons":                            ("PSN", "Parsons Corporation", 93),
+    "v2x":                                ("VVX", "V2X Inc.", 92),
+    "curtiss-wright":                     ("CW",  "Curtiss-Wright Corporation", 95),
+    "oshkosh":                            ("OSK", "Oshkosh Corporation", 95),
+    "aerovironment":                      ("AVAV", "AeroVironment", 95),
+    "kratos":                             ("KTOS", "Kratos Defense", 95),
+    "raytheon technologies":              ("RTX", "RTX Corporation", 99),
+    # Known private / non-US-listed contractors — surface parent, no ticker.
+    "bechtel":                            (None, "Bechtel Corporation (privately held)", 96),
+    "sierra nevada":                      (None, "Sierra Nevada Corporation (private)", 94),
+    "bae systems":                        (None, "BAE Systems plc (UK-listed, no US ticker)", 90),
+    "mission support and test services":  (None, "MSTS — Honeywell/Jacobs/Stoller JV", 80),
+    "mission support & test services":    (None, "MSTS — Honeywell/Jacobs/Stoller JV", 80),
+    "battelle":                           (None, "Battelle Memorial Institute (nonprofit)", 90),
+    "mitre":                              (None, "MITRE Corporation (nonprofit FFRDC)", 92),
+    "aerospace corporation":              (None, "The Aerospace Corporation (nonprofit FFRDC)", 88),
+    "johns hopkins":                      (None, "Johns Hopkins APL (university-affiliated)", 88),
+    "humana government business":         ("HUM", "Humana Inc. (TRICARE)", 92),
+    "consolidated nuclear security":      (None, "Consolidated Nuclear Security LLC (Bechtel/Leidos JV, private)", 90),
+    "national technology and engineering solutions": (None, "Sandia NTESS (Honeywell-managed FFRDC)", 88),
+    "national technology & engineering solutions":   (None, "Sandia NTESS (Honeywell-managed FFRDC)", 88),
+    "los alamos national security":       (None, "Los Alamos National Security (FFRDC)", 88),
+    "triad national security":            (None, "Triad National Security (FFRDC)", 88),
+}
+
+# Assign a ticker only at/above this confidence; otherwise show it as unverified.
+CONTRACTOR_MIN_CONFIDENCE = 85
+
+_GENERIC_TOKENS = {
+    "inc", "incorporated", "corp", "corporation", "company", "co", "llc", "llp",
+    "lp", "ltd", "limited", "the", "group", "holdings", "holding", "systems",
+    "technologies", "technology", "solutions", "services", "service", "international",
+    "industries", "enterprises", "associates", "partners", "and", "of", "us", "usa",
+    "national", "america", "american", "global", "federal", "defense",
+}
+
+
+def _norm_company(name: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9& ]", " ", (name or "").lower()).strip()
+
+
+def _distinctive_tokens(name: str) -> set[str]:
+    return {t for t in _norm_company(name).replace("&", " ").split()
+            if t and t not in _GENERIC_TOKENS and len(t) >= 3}
+
+
+def resolve_contractor(name: str, ticker_map: "list[tuple[str, str]] | None" = None) -> tuple:
+    """
+    Resolve a federal-contract recipient to a public equity.
+
+    Returns (ticker | None, parent_label | None, confidence 0-100). A ticker is
+    only returned when confidence >= CONTRACTOR_MIN_CONFIDENCE; otherwise the
+    caller should show "No verified public ticker mapping".
+    """
+    low = _norm_company(name)
+    if not low:
+        return (None, None, 0)
+
+    # 1. Override table — longest matching key wins (most specific).
+    best_key = None
+    for key in CONTRACTOR_OVERRIDES:
+        if key in low and (best_key is None or len(key) > len(best_key)):
+            best_key = key
+    if best_key:
+        return CONTRACTOR_OVERRIDES[best_key]
+
+    # 2. Strict token containment against the tickers table (public issuers).
+    #    Require ALL distinctive tokens of a company name to appear in the
+    #    recipient's distinctive tokens — no partial/generic-word matches.
+    if ticker_map:
+        recip = _distinctive_tokens(name)
+        if recip:
+            best = (None, None, 0)
+            for symbol, company in ticker_map:
+                comp = _distinctive_tokens(company)
+                # Require 2+ distinctive tokens to fully match — single-token
+                # containment ("security", "nuclear") produced false positives.
+                if len(comp) < 2:
+                    continue
+                if comp <= recip:  # every distinctive company token present
+                    conf = 90
+                    if conf > best[2]:
+                        best = (symbol, (company or symbol), conf)
+            if best[2] >= CONTRACTOR_MIN_CONFIDENCE:
+                return best
+
+    return (None, None, 0)
 
 
 _SECTOR_FUNDING_KEYS: dict[str, str] = {

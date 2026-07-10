@@ -19,7 +19,7 @@ import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection
+from jpt_common import db_connection, resolve_contractor, CONTRACTOR_MIN_CONFIDENCE
 
 BASE_URL = "https://api.usaspending.gov/api/v2/search/spending_by_award/"
 FUZZY_THRESHOLD = 0.55
@@ -65,22 +65,13 @@ def _fetch_contracts(pages: int = 3) -> list[dict]:
 
 
 def _match_ticker(name: str, ticker_map: list[tuple[str, str]]) -> str | None:
-    name_lower = name.lower()
-    for symbol, company in ticker_map:
-        if not company:
-            continue
-        comp_clean = company.lower().replace(" inc","").replace(" corp","").replace(" llc","").replace(" ltd","").strip()
-        name_clean  = name_lower.replace(" inc","").replace(" corp","").replace(" llc","").replace(" ltd","").strip()
-        if comp_clean and (comp_clean in name_clean or name_clean in comp_clean):
-            return symbol
-    best_ratio, best_symbol = 0.0, None
-    for symbol, company in ticker_map:
-        if not company:
-            continue
-        ratio = difflib.SequenceMatcher(None, name_lower, company.lower()).ratio()
-        if ratio > best_ratio:
-            best_ratio, best_symbol = ratio, symbol
-    return best_symbol if best_ratio >= FUZZY_THRESHOLD else None
+    """Verified ticker only — uses the curated contractor resolver (see jpt_common).
+
+    Returns a symbol only at/above the strict confidence threshold; otherwise
+    None, so the UI shows "No verified public ticker mapping" instead of a guess.
+    """
+    ticker, _parent, conf = resolve_contractor(name, ticker_map)
+    return ticker if (ticker and conf >= CONTRACTOR_MIN_CONFIDENCE) else None
 
 
 def _severity(amount: float, on_watchlist: bool) -> str:
@@ -97,12 +88,14 @@ def _severity(amount: float, on_watchlist: bool) -> str:
 
 def _emit_alert(conn, ticker: str, recipient: str, amount: float,
                 agency: str, award_date: str, award_id: str,
-                desc: str, on_watchlist: bool) -> bool:
+                desc: str, on_watchlist: bool,
+                parent: str = "", confidence: int = 0) -> bool:
     sev = _severity(amount, on_watchlist)
     wl_badge = " 👁 Watchlist" if on_watchlist and amount < LARGE_THRESHOLD else ""
     headline = f"Gov Contract — {recipient} awarded ${amount:,.0f} by {agency}{wl_badge}"
     detail   = desc or f"${amount:,.0f} contract awarded {award_date}"
-    tags     = f"{recipient}|{award_date}|{award_id}"
+    # tags: recipient|award_date|award_id|public_parent|mapping_confidence
+    tags     = f"{recipient}|{award_date}|{award_id}|{parent or ''}|{confidence or ''}"
 
     # Check by award_id OR by ticker+date to avoid duplicates across runs
     already = conn.execute(
@@ -163,7 +156,8 @@ def run(dry_run: bool = False) -> None:
         if not recipient:
             continue
 
-        ticker = _match_ticker(recipient, ticker_map)
+        _tkr, _parent, _conf = resolve_contractor(recipient, ticker_map)
+        ticker = _tkr if (_tkr and _conf >= CONTRACTOR_MIN_CONFIDENCE) else None
         on_watchlist = bool(ticker and ticker.upper() in watchlist_tickers)
 
         # Store only if: above $50M threshold OR watchlist match
@@ -190,7 +184,8 @@ def run(dry_run: bool = False) -> None:
             # Still try to emit alert if missing (e.g. after alert purge)
             if ticker and not dry_run:
                 if _emit_alert(conn, ticker, recipient, amount, agency,
-                               award_date, award_id, desc, on_watchlist):
+                               award_date, award_id, desc, on_watchlist,
+                               _parent, _conf):
                     emitted += 1
                     conn.commit()
             continue
@@ -210,7 +205,8 @@ def run(dry_run: bool = False) -> None:
 
         if ticker:
             if _emit_alert(conn, ticker, recipient, amount, agency,
-                           award_date, award_id, desc, on_watchlist):
+                           award_date, award_id, desc, on_watchlist,
+                           _parent, _conf):
                 emitted += 1
 
         conn.commit()
@@ -233,10 +229,12 @@ def run(dry_run: bool = False) -> None:
     """).fetchall()
     for row in rows:
         on_wl = row["ticker"] in watchlist_tickers
+        _rp, _rparent, _rconf = resolve_contractor(row["recipient_name"] or "", ticker_map)
         if not dry_run and _emit_alert(
             conn, row["ticker"], row["recipient_name"], row["amount"] or 0,
             row["agency"] or "", row["award_date"] or TODAY,
-            row["award_id"] or "", row["description"] or "", on_wl
+            row["award_id"] or "", row["description"] or "", on_wl,
+            _rparent, _rconf
         ):
             retro += 1
             conn.commit()
