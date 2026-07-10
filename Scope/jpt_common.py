@@ -287,6 +287,29 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         ingested_at     TEXT DEFAULT (datetime('now'))
     )""")
 
+    # Migration tracking — idempotent, runs once per named migration
+    conn.execute("""CREATE TABLE IF NOT EXISTS scope_migrations (
+        name       TEXT PRIMARY KEY,
+        applied_at TEXT DEFAULT (datetime('now'))
+    )""")
+    conn.commit()
+
+    # m001: downgrade severity inflation from pre-threshold-tightening alerts
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m001_severity_downgrade'"
+    ).fetchone():
+        conn.execute(
+            "UPDATE alerts SET severity='MEDIUM' WHERE rule='RULE_07' AND severity='HIGH'"
+        )
+        conn.execute(
+            "UPDATE alerts SET severity='HIGH' WHERE rule='RULE_OSINT' AND severity='CRITICAL'"
+        )
+        conn.execute(
+            "DELETE FROM alerts WHERE rule='RULE_10' AND tags LIKE '%GDELT%'"
+        )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m001_severity_downgrade')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -507,8 +530,8 @@ def calculate_heat_index(
         sev_w   = _HEAT_SEVERITY_WEIGHTS.get(row[0] or "MEDIUM", 0.5)
         rule    = (row[1] or "").upper()
         rule_w  = _HEAT_RULE_MULTIPLIERS.get(rule, 1.0)
-        age     = max(0.0, float(row[2] or 0))
-        decay   = 0.5 ** (age / 48.0)
+        age     = max(0.0, float(row[2] or 0))  # age is in DAYS from julianday diff
+        decay   = 0.5 ** (age / 2.0)            # 2-day (48-hour) half-life
         contrib = sev_w * rule_w * decay
         rule_scores[rule] = rule_scores.get(rule, 0.0) + contrib
         if age <= half:

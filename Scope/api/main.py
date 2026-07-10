@@ -411,21 +411,26 @@ def ticker_tape():
         SELECT rule, ticker, headline, severity
         FROM alerts
         WHERE severity IN ('HIGH', 'CRITICAL')
-          AND rule NOT IN ('RULE_ANOMALY', 'RULE_11')
+          AND rule NOT IN ('RULE_ANOMALY', 'RULE_11', 'RULE_07', 'RULE_OSINT', 'RULE_REDDIT')
           AND datetime(created_at) >= datetime('now', '-7 days')
         ORDER BY datetime(created_at) DESC
-        LIMIT 20
+        LIMIT 60
     """).fetchall()
     conn.close()
 
     items = []
+    seen: set = set()
     for r in rows:
         rule    = r["rule"] or ""
         ticker  = (r["ticker"] or "").replace("$", "").split(" ")[0][:6]
         headline = (r["headline"] or "")
+        # Deduplicate: one entry per rule+ticker combination
+        key = (rule, ticker)
+        if key in seen:
+            continue
+        seen.add(key)
         label   = TAPE_RULE_LABELS.get(rule, rule)
         icon    = TAPE_RULE_ICON.get(rule, "●")
-        # Build short display text
         if ticker:
             text = f"{label} — {ticker}"
         else:
