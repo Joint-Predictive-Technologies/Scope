@@ -26,7 +26,7 @@ def _gather_data(conn, days: float = 2) -> dict:
 
     signals = conn.execute(
         """
-        SELECT rule, ticker, headline, detail, severity, created_at
+        SELECT id, rule, ticker, headline, detail, severity, created_at
         FROM alerts
         WHERE created_at >= datetime('now', ?)
           AND severity IN ('CRITICAL', 'HIGH')
@@ -64,11 +64,22 @@ def _gather_data(conn, days: float = 2) -> dict:
         (window,),
     ).fetchall()
 
+    # Evidence map: ticker -> list of {id, rule} that back a claim about it.
+    evidence: dict = {}
+    alert_ids: list = []
+    for r in signals:
+        alert_ids.append(r["id"])
+        tk = (r["ticker"] or "").replace("$", "").split()[0] if r["ticker"] else ""
+        if tk:
+            evidence.setdefault(tk, []).append({"id": r["id"], "rule": r["rule"]})
+
     return {
         "signals":     [dict(r) for r in signals],
         "by_rule":     by_rule,
         "congressional": [dict(r) for r in congressional],
         "total":       len(signals),
+        "alert_ids":   alert_ids,
+        "evidence":    evidence,
     }
 
 
@@ -175,14 +186,19 @@ def generate(date_str: str | None = None, days: float = 2) -> dict:
     json.loads(content_json)
 
     generated_at = datetime.now(timezone.utc).isoformat()
+    alert_ids_json = json.dumps(data.get("alert_ids", []))
+    evidence_json = json.dumps(data.get("evidence", {}))
     conn.execute(
-        "INSERT OR REPLACE INTO daily_briefs (date, content_json, generated_at) VALUES (?, ?, ?)",
-        (today, content_json, generated_at),
+        """INSERT OR REPLACE INTO daily_briefs
+           (date, content_json, generated_at, alert_ids, evidence_json)
+           VALUES (?, ?, ?, ?, ?)""",
+        (today, content_json, generated_at, alert_ids_json, evidence_json),
     )
     conn.commit()
     conn.close()
-    print(f"[brief] generated for {today}")
-    return {"date": today, "content_json": content_json, "generated_at": generated_at}
+    print(f"[brief] generated for {today} — {len(data.get('alert_ids', []))} evidence alerts")
+    return {"date": today, "content_json": content_json, "generated_at": generated_at,
+            "alert_ids": alert_ids_json, "evidence_json": evidence_json}
 
 
 if __name__ == "__main__":

@@ -50,11 +50,39 @@ def _yesterday() -> str:
 
 def _get_brief(date: str) -> dict | None:
     conn = db_connection()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(daily_briefs)").fetchall()}
+    extra = ", alert_ids, evidence_json" if "alert_ids" in cols else ""
     row = conn.execute(
-        "SELECT date, content_json, generated_at FROM daily_briefs WHERE date = ?", (date,)
+        f"SELECT date, content_json, generated_at{extra} FROM daily_briefs WHERE date = ?",
+        (date,),
     ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    brief = dict(row)
+
+    # Staleness: material new evidence (CRITICAL / RULE_10) since generation
+    # that the brief did not cite.
+    stale = False
+    try:
+        gen = brief.get("generated_at")
+        cited = set(json.loads(brief.get("alert_ids") or "[]"))
+        if gen:
+            newer = conn.execute(
+                """
+                SELECT id FROM alerts
+                WHERE datetime(created_at) > datetime(?)
+                  AND (severity = 'CRITICAL' OR rule = 'RULE_10')
+                """,
+                (gen.replace("T", " ")[:19],),
+            ).fetchall()
+            material_new = [r[0] for r in newer if r[0] not in cited]
+            stale = len(material_new) >= 3
+    except Exception:
+        pass
     conn.close()
-    return dict(row) if row else None
+    brief["stale"] = stale
+    return brief
 
 
 @router.get("/data")

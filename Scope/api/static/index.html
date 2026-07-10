@@ -236,6 +236,62 @@
 
     /* ── HEAT STRIP ── */
     .heat-strip { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.6rem; }
+
+    /* ── TODAY command center ── */
+    .today { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .today-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+    .today-tab { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); background: transparent; border: none; border-bottom: 2px solid transparent; padding: 0.8rem 1.1rem; cursor: pointer; white-space: nowrap; transition: color 0.15s, border-color 0.15s; }
+    .today-tab:hover { color: var(--cream2); }
+    .today-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+    .today-body { padding: 0.4rem 0.6rem; min-height: 220px; }
+    .today-row { display: flex; align-items: center; gap: 0.7rem; padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.12s; }
+    .today-row:last-child { border-bottom: none; }
+    .today-row:hover { background: var(--bg3); }
+    .today-row .t-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
+    .today-row .t-tkr { font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; color: var(--amber); flex-shrink: 0; min-width: 46px; }
+    .today-row .t-hl { color: var(--cream2); font-size: 0.8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .today-row .t-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); flex-shrink: 0; }
+    .today-foot { padding: 0.7rem 1rem; border-top: 1px solid var(--border); text-align: right; }
+    .today-loading, .today-empty, .today-error { padding: 2.4rem 1rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; color: var(--muted); }
+    .today-skel { height: 14px; margin: 1rem 0.8rem; border-radius: 4px; background: linear-gradient(90deg,var(--bg3) 25%,#221f18 50%,var(--bg3) 75%); background-size: 200% 100%; animation: skel 1.2s ease-in-out infinite; }
+    @keyframes skel { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .today-retry { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--amber); background: transparent; border: 1px solid var(--border2); padding: 5px 14px; border-radius: 4px; cursor: pointer; margin-top: 0.8rem; }
+
+    /* ── EVIDENCE DRAWER ── */
+    #ev-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 8000; backdrop-filter: blur(3px); }
+    #ev-backdrop.open { display: block; }
+    #ev-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(460px, 94vw); background: #16140f; border-left: 1px solid var(--border2); box-shadow: -12px 0 40px rgba(0,0,0,0.5); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; }
+    #ev-backdrop.open #ev-drawer { transform: translateX(0); }
+    .ev-head { display: flex; align-items: flex-start; gap: 0.6rem; padding: 1.1rem 1.2rem; border-bottom: 1px solid var(--border); }
+    .ev-head-main { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; }
+    .ev-rule { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); }
+    .ev-title { font-size: 0.9rem; color: var(--cream); width: 100%; line-height: 1.4; margin-top: 0.2rem; }
+    .ev-close { background: transparent; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; flex-shrink: 0; }
+    .ev-close:hover { color: var(--cream); }
+    .ev-content { padding: 1.2rem; overflow-y: auto; flex: 1; }
+    .ev-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin: 1.1rem 0 0.5rem; }
+    .ev-label:first-child { margin-top: 0; }
+    .ev-why { font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
+    .ev-conf-total { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--amber2); }
+    .ev-conf-bar { height: 6px; background: var(--bg3); border-radius: 3px; overflow: hidden; margin: 0.4rem 0 0.8rem; }
+    .ev-conf-fill { height: 100%; background: var(--amber); }
+    .ev-comp { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); padding: 0.2rem 0; }
+    .ev-comp .v { color: var(--amber2); }
+    .ev-chip { display: inline-block; font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--cream2); background: var(--bg3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 7px; margin: 0 3px 3px 0; }
+    .ev-rel { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 0.74rem; }
+    .ev-rel:hover .ev-rel-hl { color: var(--amber); }
+    .ev-rel-hl { color: var(--cream2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .ev-actions { display: flex; gap: 0.5rem; margin-top: 1.2rem; flex-wrap: wrap; }
+    .ev-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; text-decoration: none; padding: 7px 14px; border-radius: 5px; cursor: pointer; border: 1px solid var(--border2); color: var(--cream2); background: transparent; }
+    .ev-btn.primary { background: var(--amber); color: var(--bg); border-color: var(--amber); }
+    .ev-btn:hover { border-color: var(--amber); color: var(--amber); }
+    .ev-btn.primary:hover { background: var(--amber2); color: var(--bg); }
+    .ev-src a { color: var(--amber); text-decoration: none; font-size: 0.76rem; }
+    .ev-src a:hover { text-decoration: underline; }
+    @media (max-width: 640px) {
+      #ev-drawer { top: auto; bottom: 0; right: 0; left: 0; width: 100%; height: 82vh; border-left: none; border-top: 1px solid var(--border2); border-radius: 14px 14px 0 0; transform: translateY(100%); }
+      #ev-backdrop.open #ev-drawer { transform: translateY(0); }
+    }
     .heat-chip { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.55rem 0.8rem; text-decoration: none; display: flex; flex-direction: column; gap: 0.35rem; min-width: 140px; flex: 1; transition: border-color 0.15s; }
     .heat-chip:hover { border-color: var(--amber); }
     .heat-chip-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -386,40 +442,39 @@
   </div>
 </div>
 
-<!-- LIVE WIDGETS -->
+<!-- TODAY — command center -->
 <div class="section">
-  <div class="section-label">Live Data</div>
-  <div class="section-title">Signals by source</div>
-  <div class="widgets">
-
-    <!-- Widget 1: Latest Congressional Trades -->
-    <div class="widget">
-      <div class="widget-header">
-        <span class="widget-title">Latest Congressional Trades</span>
-        <a href="/congress" class="widget-link">All →</a>
-      </div>
-      <div class="widget-body" id="widget-trades"><div class="widget-muted">Loading…</div></div>
+  <div class="section-label">Command Center</div>
+  <div class="section-title" style="margin-bottom:1rem">Today</div>
+  <div class="today">
+    <div class="today-tabs" id="today-tabs" role="tablist">
+      <button class="today-tab active" role="tab" data-tab="signals" onclick="setToday('signals')">Top Signals</button>
+      <button class="today-tab" role="tab" data-tab="sectors" onclick="setToday('sectors')">Sectors</button>
+      <button class="today-tab" role="tab" data-tab="congress" onclick="setToday('congress')">Congress</button>
+      <button class="today-tab" role="tab" data-tab="insiders" onclick="setToday('insiders')">Insiders</button>
+      <button class="today-tab" role="tab" data-tab="contracts" onclick="setToday('contracts')">Contracts</button>
+      <button class="today-tab" role="tab" data-tab="osint" onclick="setToday('osint')">OSINT</button>
     </div>
-
-    <!-- Widget 2: Highest Score Alerts -->
-    <div class="widget">
-      <div class="widget-header">
-        <span class="widget-title">Highest Signal Score</span>
-        <a href="/feed" class="widget-link">Feed →</a>
-      </div>
-      <div class="widget-body" id="widget-scores"><div class="widget-muted">Loading…</div></div>
+    <div class="today-body" id="today-body" role="tabpanel" aria-live="polite">
+      <div class="today-loading">Loading…</div>
     </div>
-
-    <!-- Widget 3: Today's Brief -->
-    <div class="widget">
-      <div class="widget-header">
-        <span class="widget-title">Today's Brief</span>
-        <a href="/brief" class="widget-link">Read →</a>
-      </div>
-      <div class="widget-body" id="widget-brief"><div class="widget-muted">Loading…</div></div>
-    </div>
-
+    <div class="today-foot"><a id="today-viewall" href="/feed" class="widget-link">View all →</a></div>
   </div>
+</div>
+
+<!-- EVIDENCE DRAWER -->
+<div id="ev-backdrop" onclick="if(event.target===this)closeEvidence()" aria-hidden="true">
+  <aside id="ev-drawer" role="dialog" aria-modal="true" aria-labelledby="ev-title" tabindex="-1">
+    <div class="ev-head">
+      <div class="ev-head-main">
+        <span id="ev-sev" class="badge"></span>
+        <span id="ev-rule" class="ev-rule"></span>
+        <span id="ev-title" class="ev-title"></span>
+      </div>
+      <button class="ev-close" onclick="closeEvidence()" aria-label="Close">✕</button>
+    </div>
+    <div id="ev-content" class="ev-content"><div class="today-loading">Loading evidence…</div></div>
+  </aside>
 </div>
 
 <!-- RULES GRID -->
@@ -665,42 +720,6 @@
     } catch { return d; }
   }
 
-  // Widget 1: Latest Congressional Trades
-  safeFetch('/congress/trades?days=180&limit=6', { signal: withTimeout(8000) }).then(data => {
-    const el = document.getElementById('widget-trades');
-    if (!el) return;
-    // Filter out obviously corrupted dates (99/*, far-future years)
-    const valid = (Array.isArray(data) ? data : []).filter(t => {
-      const d = t.transaction_date || '';
-      if (d.startsWith('99')) return false;
-      const yr = parseInt(d.slice(0, 4));
-      return yr >= 2020 && yr <= new Date().getFullYear() + 1;
-    });
-    if (!valid.length) { el.innerHTML = '<div class="widget-muted">No recent trades on record.</div>'; return; }
-    el.innerHTML = valid.slice(0, 5).map(t => {
-      const sym = (t.ticker||'').replace(/\$/g,'').split(' ')[0];
-      const cls = txClass(t.transaction_type);
-      const delay = parseInt(t.filing_delay);
-      // filing must not precede the transaction — flag impossible ordering
-      const dateValid = t.date_valid !== 0 && !(Number.isFinite(delay) && delay < 0);
-      let filedDate;
-      if (!dateValid) {
-        filedDate = ` · <span title="Filing date precedes transaction date — flagged as unverified" style="color:var(--red-light);font-size:0.6rem">⚠ dates unverified</span>`;
-      } else {
-        const delayFlag = Number.isFinite(delay) && delay > 14
-          ? `<span title="Filed ${delay} days after trade" style="color:var(--amber);font-size:0.6rem;margin-left:3px">+${delay}d late</span>`
-          : (Number.isFinite(delay) ? `<span title="Filed ${delay} days after trade" style="color:var(--muted);font-size:0.6rem;margin-left:3px">+${delay}d</span>` : '');
-        filedDate = t.filing_date ? ` · filed ${fmtTradeDate(t.filing_date)} ${delayFlag}` : '';
-      }
-      return `<div class="trade-row">
-        <a href="${sym ? '/ticker/'+sym : '#'}" class="trade-ticker">${sym || '—'}</a>
-        <span class="trade-type ${cls}">${txLabel(t.transaction_type)}</span>
-        <span class="trade-meta">${(t.full_name||'').split(',')[0]} · ${t.amount_band||''}</span>
-        <span class="trade-time">${fmtTradeDate(t.transaction_date)}${filedDate}</span>
-      </div>`;
-    }).join('');
-  });
-
   // ── Corroboration hero cards ──────────────────────────────────────────────
   function corrConfidence(alert) {
     let tags = {};
@@ -788,71 +807,12 @@
             </div>
             ${a.why_matters ? `<div class="why-matters">Why this matters: ${a.why_matters}</div>` : ''}
             <div class="corr-card-foot">
-              ${sym ? `<a href="/ticker/${sym}" class="corr-link">View Evidence →</a>` : ''}
+              <a href="#" class="corr-link" onclick="event.preventDefault();openEvidence('alert', ${a.id})">View Evidence →</a>
               <a href="/feed?rule=RULE_10&ticker=${sym}" class="corr-link">All signals →</a>
             </div>
           </div>`;
     }).join('');
   });
-
-  // Widget 2: Highest Signal Score
-  function signalScoreW(a) {
-    const sev = {CRITICAL:100,HIGH:60,MEDIUM:30,LOW:10}[a.severity]||10;
-    const ts = (a.created_at||'').replace(' ','T');
-    const h = (Date.now() - new Date(ts+(ts.includes('Z')?'':'Z')).getTime()) / 3600000;
-    let s = sev * Math.pow(0.5, h/48);
-    if (a.rule==='RULE_10') s*=2.0;
-    if (a.rule==='RULE_06') s*=1.5;
-    if (a.rule==='RULE_01B') s*=1.4;
-    if (a.rule==='RULE_11') s*=1.3;
-    return Math.round(s*10)/10;
-  }
-  safeFetch('/alerts?days=7&severity_min=HIGH&limit=50', { signal: withTimeout(8000) }).then(data => {
-    const el = document.getElementById('widget-scores');
-    if (!el) return;
-    if (!Array.isArray(data) || !data.length) { el.innerHTML='<div class="widget-muted">No high-severity alerts.</div>'; return; }
-    const scored = data.map(a=>({...a,_score:signalScoreW(a)})).sort((a,b)=>b._score-a._score).slice(0,5);
-    el.innerHTML = scored.map(a => {
-      const sym = (a.ticker||'').replace(/\$/g,'').split(' ')[0];
-      return `<a href="${sym?'/ticker/'+sym:'/feed'}" class="score-row" style="text-decoration:none">
-        <span class="score-val">${a._score}</span>
-        <span class="score-rule">${a.rule}</span>
-        ${sym ? `<span class="score-ticker">${sym}</span>` : ''}
-        <span class="score-headline">${a.headline||''}</span>
-      </a>`;
-    }).join('');
-  });
-
-  // Widget 3: Today's Brief
-  let _briefPoll = null;
-  function loadBrief() {
-    safeFetch('/brief/data', { signal: withTimeout(10000) }).then(d => {
-      const el = document.getElementById('widget-brief');
-      if (!el) return;
-      if (!d) { el.innerHTML = '<div class="widget-muted">Brief unavailable.</div>'; return; }
-      if (d.generating && !d.content_json) {
-        el.innerHTML = '<div class="widget-muted">⟳ Generating today\'s brief…</div>';
-        if (!_briefPoll) _briefPoll = setInterval(loadBrief, 8000);
-        return;
-      }
-      if (_briefPoll) { clearInterval(_briefPoll); _briefPoll = null; }
-      if (!d.content_json) {
-        el.innerHTML = '<div class="widget-muted">No brief yet — <a href="/brief" style="color:var(--amber)">view brief page</a>.</div>';
-        return;
-      }
-      try {
-        const p = JSON.parse(d.content_json);
-        const sentences = (p.ai_summary || '').split('. ');
-        const preview = sentences.slice(0, 2).join('. ') + (sentences.length > 2 ? '…' : '');
-        el.innerHTML = `<div class="brief-box">
-          <div class="brief-week">${d.is_today ? 'Today' : 'Yesterday'} · ${d.date||''}</div>
-          <div class="brief-summary">${preview}</div>
-          <a href="/brief" class="brief-cta">Read full brief →</a>
-        </div>`;
-      } catch { el.innerHTML = '<div class="widget-muted">Brief available — <a href="/brief" style="color:var(--amber)">click to read</a>.</div>'; }
-    });
-  }
-  loadBrief();
 
   // "What Changed Today" — show actual recent HIGH/CRITICAL alerts, brief as footer note
   const RULE_LABEL = {
@@ -921,12 +881,29 @@
       const p = JSON.parse(d.content_json);
       const sentences = (p.ai_summary||'').split('. ');
       const snip = sentences.slice(0,2).join('. ') + (sentences.length > 2 ? '…' : '');
-      el.innerHTML = `<div style="margin-top:1rem;padding:0.9rem 1.2rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap">
-        <div style="flex:1;min-width:200px">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:0.35rem">${d.is_today?'Today':'Yesterday'} · AI Brief · ${d.date||''}</div>
-          <div style="font-family:'Playfair Display',serif;font-size:0.85rem;color:var(--cream);line-height:1.55;font-style:italic">${snip}</div>
+      // Evidence chips: each cited ticker links to its backing alert (drawer).
+      let evidence = {};
+      try { evidence = JSON.parse(d.evidence_json || '{}'); } catch {}
+      const evChips = Object.entries(evidence).slice(0, 6).map(([tk, items]) => {
+        const id = (items && items[0] && items[0].id) || null;
+        return id
+          ? `<a href="#" onclick="event.preventDefault();openEvidence('alert', ${id})" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--amber);border:1px solid rgba(200,146,42,0.3);border-radius:3px;padding:1px 7px;text-decoration:none">${tk} · evidence</a>`
+          : `<a href="/ticker/${tk}" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--amber)">${tk}</a>`;
+      }).join(' ');
+      const gen = d.generated_at ? new Date(d.generated_at).toLocaleString() : '';
+      const staleBadge = d.stale
+        ? `<span title="New material signals arrived since generation" style="font-family:'IBM Plex Mono',monospace;font-size:0.56rem;color:var(--red-light);border:1px solid rgba(229,91,77,0.35);border-radius:3px;padding:0px 6px;margin-left:0.5rem">⚠ STALE — regenerating</span>`
+        : '';
+      el.innerHTML = `<div style="margin-top:1rem;padding:0.9rem 1.2rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+        <div style="display:flex;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:0.58rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--amber);margin-bottom:0.35rem">${d.is_today?'Today':'Yesterday'} · AI Brief · ${d.date||''}${staleBadge}</div>
+            <div style="font-family:'Playfair Display',serif;font-size:0.85rem;color:var(--cream);line-height:1.55;font-style:italic">${snip}</div>
+          </div>
+          <a href="/brief" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;color:var(--amber);text-decoration:none;white-space:nowrap;align-self:center;border:1px solid rgba(200,146,42,0.3);padding:5px 12px;border-radius:4px">Read full brief →</a>
         </div>
-        <a href="/brief" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;letter-spacing:0.04em;color:var(--amber);text-decoration:none;white-space:nowrap;align-self:center;border:1px solid rgba(200,146,42,0.3);padding:5px 12px;border-radius:4px">Read full brief →</a>
+        ${evChips ? `<div style="margin-top:0.7rem;display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center"><span style="font-family:'IBM Plex Mono',monospace;font-size:0.56rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Evidence:</span> ${evChips}</div>` : ''}
+        ${gen ? `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.55rem;color:var(--muted);margin-top:0.5rem">Generated ${gen}${d.is_today?'':' · showing most recent available'}</div>` : ''}
       </div>`;
     } catch {
       el.innerHTML = `<div style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);margin-top:0.5rem"><a href="/brief" style="color:var(--amber)">Read today's brief →</a></div>`;
@@ -1099,6 +1076,182 @@
         </a>`;
       }).join('');
     } catch { /* leave default */ }
+  })();
+
+  /* ── TODAY COMMAND CENTER ── */
+  const escH = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const firstTk = t => (t||'').replace(/\$/g,'').split(' ')[0];
+  const sevBadge = s => `<span class="t-badge badge-${s}">${s}</span>`;
+  const TODAY_CFG = {
+    signals:  { url: '/alerts?days=7&severity_min=HIGH&limit=8', all: '/feed' },
+    sectors:  { url: '/api/heat-index?days=30',                  all: '/sectors' },
+    congress: { url: '/congress/trades?days=90&limit=8',         all: '/congress' },
+    insiders: { url: '/alerts?rule=RULE_06&days=30&limit=8',      all: '/feed?rule=RULE_06' },
+    contracts:{ url: '/alerts?rule=RULE_11&days=45&limit=8',      all: '/feed?rule=RULE_11' },
+    osint:    { url: '/alerts?rule=RULE_OSINT&days=14&limit=8',   all: '/feed?rule=RULE_OSINT' },
+  };
+  let _todayTab = 'signals';
+
+  function setToday(tab, push=true) {
+    if (!TODAY_CFG[tab]) tab = 'signals';
+    _todayTab = tab;
+    document.querySelectorAll('.today-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.getElementById('today-viewall').href = TODAY_CFG[tab].all;
+    if (push) { const u = new URL(location); u.searchParams.set('tab', tab); history.replaceState({}, '', u); }
+    loadToday(tab);
+  }
+
+  function alertRow(a) {
+    const tk = firstTk(a.ticker);
+    return `<div class="today-row" onclick="openEvidence('alert', ${a.id})" role="button" tabindex="0"
+      onkeydown="if(event.key==='Enter'){openEvidence('alert',${a.id})}">
+      ${sevBadge(a.severity)}
+      <span class="t-tkr">${tk || '—'}</span>
+      <span class="t-hl">${escH(a.headline)}</span>
+      <span class="t-meta">${timeAgo(a.created_at)}</span>
+    </div>`;
+  }
+
+  async function loadToday(tab) {
+    const body = document.getElementById('today-body');
+    body.innerHTML = '<div class="today-skel"></div><div class="today-skel"></div><div class="today-skel"></div><div class="today-skel"></div>';
+    let data;
+    try {
+      const r = await fetch(TODAY_CFG[tab].url, { signal: withTimeout(8000) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      data = await r.json();
+    } catch (e) {
+      body.innerHTML = `<div class="today-error">Couldn't load ${tab}.<br><button class="today-retry" onclick="loadToday('${tab}')">Retry</button></div>`;
+      return;
+    }
+    if (tab === 'sectors') {
+      const rows = (Array.isArray(data) ? data : []).slice(0, 6);
+      body.innerHTML = rows.length ? rows.map(s => {
+        const slug = (s.sector||'').toLowerCase().replace(/ & /g,'-').replace(/ /g,'-');
+        const col = s.score >= 60 ? '#e55b4d' : s.score >= 35 ? '#e67e22' : s.score >= 15 ? '#c8922a' : '#4dc47a';
+        const tr = s.trend === 'up' ? '↑' : s.trend === 'down' ? '↓' : '→';
+        return `<div class="today-row" onclick="location.href='/sector/${slug}'">
+          <span class="t-tkr" style="color:${col};min-width:38px">${s.score}</span>
+          <span class="t-hl">${escH(s.sector)}</span>
+          <span class="t-meta">${tr} ${s.alert_count||0} · ${s.dominant_rule||'—'}</span>
+        </div>`;
+      }).join('') : '<div class="today-empty">No sector activity.</div>';
+      return;
+    }
+    if (tab === 'congress') {
+      const valid = (Array.isArray(data) ? data : []).filter(t => {
+        const d = t.transaction_date || ''; if (d.startsWith('99')) return false;
+        const yr = parseInt(d.slice(0,4)); return yr >= 2020 && yr <= new Date().getFullYear()+1;
+      }).slice(0, 6);
+      body.innerHTML = valid.length ? valid.map(t => {
+        const sym = firstTk(t.ticker); const delay = parseInt(t.filing_delay);
+        const bad = t.date_valid === 0 || (Number.isFinite(delay) && delay < 0);
+        const meta = bad ? `<span style="color:var(--red-light)">⚠ dates unverified</span>`
+          : `${fmtTradeDate(t.transaction_date)}${Number.isFinite(delay) ? ` · +${delay}d` : ''}`;
+        return `<div class="today-row" onclick="location.href='${sym ? '/ticker/'+sym : '/congress'}'">
+          <span class="t-badge ${txClass(t.transaction_type)}">${txLabel(t.transaction_type)}</span>
+          <span class="t-tkr">${sym || '—'}</span>
+          <span class="t-hl">${escH((t.full_name||'').split(',')[0])} · ${escH(t.amount_band||'')}</span>
+          <span class="t-meta">${meta}</span>
+        </div>`;
+      }).join('') : '<div class="today-empty">No recent disclosures.</div>';
+      return;
+    }
+    // alert-based tabs
+    const rows = (Array.isArray(data) ? data : []).slice(0, 6);
+    body.innerHTML = rows.length ? rows.map(alertRow).join('')
+      : `<div class="today-empty">No ${tab} signals in this window.</div>`;
+  }
+
+  /* ── EVIDENCE DRAWER ── */
+  let _evLastFocus = null;
+  function openEvidence(kind, id, push=true) {
+    const bd = document.getElementById('ev-backdrop');
+    _evLastFocus = document.activeElement;
+    bd.classList.add('open'); bd.setAttribute('aria-hidden', 'false');
+    document.getElementById('ev-drawer').focus();
+    document.getElementById('ev-content').innerHTML = '<div class="today-loading">Loading evidence…</div>';
+    document.getElementById('ev-title').textContent = '';
+    document.getElementById('ev-rule').textContent = '';
+    document.getElementById('ev-sev').textContent = '';
+    if (push) { const u = new URL(location); u.searchParams.set('ev', kind+':'+id); history.replaceState({}, '', u); }
+    const url = kind === 'alert' ? `/api/evidence/alert/${id}` : `/api/evidence/ticker/${encodeURIComponent(id)}`;
+    fetch(url, { signal: withTimeout(8000) }).then(r => { if(!r.ok) throw 0; return r.json(); })
+      .then(d => kind === 'alert' ? renderAlertEvidence(d) : renderTickerEvidence(d))
+      .catch(() => { document.getElementById('ev-content').innerHTML =
+        '<div class="today-error">Evidence unavailable.<br><button class="today-retry" onclick="openEvidence(\''+kind+'\','+JSON.stringify(id)+',false)">Retry</button></div>'; });
+  }
+  function closeEvidence() {
+    const bd = document.getElementById('ev-backdrop');
+    bd.classList.remove('open'); bd.setAttribute('aria-hidden', 'true');
+    const u = new URL(location); u.searchParams.delete('ev'); history.replaceState({}, '', u);
+    if (_evLastFocus && _evLastFocus.focus) _evLastFocus.focus();
+  }
+  function relRow(r) {
+    return `<div class="ev-rel" onclick="openEvidence('alert', ${r.id})">
+      ${sevBadge(r.severity)} <span class="ev-rule">${r.rule}</span>
+      <span class="ev-rel-hl">${escH(r.headline)}</span>
+      <span class="t-meta">${timeAgo(r.created_at)}</span></div>`;
+  }
+  function renderAlertEvidence(d) {
+    const a = d.alert || {}; const c = d.confidence || {};
+    document.getElementById('ev-sev').outerHTML = `<span id="ev-sev" class="badge badge-${a.severity}">${a.severity||''}</span>`;
+    document.getElementById('ev-rule').textContent = a.rule || '';
+    document.getElementById('ev-title').textContent = a.headline || '';
+    const comps = Object.entries(c.components || {}).map(([k,v]) =>
+      `<div class="ev-comp"><span>${k}</span><span class="v">+${v}</span></div>`).join('');
+    const verify = d.source && d.source.url
+      ? `<div class="ev-src"><a href="${d.source.url}" target="_blank" rel="noopener">Verify at ${escH(d.source.label)} ↗</a></div>`
+      : `<div class="ev-src" style="color:var(--muted);font-size:0.72rem">Source: ${escH((d.source&&d.source.label)||'internal')}</div>`;
+    const tk = d.ticker || firstTk(a.ticker);
+    document.getElementById('ev-content').innerHTML = `
+      <div class="ev-label">Why this fired</div>
+      <div class="ev-why">${escH(d.why || a.detail || '—')}</div>
+      <div class="ev-label">Confidence</div>
+      <div class="ev-conf-total">${c.total ?? '—'}<span style="font-size:0.8rem;color:var(--muted)">/100</span></div>
+      <div class="ev-conf-bar"><div class="ev-conf-fill" style="width:${c.total||0}%"></div></div>
+      ${comps}
+      ${c.conflicting_signals ? `<div class="ev-comp" style="color:var(--red-light)"><span>Conflicting signals</span><span>${c.conflicting_signals}</span></div>` : ''}
+      ${(c.eligible_rules&&c.eligible_rules.length) ? `<div class="ev-label">Eligible rules</div><div>${c.eligible_rules.map(r=>`<span class="ev-chip">${r}</span>`).join('')}</div>` : ''}
+      <div class="ev-label">Source & timing</div>
+      ${verify}
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Fired ${escH(a.created_at||'')} · ${timeAgo(a.created_at)}</div>
+      ${d.related_rules && d.related_rules.length ? `<div class="ev-label">Related rules on ${tk}</div><div>${d.related_rules.map(r=>`<span class="ev-chip">${r}</span>`).join('')}</div>` : ''}
+      ${d.related && d.related.length ? `<div class="ev-label">Related signals (${d.related.length})</div>${d.related.slice(0,8).map(relRow).join('')}` : ''}
+      <div class="ev-actions">
+        ${tk ? `<a class="ev-btn primary" href="/ticker/${tk}">Open full dossier</a>` : ''}
+        ${tk ? `<button class="ev-btn" onclick="addWatch('${tk}')">+ Watchlist</button>` : ''}
+      </div>`;
+  }
+  function renderTickerEvidence(d) {
+    document.getElementById('ev-sev').outerHTML = `<span id="ev-sev" class="badge" style="background:var(--bg3);color:var(--amber)">${d.count} signals</span>`;
+    document.getElementById('ev-rule').textContent = '';
+    document.getElementById('ev-title').textContent = `$${d.ticker} — signal history`;
+    document.getElementById('ev-content').innerHTML = `
+      <div class="ev-label">Rules fired on ${d.ticker}</div>
+      <div>${(d.rules||[]).map(r=>`<span class="ev-chip">${r}</span>`).join('') || '<span style="color:var(--muted)">none</span>'}</div>
+      <div class="ev-label">Signals (${d.count})</div>
+      ${(d.signals||[]).slice(0,20).map(relRow).join('') || '<div class="today-empty">No signals.</div>'}
+      <div class="ev-actions"><a class="ev-btn primary" href="/ticker/${d.ticker}">Open full dossier</a>
+        <button class="ev-btn" onclick="addWatch('${d.ticker}')">+ Watchlist</button></div>`;
+  }
+  function addWatch(tk) {
+    try {
+      const wl = JSON.parse(localStorage.getItem('scope_watchlist') || '[]');
+      if (!wl.includes(tk)) { wl.push(tk); localStorage.setItem('scope_watchlist', JSON.stringify(wl)); }
+      event.target.textContent = '✓ On watchlist';
+    } catch {}
+  }
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && document.getElementById('ev-backdrop').classList.contains('open')) closeEvidence();
+  });
+
+  // Init Today + deep-linked drawer from URL
+  (function initToday() {
+    const p = new URLSearchParams(location.search);
+    setToday(p.get('tab') || 'signals', false);
+    const ev = p.get('ev');
+    if (ev && ev.includes(':')) { const [k, id] = ev.split(':'); openEvidence(k, k==='alert'?parseInt(id):id, false); }
   })();
 
   /* ── COMMAND PALETTE ── */

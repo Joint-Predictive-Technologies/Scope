@@ -28,6 +28,7 @@ from api.routers import (
     brief, contracts, congress, history,
     api_v1, performance, intel,
     lobbying as lobbying_router,
+    evidence,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -238,6 +239,7 @@ app.include_router(api_v1.router,        prefix="/api/v1",    tags=["Public API 
 app.include_router(performance.router,   prefix="/api/performance", tags=["Performance"])
 app.include_router(intel.router,         prefix="/api/intel", tags=["Intel"])
 app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbying"])
+app.include_router(evidence.router,      prefix="/api/evidence", tags=["Evidence"])
 
 
 @app.get("/health", tags=["Health"])

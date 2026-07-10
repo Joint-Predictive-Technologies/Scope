@@ -403,6 +403,21 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m004_remap_contract_tickers_v2')")
         conn.commit()
 
+    # m005: evidence linkage columns on daily_briefs (Section 1C).
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m005_brief_evidence'"
+    ).fetchone():
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(daily_briefs)").fetchall()}
+            if "alert_ids" not in cols:
+                conn.execute("ALTER TABLE daily_briefs ADD COLUMN alert_ids TEXT")
+            if "evidence_json" not in cols:
+                conn.execute("ALTER TABLE daily_briefs ADD COLUMN evidence_json TEXT")
+        except Exception:
+            pass
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m005_brief_evidence')")
+        conn.commit()
+
     conn.commit()
 
 
