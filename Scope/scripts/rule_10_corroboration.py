@@ -2,8 +2,8 @@
 """
 RULE_10 — Cross-source corroboration.
 
-Fires when 2+ *distinct fundamental rules* hit the same ticker within 48h.
-Noisy signal sources (Polymarket, OSINT, Reddit, Reddit-like) are excluded
+Fires when 4+ *distinct fundamental rules* hit the same ticker within 24h.
+Noisy signal sources (Polymarket, OSINT, Reddit, anomaly) are excluded
 as corroboration inputs — they're too high-volume and would create false
 convergences. Only genuine fundamental rule signals count.
 

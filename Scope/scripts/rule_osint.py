@@ -187,18 +187,16 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
         )
 
         if not dry_run and emit:
-            for ticker in tickers[:3]:
-                conn.execute(
-                    """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags, source_url)
-                       VALUES ('RULE_OSINT', ?, ?, ?, ?, ?, ?)""",
-                    (ticker, severity, headline, detail, tags_str, news_url),
-                )
-
+            # One alert per GDELT event — all tickers live in tags_obj["tickers"]
+            conn.execute(
+                """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags, source_url)
+                   VALUES ('RULE_OSINT', ?, ?, ?, ?, ?, ?)""",
+                (tickers[0], severity, headline, detail, tags_str, news_url),
+            )
             conn.execute(
                 "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
                 (event["event_id"],),
             )
-
             conn.commit()
             emitted += 1
 

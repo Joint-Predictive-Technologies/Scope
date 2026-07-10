@@ -313,7 +313,7 @@
   <div>
     <div class="hero-tag">Political Intelligence Platform</div>
     <h1>Where <em>power</em> moves before markets do</h1>
-    <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying records, and government contracts — synthesizing them into actionable signals.</p>
+    <p>Scope monitors congressional trading, SEC insider filings, Federal Register proposals, Senate lobbying, FARA foreign filings, FEC campaign finance, USPTO patents, government contracts, Polymarket odds, and geopolitical events — synthesizing them into actionable signals.</p>
     <div class="hero-stats" id="hero-stats">
       <span id="corr-count">—</span> corroborated signals this month ·
       <span id="week-tickers">—</span> tracked securities ·
@@ -340,6 +340,10 @@
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_09  lobbying spend spikes</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_10  corroboration + LLM</span></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_11  government contracts</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_12  FARA foreign lobbying</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_13  PAC campaign finance</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_14  USPTO patent clusters</span></div>
+      <div class="t-line"><span class="t-prompt">›</span><span class="t-text"><span class="ok">✓</span> RULE_15  earnings call NLP</span></div>
       <div class="t-spacer"></div>
       <div class="t-line"><span class="t-prompt">›</span><span class="t-text" id="t-live"><span class="crit">●</span> <span id="alert-count">—</span> alerts · <span id="crit-count">—</span> critical</span></div>
     </div>
@@ -438,7 +442,7 @@
     <div class="rule-card">
       <div class="rule-id">RULE_07</div>
       <div class="rule-name">Polymarket</div>
-      <div class="rule-desc">Politically-linked prediction markets moving more than 10pp in 24 hours.</div>
+      <div class="rule-desc">Politically-linked prediction markets with a move of 20+ percentage points and $500k+ volume in 24 hours.</div>
       <div class="rule-status">● Live</div>
     </div>
     <div class="rule-card">
@@ -477,10 +481,34 @@
       <div class="rule-desc">Conflict and humanitarian events from GDELT Project and ReliefWeb mapped to market exposure via region→sector→ticker logic. Updates every 15 minutes.</div>
       <div class="rule-status">● Live</div>
     </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_12</div>
+      <div class="rule-name">FARA Foreign Lobbying</div>
+      <div class="rule-desc">Foreign governments and entities filing under Senate LDA with active lobbying in tracked sectors.</div>
+      <div class="rule-status">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_13</div>
+      <div class="rule-name">PAC Campaign Finance</div>
+      <div class="rule-desc">Large PAC contributions from industry-specific groups, mapped to sectors that may benefit from related committee votes.</div>
+      <div class="rule-status">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_14</div>
+      <div class="rule-name">USPTO Patent Clusters</div>
+      <div class="rule-desc">Companies filing 5+ patents in a single sector vertical within 90 days, or a 100%+ quarter-over-quarter surge in filing rate.</div>
+      <div class="rule-status">● Live</div>
+    </div>
+    <div class="rule-card">
+      <div class="rule-id">RULE_15</div>
+      <div class="rule-name">Earnings Call NLP</div>
+      <div class="rule-desc">SEC 8-K filings with elevated political keyword density — regulation, tariff, contract, legislation — above a sector-specific baseline.</div>
+      <div class="rule-status">● Live</div>
+    </div>
     <div class="rule-card featured">
       <div class="rule-id">RULE_10 — Marquee Signal</div>
       <div class="rule-name">Cross-Source Corroboration</div>
-      <div class="rule-desc">Fires when 2+ independent rules converge on the same ticker within 48 hours. Generates a plain-English analyst narrative via LLM explaining why the convergence matters for investors.</div>
+      <div class="rule-desc">Fires when 4+ independent rules converge on the same ticker within 24 hours. Polymarket, OSINT, and anomaly rules are excluded from the input set. Generates a plain-English analyst narrative via LLM.</div>
       <div class="rule-status">● Live</div>
     </div>
   </div>

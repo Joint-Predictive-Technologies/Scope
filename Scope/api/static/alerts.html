@@ -235,6 +235,10 @@
       <option value="RULE_08">RULE_08 — Fed Register</option>
       <option value="RULE_09">RULE_09 — Lobbying</option>
       <option value="RULE_11">RULE_11 — Gov Contracts</option>
+      <option value="RULE_12">RULE_12 — FARA Foreign</option>
+      <option value="RULE_13">RULE_13 — PAC Finance</option>
+      <option value="RULE_14">RULE_14 — Patents</option>
+      <option value="RULE_15">RULE_15 — Earnings NLP</option>
       <option value="RULE_ANOMALY">RULE_ANOMALY — Attention Spike</option>
       <option value="RULE_REDDIT">RULE_REDDIT — Reddit Signal</option>
       <option value="RULE_OSINT">RULE_OSINT — Geopolitical</option>
@@ -336,6 +340,10 @@
     if (rule === 'RULE_09') return { label: 'Senate LDA', url: 'https://lda.senate.gov' };
     if (rule === 'RULE_10') return { label: 'Cross-reference', url: null };
     if (rule === 'RULE_11') return { label: 'USASpending.gov', url: 'https://usaspending.gov' };
+    if (rule === 'RULE_12') return { label: 'Senate LDA', url: 'https://lda.senate.gov' };
+    if (rule === 'RULE_13') return { label: 'FEC.gov', url: 'https://www.fec.gov/data/receipts/pac-and-party/' };
+    if (rule === 'RULE_14') return { label: 'PatentsView', url: 'https://patentsview.org' };
+    if (rule === 'RULE_15') return { label: 'SEC EDGAR', url: 'https://efts.sec.gov/LATEST/search-index?forms=8-K' };
     if (rule === 'RULE_ANOMALY') return { label: 'Internal signal', url: null };
     if (rule === 'RULE_OSINT') {
       if (a.source_url) return { label: 'Google News', url: a.source_url };
@@ -358,7 +366,7 @@
       return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
     if (rule === 'RULE_06')
       return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
-    if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length-1].trim()}`; }
+    if (rule === 'RULE_07') return 'https://polymarket.com/markets?category=politics';
     if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1]||'')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
     if (rule === 'RULE_10') return ticker ? `/feed?ticker=${ticker}` : null;
@@ -370,6 +378,10 @@
         ? `https://www.usaspending.gov/award/${awardId}/`
         : `https://www.usaspending.gov/search/?query=${recipient}`;
     }
+    if (rule === 'RULE_12') return 'https://lda.senate.gov/filings/public/filing/search/';
+    if (rule === 'RULE_13') return 'https://www.fec.gov/data/receipts/pac-and-party/';
+    if (rule === 'RULE_14') return 'https://patentsview.org/search/real/result/';
+    if (rule === 'RULE_15') return 'https://efts.sec.gov/LATEST/search-index?forms=8-K';
     return null;
   }
   function firstTicker(raw) {
