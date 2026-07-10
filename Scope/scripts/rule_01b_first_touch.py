@@ -42,6 +42,7 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
         WHERE t.raw_ticker_string IS NOT NULL
           AND trim(t.raw_ticker_string) != ''
           AND t.member_id IS NOT NULL
+          AND date(t.transaction_date) >= date('now', '-90 days')
           AND NOT EXISTS (
               SELECT 1 FROM transactions t2
               WHERE t2.member_id = t.member_id
@@ -49,7 +50,7 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                 AND t2.id < t.id
           )
         ORDER BY t.transaction_date DESC
-        LIMIT 2000
+        LIMIT 500
     """).fetchall()
 
     print(f"[RULE_01B] {len(rows)} first-touch transactions found")

@@ -479,6 +479,8 @@ def calculate_heat_index(
     if not tickers:
         return {"score": 0.0, "trend": "flat", "dominant_rule": None, "alert_count": 0}
 
+    # Exclude high-volume noisy rules — they skew scores without adding signal
+    _HEAT_EXCLUDED = ("'RULE_07'", "'RULE_OSINT'", "'RULE_REDDIT'", "'RULE_ANOMALY'")
     placeholders = ",".join("?" * len(tickers))
     rows = conn.execute(
         f"""
@@ -486,6 +488,7 @@ def calculate_heat_index(
                (julianday('now') - julianday(created_at)) AS age_days
         FROM alerts
         WHERE ticker IN ({placeholders})
+          AND rule NOT IN ({','.join(_HEAT_EXCLUDED)})
           AND created_at >= datetime('now', '-{int(days)} days')
         """,
         tickers,
