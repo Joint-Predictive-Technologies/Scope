@@ -10,8 +10,6 @@ Run hourly via cron:
 from __future__ import annotations
 
 import argparse
-import csv
-import io
 import json
 import os
 import sys
@@ -23,10 +21,12 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jpt_common import db_connection, WHY_MATTERS
 
-FARA_LD_URL   = "https://efile.fara.gov/bulk/ALL_LD.csv"
-FARA_SUPP_URL = "https://efile.fara.gov/bulk/ALL_SUPP.csv"
+# FARA bulk CSVs don't have a public URL; we use the Senate LDA API instead.
+# LDA filings include a "foreign_entities" list when the lobbying client has
+# significant foreign ownership — the same signal as FARA for sector mapping.
+LDA_API_URL = "https://lda.senate.gov/api/v1/filings/"
 HEADERS = {
-    "User-Agent": "Scope Political Intelligence research@jointpredictive.com"
+    "User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com"
 }
 
 PRINCIPAL_SECTOR_MAP: dict[str, list[str]] = {
@@ -48,48 +48,73 @@ PRINCIPAL_SECTOR_MAP: dict[str, list[str]] = {
     "Brazil":        ["XLE"],
 }
 
-# Cache: last-modified timestamp of bulk file
-_CACHE_FILE = os.path.join(os.path.dirname(__file__), ".fara_cache.json")
+SLEEP = 6.0  # LDA throttle: ~10 requests/minute
 
 
-def _load_cache() -> dict:
-    try:
-        with open(_CACHE_FILE) as f:
-            return json.load(f)
-    except Exception:
-        return {}
+def _fetch_lda_foreign_filings(years_back: int = 2) -> list[dict]:
+    """
+    Pull recent LDA filings that carry a foreign_entities entry — these are
+    companies with significant foreign ownership that have active lobbying.
+    Fetches current year + prior year (for YoY comparison).
+    Returns rows normalised to match fara_filings columns.
+    """
+    from datetime import date
+    current_year = date.today().year
+    years = list(range(current_year - years_back + 1, current_year + 1))
 
+    rows: list[dict] = []
 
-def _save_cache(data: dict) -> None:
-    try:
-        with open(_CACHE_FILE, "w") as f:
-            json.dump(data, f)
-    except Exception:
-        pass
+    for year in years:
+        for period in ("second_quarter", "first_quarter", "annual"):
+            try:
+                resp = requests.get(LDA_API_URL, headers=HEADERS, params={
+                    "filing_year":   year,
+                    "filing_period": period,
+                    "ordering":      "-dt_posted",
+                    "limit":         100,
+                }, timeout=30)
+                if resp.status_code == 429:
+                    time.sleep(15)
+                    continue
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+            except Exception as e:
+                print(f"[RULE_12] LDA fetch error {year}/{period}: {e}")
+                time.sleep(SLEEP)
+                continue
 
+            for filing in data.get("results", []):
+                foreign_entities = filing.get("foreign_entities") or []
+                if not foreign_entities:
+                    continue
 
-def _fetch_csv(url: str, cache_key: str) -> list[dict] | None:
-    """Download CSV if newer than last fetch; return parsed rows or None if unchanged."""
-    cache = _load_cache()
-    last_modified = cache.get(cache_key, "")
+                registrant  = (filing.get("registrant") or {}).get("name", "")
+                client      = (filing.get("client")     or {}).get("name", "")
+                income      = filing.get("income") or filing.get("expenses") or "0"
+                dt_posted   = (filing.get("dt_posted") or "")[:10]
+                filing_uuid = filing.get("filing_uuid", "")
 
-    headers = dict(HEADERS)
-    if last_modified:
-        headers["If-Modified-Since"] = last_modified
+                for fe in foreign_entities:
+                    country_display = fe.get("country_display") or fe.get("country") or ""
+                    fe_name         = fe.get("name") or ""
+                    if not country_display:
+                        continue
+                    rows.append({
+                        "Registration_Number":       filing_uuid,
+                        "Registrant_Name":           registrant,
+                        "Foreign_Principal_Name":    fe_name or client,
+                        "Foreign_Principal_Country": country_display,
+                        "Period_Of_Performance_Start": dt_posted or f"{year}-01-01",
+                        "Period_Of_Performance_End":   dt_posted or f"{year}-12-31",
+                        "Total_Receipts": income,
+                        "Issues": "",
+                    })
 
-    resp = requests.get(url, headers=headers, timeout=60)
-    if resp.status_code == 304:
-        print(f"[RULE_12] {cache_key}: not modified, skipping")
-        return None
-    resp.raise_for_status()
+            time.sleep(SLEEP)
 
-    new_lm = resp.headers.get("Last-Modified", "")
-    if new_lm:
-        cache[cache_key] = new_lm
-        _save_cache(cache)
-
-    reader = csv.DictReader(io.StringIO(resp.text))
-    return list(reader)
+    print(f"[RULE_12] Fetched {len(rows)} LDA foreign-entity filings")
+    return rows
 
 
 def _normalize_country(name: str) -> str:
@@ -112,8 +137,9 @@ def _parse_amount(val: str) -> float:
 def run(emit: bool = False) -> None:
     conn = db_connection()
 
-    rows = _fetch_csv(FARA_LD_URL, "ld")
-    if rows is None:
+    rows = _fetch_lda_foreign_filings(years_back=2)
+    if not rows:
+        print("[RULE_12] No LDA foreign-entity filings found")
         conn.close()
         return
 
@@ -283,10 +309,4 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--emit-alerts", action="store_true")
     args = parser.parse_args()
-
-    import sqlite3
-    conn = db_connection()
-    _ensure_tables(conn)
-    conn.close()
-
     run(emit=args.emit_alerts)

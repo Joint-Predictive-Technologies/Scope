@@ -121,13 +121,13 @@ def run(emit: bool = False) -> None:
 
         for hit in hits[:4]:
             src = hit.get("_source", {})
-            accession  = src.get("file_num") or src.get("accession_no") or hit.get("_id", "")
-            filing_date = src.get("period_of_report") or src.get("file_date", "")
-            text_url   = src.get("file_date")  # EDGAR full text isn't directly in search results
+            # EDGAR EFTS uses "adsh" for accession number (not "file_num")
+            accession   = src.get("adsh") or hit.get("_id", "")
+            filing_date = src.get("period_ending") or src.get("file_date", "")
+            ciks        = src.get("ciks") or []
+            cik         = (ciks[0] or "").lstrip("0") if ciks else ""
 
-            # Build accession-based text URL
-            acc_clean = accession.replace("-", "")
-            filing_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&company={ticker}&type=8-K&dateb=&owner=include&count=40"
+            filing_url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={ticker}&type=8-K&dateb=&owner=include&count=40"
 
             # Skip if already ingested
             existing = conn.execute(
@@ -136,10 +136,11 @@ def run(emit: bool = False) -> None:
             if existing:
                 continue
 
-            # Fetch text (only first filing per ticker to avoid rate limits)
+            # Fetch text — construct submission text URL from CIK + accession
             text = ""
-            file_href = src.get("file_url") or ""
-            if file_href:
+            if cik and accession:
+                acc_clean = accession.replace("-", "")
+                file_href = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{accession}.txt"
                 time.sleep(0.3)
                 text = _fetch_filing_text(file_href)
 

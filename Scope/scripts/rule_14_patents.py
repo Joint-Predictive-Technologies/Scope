@@ -20,7 +20,8 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jpt_common import db_connection, SECTOR_MAP, WHY_MATTERS
 
-PATENTS_BASE = "https://api.patentsview.org/patents/query"
+# PatentsView API v1 (new endpoint — api.patentsview.org deprecated 2024)
+PATENTS_BASE = "https://search.patentsview.org/api/v1/patent/"
 HEADERS = {
     "User-Agent": "Scope Political Intelligence research@jointpredictive.com",
     "Content-Type": "application/json",
@@ -73,21 +74,29 @@ TRACKED_ASSIGNEES: dict[str, list[str]] = {
 
 def _fetch_patents(keywords: list[str], days_back: int = 90) -> list[dict]:
     start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+    # PatentsView v1 API field names changed from old API:
+    # patent_number → patent_id, assignee_organization → assignees.assignee_organization
     query = {
         "q": {"_and": [
             {"_gte": {"patent_date": start_date}},
             {"_or": [{"_text_phrase": {"patent_abstract": kw}} for kw in keywords[:5]]},
         ]},
-        "f": ["patent_number", "patent_title", "patent_abstract",
-              "patent_date", "assignee_organization", "assignee_key_id"],
+        "f": ["patent_id", "patent_title", "patent_abstract",
+              "patent_date", "assignees.assignee_organization"],
         "o": {"per_page": 50},
     }
     try:
         resp = requests.post(PATENTS_BASE, json=query, headers=HEADERS, timeout=30)
+        if resp.status_code in (301, 302, 307, 308):
+            return None  # signal: API endpoint moved
         resp.raise_for_status()
-        return resp.json().get("patents") or []
+        data = resp.json()
+        return data.get("patents") or data.get("data") or []
     except Exception as e:
-        print(f"[RULE_14] PatentsView error for {keywords[0]}: {e}")
+        err = str(e)
+        if "nodename nor servname" in err or "Name or service" in err:
+            return None  # signal: DNS unavailable
+        print(f"[RULE_14] PatentsView error for {keywords[0]}: {err[:120]}")
         return []
 
 
@@ -99,6 +108,8 @@ def _ticker_for_assignee(assignee: str) -> str:
             if name.lower() in assignee.lower():
                 return ticker
     return ""
+
+
 
 
 def _ensure_tables(conn) -> None:
@@ -123,26 +134,41 @@ def run(emit: bool = False) -> None:
     ingested = 0
     alerts_emitted = 0
 
+    _dns_warned = False
     for category, keywords in PATENT_KEYWORDS.items():
         patents = _fetch_patents(keywords, days_back=90)
         time.sleep(1)
+
+        if patents is None:
+            if not _dns_warned:
+                print("[RULE_14] PatentsView unavailable (DNS/redirect) — skipping all categories")
+                _dns_warned = True
+            continue
 
         assignee_counts: dict[str, list] = {}
 
         for p in patents:
             if not isinstance(p, dict):
                 continue
-            pnum      = p.get("patent_number", "")
-            title     = p.get("patent_title", "")
-            date      = p.get("patent_date", "")
-            assignees = p.get("assignee_organization") or []
-            if isinstance(assignees, str):
-                assignees = [assignees]
-            if not assignees:
+            # v1 API uses patent_id; old API used patent_number
+            pnum  = p.get("patent_id") or p.get("patent_number", "")
+            title = p.get("patent_title", "")
+            date  = p.get("patent_date", "")
+
+            # v1: assignees is a list of dicts; old: flat string/list
+            raw_assignees = p.get("assignees") or p.get("assignee_organization") or []
+            if isinstance(raw_assignees, list) and raw_assignees:
+                first = raw_assignees[0]
+                assignee = (first.get("assignee_organization") or first
+                            if isinstance(first, dict) else first)
+            elif isinstance(raw_assignees, str):
+                assignee = raw_assignees
+            else:
+                continue
+            if not assignee:
                 continue
 
-            assignee = assignees[0] if assignees else ""
-            ticker   = _ticker_for_assignee(assignee)
+            ticker = _ticker_for_assignee(assignee)
 
             # Find which keywords matched
             abstract = (p.get("patent_abstract") or "").lower()

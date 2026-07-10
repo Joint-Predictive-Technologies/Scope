@@ -58,20 +58,23 @@ _RULE_SCHEDULE: dict[str, int] = {
     "rule_08_federal_register.py":         240,
     # Telegram OSINT
     "scripts/rule_telegram_osint.py":      60,
-    # Slower / daily sources
-    "scripts/rule_12_fara.py":             360,
-    "scripts/rule_13_fec.py":              1440,
-    "scripts/rule_14_patents.py":          1440,
-    "scripts/rule_15_earnings_nlp.py":     1440,
+    # Earnings call NLP — earnings happen throughout the day
+    "scripts/rule_15_earnings_nlp.py":     360,
     "scripts/telegram_bot.py":             60,
 }
 
-# cron jobs: {script: {"hour": H, "minute": M}}
+# cron jobs: {script: {"hour": H, "minute": M[, "day_of_week": DOW]}}
 _CRON_SCHEDULE: dict[str, dict] = {
     # LDA lobbying filings are quarterly — daily scan at 3am is enough
-    "rule_09_lobbying.py":     {"hour": 3,  "minute": 0},
+    "rule_09_lobbying.py":              {"hour": 3,  "minute": 0},
     # Daily brief after overnight data collection
-    "generate_brief.py":       {"hour": 6,  "minute": 30},
+    "generate_brief.py":                {"hour": 6,  "minute": 30},
+    # FARA filings update slowly — weekly Monday 4am scan is sufficient
+    "scripts/rule_12_fara.py":          {"day_of_week": "mon", "hour": 4,  "minute": 0},
+    # FEC PAC monitoring — daily at 5am
+    "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
+    # USPTO patents — twice weekly (Tue + Fri early morning)
+    "scripts/rule_14_patents.py":       {"day_of_week": "tue,fri", "hour": 4, "minute": 30},
 }
 
 
