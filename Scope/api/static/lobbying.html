@@ -12,225 +12,191 @@
       --cream: #e8e0cc; --cream2: #c8bfa8;
       --amber: #c8922a; --amber2: #e8aa3a;
       --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red: #e55b4d; --green: #4dc47a;
+      --red: #e55b4d; --green: #4dc47a; --blue: #6ab0e0;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
-    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
-    @media (max-width: 900px) {
-      .hamburger { display: flex; }
-      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
-      .nav-links.open { display: flex; }
-    }
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+    @media (max-width: 900px) { .hamburger { display: flex; } .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; } .nav-links.open { display: flex; } }
 
-    .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
+    .page { max-width: 1050px; margin: 0 auto; padding: 2.5rem 2rem; }
     .page-eyebrow { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
     .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
-    .page-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 2rem; }
+    .page-sub { font-size: 0.85rem; color: var(--cream2); margin-bottom: 1.6rem; max-width: 680px; line-height: 1.6; }
 
-    .filters { display: flex; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
-    .filter-input, .filter-select { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
-    .filter-input:focus, .filter-select:focus { border-color: var(--amber); color: var(--cream); }
-    .filter-input::placeholder { color: var(--muted); }
-    .filter-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; background: var(--amber); color: var(--bg); border: none; padding: 7px 16px; border-radius: 4px; cursor: pointer; font-weight: 500; }
-    .filter-btn:hover { background: var(--amber2); }
-    .filter-count { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-left: auto; }
+    .stat-strip { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.8rem; }
+    .stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 1.1rem; }
+    .stat-val { font-family: 'Playfair Display', serif; font-size: 1.4rem; font-weight: 700; color: var(--amber); }
+    .stat-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 
-    .card-list { display: flex; flex-direction: column; gap: 1px; }
-    .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.3rem; cursor: pointer; transition: border-color 0.15s; }
-    .alert-card:hover { border-color: var(--border2); }
-    .alert-card.expanded { border-color: var(--amber); }
-    .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
-    .badge-CRITICAL { background: rgba(229,91,77,0.15); color: var(--red); border: 1px solid rgba(229,91,77,0.3); }
-    .badge-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
-    .badge-MEDIUM { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
-    .badge-source { background: transparent; color: var(--muted); border: 1px solid var(--border2); font-size: 0.58rem; }
-    .ticker-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); border: 1px solid rgba(200,146,42,0.25); padding: 2px 7px; border-radius: 3px; flex-shrink: 0; text-decoration: none; }
-    .ticker-chip:hover { background: rgba(200,146,42,0.1); }
-    .alert-headline { font-size: 0.86rem; color: var(--cream); flex: 1; min-width: 200px; }
-    .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); flex-shrink: 0; cursor: help; }
-    .alert-detail { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.6; display: none; }
-    .alert-card.expanded .alert-detail { display: block; }
-    .verify-link { display: inline-block; margin-top: 0.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; text-decoration: none; }
-    .verify-link:hover { background: rgba(200,146,42,0.1); }
+    .controls { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    .search { flex: 1; min-width: 180px; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; background: var(--bg2); border: 1px solid var(--border); color: var(--cream); padding: 8px 13px; border-radius: 5px; outline: none; }
+    .search:focus { border-color: var(--amber); }
+    .search::placeholder { color: var(--muted); }
+    .chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.64rem; letter-spacing: 0.04em; background: transparent; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 11px; border-radius: 20px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+    .chip:hover { border-color: var(--amber); color: var(--amber); }
+    .chip.active { background: rgba(200,146,42,0.12); border-color: var(--amber); color: var(--amber); }
+    .cat-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
 
-    .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
-    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--muted); }
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin: 1.8rem 0 0.9rem; display: flex; align-items: center; gap: 0.6rem; }
+    .section-label .cnt { color: var(--muted); }
 
-    /* ── CMD PALETTE ── */
-    #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
-    #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
-    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7); }
-    #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
-    #cmd-results { max-height:360px; overflow-y:auto; }
-    .cmd-group-label { font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
-    .cmd-item { display:flex; align-items:center; gap:0.8rem; padding:0.65rem 1.2rem; cursor:pointer; text-decoration:none; border-left:2px solid transparent; }
-    .cmd-item:hover,.cmd-item.active { background:#222018; border-left-color:#c8922a; }
-    .cmd-item-icon { font-size:0.9rem; opacity:0.6; width:18px; text-align:center; flex-shrink:0; }
-    .cmd-item-main { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#e8e0cc; }
-    .cmd-item-sub  { font-size:0.68rem; color:#7a7060; margin-top:1px; }
-    .cmd-badge { font-family:'IBM Plex Mono',monospace; font-size:0.55rem; padding:1px 5px; border-radius:2px; margin-left:auto; flex-shrink:0; }
-    .cmd-badge-CRITICAL { background:rgba(229,91,77,0.2); color:#e55b4d; }
-    .cmd-badge-HIGH     { background:rgba(200,146,42,0.2); color:#c8922a; }
-    .cmd-badge-MEDIUM   { background:rgba(106,176,224,0.2); color:#6ab0e0; }
-    .cmd-empty { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
-    .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+    .lob-list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .lob-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem 1.1rem; display: flex; align-items: center; gap: 0.9rem; }
+    .lob-rank { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--muted); width: 24px; flex-shrink: 0; text-align: right; }
+    .lob-main { flex: 1; min-width: 0; }
+    .lob-name { font-size: 0.9rem; color: var(--cream); font-weight: 500; }
+    .lob-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-top: 0.25rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .cat-tag { color: var(--cream2); }
+    .foreign-tag { background: rgba(229,91,77,0.15); color: var(--red); border: 1px solid rgba(229,91,77,0.3); padding: 0px 6px; border-radius: 3px; }
+    .tkr { color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 0px 6px; border-radius: 3px; }
+    .tkr:hover { background: rgba(200,146,42,0.1); }
+    .issues { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
+    .lob-amount { text-align: right; flex-shrink: 0; }
+    .amt-val { font-family: 'IBM Plex Mono', monospace; font-size: 1.05rem; color: var(--green); font-weight: 500; }
+    .amt-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); text-transform: uppercase; }
+    .verify { color: var(--amber); text-decoration: none; }
+    .verify:hover { text-decoration: underline; }
+
+    .spike-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1.1rem; margin-bottom: 0.4rem; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 3px; margin-right: 0.5rem; }
+    .badge-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); } .badge-MEDIUM { background: rgba(42,100,160,0.15); color: var(--blue); } .badge-CRITICAL { background: rgba(229,91,77,0.15); color: var(--red); }
+
+    .empty { padding: 2rem; text-align: center; font-family: 'IBM Plex Mono', monospace; font-size: 0.76rem; color: var(--muted); line-height: 1.7; }
+    .loading { padding: 2.5rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
   </style>
 </head>
 <body>
-<!-- NOTHING renders above this line except the nav -->
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <button class="hamburger" id="ham-btn">☰</button>
   <div class="nav-links" id="nav-links">
     <a href="/">Dashboard</a>
     <a href="/congress">Congress</a>
-    <a href="/insiders">Insiders</a>
-    <a href="/contracts">Contracts</a>
     <a href="/lobbying" class="active">Lobbying</a>
-    <a href="/osint">OSINT Globe</a>
-    <a href="/ask">Ask Scope</a>
+    <a href="/foreign-influence">Foreign Influence</a>
+    <a href="/osint">OSINT</a>
+    <a href="/sectors">Sectors</a>
     <a href="/feed">Alerts</a>
   </div>
-  <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
 
 <div class="page">
-  <div class="page-eyebrow">Senate LDA · RULE_09</div>
+  <div class="page-eyebrow">Senate LDA · Lobbying Disclosure Act</div>
   <div class="page-title">Lobbying Activity</div>
-  <div class="page-sub">Companies with quarterly lobbying spend up &gt;50% year-over-year. Source: Senate Lobbying Disclosure Act database.</div>
+  <div class="page-sub">Who's paying to be heard in Washington — reported lobbying spend for the most significant advocacy groups, foreign-connected clients, and corporate lobbies, plus year-over-year spend spikes (RULE_09).</div>
 
-  <div class="filters">
-    <input class="filter-input" id="f-ticker" placeholder="Ticker (e.g. MSFT)" style="width:130px" />
-    <select class="filter-select" id="f-severity">
-      <option value="">All severity</option>
-      <option value="CRITICAL">Critical</option>
-      <option value="HIGH">High</option>
-      <option value="MEDIUM">Medium</option>
-    </select>
-    <select class="filter-select" id="f-days">
-      <option value="7">7 days</option>
-      <option value="30" selected>30 days</option>
-      <option value="90">90 days</option>
-    </select>
-    <button class="filter-btn" onclick="load()">Filter</button>
-    <span class="filter-count" id="result-count"></span>
+  <div class="stat-strip" id="stats"></div>
+
+  <div class="controls">
+    <input class="search" id="search" placeholder="Search a lobby — e.g. AIPAC, Lockheed, pharma, Israel…" />
+    <button class="chip" id="foreign-chip" onclick="toggleForeign()">⚑ Foreign-connected</button>
   </div>
+  <div class="cat-row" id="cats"></div>
 
-  <div class="card-list" id="alerts-list"><div class="loading">Loading lobbying alerts…</div></div>
+  <div class="section-label">Top Lobbying Spenders <span class="cnt" id="top-count"></span></div>
+  <div class="lob-list" id="top-list"><div class="loading">Loading lobbying data…</div></div>
+
+  <div class="section-label">Year-over-Year Spend Spikes <span class="cnt">RULE_09</span></div>
+  <div id="spikes"><div class="loading">Loading spike alerts…</div></div>
 </div>
 
 <script>
-  document.getElementById('ham-btn').addEventListener('click', () => {
-    document.getElementById('nav-links').classList.toggle('open');
+  document.getElementById('ham-btn').addEventListener('click', () => document.getElementById('nav-links').classList.toggle('open'));
+
+  let category = '', foreignOnly = false, searchQ = '';
+  const money = n => { n = n||0; return n >= 1e6 ? '$'+(n/1e6).toFixed(2)+'M' : n >= 1e3 ? '$'+(n/1e3).toFixed(0)+'K' : '$'+n.toFixed(0); };
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // ── Summary strip + category chips ──
+  fetch('/api/lobbying/summary').then(r=>r.json()).then(s => {
+    document.getElementById('stats').innerHTML = `
+      <div class="stat"><div class="stat-val">${money(s.total_spend)}</div><div class="stat-label">Tracked spend</div></div>
+      <div class="stat"><div class="stat-val">${s.clients}</div><div class="stat-label">Lobbies</div></div>
+      <div class="stat"><div class="stat-val">${s.filings}</div><div class="stat-label">Filings</div></div>
+      <div class="stat"><div class="stat-val">${s.foreign_filings}</div><div class="stat-label">Foreign-connected</div></div>`;
+    const cats = (s.by_category||[]).map(c => c.category).filter(Boolean);
+    document.getElementById('cats').innerHTML =
+      `<button class="chip active" data-cat="" onclick="setCat('')">All</button>` +
+      cats.map(c => `<button class="chip" data-cat="${esc(c)}" onclick="setCat('${esc(c).replace(/'/g,"\\'")}')">${esc(c)}</button>`).join('');
+  }).catch(()=>{});
+
+  function setCat(c) {
+    category = c;
+    document.querySelectorAll('#cats .chip').forEach(el => el.classList.toggle('active', el.dataset.cat === c));
+    loadTop();
+  }
+  function toggleForeign() {
+    foreignOnly = !foreignOnly;
+    document.getElementById('foreign-chip').classList.toggle('active', foreignOnly);
+    loadTop();
+  }
+  let _t = null;
+  document.getElementById('search').addEventListener('input', e => {
+    clearTimeout(_t); searchQ = e.target.value.trim(); _t = setTimeout(loadTop, 250);
   });
 
-  function timeAgo(dateStr) {
-    if (!dateStr) return 'Unknown';
-    let ts;
-    if (typeof dateStr === 'number' || /^\d{10,13}$/.test(String(dateStr))) {
-      const n = Number(dateStr); ts = n > 1e10 ? n : n * 1000;
-    } else {
-      const s = String(dateStr).trim().replace(' ', 'T');
-      ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
-    }
-    if (isNaN(ts)) return 'Unknown';
-    const diff = Math.floor((Date.now() - ts) / 1000);
-    if (diff < 0) return 'just now';
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
-    return `${Math.floor(diff/86400)}d ago`;
+  function loadTop() {
+    const el = document.getElementById('top-list');
+    let url = `/api/lobbying/top?limit=80`;
+    if (category)  url += `&category=${encodeURIComponent(category)}`;
+    if (foreignOnly) url += `&foreign_only=true`;
+    if (searchQ)   url += `&q=${encodeURIComponent(searchQ)}`;
+    fetch(url).then(r=>r.json()).then(rows => {
+      document.getElementById('top-count').textContent = rows.length ? `${rows.length} lobbies` : '';
+      if (!rows.length) {
+        el.innerHTML = `<div class="empty">No lobbying records match.<br>The dataset is refreshed weekly from Senate LDA filings.</div>`;
+        return;
+      }
+      el.innerHTML = rows.map((r, i) => {
+        const t = (r.ticker||'').trim();
+        return `<div class="lob-card">
+          <div class="lob-rank">${i+1}</div>
+          <div class="lob-main">
+            <div class="lob-name">${esc(titleCase(r.client_name))}</div>
+            <div class="lob-meta">
+              <span class="cat-tag">${esc(r.category||'')}</span>
+              ${r.is_foreign ? '<span class="foreign-tag">⚑ FOREIGN</span>' : ''}
+              ${t ? `<a class="tkr" href="/ticker/${t}">${t}</a>` : ''}
+              <span>· ${r.filing_count} filing${r.filing_count!=1?'s':''} · latest ${r.latest_year}</span>
+              ${r.issues ? `<span class="issues">· ${esc(r.issues)}</span>` : ''}
+            </div>
+          </div>
+          <div class="lob-amount">
+            <div class="amt-val">${money(r.total_amount)}</div>
+            <div class="amt-label">${r.document_url ? `<a class="verify" href="${esc(r.document_url)}" target="_blank" rel="noopener">reported ↗</a>` : 'reported'}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }).catch(() => { el.innerHTML = '<div class="empty">Lobbying data unavailable.</div>'; });
   }
-  function exactTime(ts) {
-    return ts ? new Date(ts.includes('Z') ? ts : ts + 'Z').toLocaleString() : '';
-  }
+  function titleCase(s){ return (s||'').toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()).replace(/\b(Llc|Llp|Inc|Pac)\b/g, m=>m.toUpperCase()); }
 
-  async function load() {
-    const ticker   = document.getElementById('f-ticker').value.trim();
-    const severity = document.getElementById('f-severity').value;
-    const days     = document.getElementById('f-days').value;
-    const el       = document.getElementById('alerts-list');
-    el.innerHTML   = '<div class="loading">Loading…</div>';
+  loadTop();
 
-    let url = `/alerts?rule=RULE_09&days=${days}&limit=200`;
-    if (ticker)   url += `&ticker=${encodeURIComponent(ticker)}`;
-    if (severity) url += `&severity=${severity}`;
-
-    const data = await fetch(url).then(r=>r.json()).catch(()=>[]);
-    document.getElementById('result-count').textContent = data.length + ' alerts';
-
-    if (!data.length) {
-      el.innerHTML = `<div class="empty" style="text-align:left;padding:2rem 1.5rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-width:600px">
-        <div style="font-family:'Playfair Display',serif;font-size:1.1rem;color:var(--cream);margin-bottom:0.6rem">No lobbying spikes detected</div>
-        <div style="font-size:0.82rem;color:var(--cream2);line-height:1.65;margin-bottom:1rem">
-          Senate LDA filings for the current quarter are still being submitted.
-          Lobbying data is most complete in January (Q4 prior year) and April (Q1 filings).
-          Check back in October for Q3 2026 data.
-        </div>
-        <a href="/feed?rule=RULE_09" style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--bg);background:var(--amber);padding:6px 14px;border-radius:4px;text-decoration:none">View all past lobbying alerts →</a>
-      </div>`;
+  // ── RULE_09 spike alerts (kept below) ──
+  function timeAgo(d){ if(!d) return ''; const t=new Date(String(d).replace(' ','T')+(String(d).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return''; const s=Math.floor((Date.now()-t)/1000); if(s<3600)return Math.floor(s/60)+'m ago'; if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
+  fetch('/alerts?rule=RULE_09&days=120&limit=40').then(r=>r.json()).then(data => {
+    const el = document.getElementById('spikes');
+    if (!Array.isArray(data) || !data.length) {
+      el.innerHTML = `<div class="empty" style="text-align:left;max-width:600px">No YoY spend spikes in the current window. Spikes surface most in Jan (Q4) and Apr (Q1) when new filings post.</div>`;
       return;
     }
     el.innerHTML = data.map(a => {
       const t = a.ticker ? a.ticker.replace(/\$/g,'').split(' ')[0] : null;
-      const tChip = t ? `<a href="/ticker/${t}" class="ticker-chip" onclick="event.stopPropagation()">${t}</a>` : '';
-      return `
-        <div class="alert-card" onclick="this.classList.toggle('expanded')">
-          <div class="alert-top">
-            <span class="badge badge-${a.severity}">${a.severity}</span>
-            ${tChip}
-            <span class="badge badge-source">SOURCE: Senate LDA</span>
-            <span class="alert-headline">${a.headline}</span>
-            <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
-          </div>
-          <div class="alert-detail">
-            ${a.detail ? `<div>${a.detail}</div>` : ''}
-            <a href="https://lda.senate.gov/filings/public/filing/search/" target="_blank" rel="noopener" class="verify-link">Verify → Senate LDA</a>
-          </div>
-        </div>`;
+      return `<div class="spike-card">
+        <span class="badge badge-${a.severity}">${a.severity}</span>
+        ${t ? `<a class="tkr" href="/ticker/${t}">${t}</a> ` : ''}
+        <span style="font-size:0.84rem;color:var(--cream)">${esc(a.headline)}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--muted);float:right">${timeAgo(a.created_at)}</span>
+      </div>`;
     }).join('');
-  }
-
-  load();
-  document.getElementById('f-ticker').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-
-  /* ── COMMAND PALETTE ── */
-  let _cmdTimer = null, _cmdActive = -1;
-  function openCmd() { document.getElementById('cmd-backdrop').classList.add('open'); document.getElementById('cmd-input').focus(); _cmdActive = -1; }
-  function closeCmd() { document.getElementById('cmd-backdrop').classList.remove('open'); document.getElementById('cmd-input').value = ''; document.getElementById('cmd-results').innerHTML = '<div class=\"cmd-empty\">Type to search…</div>'; _cmdActive = -1; }
-  document.addEventListener('keydown', e => {
-    if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); openCmd(); return; }
-    if (e.key==='Escape') { closeCmd(); return; }
-    if (!document.getElementById('cmd-backdrop').classList.contains('open')) return;
-    const items = document.querySelectorAll('.cmd-item');
-    if (e.key==='ArrowDown') { e.preventDefault(); _cmdActive=Math.min(_cmdActive+1,items.length-1); items.forEach((el,i)=>el.classList.toggle('active',i===_cmdActive)); }
-    if (e.key==='ArrowUp')   { e.preventDefault(); _cmdActive=Math.max(_cmdActive-1,0); items.forEach((el,i)=>el.classList.toggle('active',i===_cmdActive)); }
-    if (e.key==='Enter'&&_cmdActive>=0) { items[_cmdActive]?.click(); closeCmd(); }
-  });
-  document.getElementById('cmd-input').addEventListener('input', e => { clearTimeout(_cmdTimer); _cmdTimer=setTimeout(()=>cmdSearch(e.target.value.trim()),200); });
-  async function cmdSearch(q) {
-    _cmdActive=-1;
-    if (!q||q.length<2) { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Type to search…</div>'; return; }
-    try {
-      const c=new AbortController(); setTimeout(()=>c.abort(),5000);
-      const r=await fetch('/api/search?q='+encodeURIComponent(q),{signal:c.signal});
-      const d=await r.json(); let html='';
-      if (d.tickers?.length) { html+='<div class=\"cmd-group-label\">Tickers</div>'; html+=d.tickers.map(t=>`<a class=\"cmd-item\" href=\"/ticker/${t.ticker}\"><span class=\"cmd-item-icon\">◎</span><div><div class=\"cmd-item-main\">${t.ticker}</div></div></a>`).join(''); }
-      if (d.members?.length) { html+='<div class=\"cmd-group-label\">Members</div>'; html+=d.members.map(m=>`<a class=\"cmd-item\" href=\"/member/${m.bioguide_id}\"><span class=\"cmd-item-icon\">◈</span><div><div class=\"cmd-item-main\">${m.full_name}</div><div class=\"cmd-item-sub\">${m.state||''} · ${m.party||''}</div></div></a>`).join(''); }
-      if (d.headlines?.length) { html+='<div class=\"cmd-group-label\">Signals</div>'; html+=d.headlines.map(h=>{ const rule=(h.rule||''); return `<a class=\"cmd-item\" href=\"/feed?ticker=${h.ticker||''}\"><span class=\"cmd-item-icon\">⚡</span><div><div class=\"cmd-item-main\">${(h.headline||'').slice(0,72)}</div><div class=\"cmd-item-sub\">${h.ticker||''} · ${rule}</div></div><span class=\"cmd-badge cmd-badge-${h.severity||'MEDIUM'}\">${h.severity||''}</span></a>`; }).join(''); }
-      if (!html) html='<div class=\"cmd-empty\">No results for \"'+q+'\"</div>';
-      document.getElementById('cmd-results').innerHTML=html;
-    } catch { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Search failed.</div>'; }
-  }
+  }).catch(()=>{ document.getElementById('spikes').innerHTML = '<div class="empty">Spike alerts unavailable.</div>'; });
 </script>
 </body>
 </html>

@@ -27,6 +27,7 @@ from api.routers import (
     social, backtest, sectors, digest,
     brief, contracts, congress, history,
     api_v1, performance, intel,
+    lobbying as lobbying_router,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -72,6 +73,8 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "generate_brief.py":                {"hour": 6,  "minute": 30},
     # FARA filings update slowly — weekly Monday 4am scan is sufficient
     "scripts/rule_12_fara.py":          {"day_of_week": "mon", "hour": 4,  "minute": 0},
+    # Broad lobbying dataset (AIPAC + notable lobbies) — weekly Monday 4:45am
+    "scripts/ingest_lobbying.py":       {"day_of_week": "mon", "hour": 4,  "minute": 45},
     # FEC PAC monitoring — daily at 5am
     "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
     # USPTO patents — twice weekly (Tue + Fri early morning)
@@ -232,6 +235,7 @@ app.include_router(history.router,       prefix="/history",   tags=["History"])
 app.include_router(api_v1.router,        prefix="/api/v1",    tags=["Public API v1"])
 app.include_router(performance.router,   prefix="/api/performance", tags=["Performance"])
 app.include_router(intel.router,         prefix="/api/intel", tags=["Intel"])
+app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbying"])
 
 
 @app.get("/health", tags=["Health"])

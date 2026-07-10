@@ -287,6 +287,22 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         ingested_at     TEXT DEFAULT (datetime('now'))
     )""")
 
+    conn.execute("""CREATE TABLE IF NOT EXISTS lobbying_filings (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        filing_uuid     TEXT UNIQUE,
+        client_name     TEXT,
+        registrant_name TEXT,
+        amount          REAL DEFAULT 0,
+        filing_year     INTEGER,
+        period          TEXT,
+        issues          TEXT,
+        category        TEXT,
+        ticker          TEXT,
+        is_foreign      INTEGER DEFAULT 0,
+        document_url    TEXT,
+        ingested_at     TEXT DEFAULT (datetime('now'))
+    )""")
+
     # Migration tracking — idempotent, runs once per named migration
     conn.execute("""CREATE TABLE IF NOT EXISTS scope_migrations (
         name       TEXT PRIMARY KEY,
