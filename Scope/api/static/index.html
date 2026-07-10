@@ -289,12 +289,14 @@
   <div class="nav-links" id="nav-links">
     <a href="/" class="active">Dashboard</a>
     <a href="/congress">Congress</a>
-    <a href="/insiders">Insiders</a>
-    <a href="/contracts">Contracts</a>
-    <a href="/lobbying">Lobbying</a>
     <a href="/osint">OSINT Globe</a>
+    <a href="/foreign-influence">Foreign Influence</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/performance">Performance</a>
     <a href="/ask">Ask Scope</a>
     <a href="/feed">Alerts</a>
+    <a href="/api-docs">API</a>
   </div>
   <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:var(--muted);background:var(--bg2);border:1px solid var(--border);padding:4px 10px;border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:0.4rem">⌘K</button>
 </nav>
@@ -1050,7 +1052,8 @@
         const col = heatCol(d.score);
         const pct = Math.min((d.score / Math.max(maxScore, 1)) * 100, 100).toFixed(0);
         const trendSym = d.trend === 'up' ? '↑' : d.trend === 'down' ? '↓' : '→';
-        return `<a href="/sectors" class="heat-chip">
+        const slug = (d.sector||'').toLowerCase().replace(/ & /g,'-').replace(/ /g,'-');
+        return `<a href="/sector/${slug}" class="heat-chip">
           <div class="heat-chip-name">${d.sector}</div>
           <div class="heat-chip-bar-track"><div class="heat-chip-bar-fill" style="width:${pct}%;background:${col}"></div></div>
           <div class="heat-chip-score" style="color:${col}">${d.score} <span style="color:var(--muted);font-size:0.55rem">${trendSym} ${d.alert_count} alerts</span></div>

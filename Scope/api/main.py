@@ -26,6 +26,7 @@ from api.routers import (
     filter as filter_router,
     social, backtest, sectors, digest,
     brief, contracts, congress, history,
+    api_v1, performance, intel,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -75,6 +76,10 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
     # USPTO patents — twice weekly (Tue + Fri early morning)
     "scripts/rule_14_patents.py":       {"day_of_week": "tue,fri", "hour": 4, "minute": 30},
+    # Alert severity decay — daily at 1am, keeps the feed and counts honest
+    "scripts/decay_alerts.py":          {"hour": 1,  "minute": 0},
+    # Backtest rebuild — weekly Sunday 2am (Yahoo Finance price lookups)
+    "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},
 }
 
 
@@ -224,6 +229,9 @@ app.include_router(brief.router,         prefix="/brief",     tags=["Brief"])
 app.include_router(contracts.router,     prefix="/contracts", tags=["Contracts"])
 app.include_router(congress.router,      prefix="/congress",  tags=["Congress"])
 app.include_router(history.router,       prefix="/history",   tags=["History"])
+app.include_router(api_v1.router,        prefix="/api/v1",    tags=["Public API v1"])
+app.include_router(performance.router,   prefix="/api/performance", tags=["Performance"])
+app.include_router(intel.router,         prefix="/api/intel", tags=["Intel"])
 
 
 @app.get("/health", tags=["Health"])
@@ -312,6 +320,37 @@ async def admin_upload_db(key: str, request: "Request"):
 
     size = db_path.stat().st_size
     return {"status": "ok", "db_path": str(db_path), "size_bytes": size, "size_mb": round(size / 1e6, 2)}
+
+
+@app.get("/api/telegram/test", tags=["Admin"])
+def telegram_test():
+    """Send a test message to verify the Telegram bot is connected."""
+    import requests as _rq
+    token   = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False,
+                     "error": "TELEGRAM_BOT_TOKEN and/or TELEGRAM_CHAT_ID not set"},
+        )
+    try:
+        r = _rq.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={
+                "chat_id": chat_id,
+                "text": "✅ *Scope* — Telegram bot connected. "
+                        "Critical and corroborated signals will arrive here.",
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        return {"ok": r.status_code == 200, "telegram_status": r.status_code}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=502, content={"ok": False, "error": str(e)[:200]})
 
 
 TAPE_RULE_LABELS = {
@@ -562,6 +601,22 @@ def osint_page():
 @app.get("/region/{region_name}", response_class=HTMLResponse, include_in_schema=False)
 def region_page(region_name: str):
     return FileResponse(STATIC_DIR / "osint_region.html")
+
+@app.get("/performance", response_class=HTMLResponse, include_in_schema=False)
+def performance_page():
+    return FileResponse(STATIC_DIR / "performance.html")
+
+@app.get("/api-docs", response_class=HTMLResponse, include_in_schema=False)
+def api_docs_page():
+    return FileResponse(STATIC_DIR / "api_docs.html")
+
+@app.get("/foreign-influence", response_class=HTMLResponse, include_in_schema=False)
+def foreign_influence_page():
+    return FileResponse(STATIC_DIR / "foreign_influence.html")
+
+@app.get("/sector/{sector_name}", response_class=HTMLResponse, include_in_schema=False)
+def sector_war_room_page(sector_name: str):
+    return FileResponse(STATIC_DIR / "sector.html")
 
 
 # ── OSINT / Globe API ──────────────────────────────────────────────────────────

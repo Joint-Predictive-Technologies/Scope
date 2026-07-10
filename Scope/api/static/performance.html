@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rule Performance — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red: #c0392b; --green: #2a8a4a;
+      --red-light: #e55b4d; --green-light: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+
+    .page { max-width: 1200px; margin: 0 auto; padding: 2.5rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-sub { font-size: 0.85rem; color: var(--cream2); margin-bottom: 1.8rem; max-width: 640px; line-height: 1.6; }
+
+    .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.8rem; margin-bottom: 2rem; }
+    .health-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; }
+    .health-val { font-family: 'Playfair Display', serif; font-size: 1.7rem; font-weight: 700; color: var(--amber); }
+    .health-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 0.2rem; }
+
+    .stale-banner { background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.28); border-radius: 6px; padding: 0.7rem 1.2rem; margin-bottom: 1.8rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--red-light); line-height: 1.6; }
+    .stale-ok { background: rgba(42,138,74,0.08); border-color: rgba(42,138,74,0.28); color: var(--green-light); }
+
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.9rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border2); cursor: pointer; user-select: none; white-space: nowrap; }
+    th:hover { color: var(--amber); }
+    td { padding: 0.7rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover td { background: var(--bg2); }
+    .rule-id { font-family: 'IBM Plex Mono', monospace; color: var(--amber2); font-size: 0.72rem; }
+    .sev-bar { display: inline-flex; height: 8px; border-radius: 2px; overflow: hidden; width: 90px; background: var(--bg3); vertical-align: middle; }
+    .sev-c { background: var(--red-light); } .sev-h { background: var(--amber); } .sev-m { background: #6ab0e0; }
+    .pill { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); background: var(--bg3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 6px; margin-right: 3px; }
+    .num { font-family: 'IBM Plex Mono', monospace; }
+    .corr-good { color: var(--green-light); } .corr-mid { color: var(--amber2); } .corr-low { color: var(--muted); }
+    .disclaimer { margin-top: 2rem; font-size: 0.68rem; color: var(--muted); font-style: italic; line-height: 1.6; }
+    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); font-size: 0.8rem; }
+    @media (max-width: 800px) { .col-hide { display: none; } }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/osint">OSINT</a>
+    <a href="/foreign-influence">Foreign Influence</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/backtest">Backtest</a>
+    <a href="/performance" class="active">Performance</a>
+    <a href="/brief">Brief</a>
+    <a href="/api-docs">API</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-tag">System Accountability</div>
+  <div class="page-title">Rule Performance</div>
+  <div class="page-sub">How each detection rule is performing — signal volume, severity mix, and how often its signals were later confirmed by a RULE_10 corroboration. Plus live system-health indicators.</div>
+
+  <div class="section-label">System Health</div>
+  <div id="stale" class="stale-banner" style="display:none"></div>
+  <div class="health-grid" id="health-grid"><div class="loading">Loading health…</div></div>
+
+  <div class="section-label">Per-Rule Performance <span style="color:var(--muted);text-transform:none;letter-spacing:0">— last 30 days · click a column to sort</span></div>
+  <div id="table-wrap"><div class="loading">Loading rule stats…</div></div>
+
+  <div class="disclaimer">Corroboration rate = share of a rule's flagged tickers that also appear in a RULE_10 corroboration. It is a measure of cross-source agreement, not investment performance. Past signal behavior does not constitute investment advice.</div>
+</div>
+
+<script>
+  let RULES = [];
+  let sortKey = 'total_window';
+  let sortDir = -1;
+
+  function fmt(n) { return (n ?? 0).toLocaleString(); }
+  function timeAgo(s) {
+    if (!s) return '—';
+    const t = new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z')).getTime();
+    if (isNaN(t)) return '—';
+    const d = Math.floor((Date.now() - t) / 1000);
+    if (d < 3600) return Math.floor(d/60) + 'm ago';
+    if (d < 86400) return Math.floor(d/3600) + 'h ago';
+    return Math.floor(d/86400) + 'd ago';
+  }
+
+  fetch('/api/performance/health').then(r => r.json()).then(h => {
+    document.getElementById('health-grid').innerHTML = `
+      <div class="health-card"><div class="health-val">${fmt(h.total_alerts)}</div><div class="health-label">Total alerts</div></div>
+      <div class="health-card"><div class="health-val">${fmt(h.alerts_last_24h)}</div><div class="health-label">Last 24h</div></div>
+      <div class="health-card"><div class="health-val">${h.ingest_rate_per_h}</div><div class="health-label">Alerts / hour</div></div>
+      <div class="health-card"><div class="health-val">${h.db_size_mb} MB</div><div class="health-label">Database size</div></div>
+      <div class="health-card"><div class="health-val">${h.stale_rules.length}</div><div class="health-label">Rules quiet &gt;24h</div></div>`;
+    const stale = document.getElementById('stale');
+    if (h.stale_rules.length) {
+      stale.style.display = 'block';
+      stale.innerHTML = '⚠ Quiet &gt;24h: ' + h.stale_rules.map(s => `${s.rule} (${timeAgo(s.last_fired)})`).join(' · ');
+    } else {
+      stale.style.display = 'block';
+      stale.className = 'stale-banner stale-ok';
+      stale.textContent = '✓ All rules have fired within the last 24 hours.';
+    }
+  }).catch(() => { document.getElementById('health-grid').innerHTML = '<div class="loading">Health unavailable.</div>'; });
+
+  fetch('/api/performance/rules?days=30').then(r => r.json()).then(d => {
+    RULES = d.rules || [];
+    render();
+  }).catch(() => { document.getElementById('table-wrap').innerHTML = '<div class="loading">Rule stats unavailable.</div>'; });
+
+  function setSort(k) {
+    if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = -1; }
+    render();
+  }
+  function val(r, k) {
+    if (k === 'crit') return r.severity.CRITICAL;
+    return r[k];
+  }
+  function render() {
+    const rows = [...RULES].sort((a, b) => {
+      const av = val(a, sortKey), bv = val(b, sortKey);
+      if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+      return sortDir * ((av || 0) - (bv || 0));
+    });
+    const th = (k, label, cls='') => `<th class="${cls}" onclick="setSort('${k}')">${label}${sortKey===k ? (sortDir<0?' ▾':' ▴') : ''}</th>`;
+    document.getElementById('table-wrap').innerHTML = `
+      <table>
+        <thead><tr>
+          ${th('rule','Rule')}
+          ${th('total_window','30d')}
+          ${th('total_all_time','All-time')}
+          ${th('avg_per_day','Avg/day','col-hide')}
+          <th class="col-hide">Severity mix</th>
+          ${th('corroboration_rate','Corrob.')}
+          <th class="col-hide">Top tickers</th>
+          <th>Last fired</th>
+        </tr></thead>
+        <tbody>${rows.map(rowHtml).join('')}</tbody>
+      </table>`;
+  }
+  function rowHtml(r) {
+    const tot = r.severity.CRITICAL + r.severity.HIGH + r.severity.MEDIUM || 1;
+    const pc = n => (n / tot * 100).toFixed(0);
+    const corrCls = r.corroboration_rate >= 20 ? 'corr-good' : r.corroboration_rate >= 5 ? 'corr-mid' : 'corr-low';
+    const tickers = r.top_tickers.map(t => `<span class="pill">${(t.ticker||'').replace(/\$/g,'').split(' ')[0]} ·${t.count}</span>`).join('');
+    return `<tr>
+      <td class="rule-id">${r.rule}</td>
+      <td class="num">${fmt(r.total_window)}</td>
+      <td class="num">${fmt(r.total_all_time)}</td>
+      <td class="num col-hide">${r.avg_per_day}</td>
+      <td class="col-hide">
+        <span class="sev-bar" title="C:${r.severity.CRITICAL} H:${r.severity.HIGH} M:${r.severity.MEDIUM}">
+          <span class="sev-c" style="width:${pc(r.severity.CRITICAL)}%"></span>
+          <span class="sev-h" style="width:${pc(r.severity.HIGH)}%"></span>
+          <span class="sev-m" style="width:${pc(r.severity.MEDIUM)}%"></span>
+        </span>
+      </td>
+      <td class="num ${corrCls}">${r.corroboration_rate}%</td>
+      <td class="col-hide">${tickers || '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="num" style="color:var(--muted)">${timeAgo(r.last_fired)}</td>
+    </tr>`;
+  }
+</script>
+</body>
+</html>

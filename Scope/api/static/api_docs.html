@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Docs — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --green-light: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+
+    .page { max-width: 900px; margin: 0 auto; padding: 2.5rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .lede { font-size: 0.9rem; color: var(--cream2); line-height: 1.7; margin-bottom: 2rem; max-width: 680px; }
+    h2 { font-family: 'Playfair Display', serif; font-size: 1.25rem; color: var(--cream); margin: 2rem 0 0.8rem; }
+    p { color: var(--cream2); line-height: 1.7; font-size: 0.85rem; margin-bottom: 0.8rem; }
+    code.inline { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--amber2); background: var(--bg2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 3px; }
+    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; line-height: 1.6; color: var(--cream2); margin-bottom: 1rem; }
+    pre .c { color: var(--muted); } pre .k { color: var(--amber2); } pre .s { color: var(--green-light); }
+    .endpoint { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    .ep-method { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; background: rgba(42,138,74,0.15); color: var(--green-light); border: 1px solid rgba(42,138,74,0.3); padding: 2px 7px; border-radius: 3px; }
+    .ep-path { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--amber2); margin-left: 0.5rem; }
+    .ep-desc { color: var(--cream2); font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.6; }
+    .ep-params { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }
+    .note { border-left: 2px solid var(--amber); padding-left: 0.9rem; color: var(--cream2); font-size: 0.8rem; line-height: 1.6; margin: 1rem 0; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/osint">OSINT</a>
+    <a href="/foreign-influence">Foreign Influence</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/performance">Performance</a>
+    <a href="/api-docs" class="active">API</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Developer Reference</div>
+  <div class="page-title">Scope Public API — v1</div>
+  <div class="lede">A read-only REST API over the Scope alert database. Pipe congressional trades, insider filings, corroborated signals, and sector heat directly into your own models and dashboards.</div>
+
+  <h2>Authentication</h2>
+  <p>Every request requires an API key, passed either as the <code class="inline">X-API-Key</code> header or an <code class="inline">?api_key=</code> query parameter. Keys are issued on request — contact the Scope team.</p>
+  <pre><span class="c"># header form (recommended)</span>
+curl -H <span class="s">"X-API-Key: scope_your_key_here"</span> \
+  <span class="k">https://scope-production-1c3a.up.railway.app/api/v1/alerts?days=7</span>
+
+<span class="c"># query-param form</span>
+curl <span class="k">".../api/v1/heat-index?api_key=scope_your_key_here"</span></pre>
+
+  <div class="note">All list endpoints return a standard envelope:<br>
+  <code class="inline">{ "data": [ ... ], "total": N, "page": 1, "per_page": 50 }</code></div>
+
+  <h2>Endpoints</h2>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/alerts</span>
+    <div class="ep-desc">Paginated alert feed across all rules.</div>
+    <div class="ep-params">params: severity, rule, ticker, days (1–365, def 7), page, per_page (1–200, def 50)</div>
+  </div>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/alerts/{id}</span>
+    <div class="ep-desc">A single alert by ID, with full detail and metadata.</div>
+  </div>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/ticker/{symbol}/signals</span>
+    <div class="ep-desc">All signals for a ticker across every rule.</div>
+    <div class="ep-params">params: days (def 90), page, per_page</div>
+  </div>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/member/{bioguide_id}/trades</span>
+    <div class="ep-desc">Disclosed trades for a member of congress.</div>
+    <div class="ep-params">params: days (def 90), page, per_page</div>
+  </div>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/heat-index</span>
+    <div class="ep-desc">Current heat score, trend, and dominant rule for every sector.</div>
+    <div class="ep-params">params: days (1–90, def 30)</div>
+  </div>
+
+  <div class="endpoint">
+    <span class="ep-method">GET</span><span class="ep-path">/api/v1/corroborations</span>
+    <div class="ep-desc">RULE_10 cross-source corroborations — the flagship signal.</div>
+    <div class="ep-params">params: days (def 30), page, per_page</div>
+  </div>
+
+  <h2>Example response</h2>
+  <pre>{
+  <span class="k">"data"</span>: [
+    {
+      <span class="k">"id"</span>: 1839,
+      <span class="k">"rule"</span>: <span class="s">"RULE_10"</span>,
+      <span class="k">"ticker"</span>: <span class="s">"LMT"</span>,
+      <span class="k">"severity"</span>: <span class="s">"CRITICAL"</span>,
+      <span class="k">"headline"</span>: <span class="s">"[CORROBORATION] LMT: 4 independent signals in 24h"</span>,
+      <span class="k">"created_at"</span>: <span class="s">"2026-06-08 13:20:11"</span>
+    }
+  ],
+  <span class="k">"total"</span>: 12, <span class="k">"page"</span>: 1, <span class="k">"per_page"</span>: 50
+}</pre>
+
+  <h2>Errors</h2>
+  <p><code class="inline">401</code> missing key · <code class="inline">403</code> invalid key · <code class="inline">404</code> not found. Rate limits are generous for normal use; abusive traffic may be throttled.</p>
+
+  <div class="note" style="border-color:var(--muted);color:var(--muted)">Data is provided for informational purposes only and does not constitute investment advice.</div>
+</div>
+</body>
+</html>

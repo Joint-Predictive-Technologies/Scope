@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Foreign Influence — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red-light: #e55b4d; --green-light: #4dc47a;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a:hover, .nav-links a.active { color: var(--amber); }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 2rem; }
+    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-sub { font-size: 0.85rem; color: var(--cream2); margin-bottom: 2rem; max-width: 680px; line-height: 1.6; }
+
+    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin: 1.8rem 0 0.9rem; }
+    .country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.9rem; }
+    .country-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; }
+    .country-name { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--cream); font-weight: 600; }
+    .country-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber2); margin: 0.3rem 0 0.5rem; }
+    .principal { font-size: 0.7rem; color: var(--cream2); line-height: 1.5; }
+
+    .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+    @media (max-width: 820px) { .theme-grid { grid-template-columns: 1fr; } }
+    .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.2rem; }
+    .panel-title { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--cream); margin-bottom: 0.2rem; }
+    .panel-desc { font-size: 0.68rem; color: var(--muted); margin-bottom: 0.8rem; line-height: 1.5; }
+    .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.76rem; }
+    .row:last-child { border-bottom: none; }
+    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.54rem; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+    .b-CRITICAL { background: rgba(192,57,43,0.18); color: var(--red-light); }
+    .b-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); }
+    .b-MEDIUM { background: rgba(42,100,160,0.15); color: #6ab0e0; }
+    .tkr { font-family: 'IBM Plex Mono', monospace; color: var(--amber); text-decoration: none; flex-shrink: 0; }
+    .hl { color: var(--cream2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+    .muted-row { color: var(--muted); font-size: 0.74rem; padding: 0.5rem 0; line-height: 1.5; }
+    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+    .disclaimer { margin-top: 2rem; font-size: 0.68rem; color: var(--muted); font-style: italic; line-height: 1.6; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/osint">OSINT</a>
+    <a href="/foreign-influence" class="active">Foreign Influence</a>
+    <a href="/sectors">Sectors</a>
+    <a href="/performance">Performance</a>
+    <a href="/api-docs">API</a>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="page-tag">Foreign Influence Tracker</div>
+  <div class="page-title">Foreign Lobbying & Campaign Finance</div>
+  <div class="page-sub">Foreign registrations under the Senate LDA (FARA-equivalent), industry PAC funding, and the trades that intersect them — surfacing where foreign strategic interests and congressional activity overlap.</div>
+
+  <div class="section-label">Active Foreign Registrations — by country</div>
+  <div id="countries" class="country-grid"><div class="loading">Loading registrations…</div></div>
+
+  <div class="section-label">Targeted Watch</div>
+  <div class="theme-grid">
+    <div class="panel">
+      <div class="panel-title">Israel / AIPAC</div>
+      <div class="panel-desc">Pro-Israel lobbying & PAC signals — cross-reference with defense-sector trades.</div>
+      <div id="aipac"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Saudi Arabia</div>
+      <div class="panel-desc">Saudi-linked registrations — cross-reference with energy-sector activity.</div>
+      <div id="saudi"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">China</div>
+      <div class="panel-desc">Chinese principal registrations — cross-reference with semiconductor trades.</div>
+      <div id="china"></div>
+    </div>
+  </div>
+
+  <div class="section-label">Conflict Alerts — trade vs. funded sector (RULE_13)</div>
+  <div class="panel" id="conflicts"></div>
+
+  <div class="disclaimer">Foreign registration data is drawn from Senate LDA filings listing foreign entities and is provided for informational transparency only. Presence of a filing does not imply wrongdoing by any member or company.</div>
+</div>
+
+<script>
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const tkr = t => (t||'').replace(/\$/g,'').split(' ')[0];
+  const money = n => n >= 1e6 ? '$'+(n/1e6).toFixed(1)+'M' : n >= 1e3 ? '$'+(n/1e3).toFixed(0)+'k' : '$'+(n||0);
+
+  function sigRows(list, empty) {
+    if (!list || !list.length) return `<div class="muted-row">${empty}</div>`;
+    return list.map(a => `<div class="row">
+      <span class="badge b-${a.severity}">${a.severity}</span>
+      ${tkr(a.ticker) ? `<a class="tkr" href="/ticker/${tkr(a.ticker)}">${tkr(a.ticker)}</a>` : ''}
+      <span class="hl">${esc(a.headline)}</span>
+    </div>`).join('');
+  }
+
+  fetch('/api/intel/foreign-influence?days=180').then(r => r.json()).then(d => {
+    const cc = document.getElementById('countries');
+    cc.innerHTML = (d.countries && d.countries.length)
+      ? d.countries.map(c => `<div class="country-card">
+          <div class="country-name">${esc(c.country)}</div>
+          <div class="country-meta">${c.filings} filing${c.filings!==1?'s':''} · ${money(c.total_receipts)}</div>
+          <div class="principal">${(c.principals||[]).map(esc).join('<br>') || '<span style="color:var(--muted)">—</span>'}</div>
+        </div>`).join('')
+      : '<div class="muted-row">No foreign registrations ingested yet. This populates from the weekly FARA/LDA scan (RULE_12).</div>';
+
+    document.getElementById('aipac').innerHTML = sigRows(d.aipac, 'No Israel/AIPAC-linked signals in the last 180 days.');
+    document.getElementById('saudi').innerHTML = sigRows(d.saudi, 'No Saudi-linked signals in the last 180 days.');
+    document.getElementById('china').innerHTML = sigRows(d.china, 'No China-linked signals in the last 180 days.');
+    document.getElementById('conflicts').innerHTML = sigRows(d.conflicts, 'No funding-conflict alerts flagged. RULE_13 populates from the daily FEC scan.');
+  }).catch(() => {
+    document.getElementById('countries').innerHTML = '<div class="loading">Foreign-influence data unavailable.</div>';
+  });
+</script>
+</body>
+</html>
