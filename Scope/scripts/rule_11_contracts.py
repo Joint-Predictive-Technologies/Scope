@@ -138,9 +138,12 @@ def run(dry_run: bool = False) -> None:
         r[0].upper() for r in conn.execute("SELECT symbol FROM watchlist").fetchall()
     }
 
+    import time as _time
+    _t0 = _time.time()
     contracts = _fetch_contracts()
     print(f"[RULE_11] {len(contracts)} contracts fetched from USASpending.gov")
 
+    scanned = len(contracts)
     stored = skipped = emitted = 0
 
     for c in contracts:
@@ -247,6 +250,9 @@ def run(dry_run: bool = False) -> None:
 
     print(f"[RULE_11] Done — {stored} stored, {emitted} new alerts, {skipped} skipped")
     conn.close()
+    from jpt_common import record_activity
+    record_activity("RULE_11", scanned=scanned, flagged=stored + emitted, emitted=emitted,
+                    duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

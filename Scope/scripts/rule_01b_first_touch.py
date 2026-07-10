@@ -22,6 +22,8 @@ def _is_above_15k(band: str) -> bool:
 
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
+    import time as _time
+    _t0 = _time.time()
     conn = db_connection()
 
     rows = conn.execute("""
@@ -97,6 +99,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
 
     print(f"[RULE_01B] Done — {emitted} new alerts emitted")
     conn.close()
+    from jpt_common import record_activity
+    record_activity("RULE_01B", scanned=len(rows), flagged=len(rows), emitted=emitted,
+                    duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

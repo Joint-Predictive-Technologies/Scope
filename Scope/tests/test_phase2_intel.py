@@ -93,6 +93,21 @@ def test_activity_log_endpoint():
     assert isinstance(_c.get("/api/activity-log").json(), list)
 
 
+def test_record_activity_writes_row():
+    """record_activity() persists a scanned/flagged/emitted/duration row."""
+    from jpt_common import db_connection, record_activity
+    record_activity("UNITTEST_SRC", scanned=7, flagged=3, emitted=2, duration_seconds=1.23)
+    conn = db_connection()
+    row = conn.execute(
+        "SELECT events_scanned, events_flagged, alerts_emitted, duration_seconds "
+        "FROM activity_log WHERE source='UNITTEST_SRC' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.execute("DELETE FROM activity_log WHERE source='UNITTEST_SRC'")
+    conn.commit(); conn.close()
+    assert row is not None
+    assert (row[0], row[1], row[2], row[3]) == (7, 3, 2, 1.23)
+
+
 # ── Reddit authenticity scoring (spec §9) ────────────────────────────────────
 def test_reddit_organic_scores_high():
     p = {"title": "DD: $ABC 10-Q shows revenue up, my price target with analysis",

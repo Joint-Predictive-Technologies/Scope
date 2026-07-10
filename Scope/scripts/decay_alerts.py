@@ -25,6 +25,8 @@ from jpt_common import db_connection
 
 
 def run(dry_run: bool = False) -> tuple[int, int]:
+    import time as _time
+    _t0 = _time.time()
     conn = db_connection()
 
     # Preview counts first so we can report accurately even on a dry run.
@@ -95,6 +97,11 @@ def run(dry_run: bool = False) -> tuple[int, int]:
     conn.commit()
     conn.close()
     print(f"[DECAY] downgraded {crit_to_high} CRITICAL→HIGH, {high_to_med} HIGH→MEDIUM")
+    from jpt_common import record_activity
+    record_activity("DECAY", scanned=crit_to_high + high_to_med,
+                    flagged=crit_to_high + high_to_med, emitted=0,
+                    duration_seconds=round(_time.time() - _t0, 2),
+                    notes=f"{crit_to_high} C→H, {high_to_med} H→M")
     return crit_to_high, high_to_med
 
 

@@ -107,6 +107,9 @@ def check_zones(flights: list[dict]) -> dict[str, list[dict]]:
 
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
+    import time as _time
+    from jpt_common import record_activity
+    _t0 = _time.time()
     conn = db_connection()
     flights = fetch_military_flights()
     print(f"[RULE_ADSB] {len(flights)} military flights detected")
@@ -115,6 +118,8 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     if not concentrations:
         print("[RULE_ADSB] No unusual concentrations detected")
         conn.close()
+        record_activity("RULE_ADSB", scanned=len(flights), flagged=0, emitted=0,
+                        duration_seconds=round(_time.time() - _t0, 2))
         return
 
     now = datetime.now(timezone.utc)
@@ -162,6 +167,8 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             conn.commit()
 
     conn.close()
+    record_activity("RULE_ADSB", scanned=len(flights), flagged=len(concentrations),
+                    emitted=len(concentrations), duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

@@ -821,6 +821,19 @@ def insert_alert(conn, rule, ticker, severity, headline, why_matters=None,
     return cur.lastrowid
 
 
+def record_activity(source, scanned=0, flagged=0, emitted=0,
+                    duration_seconds=None, notes=None) -> None:
+    """log_activity on a fresh, self-managed connection — the one-liner rule
+    scripts call at the end of run() (safe even if their own conn is closed)."""
+    try:
+        conn = db_connection()
+        log_activity(conn, source, scanned=scanned, flagged=flagged,
+                     emitted=emitted, duration_seconds=duration_seconds, notes=notes)
+        conn.close()
+    except Exception:
+        pass
+
+
 def log_activity(conn, source, scanned=0, flagged=0, emitted=0,
                  duration_seconds=None, notes=None) -> None:
     """Record a rule/scan run so the activity log can show 'clear airspace'."""

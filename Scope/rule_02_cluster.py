@@ -215,15 +215,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    import time as _time
     parser = build_parser()
     args = parser.parse_args()
 
+    _t0 = _time.time()
     with db_connection() as conn:
         transactions = fetch_transactions(conn, args.days)
         clusters = find_clusters(transactions, args.min_members)
         emitted = emit_alerts(conn, clusters)
 
     print(f"{len(clusters)} clusters found, {emitted} alerts emitted")
+    from jpt_common import record_activity
+    record_activity("RULE_02", scanned=len(transactions), flagged=len(clusters),
+                    emitted=emitted, duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

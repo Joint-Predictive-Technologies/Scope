@@ -120,21 +120,12 @@ def _hours_since_last_alert() -> float:
         return float("inf")
 
 
-def _rule_source_label(rule: str) -> str:
-    """Human source label for the activity log from a script path."""
-    base = os.path.basename(rule).replace(".py", "")
-    return base.upper().replace("RULE_", "RULE_").replace("_", " ").strip()
-
-
 def _run_rule(rule: str) -> str:
     """Run a single rule script; return 'ok' or the last 300 chars of stderr.
 
-    Records an activity_log row (source, duration, alerts emitted delta) so the
-    homepage can show 'clear airspace' — that Scope scanned even when nothing fired.
+    Rule scripts write their own activity_log row (with scanned/flagged/emitted)
+    from inside run(); the scheduler only tracks pass/fail via _job_last_run.
     """
-    import time as _time
-    before = _alert_count()
-    start = _time.time()
     try:
         r = subprocess.run(
             [sys.executable, rule, "--emit-alerts"],
@@ -146,17 +137,6 @@ def _run_rule(rule: str) -> str:
         result = "timeout after 300s"
     except Exception as e:
         result = str(e)[:200]
-    duration = round(_time.time() - start, 2)
-    after = _alert_count()
-    emitted = max(0, after - before) if (before >= 0 and after >= 0) else 0
-    try:
-        from jpt_common import db_connection as _dbc, log_activity as _log
-        _conn = _dbc()
-        _log(_conn, _rule_source_label(rule), emitted=emitted,
-             duration_seconds=duration, notes=result[:120])
-        _conn.close()
-    except Exception:
-        pass
     print(f"[scheduler] {rule}: {result}", flush=True)
     return result
 

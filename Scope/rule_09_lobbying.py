@@ -360,6 +360,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    _t0 = time.time()
     if args.filing_type == current_quarter()[0] and args.filing_year == current_quarter()[1]:
         # Default run: sweep all COMPARE_PERIODS so historical data always shows
         total_triggered = total_emitted = 0
@@ -370,8 +371,12 @@ def main() -> None:
             total_emitted += e
         print(f"\n{total_triggered} spike(s) detected, {total_emitted} alert(s) emitted")
     else:
-        triggered, emitted = run(args.filing_type, args.filing_year, args.emit_alerts)
-        print(f"\n{triggered} spike(s) detected, {emitted} alert(s) emitted")
+        total_triggered, total_emitted = run(args.filing_type, args.filing_year, args.emit_alerts)
+        print(f"\n{total_triggered} spike(s) detected, {total_emitted} alert(s) emitted")
+
+    from jpt_common import record_activity
+    record_activity("RULE_09", scanned=total_triggered, flagged=total_triggered,
+                    emitted=total_emitted, duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

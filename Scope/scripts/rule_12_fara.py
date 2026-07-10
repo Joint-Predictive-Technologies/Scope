@@ -135,14 +135,19 @@ def _parse_amount(val: str) -> float:
 
 
 def run(emit: bool = False) -> None:
+    from jpt_common import record_activity
+    _t0 = time.time()
     conn = db_connection()
 
     rows = _fetch_lda_foreign_filings(years_back=2)
     if not rows:
         print("[RULE_12] No LDA foreign-entity filings found")
         conn.close()
+        record_activity("RULE_12", scanned=0, flagged=0, emitted=0,
+                        duration_seconds=round(time.time() - _t0, 2))
         return
 
+    scanned = len(rows)
     ingested = 0
     alerts_emitted = 0
 
@@ -188,6 +193,8 @@ def run(emit: bool = False) -> None:
 
     if not emit:
         conn.close()
+        record_activity("RULE_12", scanned=scanned, flagged=ingested, emitted=0,
+                        duration_seconds=round(time.time() - _t0, 2))
         return
 
     # ── Signal logic: detect YoY spend increases > 30% ──────────────────────
@@ -286,6 +293,8 @@ def run(emit: bool = False) -> None:
     conn.commit()
     conn.close()
     print(f"[RULE_12] Done — {alerts_emitted} alerts emitted")
+    record_activity("RULE_12", scanned=scanned, flagged=ingested, emitted=alerts_emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 def _ensure_tables(conn) -> None:

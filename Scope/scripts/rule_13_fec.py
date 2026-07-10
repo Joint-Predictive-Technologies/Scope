@@ -68,6 +68,7 @@ def _get_recent_contributions(candidate_id: str, days_back: int = 30) -> list[di
 
 
 def run(emit: bool = False) -> None:
+    _t0 = time.time()
     conn = db_connection()
 
     # Get members with known candidate IDs
@@ -156,6 +157,9 @@ def run(emit: bool = False) -> None:
     conn.commit()
     conn.close()
     print(f"[RULE_13] Done — {alerts_emitted} alerts emitted")
+    from jpt_common import record_activity
+    record_activity("RULE_13", scanned=len(funded_members), flagged=alerts_emitted,
+                    emitted=alerts_emitted, duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

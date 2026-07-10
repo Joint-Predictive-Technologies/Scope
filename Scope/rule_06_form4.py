@@ -308,8 +308,10 @@ def _fmt_dollars(value: float) -> str:
 
 def run(since: str, today: str, emit_alerts: bool) -> tuple[int, int]:
     """Return (significant_count, alerts_emitted)."""
+    _t0 = time.time()
     refs = search_form4_filings(since, today)
 
+    scanned = len(refs)
     significant = 0
     emitted = 0
 
@@ -369,6 +371,9 @@ def run(since: str, today: str, emit_alerts: bool) -> tuple[int, int]:
     if conn is not None:
         conn.close()
 
+    from jpt_common import record_activity
+    record_activity("RULE_06", scanned=scanned, flagged=significant, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
     return significant, emitted
 
 

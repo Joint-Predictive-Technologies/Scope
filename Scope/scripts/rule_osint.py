@@ -127,14 +127,16 @@ def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
     return "MEDIUM"
 
 
-def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
+def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
     try:
         raw    = _fetch_gdelt_events()
         events = _filter_hostile(raw)
     except Exception as e:
         print(f"[RULE_OSINT] GDELT fetch failed: {e}")
-        return 0
+        return 0, 0, 0
 
+    scanned = len(raw)      # raw GDELT rows examined
+    flagged = len(events)   # passed hostile/mention filter
     emitted = 0
 
     for event in events:
@@ -201,15 +203,20 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> int:
             emitted += 1
 
     print(f"[RULE_OSINT] GDELT: {emitted} new alerts emitted")
-    return emitted
+    return scanned, flagged, emitted
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
+    import time
+    from jpt_common import record_activity
+    _t0 = time.time()
     conn = db_connection()
-    _run_gdelt(conn, emit=emit, dry_run=dry_run)
+    scanned, flagged, emitted = _run_gdelt(conn, emit=emit, dry_run=dry_run)
     conn.close()
+    record_activity("RULE_OSINT", scanned=scanned, flagged=flagged, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

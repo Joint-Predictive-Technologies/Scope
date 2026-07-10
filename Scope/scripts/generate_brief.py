@@ -217,6 +217,12 @@ def generate(date_str: str | None = None, days: float = 2) -> dict:
     conn.commit()
     conn.close()
     print(f"[brief] generated for {today} — {len(data.get('alert_ids', []))} evidence alerts")
+    try:
+        from jpt_common import record_activity
+        record_activity("BRIEF", scanned=data.get("total", 0),
+                        flagged=len(data.get("alert_ids", [])), emitted=1)
+    except Exception:
+        pass
     return {"date": today, "content_json": content_json, "generated_at": generated_at,
             "alert_ids": alert_ids_json, "evidence_json": evidence_json}
 

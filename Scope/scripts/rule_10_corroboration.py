@@ -122,6 +122,9 @@ MAX_PER_RUN = 10  # hard cap — prevents any future flood
 
 
 def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
+    import time as _time
+    from jpt_common import record_activity
+    _t0 = _time.time()
     load_dotenv()
     conn = db_connection()
 
@@ -132,6 +135,8 @@ def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
     if not clusters:
         print("  No corroboration clusters found.")
         conn.close()
+        record_activity("RULE_10", scanned=0, flagged=0, emitted=0,
+                        duration_seconds=round(_time.time() - _t0, 2))
         return 0, 0
 
     # Sort by distinct rule count desc (most corroborated first), cap at MAX_PER_RUN
@@ -183,6 +188,8 @@ def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
         emitted += 1
 
     conn.close()
+    record_activity("RULE_10", scanned=found, flagged=found, emitted=emitted,
+                    duration_seconds=round(_time.time() - _t0, 2))
     return found, emitted
 
 

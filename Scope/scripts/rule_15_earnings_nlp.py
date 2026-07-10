@@ -109,6 +109,7 @@ def _ensure_tables(conn) -> None:
 
 
 def run(emit: bool = False) -> None:
+    _t0 = time.time()
     conn = db_connection()
     _ensure_tables(conn)
 
@@ -246,6 +247,9 @@ def run(emit: bool = False) -> None:
     conn.commit()
     conn.close()
     print(f"[RULE_15] Done — {ingested} filings ingested, {alerts_emitted} alerts emitted")
+    from jpt_common import record_activity
+    record_activity("RULE_15", scanned=ingested, flagged=ingested, emitted=alerts_emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

@@ -57,6 +57,7 @@ def _fetch_prices(ticker: str, alert_ts: str) -> dict | None:
 
 
 def run(limit: int = 100, dry_run: bool = False) -> None:
+    _t0 = time.time()
     conn = db_connection()
 
     alerts = conn.execute("""
@@ -107,6 +108,9 @@ def run(limit: int = 100, dry_run: bool = False) -> None:
 
     print(f"[run_backtest] Done — {ok} fetched, {skipped} skipped")
     conn.close()
+    from jpt_common import record_activity
+    record_activity("BACKTEST", scanned=ok + skipped, flagged=ok, emitted=0,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

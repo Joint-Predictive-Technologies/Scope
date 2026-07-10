@@ -328,8 +328,10 @@ def insert_alert(
 # ---------------------------------------------------------------------------
 
 def run(emit_alerts: bool) -> tuple[int, int]:
+    _t0 = time.time()
     markets = fetch_active_markets()
 
+    scanned = len(markets)
     triggered = 0
     emitted = 0
     conn = db_connection() if emit_alerts else None
@@ -434,6 +436,9 @@ def run(emit_alerts: bool) -> tuple[int, int]:
     if conn is not None:
         conn.close()
 
+    from jpt_common import record_activity
+    record_activity("RULE_07", scanned=scanned, flagged=triggered, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
     return triggered, emitted
 
 

@@ -138,11 +138,13 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
         if r[0]
     }
 
-    emitted = stored = 0
+    _t0 = time.time()
+    emitted = stored = scanned = flagged = 0
 
     for subreddit in SUBREDDITS:
         posts = _fetch_subreddit(subreddit)
         print(f"[RULE_REDDIT] r/{subreddit}: {len(posts)} posts fetched")
+        scanned += len(posts)
         time.sleep(3)
 
         for post in posts:
@@ -166,6 +168,8 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             tickers = _extract_tickers(full_text, known_tickers)
             if not tickers:
                 continue
+
+            flagged += 1  # passed all quality filters, before insert/dedup
 
             ticker   = tickers[0]
             tags_str = json.dumps({"url": url, "subreddit": subreddit, "upvotes": score})
@@ -205,6 +209,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
 
     print(f"[RULE_REDDIT] Done — {stored} posts stored, {emitted} alerts emitted")
     conn.close()
+    from jpt_common import record_activity
+    record_activity("RULE_REDDIT", scanned=scanned, flagged=flagged, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

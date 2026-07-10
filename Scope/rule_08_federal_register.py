@@ -231,6 +231,7 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
+    _t0 = time.time()
     print(f"Fetching Federal Register proposed rules since {args.since} …")
     documents = fetch_proposed_rules(args.since)
     print(f"  {len(documents)} document(s) fetched")
@@ -251,6 +252,9 @@ def main() -> None:
         conn.close()
 
     print(f"\n{triggered} rule(s) matched sector keywords, {emitted} alert(s) emitted")
+    from jpt_common import record_activity
+    record_activity("RULE_08", scanned=len(documents), flagged=triggered, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2))
 
 
 if __name__ == "__main__":
