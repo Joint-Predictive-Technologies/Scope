@@ -95,6 +95,9 @@
     .vote-btn.voted { border-color: var(--amber); color: var(--amber); }
     .comment-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; }
     .comment-btn:hover { border-color: #6ab0e0; color: #6ab0e0; }
+    .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 7px; border-radius: 3px; cursor: pointer; font-size: 0.72rem; line-height: 1; filter: grayscale(0.6); opacity: 0.7; transition: all 0.15s; flex-shrink: 0; }
+    .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
+    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
 
     /* EXPANDED DETAIL */
     .alert-detail { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
@@ -597,6 +600,22 @@
     } catch {}
   }
 
+  // ── Annotation: useful / not-useful (Phase 3) ──────────────────────────────
+  async function rateAlert(e, alertId, vote) {
+    e.stopPropagation();
+    try {
+      const r = await fetch(`/social/${alertId}/rate`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({session_id: SESSION_ID, vote})
+      });
+      const d = await r.json();
+      const up = document.getElementById(`rate-up-${alertId}`);
+      const down = document.getElementById(`rate-down-${alertId}`);
+      if (up)   up.classList.toggle('rated', d.my_vote === 'useful');
+      if (down) down.classList.toggle('rated', d.my_vote === 'not_useful');
+    } catch {}
+  }
+
   // ── Comment thread ─────────────────────────────────────────────────────────
   async function toggleComments(e, alertId) {
     e.stopPropagation();
@@ -802,6 +821,8 @@
             <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
             <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>
             <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
+            <button class="rate-btn" id="rate-up-${a.id}" title="Signal useful" onclick="rateAlert(event,${a.id},'useful')">👍</button>
+            <button class="rate-btn" id="rate-down-${a.id}" title="Not useful" onclick="rateAlert(event,${a.id},'not_useful')">👎</button>
           </div>
           <div class="alert-detail">${detailHtml}</div>
         </div>`;

@@ -21,7 +21,50 @@ from collections import defaultdict
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import db_connection
+from jpt_common import db_connection, insert_alert, score_alert_fields
+
+
+def upsert_theme(conn, ticker, distinct_rules, scores) -> int:
+    """Create or evolve a Market Thesis (theme) for this ticker. Returns theme id.
+
+    A corroboration on a ticker that already has an active theme advances its
+    lifecycle (Emerging → Developing → Confirmed) and refreshes its scores; a new
+    ticker starts an Emerging thesis. (Data hierarchy §3 of the product spec.)"""
+    rules_json = json.dumps(sorted(set(distinct_rules)))
+    existing = conn.execute(
+        "SELECT id, signal_count FROM themes WHERE primary_ticker = ? "
+        "AND status NOT IN ('Resolved','Fading')",
+        (ticker,),
+    ).fetchone()
+    if existing:
+        new_count = (existing["signal_count"] or 0) + 1
+        status = "Confirmed" if new_count >= 5 else "Developing" if new_count >= 2 else "Emerging"
+        conn.execute(
+            """UPDATE themes SET
+                   signal_count = ?, evidence_confidence = ?, opportunity_score = ?,
+                   novelty_score = ?, time_horizon = ?, supporting_rules = ?,
+                   what_changed = ?, status = ?, last_updated = datetime('now')
+               WHERE id = ?""",
+            (new_count, scores["evidence_confidence"], scores["opportunity_score"],
+             scores["novelty_score"], scores["time_horizon"], rules_json,
+             f"New corroboration: {', '.join(sorted(set(distinct_rules)))}", status,
+             existing["id"]),
+        )
+        return existing["id"]
+    cur = conn.execute(
+        """INSERT INTO themes (
+               title, primary_ticker, affected_tickers, status,
+               evidence_confidence, opportunity_score, novelty_score, time_horizon,
+               supporting_rules, signal_count, what_changed,
+               first_signal_at, last_updated)
+           VALUES (?, ?, ?, 'Emerging', ?, ?, ?, ?, ?, 1, ?, datetime('now'), datetime('now'))""",
+        (f"Convergence: {ticker} — {len(set(distinct_rules))} rules aligned",
+         ticker, json.dumps([ticker]),
+         scores["evidence_confidence"], scores["opportunity_score"],
+         scores["novelty_score"], scores["time_horizon"], rules_json,
+         f"Thesis opened from convergence: {', '.join(sorted(set(distinct_rules)))}"),
+    )
+    return cur.lastrowid
 
 RULE = "RULE_10"
 
@@ -43,7 +86,7 @@ def _candidate_alerts(conn, window_hours: int) -> list:
     excluded = ",".join(f"'{r}'" for r in EXCLUDED_FROM_CORROBORATION)
     return conn.execute(
         f"""
-        SELECT ticker, rule, severity, headline, created_at
+        SELECT id, ticker, rule, severity, headline, created_at
         FROM alerts
         WHERE ticker IS NOT NULL AND ticker != ''
           AND rule NOT IN ({excluded})
@@ -166,16 +209,19 @@ def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
             f"[CORROBORATION] {ticker}: {rule_count} independent signals "
             f"in {window_hours}h ({rules_fired})"
         )
+        distinct_rules = sorted({a["rule"] for a in alerts})
         tags = json.dumps({
-            "rules": rules_fired.split(","),
+            "rules": distinct_rules,
             "rule_count": rule_count,
             "rules_fired": rules_fired,
         })
 
-        conn.execute(
-            """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (RULE, ticker, severity, headline, narrative, tags),
+        # Insert via the scoring wrapper so the corroboration carries real
+        # evidence/opportunity/novelty, and capture its id for theme linking.
+        alert_id = insert_alert(
+            conn, rule=RULE, ticker=ticker, severity=severity,
+            headline=headline, detail=narrative, tags=tags,
+            distinct_rule_count=rule_count,
         )
         conn.execute(
             """UPDATE alerts SET lifecycle_stage = 'corroborated'
@@ -184,6 +230,20 @@ def run(dry_run: bool, window_hours: int = 24) -> tuple[int, int]:
                  AND datetime(created_at) >= datetime('now', '-48 hours')""",
             (ticker,),
         )
+
+        # Feature 4 — create/evolve the Market Thesis and link the evidence.
+        scores = score_alert_fields(conn, RULE, ticker, headline, tags)
+        theme_id = upsert_theme(conn, ticker, distinct_rules, scores)
+        conn.execute("UPDATE alerts SET theme_id = ? WHERE id = ?", (theme_id, alert_id))
+        # Link this corroboration + its contributing signals to the theme.
+        conn.execute("INSERT INTO theme_signals (theme_id, alert_id) VALUES (?, ?)",
+                     (theme_id, alert_id))
+        for a in alerts:
+            if a["id"] is not None:
+                conn.execute(
+                    "INSERT INTO theme_signals (theme_id, alert_id) VALUES (?, ?)",
+                    (theme_id, a["id"]),
+                )
         conn.commit()
         emitted += 1
 

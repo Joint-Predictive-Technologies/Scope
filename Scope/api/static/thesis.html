@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Thesis War Room — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
+    .status-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
+    .st-emerging { background: rgba(122,112,96,0.2); color: var(--cream2); }
+    .st-developing { background: rgba(106,176,224,0.15); color: var(--blue); }
+    .st-confirmed { background: rgba(200,146,42,0.18); color: var(--amber2); }
+    .st-saturated { background: rgba(122,112,96,0.15); color: var(--muted); }
+    .t-title { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
+    .t-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); }
+
+    .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
+    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; }
+    .score-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .score-value { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 800; line-height: 1.1; }
+    .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
+    .bar > span { display: block; height: 100%; }
+    .score-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--cream2); }
+    .score-meta .m { color: var(--muted); }
+
+    .section { margin-top: 1.8rem; }
+    .section h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
+    .what-changed { background: rgba(200,146,42,0.06); border-left: 2px solid var(--amber); padding: 0.8rem 1rem; font-size: 0.85rem; color: var(--cream2); line-height: 1.6; }
+
+    .timeline-day { margin-bottom: 1rem; }
+    .timeline-date { font-family: 'IBM Plex Mono', monospace; font-size: 0.64rem; color: var(--muted); margin-bottom: 0.4rem; }
+    .signal-card { background: var(--bg2); border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; padding: 0.7rem 1rem; margin-bottom: 0.4rem; }
+    .signal-card.critical { border-left-color: var(--red-light); }
+    .signal-card.high { border-left-color: var(--amber); }
+    .signal-card.medium { border-left-color: var(--blue); }
+    .sig-top { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    .rule-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 6px; border-radius: 3px; }
+    .sig-ticker { font-family: 'IBM Plex Mono', monospace; color: var(--amber); font-size: 0.72rem; }
+    .sig-headline { font-size: 0.82rem; color: var(--cream); margin-top: 0.3rem; }
+    .sig-why { font-size: 0.74rem; color: var(--muted); margin-top: 0.2rem; line-height: 1.5; }
+    .verify-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); text-decoration: none; }
+
+    .chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--cream2); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; }
+    .related-card { display: flex; gap: 0.7rem; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 0.4rem; text-decoration: none; color: var(--cream2); font-size: 0.8rem; }
+    .related-card:hover { border-color: var(--amber); }
+    .related-card .score { margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--green-light); }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+    .muted { color: var(--muted); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/intelligence">← Intelligence</a>
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/sectors">Sectors</a>
+  </div>
+</nav>
+
+<div class="page" id="page"><div class="loading">Loading thesis…</div></div>
+
+<script>
+  const id = parseInt(location.pathname.split('/thesis/')[1] || '0');
+  const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
+  const tk = t => (t||'').replace(/\$/g,'').split(' ')[0];
+
+  fetch(`/api/themes/${id}`).then(r => { if(!r.ok) throw new Error('404'); return r.json(); }).then(d => {
+    const t = d.theme;
+    const stCls = 'st-' + (t.status||'emerging').toLowerCase();
+    const timeline = (d.timeline||[]).map(day => `
+      <div class="timeline-day">
+        <div class="timeline-date">${esc(day.date)}</div>
+        ${day.signals.map(s => `
+          <div class="signal-card ${(s.severity||'').toLowerCase()}">
+            <div class="sig-top">
+              <span class="rule-badge">${esc(s.rule)}</span>
+              ${tk(s.ticker) ? `<span class="sig-ticker">${esc(tk(s.ticker))}</span>` : ''}
+              <span class="muted" style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:0.6rem">${ago(s.created_at)}</span>
+            </div>
+            <div class="sig-headline">${esc(s.headline)}</div>
+            ${s.why_matters ? `<div class="sig-why">${esc(s.why_matters)}</div>` : ''}
+            ${(s.verify_url||s.source_url) ? `<a class="verify-link" href="${esc(s.verify_url||s.source_url)}" target="_blank" rel="noopener">Verify source →</a>` : ''}
+          </div>`).join('')}
+      </div>`).join('') || '<div class="muted">No linked evidence yet.</div>';
+
+    const rules = (t.supporting_rules||[]).map(r => `<span class="chip">${esc(r)}</span>`).join('') || '<span class="muted">—</span>';
+    const related = (d.related||[]).map(r => `
+      <a class="related-card" href="/thesis/${r.id}">
+        <span class="status-badge st-${(r.status||'emerging').toLowerCase()}">${esc(r.status)}</span>
+        ${esc(r.title)}
+        <span class="score">${r.opportunity_score ?? 0} opp</span>
+      </a>`).join('');
+
+    document.getElementById('page').innerHTML = `
+      <span class="status-badge ${stCls}">${esc(t.status||'')}</span>
+      <div class="t-title">${esc(t.title)}</div>
+      <div class="t-meta">${[t.region, t.sector, t.primary_ticker].filter(Boolean).map(esc).join(' · ') || t.primary_ticker || ''} · active since ${ago(t.first_signal_at)} · ${d.signals.length} signals</div>
+
+      <div class="score-row">
+        <div class="score-card">
+          <div class="score-label">Evidence Confidence</div>
+          <div class="score-value" style="color:var(--blue)">${t.evidence_confidence ?? 0}</div>
+          <div class="bar"><span style="width:${Math.min(t.evidence_confidence||0,100)}%;background:var(--blue)"></span></div>
+        </div>
+        <div class="score-card">
+          <div class="score-label">Opportunity Score</div>
+          <div class="score-value" style="color:var(--green-light)">${t.opportunity_score ?? 0}</div>
+          <div class="bar"><span style="width:${Math.min(t.opportunity_score||0,100)}%;background:var(--green-light)"></span></div>
+        </div>
+        <div class="score-card">
+          <div class="score-meta">
+            <div class="m">Novelty</div><div>${Math.round((t.novelty_score||0)*100)}%</div>
+            <div class="m">Absorption</div><div>${t.absorption_pct ?? 0}%</div>
+            <div class="m">Horizon</div><div>${esc(t.time_horizon||'—')}</div>
+            <div class="m">Conflict</div><div>${esc(t.conflict_status||'—')}</div>
+          </div>
+        </div>
+      </div>
+
+      ${t.what_changed ? `<div class="section"><h3>What changed</h3><div class="what-changed">${esc(t.what_changed)}</div></div>` : ''}
+
+      <div class="section"><h3>Evidence — ${d.signals.length} signals</h3>${timeline}</div>
+
+      <div class="section"><h3>Supporting rules</h3>${rules}</div>
+
+      ${(t.watch_triggers&&t.watch_triggers.length) ? `<div class="section"><h3>Watch for</h3><ul style="color:var(--cream2);font-size:0.82rem;line-height:1.7;padding-left:1.1rem">${t.watch_triggers.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${(t.invalidation_conditions&&t.invalidation_conditions.length) ? `<div class="section"><h3>Thesis invalidated if</h3><ul style="color:var(--cream2);font-size:0.82rem;line-height:1.7;padding-left:1.1rem">${t.invalidation_conditions.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+      ${t.historical_analogue ? `<div class="section"><h3>Historical analogue</h3><p class="muted" style="line-height:1.6">${esc(t.historical_analogue)}</p></div>` : ''}
+      ${related ? `<div class="section"><h3>Related intelligence</h3>${related}</div>` : ''}
+    `;
+  }).catch(() => {
+    document.getElementById('page').innerHTML = `<div class="empty">Thesis not found.<br><a href="/intelligence" style="color:var(--amber)">← Back to Intelligence</a></div>`;
+  });
+</script>
+</body>
+</html>

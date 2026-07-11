@@ -18,6 +18,11 @@ class CommentRequest(BaseModel):
     body: str
 
 
+class RateRequest(BaseModel):
+    session_id: str
+    vote: str  # 'useful' | 'not_useful'
+
+
 # ── batch endpoint (used by alerts feed to bulk-load vote+comment counts) ─────
 
 @router.get("/batch")
@@ -100,6 +105,46 @@ def toggle_vote(alert_id: int, req: VoteRequest):
     ).fetchone()[0]
     conn.close()
     return {"alert_id": alert_id, "voted": voted, "count": count}
+
+
+# ── annotations: useful / not-useful rating (Phase 3) ─────────────────────────
+
+@router.post("/{alert_id}/rate")
+def rate_alert(alert_id: int, req: RateRequest):
+    """Record a useful/not_useful annotation (one per session per alert).
+
+    Feeds future signal weighting. Re-rating updates the existing row; rating the
+    same value again clears it (toggle off)."""
+    if req.vote not in ("useful", "not_useful"):
+        return JSONResponse(status_code=400, content={"error": "vote must be useful|not_useful"})
+    conn = db_connection()
+    existing = conn.execute(
+        "SELECT id, vote FROM alert_votes WHERE alert_id = ? AND session_id = ?",
+        (alert_id, req.session_id),
+    ).fetchone()
+    if existing:
+        if existing["vote"] == req.vote:
+            conn.execute("DELETE FROM alert_votes WHERE id = ?", (existing["id"],))
+            my_vote = None
+        else:
+            conn.execute("UPDATE alert_votes SET vote = ?, created_at = datetime('now') WHERE id = ?",
+                         (req.vote, existing["id"]))
+            my_vote = req.vote
+    else:
+        conn.execute(
+            "INSERT INTO alert_votes (alert_id, session_id, vote) VALUES (?, ?, ?)",
+            (alert_id, req.session_id, req.vote),
+        )
+        my_vote = req.vote
+    conn.commit()
+    counts = conn.execute(
+        "SELECT vote, COUNT(*) c FROM alert_votes WHERE alert_id = ? GROUP BY vote",
+        (alert_id,),
+    ).fetchall()
+    conn.close()
+    tally = {r["vote"] or "useful": r["c"] for r in counts}
+    return {"alert_id": alert_id, "my_vote": my_vote,
+            "useful": tally.get("useful", 0), "not_useful": tally.get("not_useful", 0)}
 
 
 # ── comments ──────────────────────────────────────────────────────────────────

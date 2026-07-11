@@ -551,6 +551,15 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m008_intel_backfill')")
         conn.commit()
 
+    # m009: annotations — alert_votes gains a useful/not_useful dimension.
+    _votes_cols = {r[1] for r in conn.execute("PRAGMA table_info(alert_votes)").fetchall()}
+    if _votes_cols and "vote" not in _votes_cols:
+        try:
+            conn.execute("ALTER TABLE alert_votes ADD COLUMN vote TEXT DEFAULT 'useful'")
+            conn.commit()
+        except Exception:
+            pass
+
     conn.commit()
 
 
@@ -664,12 +673,14 @@ RULE_TIME_HORIZONS: dict[str, str] = {
     "RULE_08": "MEDIUM", "RULE_09": "MEDIUM", "RULE_10": "SHORT", "RULE_11": "SHORT",
     "RULE_12": "LONG", "RULE_13": "SHORT", "RULE_14": "LONG", "RULE_15": "SHORT",
     "RULE_OSINT": "IMMEDIATE", "RULE_REDDIT": "IMMEDIATE", "RULE_ANOMALY": "SHORT",
+    "RULE_CLUSTER": "IMMEDIATE", "RULE_ADSB": "IMMEDIATE",
 }
 # Primary = direct from an authoritative filing; Derived = synthesized/social.
 RULE_SOURCE_QUALITY: dict[str, str] = {
     "RULE_01B": "Primary", "RULE_02": "Primary", "RULE_06": "Primary",
     "RULE_08": "Primary", "RULE_09": "Primary", "RULE_11": "Primary",
     "RULE_12": "Primary", "RULE_13": "Primary", "RULE_14": "Primary",
+    "RULE_CLUSTER": "Primary",
     "RULE_15": "Secondary", "RULE_07": "Secondary", "RULE_OSINT": "Secondary",
     "RULE_REDDIT": "Derived", "RULE_ANOMALY": "Derived", "RULE_10": "Derived",
 }
