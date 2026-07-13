@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>System Status — Scope</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root { --bg:#0c0b09; --bg2:#111009; --bg3:#181610; --cream:#e8e0cc; --cream2:#c8bfa8; --amber:#c8922a; --amber2:#e8aa3a; --muted:#7a7060; --border:#2a2620; --border2:#3a3428; --red:#e55b4d; --green:#4dc47a; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; min-height:100vh; }
+    nav { position:sticky; top:0; border-bottom:1px solid var(--border); background:rgba(12,11,9,0.95); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
+    .nav-brand { font-family:'Playfair Display',serif; font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
+    nav a { font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
+    nav a:hover { color:var(--amber); }
+    .page { max-width:1000px; margin:0 auto; padding:2.5rem 2rem; }
+    .page-title { font-family:'Playfair Display',serif; font-size:2rem; font-weight:700; margin-bottom:0.3rem; }
+    .page-sub { color:var(--cream2); font-size:0.85rem; margin-bottom:1.5rem; }
+    .status-pill { display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:0.66rem; padding:3px 10px; border-radius:20px; margin-bottom:1.5rem; }
+    .ok { background:rgba(77,196,122,0.15); color:var(--green); } .bad { background:rgba(229,91,77,0.15); color:var(--red); }
+    table { width:100%; border-collapse:collapse; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; }
+    th { text-align:left; color:var(--muted); font-size:0.58rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.5rem 0.6rem; border-bottom:1px solid var(--border2); }
+    td { padding:0.55rem 0.6rem; border-bottom:1px solid var(--border); }
+    tr.stale td { background:rgba(229,91,77,0.06); }
+    .flag { color:var(--red); font-weight:600; }
+    .fresh { color:var(--green); }
+    .src { color:var(--amber2); }
+    .loading { padding:3rem; text-align:center; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <a href="/">Dashboard</a><a href="/performance">Performance</a><a href="/feed">Alerts</a>
+</nav>
+<div class="page">
+  <div class="page-title">System Status</div>
+  <div class="page-sub">Scheduler health — every job's cadence and when it last actually ran. A job that hasn't run in more than 2× its interval is flagged (it may be silently failing).</div>
+  <div id="pill"></div>
+  <div id="content"><div class="loading">Loading scheduler status…</div></div>
+</div>
+<script>
+  // Expected cadence (seconds) per activity_log source — used to flag staleness.
+  const EXPECTED = {
+    RULE_OSINT:900, RULE_ADSB:300, RULE_07:1200, RULE_REDDIT:1800, RULE_01B:7200,
+    RULE_06:7200, RULE_10:3600, RULE_ANOMALY:10800, RULE_11:21600, RULE_08:14400,
+    RULE_15:21600, RULE_CLUSTER:14400, SCORING:600, RULE_09:86400, RULE_12:604800,
+    RULE_13:86400, RULE_14:302400, DECAY:86400, BACKTEST:604800, BRIEF:86400,
+  };
+  const ago = s => { if(!s) return null; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); return isNaN(t)?null:(Date.now()-t)/1000; };
+  const fmtAgo = sec => sec==null?'never':sec<3600?Math.floor(sec/60)+'m ago':sec<86400?Math.floor(sec/3600)+'h ago':Math.floor(sec/86400)+'d ago';
+  const fmtInt = sec => sec==null?'—':sec<3600?Math.round(sec/60)+'m':sec<86400?Math.round(sec/3600)+'h':Math.round(sec/86400)+'d';
+
+  fetch('/api/scheduler-status').then(r=>r.json()).then(d => {
+    document.getElementById('pill').innerHTML =
+      `<span class="status-pill ${d.status==='running'?'ok':'bad'}">Scheduler ${d.status} · ${d.job_count||0} jobs</span>`;
+    const act = d.activity || {};
+    // Build a row per known source using activity_log ground truth.
+    const sources = Object.keys(EXPECTED).filter(s => act[s] || EXPECTED[s]);
+    const rows = sources.map(src => {
+      const a = act[src] || {};
+      const sec = ago(a.last_run);
+      const exp = EXPECTED[src];
+      const stale = a.last_run ? (sec > exp*2) : true;
+      return {src, sec, exp, stale, last_run:a.last_run, emitted:a.last_emitted};
+    }).sort((x,y)=> (y.stale-x.stale) || ((y.sec||1e12)-(x.sec||1e12)));
+    document.getElementById('content').innerHTML = `
+      <table>
+        <thead><tr><th>Source</th><th>Expected every</th><th>Last run</th><th>Last emitted</th><th>Status</th></tr></thead>
+        <tbody>${rows.map(r=>`
+          <tr class="${r.stale?'stale':''}">
+            <td class="src">${r.src}</td>
+            <td>${fmtInt(r.exp)}</td>
+            <td>${fmtAgo(r.sec)}</td>
+            <td>${r.emitted!=null?r.emitted:'—'}</td>
+            <td>${r.stale?'<span class="flag">⚠ STALE</span>':'<span class="fresh">✓ healthy</span>'}</td>
+          </tr>`).join('')}</tbody>
+      </table>
+      <div style="margin-top:1.5rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:0.62rem">
+        Note: "last run" reflects the activity_log written by each rule's run(). A source with no row has never logged a run in this environment.
+      </div>`;
+  }).catch(()=>{ document.getElementById('content').innerHTML = '<div class="loading">Status unavailable.</div>'; });
+</script>
+</body>
+</html>

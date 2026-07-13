@@ -66,6 +66,8 @@ def _parse_flows(feed_url: str) -> list[dict]:
 
 
 def run() -> None:
+    import time as _time
+    _t0 = _time.time()
     conn = db_connection()
     enriched = 0
 
@@ -161,6 +163,9 @@ def run() -> None:
     conn.commit()
     conn.close()
     print(f"[OPTIONS] Done — {enriched} alerts enriched")
+    from jpt_common import record_activity
+    record_activity("RULE_OPTIONS", emitted=enriched,
+                    duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

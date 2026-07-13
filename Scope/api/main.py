@@ -177,7 +177,7 @@ def _start_scheduler() -> None:
             id=rule.replace("/", "_").replace(".", "_"),
             replace_existing=True,
             max_instances=1,
-            misfire_grace_time=60,
+            misfire_grace_time=300,  # survive Railway container restarts
         )
 
     for rule, cron_kwargs in _CRON_SCHEDULE.items():
@@ -286,18 +286,41 @@ def scheduler_status():
     """Return the state of each scheduled rule job."""
     if _scheduler is None:
         return {"status": "not_started", "jobs": []}
+    # Last activity_log run per source (ground truth that a job actually ran).
+    last_runs: dict = {}
+    try:
+        from jpt_common import db_connection as _dbc
+        _conn = _dbc()
+        for r in _conn.execute(
+            "SELECT source, MAX(run_at) AS last_run, "
+            "       (SELECT alerts_emitted FROM activity_log a2 WHERE a2.source = a1.source "
+            "        ORDER BY run_at DESC LIMIT 1) AS last_emitted "
+            "FROM activity_log a1 GROUP BY source"
+        ).fetchall():
+            last_runs[r["source"]] = {"last_run": r["last_run"], "last_emitted": r["last_emitted"]}
+        _conn.close()
+    except Exception:
+        pass
+
     jobs = []
     for job in _scheduler.get_jobs():
+        interval_seconds = None
+        try:
+            interval_seconds = int(job.trigger.interval.total_seconds())  # IntervalTrigger
+        except Exception:
+            pass
         jobs.append({
-            "id":       job.id,
-            "next_run": str(job.next_run_time) if job.next_run_time else None,
-            "last_result": _job_last_run.get(job.id.replace("_py","_py"), "pending"),
-            "trigger": str(job.trigger),
+            "id":         job.id,
+            "next_run":   str(job.next_run_time) if job.next_run_time else None,
+            "last_result": _job_last_run.get(job.id, "pending"),
+            "trigger":    str(job.trigger),
+            "interval_seconds": interval_seconds,
         })
     return {
         "status":    "running" if _scheduler.running else "stopped",
         "job_count": len(jobs),
         "jobs":      sorted(jobs, key=lambda j: j["next_run"] or ""),
+        "activity":  last_runs,
     }
 
 
@@ -685,6 +708,10 @@ def foreign_influence_page():
 @app.get("/intelligence", response_class=HTMLResponse, include_in_schema=False)
 def intelligence_page():
     return FileResponse(STATIC_DIR / "intelligence.html")
+
+@app.get("/status", response_class=HTMLResponse, include_in_schema=False)
+def status_page():
+    return FileResponse(STATIC_DIR / "status.html")
 
 @app.get("/thesis/{theme_id}", response_class=HTMLResponse, include_in_schema=False)
 def thesis_page(theme_id: int):

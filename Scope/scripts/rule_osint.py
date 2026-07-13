@@ -98,17 +98,15 @@ def _fetch_gdelt_events() -> list[dict]:
 
 
 def _filter_hostile(events: list[dict]) -> list[dict]:
-    """Keep only hostile, high-mention events in tracked countries."""
+    """Keep hostile events in tracked countries that clear the Tier-3 floor
+    (goldstein < -4 AND mentions >= 8) — loose enough for 3-8 alerts/day."""
     hostile: list[dict] = []
     for e in events:
         if e["goldstein"] >= -4:
             continue
-        if e["num_mentions"] < 10:
+        if e["num_mentions"] < 8:
             continue
         if e["country"] not in COUNTRY_REGION_MAP:
-            continue
-        cameo_match = any(e["cameo"].startswith(k) for k in HIGH_SIGNAL_CAMEO)
-        if not cameo_match and e["goldstein"] >= -6:
             continue
         event_type = next(
             (v for k, v in HIGH_SIGNAL_CAMEO.items() if e["cameo"].startswith(k)),
@@ -120,9 +118,11 @@ def _filter_hostile(events: list[dict]) -> list[dict]:
 
 
 def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
-    if goldstein <= -8 and num_mentions >= 30:
+    # Tier 1 — CRITICAL (strict); Tier 2 — HIGH; Tier 3 — MEDIUM (catches more
+    # genuine daily events so the feed isn't silent).
+    if goldstein < -8 and num_mentions >= 25:
         return "CRITICAL"
-    if goldstein <= -6 and num_mentions >= 20:
+    if goldstein < -6 and num_mentions >= 15:
         return "HIGH"
     return "MEDIUM"
 
@@ -189,12 +189,11 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
         )
 
         if not dry_run and emit:
-            # One alert per GDELT event — all tickers live in tags_obj["tickers"]
-            conn.execute(
-                """INSERT INTO alerts (rule, ticker, severity, headline, detail, tags, source_url)
-                   VALUES ('RULE_OSINT', ?, ?, ?, ?, ?, ?)""",
-                (tickers[0], severity, headline, detail, tags_str, news_url),
-            )
+            # One alert per GDELT event — all tickers live in tags_obj["tickers"].
+            # Via the scoring wrapper so it carries novelty/opportunity/evidence.
+            from jpt_common import insert_alert
+            insert_alert(conn, rule="RULE_OSINT", ticker=tickers[0], severity=severity,
+                         headline=headline, detail=detail, tags=tags_str, source_url=news_url)
             conn.execute(
                 "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
                 (event["event_id"],),

@@ -18,14 +18,15 @@ import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection
+from jpt_common import db_connection, insert_alert, record_activity
 
 ARCTIC_BASE = "https://arctic-shift.photon-reddit.com/api/posts/search"
 
 SUBREDDITS = [
-    "wallstreetbets", "investing", "stocks",
-    "StockMarket", "worldnews",
-    "economics", "politics", "geopolitics",
+    "wallstreetbets", "smallstreetbets", "pennystocks",
+    "stocks", "investing", "SecurityAnalysis",
+    "thetagang", "SPACs", "Superstonk", "ValueInvesting",
+    "StockMarket", "Economics",
 ]
 
 POLITICAL_KEYWORDS = [
@@ -142,7 +143,13 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     emitted = stored = scanned = flagged = 0
 
     for subreddit in SUBREDDITS:
-        posts = _fetch_subreddit(subreddit)
+        # Isolate each subreddit — a 422 (renamed/private/removed) or any other
+        # error on one must not stop the whole sweep.
+        try:
+            posts = _fetch_subreddit(subreddit)
+        except Exception as exc:
+            print(f"[RULE_REDDIT] r/{subreddit}: fetch failed ({str(exc)[:80]}) — skipping")
+            continue
         print(f"[RULE_REDDIT] r/{subreddit}: {len(posts)} posts fetched")
         scanned += len(posts)
         time.sleep(3)
@@ -195,11 +202,8 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             stored += 1
 
             if emit:
-                conn.execute(
-                    """INSERT INTO alerts (rule, headline, severity, tags, ticker, detail)
-                       VALUES ('RULE_REDDIT', ?, ?, ?, ?, ?)""",
-                    (headline, sev, tags_str, ticker, detail),
-                )
+                insert_alert(conn, rule="RULE_REDDIT", ticker=ticker, severity=sev,
+                             headline=headline, tags=tags_str, detail=detail)
                 alerted_urls.add(url)
                 emitted += 1
 

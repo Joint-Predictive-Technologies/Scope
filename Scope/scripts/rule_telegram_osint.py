@@ -91,6 +91,8 @@ def fetch_channel(url: str, channel_name: str) -> list[dict]:
 
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
+    import time as _time
+    _t0 = _time.time()
     conn = db_connection()
     total_emitted = 0
 
@@ -143,6 +145,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
 
     conn.close()
     print(f"[RULE_TELEGRAM_OSINT] Done — {total_emitted} new alerts emitted")
+    from jpt_common import record_activity
+    record_activity("RULE_TELEGRAM_OSINT", emitted=total_emitted,
+                    duration_seconds=round(_time.time() - _t0, 2))
 
 
 if __name__ == "__main__":

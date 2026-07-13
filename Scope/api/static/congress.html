@@ -228,12 +228,16 @@
     alertsEl.innerHTML = '<div class="loading">Loading…</div>';
     let base = `days=${days}&limit=100`;
     if (ticker) base += `&ticker=${encodeURIComponent(ticker)}`;
-    const [alerts01b, alerts02] = await Promise.all([
+    const [alerts01b, alerts02, alertsCluster] = await Promise.all([
       fetch(`/alerts?${base}&rule=RULE_01B`).then(r=>r.json()).catch(()=>[]),
       fetch(`/alerts?${base}&rule=RULE_02`).then(r=>r.json()).catch(()=>[]),
+      fetch(`/alerts?${base}&rule=RULE_CLUSTER`).then(r=>r.json()).catch(()=>[]),
     ]);
-    const congAlerts = [...(Array.isArray(alerts01b)?alerts01b:[]), ...(Array.isArray(alerts02)?alerts02:[])]
-      .sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+    const congAlerts = [
+      ...(Array.isArray(alerts01b)?alerts01b:[]),
+      ...(Array.isArray(alerts02)?alerts02:[]),
+      ...(Array.isArray(alertsCluster)?alertsCluster:[]),
+    ].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 
     document.getElementById('result-count').textContent = congAlerts.length + ' signals';
 

@@ -35,15 +35,29 @@ CLOB_PRICE_HISTORY = "https://clob.polymarket.com/prices-history"
 HEADERS = {"User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com"}
 SLEEP = 0.3
 
-# Trigger thresholds — require BOTH a meaningful price move AND meaningful volume
-MIN_PP_MOVE = 20.0        # percentage points
-MIN_VOLUME_24H = 500_000  # USD
+# Tiered thresholds (pp move, USD 24h volume). A market must clear at least the
+# MEDIUM tier to alert. Both conditions of a tier must hold.
+CRITICAL_PP, CRITICAL_VOL = 20.0, 200_000
+HIGH_PP,     HIGH_VOL     = 12.0, 75_000
+MEDIUM_PP,   MEDIUM_VOL   = 8.0,  25_000
 
-# Alert severity thresholds
-HIGH_PP = 20.0
-HIGH_VOL = 500_000
-CRITICAL_PP = 30.0
-CRITICAL_VOL = 1_000_000
+# Floor for triggering at all (= the MEDIUM tier).
+MIN_PP_MOVE = MEDIUM_PP
+MIN_VOLUME_24H = MEDIUM_VOL
+
+# Only store a real equity symbol as the alert ticker.
+import re as _re
+VALID_TICKER = _re.compile(r"^[A-Z]{1,5}$")
+
+
+def _polymarket_severity(abs_pp: float, volume: float) -> str | None:
+    if abs_pp >= CRITICAL_PP and volume >= CRITICAL_VOL:
+        return "CRITICAL"
+    if abs_pp >= HIGH_PP and volume >= HIGH_VOL:
+        return "HIGH"
+    if abs_pp >= MEDIUM_PP and volume >= MEDIUM_VOL:
+        return "MEDIUM"
+    return None
 
 # ---------------------------------------------------------------------------
 # Blocklist — skip sports, esports, and other noise questions.
@@ -364,17 +378,20 @@ def run(emit_alerts: bool) -> tuple[int, int]:
                 pp_change = 0.0
 
         abs_pp = abs(pp_change)
-        triggered_pp = abs_pp >= MIN_PP_MOVE
-        triggered_vol = volume_24h >= MIN_VOLUME_24H
-
-        if not (triggered_pp and triggered_vol):
+        severity = _polymarket_severity(abs_pp, volume_24h)
+        if severity is None:
             continue
 
         triggered += 1
 
         tickers = map_tickers(question)
-        # Use primary ticker only — multi-ticker strings break sector mapping
-        ticker_str = tickers[0] if tickers else None
+        # Primary ticker only, and only if it's a real equity symbol — never
+        # store a market question or malformed string as the ticker.
+        ticker_str = None
+        if tickers:
+            cand = (tickers[0] or "").replace("$", "").strip().upper()
+            if VALID_TICKER.match(cand):
+                ticker_str = cand
 
         direction = f"+{abs_pp:.1f}pp" if pp_change >= 0 else f"-{abs_pp:.1f}pp"
         direction_sign = "up" if pp_change >= 0 else "down"
@@ -385,12 +402,7 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         headline = (
             f"Polymarket: '{question[:60]}' moved {direction}{ticker_label}"
         )
-
-        severity = (
-            "CRITICAL"
-            if abs_pp >= CRITICAL_PP and volume_24h >= CRITICAL_VOL
-            else "HIGH"
-        )
+        # severity computed above by _polymarket_severity(abs_pp, volume_24h)
 
         # Structured tags — carry the stable market identity for dedup + a
         # specific verify link. All related tickers travel with the one alert.

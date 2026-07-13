@@ -210,7 +210,10 @@ def chat(req: ChatRequest):
     if not api_key:
         return {"answer": "Ask Scope requires a Groq API key. Add GROQ_API_KEY to your .env file.", "context_alerts": 0}
 
-    context, alert_count = _fetch_context(req.message, req.days)
+    try:
+        context, alert_count = _fetch_context(req.message, req.days)
+    except Exception:
+        context, alert_count = "", 0
 
     prompt = f"""Live Scope database context for your query:
 
@@ -221,8 +224,16 @@ User question: {req.message}
 
 Answer based on the signals above. Be specific — name tickers, rules, amounts, dates."""
 
+    # Never surface a 500/stack trace to /ask — always return a usable answer.
     try:
         answer = _call_groq(api_key, prompt)
         return {"answer": answer, "context_alerts": alert_count}
     except Exception as exc:
-        return JSONResponse(status_code=500, content={"error": str(exc)})
+        print(f"[chat] Groq call failed: {exc}", flush=True)
+        return {
+            "answer": "The analyst is temporarily unavailable (the language model "
+                      "returned an error). Your data is fine — please try again in a "
+                      "moment, or browse the live feed and sector pages meanwhile.",
+            "context_alerts": alert_count,
+            "degraded": True,
+        }
