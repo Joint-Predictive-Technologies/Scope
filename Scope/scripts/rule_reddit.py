@@ -24,9 +24,10 @@ ARCTIC_BASE = "https://arctic-shift.photon-reddit.com/api/posts/search"
 
 SUBREDDITS = [
     "wallstreetbets", "smallstreetbets", "pennystocks",
-    "stocks", "investing", "SecurityAnalysis",
-    "thetagang", "SPACs", "Superstonk", "ValueInvesting",
-    "StockMarket", "Economics",
+    "StockMarket", "investing", "SecurityAnalysis",
+    "thetagang", "SPACs", "Superstonk", "RobinHoodPennyStocks",
+    "options", "dividends",
+    # removed: stocks, ValueInvesting, Economics — 422 on Arctic Shift
 ]
 
 POLITICAL_KEYWORDS = [
@@ -106,7 +107,10 @@ def _fetch_subreddit(subreddit: str) -> list[dict]:
         resp.raise_for_status()
         return resp.json().get("data", []) or []
     except Exception as e:
-        print(f"[RULE_REDDIT] Error fetching r/{subreddit}: {e}")
+        if "422" in str(e):
+            print(f"[RULE_REDDIT] Skipping r/{subreddit} — 422 (unavailable)")
+        else:
+            print(f"[RULE_REDDIT] Error fetching r/{subreddit}: {e}")
         return []
 
 
@@ -192,14 +196,18 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             if dry_run:
                 continue
 
-            conn.execute(
-                """INSERT OR IGNORE INTO reddit_posts
-                   (post_id, subreddit, title, ticker, upvotes, url)
-                   VALUES (?,?,?,?,?,?)""",
-                (post_id, subreddit, title, ticker, score, url),
-            )
-            ingested_posts.add(post_id)
-            stored += 1
+            try:
+                conn.execute(
+                    """INSERT OR IGNORE INTO reddit_posts
+                       (post_id, subreddit, title, ticker, upvotes, url)
+                       VALUES (?,?,?,?,?,?)""",
+                    (post_id, subreddit, title, ticker, score, url),
+                )
+                ingested_posts.add(post_id)
+                stored += 1
+            except Exception as exc:
+                print(f"[RULE_REDDIT] Failed to store post {post_id}: {exc}")
+                continue
 
             if emit:
                 insert_alert(conn, rule="RULE_REDDIT", ticker=ticker, severity=sev,

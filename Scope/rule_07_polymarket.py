@@ -366,7 +366,6 @@ def run(emit_alerts: bool) -> tuple[int, int]:
         else:
             token_ids_raw = m.get("clobTokenIds") or "[]"
             try:
-                import json
                 token_ids = json.loads(token_ids_raw) if isinstance(token_ids_raw, str) else token_ids_raw
             except Exception:
                 token_ids = []

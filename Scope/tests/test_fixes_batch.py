@@ -64,6 +64,50 @@ def test_feed_default_excludes_noise():
     assert all(a["rule"] not in ("RULE_07", "RULE_OSINT", "RULE_REDDIT") for a in rows)
 
 
+# ── Fix: Polymarket json shadow (UnboundLocalError) ──────────────────────────
+def test_polymarket_no_local_json_shadow():
+    import ast
+    src = open(os.path.join(os.path.dirname(__file__), "..", "rule_07_polymarket.py")).read()
+    tree = ast.parse(src)
+    # No function-scoped `import json` may exist (it shadows the module for the
+    # whole function and breaks json.dumps on the other branch).
+    local_json_imports = [
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, ast.Import) and any(a.name == "json" for a in n.names) and n.col_offset > 0
+    ]
+    assert local_json_imports == []
+    assert getattr(r7, "json").__name__ == "json"   # module-level json intact
+
+
+# ── Fix: OSINT event-type-aware ticker mapping ───────────────────────────────
+def test_osint_event_category():
+    from scripts.rule_osint import _event_category
+    assert _event_category("190") == "MILITARY_ACTION"
+    assert _event_category("112") == "DIPLOMATIC"
+    assert _event_category("172") == "SANCTIONS"
+
+
+def test_osint_ticker_mapping_is_specific():
+    from scripts.rule_osint import get_tickers_for_event
+    # Taiwan military -> semiconductors, not the generic defense/energy basket
+    assert "TSM" in get_tickers_for_event("Taiwan Strait", "190")
+    assert "LMT" not in get_tickers_for_event("Taiwan Strait", "190")
+    # Diplomatic events map to nothing -> dropped, not defaulted
+    assert get_tickers_for_event("Middle East", "112") == []
+    assert get_tickers_for_event("Nowhere", "190") == []
+
+
+# ── Fix: Reddit subreddit list ───────────────────────────────────────────────
+def test_reddit_subreddit_list():
+    import importlib.util as _u
+    sp = _u.spec_from_file_location("rr", os.path.join(os.path.dirname(__file__), "..", "scripts", "rule_reddit.py"))
+    rr = _u.module_from_spec(sp); sp.loader.exec_module(rr)
+    assert "stocks" not in rr.SUBREDDITS and "ValueInvesting" not in rr.SUBREDDITS
+    assert "wallstreetbets" in rr.SUBREDDITS and "options" in rr.SUBREDDITS
+    # a bad subreddit must return [] (never raise) so the sweep continues
+    assert isinstance(rr._fetch_subreddit("this_sub_does_not_exist_zzz"), list)
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

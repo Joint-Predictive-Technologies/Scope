@@ -27,7 +27,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jpt_common import (
     db_connection,
     COUNTRY_REGION_MAP,
-    REGION_TICKERS,
     HIGH_SIGNAL_CAMEO,
 )
 
@@ -117,6 +116,68 @@ def _filter_hostile(events: list[dict]) -> list[dict]:
     return hostile
 
 
+# ── Event-type-aware ticker mapping ──────────────────────────────────────────
+# Map the CAMEO root code to a coarse event category, then map (region, category)
+# to specific tickers. Events with no (region, category) entry are DROPPED rather
+# than defaulting to a generic basket — so a diplomatic criticism doesn't move
+# the same 5 defense/energy names as a missile strike.
+def _event_category(cameo: str) -> str:
+    c = (cameo or "").strip()
+    if c.startswith(("18", "19", "20", "191", "193", "194", "195", "196")):
+        return "MILITARY_ACTION"
+    if c.startswith(("172", "173")):
+        return "SANCTIONS"
+    if c.startswith(("17", "175")):
+        return "COERCE"
+    if c.startswith("13"):
+        return "THREAT"
+    if c.startswith("14"):
+        return "PROTEST"
+    if c.startswith("112"):
+        return "DIPLOMATIC"
+    return "OTHER"
+
+
+EVENT_TICKER_MAP: dict[tuple[str, str], list[str]] = {
+    ("Middle East", "MILITARY_ACTION"): ["USO", "XLE", "XOM", "CVX"],
+    ("Middle East", "SANCTIONS"):       ["XOM", "CVX", "USO"],
+    ("Middle East", "COERCE"):          ["USO", "XLE"],
+    ("Middle East", "THREAT"):          ["USO", "XLE"],
+
+    ("Russia", "MILITARY_ACTION"):      ["LMT", "RTX", "NOC", "USO", "XLE"],
+    ("Russia", "SANCTIONS"):            ["XOM", "USO", "XLE"],
+
+    ("Eastern Europe", "MILITARY_ACTION"): ["LMT", "RTX", "NOC", "GD"],
+    ("Eastern Europe", "SANCTIONS"):       ["XOM", "USO", "XLE"],
+    ("Eastern Europe", "THREAT"):          ["LMT", "RTX"],
+
+    ("Taiwan Strait", "MILITARY_ACTION"):  ["TSM", "NVDA", "AMD", "INTC", "AVGO"],
+    ("Taiwan Strait", "COERCE"):           ["TSM", "NVDA", "AMD"],
+    ("Taiwan Strait", "THREAT"):           ["TSM", "NVDA"],
+
+    ("South China Sea", "MILITARY_ACTION"): ["TSM", "NVDA", "LMT", "RTX"],
+    ("South China Sea", "COERCE"):          ["TSM", "NVDA"],
+
+    ("Korean Peninsula", "MILITARY_ACTION"): ["LMT", "NOC", "TSM"],
+    ("Korean Peninsula", "THREAT"):          ["LMT", "NOC"],
+
+    ("South Asia", "MILITARY_ACTION"):  ["LMT", "RTX", "NOC"],
+
+    ("West Africa", "MILITARY_ACTION"): ["XOM", "CVX", "COP"],
+    ("East Africa", "MILITARY_ACTION"): ["XOM", "CVX", "USO"],
+    ("North Africa", "MILITARY_ACTION"): ["USO", "XLE", "LMT"],
+    ("North Africa", "SANCTIONS"):       ["USO", "XLE"],
+
+    ("Southeast Asia", "MILITARY_ACTION"): ["TSM", "NVDA", "XOM"],
+    ("Latin America", "MILITARY_ACTION"):  ["XOM", "CVX", "USO"],
+    ("Latin America", "SANCTIONS"):        ["XOM", "USO"],
+}
+
+
+def get_tickers_for_event(region: str, cameo: str) -> list[str]:
+    return EVENT_TICKER_MAP.get((region, _event_category(cameo)), [])
+
+
 def _gdelt_severity(goldstein: float, num_mentions: int) -> str:
     # Tier 1 — CRITICAL (strict); Tier 2 — HIGH; Tier 3 — MEDIUM (catches more
     # genuine daily events so the feed isn't silent).
@@ -146,9 +207,12 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
         if existing:
             continue
 
-        region  = event["region"]
-        tickers = REGION_TICKERS.get(region, [])
+        region   = event["region"]
+        category = _event_category(event["cameo"])
+        tickers  = get_tickers_for_event(region, event["cameo"])
         if not tickers:
+            # No specific (region, event-type) mapping — mark seen, don't emit a
+            # generic-basket alert.
             conn.execute(
                 "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
                 (event["event_id"],),
@@ -170,13 +234,16 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
         news_url = f"https://news.google.com/search?q={news_q}&hl=en-US&gl=US&ceid=US:en"
 
         tags_obj: dict = {
-            "source_url": event["source_url"],
-            "region":     region,
-            "goldstein":  event["goldstein"],
-            "cameo":      event["cameo"],
-            "tickers":    tickers[:3],
-            "source":     "GDELT",
-            "event_type": event["event_type"],
+            "source_url":     event["source_url"],
+            "region":         region,
+            "event_category": category,
+            "goldstein":      event["goldstein"],
+            "mentions":       event["num_mentions"],
+            "cameo":          event["cameo"],
+            "country":        event["country"],
+            "tickers":        tickers[:3],
+            "source":         "GDELT",
+            "event_type":     event["event_type"],
         }
         if event.get("geo_lat") is not None:
             tags_obj["lat"] = event["geo_lat"]
