@@ -108,6 +108,27 @@ def test_reddit_subreddit_list():
     assert isinstance(rr._fetch_subreddit("this_sub_does_not_exist_zzz"), list)
 
 
+# ── Fix: ticker normalization (single write point) ───────────────────────────
+def test_normalize_ticker():
+    from jpt_common import normalize_ticker as n
+    assert n("$LMT") == "LMT"
+    assert n("lmt") == "LMT"
+    assert n("BRK-B") == "BRK.B" == n("brk.b") == n("BRK.B")   # class-share variants collapse
+    assert n(None) is None
+    assert n("") == ""
+    assert n("   ") is None
+    assert n(" $COIN $MSTR ") == "COIN MSTR"                   # multi-symbol token-wise
+
+
+def test_insert_alert_normalizes_on_write():
+    from jpt_common import db_connection, insert_alert
+    conn = db_connection()
+    aid = insert_alert(conn, rule="RULE_06", ticker="$brk-b", severity="HIGH", headline="t")
+    stored = conn.execute("SELECT ticker FROM alerts WHERE id=?", (aid,)).fetchone()[0]
+    conn.execute("DELETE FROM alerts WHERE id=?", (aid,)); conn.commit(); conn.close()
+    assert stored == "BRK.B"
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

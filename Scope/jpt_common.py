@@ -794,18 +794,40 @@ def enrich_alert_scores(conn, only_unscored: bool = True) -> int:
     return n
 
 
+def normalize_ticker(ticker):
+    """
+    Canonicalize an equity symbol so variants collapse to one form before
+    storage/corroboration counting. Strips '$', uppercases, and standardizes the
+    class-share separator to a dot (BRK-B / brk.b -> BRK.B), so cross-source
+    matching in RULE_10 doesn't split the same company.
+
+    Returns None/empty unchanged (RULE_08/RULE_09 legitimately have no ticker).
+    Multi-symbol strings (space-separated) are normalized token-wise, not merged.
+    """
+    if not ticker:
+        return ticker
+    raw = str(ticker).replace("$", "").strip().upper()
+    if not raw:
+        return None
+    tokens = raw.split()
+    # US class shares use '.' or '-' interchangeably across feeds -> pick dot.
+    tokens = [t.replace("-", ".") for t in tokens]
+    return " ".join(tokens)
+
+
 def insert_alert(conn, rule, ticker, severity, headline, why_matters=None,
                  tags=None, member_id=None, source_url=None, verify_url=None,
                  detail=None, event_date=None, theme_id=None,
                  distinct_rule_count=None, has_conflict=False,
                  absorption_pct=0.0) -> int:
     """
-    Single entry point for alert inserts that computes Phase-2 scores inline.
-    Available for rule scripts to adopt; alerts inserted by other paths are still
-    scored by enrich_alert_scores() on the scheduler. Returns the new row id.
-    (Telegram delivery is handled by the polling scripts/telegram_bot.py job.)
+    Single entry point for alert inserts that computes Phase-2 scores inline and
+    normalizes the ticker (the one write point where canonicalization happens).
+    Alerts inserted by other paths are still scored by enrich_alert_scores() on
+    the scheduler. Returns the new row id.
     """
     import json as _json
+    ticker = normalize_ticker(ticker)
     anchor = (ticker or (headline or "")[:30]) or rule
     novelty = calculate_novelty_score(rule, anchor, conn)
     horizon = assign_time_horizon(rule)
