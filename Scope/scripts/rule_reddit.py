@@ -97,26 +97,73 @@ def reddit_severity(sig_type, subreddit_weight: float, score: float) -> str:
 
 
 def _fetch_subreddit(subreddit: str) -> list[dict]:
+    # Arctic Shift's default query returns the NEWEST posts, whose score is ~1
+    # (not yet upvoted) — so the MIN_UPVOTES gate rejected everything and nothing
+    # was ever stored. Query a 1–5-day-old window instead, where posts have
+    # accumulated real scores while still being fresh enough to act on.
+    now = int(time.time())
     try:
         resp = requests.get(
             ARCTIC_BASE,
-            params={"subreddit": subreddit, "limit": 25},
+            params={
+                "subreddit": subreddit,
+                "limit": 100,
+                "after":  now - 5 * 86400,
+                "before": now - 1 * 86400,
+            },
             headers=HEADERS,
-            timeout=15,
+            timeout=20,
         )
         resp.raise_for_status()
         return resp.json().get("data", []) or []
     except Exception as e:
-        if "422" in str(e):
+        reason = "422" if "422" in str(e) else "err"
+        _fetch_failures.append(f"{subreddit}({reason})")
+        if reason == "422":
             print(f"[RULE_REDDIT] Skipping r/{subreddit} — 422 (unavailable)")
         else:
             print(f"[RULE_REDDIT] Error fetching r/{subreddit}: {e}")
         return []
 
 
+# Reddit rarely uses the $ cashtag, so we also read bare symbols — but only
+# 4–5 char tokens (few collide with English words), plus a tiny curated set of
+# famous 3-char meme tickers. Bare 3-char words like "TOP"/"RUN"/"CAR" are NOT
+# treated as tickers (they'd be constant false positives).
+BARE_TICKER_RE = re.compile(r"\b([A-Z]{4,5})\b")
+_CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
+# 4–5 char all-caps words that are also valid tickers — exclude unless $-prefixed.
+_TICKER_STOPWORDS = {
+    "YOLO", "CALL", "PUTS", "HIGH", "HOLD", "MOON", "BULL", "BEAR", "LONG",
+    "GAIN", "LOSS", "FOMO", "HODL", "TLDR", "THETA", "GAMMA", "DELTA", "ELON",
+    "MUSK", "GUYS", "GONNA", "WANNA", "THIS", "THAT", "WITH", "FROM", "HAVE",
+    "WILL", "WHAT", "WHEN", "SOON", "OVER", "INTO", "JUST", "LIKE", "ALSO",
+    "BEEN", "GOOD", "BEST", "HUGE", "NEXT", "MORE", "MOST", "SAME", "SOME",
+    "THAN", "THEN", "THEY", "WEEK", "YEAR", "TODAY", "CEO", "CFO", "IPO", "ETF",
+    "USA", "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP",
+}
+
+
 def _extract_tickers(text: str, known: set[str]) -> list[str]:
-    found = TICKER_RE.findall(text.upper())
-    return [t for t in found if t in known]
+    up = text.upper()
+    found: list[str] = []
+    # 1) High-confidence cashtags ($NVDA / $GME) — any length.
+    for t in TICKER_RE.findall(up):
+        if t in known and t not in found:
+            found.append(t)
+    # 2) Bare 4–5 char tracked symbols that aren't common all-caps words.
+    for t in BARE_TICKER_RE.findall(up):
+        if t in known and t not in _TICKER_STOPWORDS and t not in found:
+            found.append(t)
+    # 3) A small curated set of famous 3-char meme tickers, bare.
+    for t in _CURATED_3CHAR:
+        if t in known and re.search(rf"\b{t}\b", up) and t not in found:
+            found.append(t)
+    return found
+
+
+# Subreddits that failed to fetch this run (422/etc.) — surfaced in activity_log.
+_fetch_failures: list[str] = []
 
 
 def _has_political(text: str) -> bool:
@@ -144,6 +191,7 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     }
 
     _t0 = time.time()
+    _fetch_failures.clear()
     emitted = stored = scanned = flagged = 0
 
     for subreddit in SUBREDDITS:
@@ -169,33 +217,19 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                 continue
             if score < MIN_UPVOTES:
                 continue
-            if url in alerted_urls:
-                continue
 
             full_text = f"{title} {selftext}"
-            if not _has_political(full_text):
-                continue
-
             tickers = _extract_tickers(full_text, known_tickers)
             if not tickers:
-                continue
-
-            flagged += 1  # passed all quality filters, before insert/dedup
-
-            ticker   = tickers[0]
-            tags_str = json.dumps({"url": url, "subreddit": subreddit, "upvotes": score})
-            sev      = "HIGH" if score >= 500 else "MEDIUM"
-            headline = f"Reddit Signal — {ticker} mentioned in r/{subreddit} (+{score} upvotes)"
-            detail   = f"{title}\n\n{selftext}".strip()[:400]
-
-            print(
-                f"[RULE_REDDIT] {'[dry]' if dry_run else '[emit]'} "
-                f"{ticker} r/{subreddit} +{score} — {title[:60]}"
-            )
+                continue  # no tracked ticker mentioned — not a tradeable post
+            ticker = tickers[0]
 
             if dry_run:
+                print(f"[RULE_REDDIT] [dry] {ticker} r/{subreddit} +{score} — {title[:60]}")
                 continue
 
+            # Archive every scored, ticker-bearing post (populates reddit_posts,
+            # drives dedup). Alerts are the political subset, below.
             try:
                 conn.execute(
                     """INSERT OR IGNORE INTO reddit_posts
@@ -209,11 +243,19 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                 print(f"[RULE_REDDIT] Failed to store post {post_id}: {exc}")
                 continue
 
-            if emit:
-                insert_alert(conn, rule="RULE_REDDIT", ticker=ticker, severity=sev,
-                             headline=headline, tags=tags_str, detail=detail)
-                alerted_urls.add(url)
-                emitted += 1
+            # Emit an alert only when the post also carries a political angle.
+            if url not in alerted_urls and _has_political(full_text):
+                flagged += 1
+                tags_str = json.dumps({"url": url, "subreddit": subreddit, "upvotes": score})
+                sev      = "HIGH" if score >= 500 else "MEDIUM"
+                headline = f"Reddit Signal — {ticker} mentioned in r/{subreddit} (+{score} upvotes)"
+                detail   = f"{title}\n\n{selftext}".strip()[:400]
+                print(f"[RULE_REDDIT] [emit] {ticker} r/{subreddit} +{score} — {title[:60]}")
+                if emit:
+                    insert_alert(conn, rule="RULE_REDDIT", ticker=ticker, severity=sev,
+                                 headline=headline, tags=tags_str, detail=detail)
+                    alerted_urls.add(url)
+                    emitted += 1
 
             conn.commit()
 
@@ -222,8 +264,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     print(f"[RULE_REDDIT] Done — {stored} posts stored, {emitted} alerts emitted")
     conn.close()
     from jpt_common import record_activity
+    notes = ("failed: " + ", ".join(_fetch_failures)) if _fetch_failures else None
     record_activity("RULE_REDDIT", scanned=scanned, flagged=flagged, emitted=emitted,
-                    duration_seconds=round(time.time() - _t0, 2))
+                    duration_seconds=round(time.time() - _t0, 2), notes=notes)
 
 
 if __name__ == "__main__":

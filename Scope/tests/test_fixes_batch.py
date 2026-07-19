@@ -129,6 +129,23 @@ def test_insert_alert_normalizes_on_write():
     assert stored == "BRK.B"
 
 
+# ── Fix: Reddit ticker extraction (storage-path bug) ─────────────────────────
+def test_reddit_ticker_extraction():
+    import importlib.util as _u
+    sp = _u.spec_from_file_location("rr2", os.path.join(os.path.dirname(__file__), "..", "scripts", "rule_reddit.py"))
+    rr = _u.module_from_spec(sp); sp.loader.exec_module(rr)
+    known = {"NVDA", "TSLA", "GME", "AMD", "SPY", "TOP", "RUN", "PLTR", "SOFI"}
+    # bare 3-char English words that are also tickers must NOT match
+    assert rr._extract_tickers("Market Top before a big RUN", known) == []
+    # bare 4-5 char + cashtags + curated 3-char meme tickers DO match
+    assert set(rr._extract_tickers("NVDA calls, TSLA next", known)) == {"NVDA", "TSLA"}
+    assert set(rr._extract_tickers("$GME to the moon, AMD earnings", known)) == {"GME", "AMD"}
+    # fetch window uses a past range so posts have real scores (not newest score~1)
+    import inspect
+    src = inspect.getsource(rr._fetch_subreddit)
+    assert "after" in src and "before" in src
+
+
 def _run_all():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
