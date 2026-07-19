@@ -309,7 +309,9 @@ def dedup_decision(existing_row, direction_sign: str, bucket: int, volume: float
     import datetime as _dt
     try:
         ts = _dt.datetime.fromisoformat((existing_row["created_at"] or "").replace(" ", "T"))
-        age_h = (_dt.datetime.utcnow() - ts).total_seconds() / 3600
+        if ts.tzinfo is None:                       # created_at is UTC-naive
+            ts = ts.replace(tzinfo=_dt.timezone.utc)
+        age_h = (_dt.datetime.now(_dt.timezone.utc) - ts).total_seconds() / 3600
     except Exception:
         age_h = 1e9
 
