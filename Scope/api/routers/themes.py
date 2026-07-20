@@ -60,6 +60,7 @@ def theme_detail(theme_id: int):
             SELECT a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
                    a.why_matters, a.verify_url, a.source_url, a.created_at,
                    a.evidence_confidence, a.opportunity_score, a.time_horizon,
+                   a.novelty_score, a.absorption_pct,
                    ts.added_at
             FROM alerts a
             JOIN theme_signals ts ON a.id = ts.alert_id

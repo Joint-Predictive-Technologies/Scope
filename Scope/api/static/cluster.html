@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cluster War Room — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
+    .status-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
+    .sev-critical { background: rgba(229,91,77,0.18); color: var(--red-light); }
+    .sev-high { background: rgba(200,146,42,0.18); color: var(--amber2); }
+    .dir-consensus_buy { background: rgba(77,196,122,0.16); color: var(--green-light); }
+    .dir-consensus_sell { background: rgba(229,91,77,0.16); color: var(--red-light); }
+    .dir-mixed { background: rgba(106,176,224,0.16); color: var(--blue); }
+    .t-title { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
+    .t-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); }
+    .tick-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
+    .tick-chip:hover { border-color: var(--amber); }
+
+    .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
+    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
+    .score-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .score-value { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 800; line-height: 1.1; }
+    .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
+    .bar > span { display: block; height: 100%; }
+
+    /* score decomposition tooltip */
+    .decomp { cursor: help; border-bottom: 1px dotted var(--muted); }
+    .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .score-card.open .decomp-pop { display: block; }
+    .decomp-row { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--cream2); padding: 2px 0; }
+    .decomp-row .v { color: var(--cream); }
+    .decomp-row.total { border-top: 1px solid var(--border2); margin-top: 3px; padding-top: 4px; color: var(--amber2); }
+
+    .section { margin-top: 1.8rem; }
+    .section h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
+
+    table.members { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    table.members th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+    table.members td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
+    .dir-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; }
+    .dir-tag.buy { background: rgba(77,196,122,0.14); color: var(--green-light); }
+    .dir-tag.sell { background: rgba(229,91,77,0.14); color: var(--red-light); }
+    .dir-tag.mixed { background: rgba(106,176,224,0.14); color: var(--blue); }
+    .dir-tag.other { background: var(--bg3); color: var(--muted); }
+
+    /* trade-proximity timeline viz */
+    .tl-viz { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; }
+    .tl-track { position: relative; height: 26px; margin: 0.4rem 0; }
+    .tl-line { position: absolute; top: 13px; left: 0; right: 0; height: 1px; background: var(--border2); }
+    .tl-dot { position: absolute; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--amber); transform: translateX(-50%); border: 2px solid var(--bg); }
+    .tl-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); width: 130px; display: inline-block; }
+    .tl-axis { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; color: var(--muted); margin-top: 0.3rem; }
+    .tl-row { display: flex; align-items: center; gap: 0.6rem; }
+    .tl-row .tl-track { flex: 1; }
+
+    .signal-card { background: var(--bg2); border: 1px solid var(--border); border-left-width: 3px; border-radius: 6px; padding: 0.7rem 1rem; margin-bottom: 0.4rem; }
+    .signal-card.critical { border-left-color: var(--red-light); }
+    .signal-card.high { border-left-color: var(--amber); }
+    .signal-card.medium { border-left-color: var(--blue); }
+    .sig-top { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    .rule-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 6px; border-radius: 3px; }
+    .sig-headline { font-size: 0.82rem; color: var(--cream); margin-top: 0.3rem; }
+
+    .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 7px; border-radius: 3px; cursor: pointer; font-size: 0.72rem; line-height: 1; filter: grayscale(0.6); opacity: 0.7; transition: all 0.15s; }
+    .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
+    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
+    .annot { display: inline-flex; gap: 4px; margin-left: auto; }
+
+    .invalidation { background: rgba(229,91,77,0.06); border-left: 2px solid var(--red-light); padding: 0.8rem 1rem; font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
+    .conflict-box { background: rgba(229,91,77,0.08); border: 1px solid rgba(229,91,77,0.3); border-radius: 6px; padding: 0.8rem 1rem; }
+    .notes-area { width: 100%; min-height: 90px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--cream); font-family: Inter, sans-serif; font-size: 0.82rem; padding: 0.7rem 0.9rem; resize: vertical; }
+    .notes-save { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; margin-top: 0.4rem; color: var(--muted); }
+    .gen-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+    .muted { color: var(--muted); font-size: 0.8rem; }
+    a.verify-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); text-decoration: none; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/clusters">← Clusters</a>
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/intelligence">Theses</a>
+  </div>
+</nav>
+
+<div class="page" id="page"><div class="loading">Loading cluster…</div></div>
+
+<script>
+  const fp = decodeURIComponent(location.pathname.split('/cluster/')[1] || '');
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
+  const annotCache = {};
+
+  function dirTag(d){ const k=(d||'other'); const cls = k==='buy'?'buy':k==='sell'?'sell':k==='mixed'?'mixed':'other'; return `<span class="dir-tag ${cls}">${esc(k)}</span>`; }
+
+  // ── per-alert annotations (Part 1) ─────────────────────────────────────────
+  async function loadAnnotations(ids){ if(!ids.length) return;
+    try { const d = await (await fetch(`/api/annotations?alert_ids=${ids.join(',')}`)).json();
+      for(const [id,v] of Object.entries(d)) annotCache[id]=v.annotation; ids.forEach(updAnnot); } catch{}
+  }
+  function updAnnot(id){ const cur=annotCache[String(id)]||null;
+    const up=document.getElementById(`ra-up-${id}`), dn=document.getElementById(`ra-dn-${id}`);
+    if(up) up.classList.toggle('rated', cur==='up'); if(dn) dn.classList.toggle('rated', cur==='down'); }
+  async function annot(e,id,val){ e.stopPropagation(); const k=String(id); const prev=annotCache[k]||null;
+    annotCache[k]=(prev===val)?null:val; updAnnot(id);
+    try { const r=await fetch('/api/annotations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({alert_id:id,annotation:val})});
+      if(!r.ok) throw 0; annotCache[k]=(await r.json()).annotation; updAnnot(id);
+    } catch { annotCache[k]=prev; updAnnot(id); } }
+  const annotBtns = id => `<span class="annot"><button class="rate-btn" id="ra-up-${id}" title="Thumbs up" onclick="annot(event,${id},'up')">👍</button><button class="rate-btn" id="ra-dn-${id}" title="Thumbs down" onclick="annot(event,${id},'down')">👎</button></span>`;
+
+  // ── entity-level (cluster) annotation ──────────────────────────────────────
+  let clusterAnnot = null;
+  function updClusterAnnot(){ const up=document.getElementById('cl-up'), dn=document.getElementById('cl-dn');
+    if(up) up.classList.toggle('rated', clusterAnnot==='up'); if(dn) dn.classList.toggle('rated', clusterAnnot==='down'); }
+  async function clusterAnnotate(val){ const prev=clusterAnnot; clusterAnnot=(prev===val)?null:val; updClusterAnnot();
+    try { const r=await fetch('/api/warroom/annotation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_type:'cluster',entity_id:fp,annotation:val})});
+      if(!r.ok) throw 0; clusterAnnot=(await r.json()).annotation; updClusterAnnot();
+    } catch { clusterAnnot=prev; updClusterAnnot(); } }
+
+  // ── notes ──────────────────────────────────────────────────────────────────
+  let noteTimer=null;
+  function noteChanged(){ clearTimeout(noteTimer); document.getElementById('note-status').textContent='editing…';
+    noteTimer=setTimeout(saveNote, 800); }
+  async function saveNote(){ const v=document.getElementById('note-area').value;
+    document.getElementById('note-status').textContent='saving…';
+    try { await fetch('/api/warroom/note',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entity_type:'cluster',entity_id:fp,note:v})});
+      document.getElementById('note-status').textContent='saved '+new Date().toLocaleTimeString();
+    } catch { document.getElementById('note-status').textContent='save failed'; } }
+
+  function toggleDecomp(el){ el.closest('.score-card').classList.toggle('open'); }
+
+  fetch(`/api/clusters/${encodeURIComponent(fp)}`).then(r=>{ if(!r.ok) throw 0; return r.json(); }).then(d => {
+    const a = d.alert;
+    const members = d.members || [];
+    const dates = members.flatMap(m => m.transaction_dates||[]).sort();
+    const minD = dates[0], maxD = dates[dates.length-1];
+    const span = (new Date(maxD)-new Date(minD))||1;
+    const pos = dd => span<=0?0:Math.round(((new Date(dd)-new Date(minD))/span)*100);
+
+    // members table
+    const rows = members.map(m => {
+      const md = (m.transaction_dates||[]).join(', ');
+      const sizes = (m.sizes||[]).join('; ');
+      const pdf = m.filing_url ? `<a class="verify-link" href="${esc(m.filing_url)}" target="_blank" rel="noopener">PTR PDF →</a>` : '<span class="muted">—</span>';
+      return `<tr>
+        <td>${esc(m.name)}</td><td>${esc(m.party||'—')}</td><td>${esc(m.state||'—')}</td>
+        <td>${esc(md)}</td>${d.direction==='mixed'?`<td>${dirTag(m.direction)}</td>`:''}
+        <td>${esc(sizes||'—')}</td><td>${pdf}</td></tr>`;
+    }).join('');
+
+    // proximity timeline viz — one track per member, dot placed by trade date
+    const tl = members.map(m => {
+      const dd = (m.transaction_dates||[])[0];
+      return `<div class="tl-row"><span class="tl-name">${esc((m.name||'').split(',')[0])}</span>
+        <div class="tl-track"><div class="tl-line"></div>
+        ${(m.transaction_dates||[]).map(x=>`<div class="tl-dot" style="left:${pos(x)}%" title="${esc(x)}"></div>`).join('')}</div></div>`;
+    }).join('');
+
+    const related = (d.related||[]).map(r => `
+      <div class="signal-card ${(r.severity||'').toLowerCase()}">
+        <div class="sig-top"><span class="rule-badge">${esc(r.rule)}</span>
+          <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem">${ago(r.created_at)}</span>
+          ${annotBtns(r.id)}</div>
+        <div class="sig-headline">${esc(r.headline)}</div></div>`).join('') || '<div class="muted">No other signals on this ticker in the last 30 days.</div>';
+
+    const upgrades = (d.upgrades||[]).length ? `<div class="section"><h3>Upgrade history</h3>${
+      d.upgrades.map(u=>`<div class="signal-card medium"><div class="sig-top"><span class="rule-badge">${u.distinct_members} members</span><span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem">${ago(u.created_at)} · ${esc(u.lifecycle_stage||'')}</span></div><div class="sig-headline">${esc(u.headline)}</div></div>`).join('')
+    }</div>` : '';
+
+    const conflicting = (d.conflicting||[]).length ? `<div class="section"><h3>Conflicting evidence</h3><div class="conflict-box">${
+      d.conflicting.map(c=>`<div style="font-size:0.8rem;color:var(--cream2);margin-bottom:0.3rem">${esc(c.rule)}: ${esc(c.headline)}</div>`).join('')
+    }</div></div>` : '';
+
+    const dc = d.decomposition || {components:[],total:a.opportunity_score};
+    const decompRows = dc.components.map(c=>`<div class="decomp-row"><span>${esc(c.label)}</span><span class="v">${c.value>=0?'+':''}${c.value}</span></div>`).join('')
+      + `<div class="decomp-row total"><span>opportunity</span><span class="v">${dc.total}</span></div>`;
+
+    document.getElementById('page').innerHTML = `
+      <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
+        <span class="status-badge sev-${(a.severity||'').toLowerCase()}">${esc(a.severity)}</span>
+        <span class="status-badge dir-${esc(d.direction)}">${esc((d.direction||'').replace('_',' '))}</span>
+        <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem">${d.distinct_members} members · ${d.window_hours||72}h window</span>
+      </div>
+      <div class="t-title">${esc(a.headline)}</div>
+      <div class="t-meta"><a class="tick-chip" href="/ticker/${esc(a.ticker)}">${esc(a.ticker)}</a> &nbsp; detected ${ago(a.created_at)} · most recent trade ${esc(maxD||'—')}
+        <span class="annot" style="margin-left:0.6rem"><button class="rate-btn" id="cl-up" title="Thumbs up (whole cluster)" onclick="clusterAnnotate('up')">👍</button><button class="rate-btn" id="cl-dn" title="Thumbs down (whole cluster)" onclick="clusterAnnotate('down')">👎</button></span>
+      </div>
+
+      <div class="score-row">
+        <div class="score-card">
+          <div class="score-label">Evidence Confidence</div>
+          <div class="score-value" style="color:var(--blue)">${a.evidence_confidence ?? 0}</div>
+          <div class="bar"><span style="width:${Math.min(a.evidence_confidence||0,100)}%;background:var(--blue)"></span></div>
+        </div>
+        <div class="score-card">
+          <div class="score-label">Opportunity Score <span class="decomp" onclick="toggleDecomp(this)" title="How this score is computed">ⓘ</span></div>
+          <div class="score-value" style="color:var(--green-light)">${a.opportunity_score ?? 0}</div>
+          <div class="bar"><span style="width:${Math.min(a.opportunity_score||0,100)}%;background:var(--green-light)"></span></div>
+          <div class="decomp-pop">${decompRows}<div class="muted" style="margin-top:4px;font-size:0.56rem">detection-time value — never recomputed</div></div>
+        </div>
+      </div>
+
+      <div class="section"><h3>Members (${members.length})</h3>
+        <table class="members"><thead><tr><th>Member</th><th>Party</th><th>State</th><th>Trade date</th>${d.direction==='mixed'?'<th>Direction</th>':''}<th>Amount</th><th>Filing</th></tr></thead><tbody>${rows}</tbody></table>
+      </div>
+
+      <div class="section"><h3>Trade-proximity window (${d.window_hours||72}h)</h3>
+        <div class="tl-viz">${tl}<div class="tl-axis"><span>${esc(minD||'')}</span><span>${esc(maxD||'')}</span></div></div>
+      </div>
+
+      ${upgrades}
+      ${conflicting}
+
+      <div class="section"><h3>Related signals — same ticker, 30 days</h3>${related}</div>
+
+      <div class="section"><h3>Notes</h3>
+        <textarea id="note-area" class="notes-area" placeholder="Your reasoning about this cluster…" oninput="noteChanged()">${esc(d.war_room && d.war_room.note || '')}</textarea>
+        <div class="notes-save" id="note-status">${d.war_room && d.war_room.note ? 'saved' : ''}</div>
+      </div>
+    `;
+
+    clusterAnnot = d.war_room && d.war_room.annotation || null; updClusterAnnot();
+    loadAnnotations((d.related||[]).map(r=>r.id));
+  }).catch(() => {
+    document.getElementById('page').innerHTML = `<div class="empty">Cluster not found.<br><a href="/clusters" style="color:var(--amber)">← Back to Clusters</a></div>`;
+  });
+</script>
+</body>
+</html>

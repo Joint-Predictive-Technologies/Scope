@@ -642,6 +642,18 @@
     }
   }
 
+  // ── War-room routing ───────────────────────────────────────────────────────
+  function warRoomHref(a) {
+    if (a.rule === 'RULE_10' && a.theme_id) return `/thesis/${a.theme_id}`;
+    if (a.rule === 'RULE_CLUSTER') {
+      try {
+        const fp = (JSON.parse(a.tags || '{}').fingerprint || '');
+        if (fp) return `/cluster/${encodeURIComponent(fp.replace('CLUSTER::','').replace(/::/g,'__'))}`;
+      } catch {}
+    }
+    return null;
+  }
+
   // ── Comment thread ─────────────────────────────────────────────────────────
   async function toggleComments(e, alertId) {
     e.stopPropagation();
@@ -824,6 +836,10 @@
         detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
       if (url)
         detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
+      // War-room link: RULE_10 -> its thesis, RULE_CLUSTER -> its cluster room.
+      const warRoom = warRoomHref(a);
+      if (warRoom)
+        detailHtml += `<a href="${warRoom}" class="verify-link" style="margin-left:0.8rem">⚔ War room →</a>`;
       if (aiLabel) detailHtml += aiLabel;
 
       const threadOpen = a.rule === 'RULE_10';

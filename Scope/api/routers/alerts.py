@@ -144,6 +144,7 @@ def get_alerts(
             a.tags, a.member_id, a.created_at, a.source_url,
             a.time_horizon, a.novelty_score, a.opportunity_score,
             a.evidence_confidence, a.source_quality, a.verify_url,
+            a.theme_id, a.lifecycle_stage,
             m.full_name, m.party, m.state
         FROM alerts a
         LEFT JOIN members m ON a.member_id = m.bioguide_id

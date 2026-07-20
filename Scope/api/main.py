@@ -31,6 +31,7 @@ from api.routers import (
     evidence,
     themes as themes_router,
     annotations as annotations_router,
+    warroom as warroom_router,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -265,6 +266,7 @@ app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbyi
 app.include_router(evidence.router,      prefix="/api/evidence", tags=["Evidence"])
 app.include_router(themes_router.router, prefix="/api/themes", tags=["Themes"])
 app.include_router(annotations_router.router, prefix="/api/annotations", tags=["Annotations"])
+app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
 
 
 @app.get("/health", tags=["Health"])
@@ -730,6 +732,18 @@ def status_page():
 @app.get("/thesis/{theme_id}", response_class=HTMLResponse, include_in_schema=False)
 def thesis_page(theme_id: int):
     return FileResponse(STATIC_DIR / "thesis.html")
+
+@app.get("/theses", response_class=HTMLResponse, include_in_schema=False)
+def theses_page():
+    return FileResponse(STATIC_DIR / "intelligence.html")
+
+@app.get("/clusters", response_class=HTMLResponse, include_in_schema=False)
+def clusters_page():
+    return FileResponse(STATIC_DIR / "clusters.html")
+
+@app.get("/cluster/{fingerprint}", response_class=HTMLResponse, include_in_schema=False)
+def cluster_page(fingerprint: str):
+    return FileResponse(STATIC_DIR / "cluster.html")
 
 @app.get("/sector/{sector_name}", response_class=HTMLResponse, include_in_schema=False)
 def sector_war_room_page(sector_name: str):

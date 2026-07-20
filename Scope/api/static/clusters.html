@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clusters — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
+    h1 { font-family: 'Playfair Display', serif; font-size: 1.7rem; font-weight: 800; margin-bottom: 0.3rem; }
+    .sub { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); margin-bottom: 1.4rem; }
+    .filters { display: flex; gap: 0.5rem; margin-bottom: 1.2rem; flex-wrap: wrap; }
+    .filt { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: var(--bg2); border: 1px solid var(--border2); color: var(--cream2); padding: 3px 10px; border-radius: 3px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; }
+    .filt.active { border-color: var(--amber); color: var(--amber); }
+
+    .c-card { display: flex; gap: 0.8rem; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 0.9rem 1.1rem; margin-bottom: 0.6rem; text-decoration: none; color: var(--cream); transition: border-color 0.15s; }
+    .c-card:hover { border-color: var(--amber); }
+    .c-card.critical { border-left-color: var(--red-light); }
+    .c-card.high { border-left-color: var(--amber); }
+    .c-tick { font-family: 'IBM Plex Mono', monospace; font-size: 0.9rem; color: var(--amber); min-width: 64px; }
+    .c-headline { font-size: 0.86rem; flex: 1; }
+    .status-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; }
+    .dir-consensus_buy { background: rgba(77,196,122,0.16); color: var(--green-light); }
+    .dir-consensus_sell { background: rgba(229,91,77,0.16); color: var(--red-light); }
+    .dir-mixed { background: rgba(106,176,224,0.16); color: var(--blue); }
+    .c-score { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--green-light); min-width: 54px; text-align: right; }
+    .c-superseded { opacity: 0.5; }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Alerts</a>
+    <a href="/intelligence">Theses</a>
+    <a href="/clusters">Clusters</a>
+    <a href="/congress">Congress</a>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Congressional Clusters</h1>
+  <div class="sub">3+ members trading the same ticker inside a rolling 72h window. Click into a cluster war room.</div>
+  <div class="filters" id="filters">
+    <span class="filt active" data-f="all" onclick="setF('all')">All</span>
+    <span class="filt" data-f="consensus_buy" onclick="setF('consensus_buy')">Consensus buy</span>
+    <span class="filt" data-f="consensus_sell" onclick="setF('consensus_sell')">Consensus sell</span>
+    <span class="filt" data-f="mixed" onclick="setF('mixed')">Mixed</span>
+  </div>
+  <div id="list"><div class="loading">Loading clusters…</div></div>
+</div>
+
+<script>
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
+  let ALL = [], filter='all';
+
+  function setF(f){ filter=f; document.querySelectorAll('.filt').forEach(e=>e.classList.toggle('active', e.dataset.f===f)); render(); }
+  function render(){
+    const items = ALL.filter(c => filter==='all' || c.direction===filter);
+    document.getElementById('list').innerHTML = items.length ? items.map(c => `
+      <a class="c-card ${(c.severity||'').toLowerCase()} ${c.lifecycle_stage==='superseded'?'c-superseded':''}" href="/cluster/${encodeURIComponent(c.fingerprint)}">
+        <span class="c-tick">${esc(c.ticker)}</span>
+        <span class="c-headline">${esc(c.headline)}<div style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--muted);margin-top:2px">${ago(c.created_at)}${c.lifecycle_stage==='superseded'?' · superseded':''}</div></span>
+        <span class="status-badge dir-${esc(c.direction)}">${esc((c.direction||'').replace('_',' '))}</span>
+        <span class="c-score">${c.opportunity_score ?? 0} opp</span>
+      </a>`).join('') : '<div class="empty">No clusters match this filter.</div>';
+  }
+
+  fetch('/api/clusters').then(r=>r.json()).then(d => { ALL = d; render(); })
+    .catch(() => { document.getElementById('list').innerHTML = '<div class="empty">Failed to load clusters.</div>'; });
+</script>
+</body>
+</html>

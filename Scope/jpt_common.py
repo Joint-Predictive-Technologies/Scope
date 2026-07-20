@@ -584,6 +584,26 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m010_alert_annotations')")
         conn.commit()
 
+    # m011: war_rooms — per-entity (thesis/cluster) free-text note + entity-level
+    # thumbs annotation. entity_type ∈ {'theme','cluster'}, entity_id = theme id
+    # (str) or cluster fingerprint. Single row per entity (single-user for now).
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m011_war_rooms'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS war_rooms (
+                   entity_type  TEXT NOT NULL,          -- 'theme' | 'cluster'
+                   entity_id    TEXT NOT NULL,
+                   note         TEXT,
+                   annotation   TEXT,                   -- 'up' | 'down' | NULL
+                   annotated_at TEXT,
+                   updated_at   TEXT DEFAULT (datetime('now')),
+                   PRIMARY KEY (entity_type, entity_id)
+               )"""
+        )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m011_war_rooms')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -738,6 +758,25 @@ def calculate_opportunity_score(novelty_score, absorption_pct, time_horizon,
            + horizon_scores.get(time_horizon, 0.7) * 20.0
            + historical_win_rate * 10.0)
     return min(max(round(raw * liquidity_score, 1), 0.0), 100.0)
+
+
+def opportunity_score_breakdown(novelty_score, absorption_pct, time_horizon,
+                                historical_win_rate=0.5) -> dict:
+    """Transparent decomposition of calculate_opportunity_score — the exact
+    additive components, so the UI can show the reasoning, not just the number.
+    Mirrors the formula in calculate_opportunity_score (keep in sync)."""
+    horizon_scores = {"IMMEDIATE": 1.0, "SHORT": 0.85, "MEDIUM": 0.65, "LONG": 0.45}
+    n = float(novelty_score or 0.0)
+    a = float(absorption_pct or 0.0)
+    hs = horizon_scores.get(time_horizon, 0.7)
+    components = [
+        {"label": f"novelty {round(n, 3)}", "value": round(n * 40.0, 1)},
+        {"label": f"absorption {round(a, 1)}%", "value": round(-(a / 100.0) * 30.0, 1)},
+        {"label": f"{time_horizon or '—'} horizon", "value": round(hs * 20.0, 1)},
+        {"label": f"base win-rate {round(historical_win_rate, 2)}", "value": round(historical_win_rate * 10.0, 1)},
+    ]
+    total = min(max(round(sum(c["value"] for c in components), 1), 0.0), 100.0)
+    return {"components": components, "total": total}
 
 
 def calculate_novelty_score(rule, region_or_sector, conn) -> float:
