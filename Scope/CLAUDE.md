@@ -70,7 +70,7 @@ Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged,
 | Source label | File | Cadence |
 |---|---|---|
 | RULE_01B | `scripts/rule_01b_first_touch.py` | 120 min |
-| RULE_02 | `rule_02_cluster.py` | (via cluster/main) |
+| RULE_02 | `rule_02_cluster.py` | **NOT SCHEDULED** — has `main()` but is absent from `_RULE_SCHEDULE`/`_CRON_SCHEDULE`; runs only when invoked manually. (7-day cluster; overlaps the newer 72h RULE_CLUSTER — schedule intentionally, not by default.) |
 | RULE_06 | `rule_06_form4.py` | 120 min |
 | RULE_07 | `rule_07_polymarket.py` | 20 min |
 | RULE_08 | `rule_08_federal_register.py` | 240 min |

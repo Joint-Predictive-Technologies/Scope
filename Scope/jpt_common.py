@@ -817,7 +817,9 @@ def calculate_novelty_score(rule, region_or_sector, conn) -> float:
     ).fetchone()[0]
     if count == 0:
         return 1.0
-    return round(1 / (1 + math.log(count + 1)), 3)
+    # Floor at 0.1 — at extreme recurrence 1/(1+ln(n+1)) drifts below 0.1; the
+    # invariant is enforced here, not just documented.
+    return max(0.1, round(1 / (1 + math.log(count + 1)), 3))
 
 
 def assign_time_horizon(rule, ticker=None, conn=None) -> str:
