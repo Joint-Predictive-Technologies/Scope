@@ -263,7 +263,8 @@ def get_ticker_alerts(
 
     alerts = conn.execute(
         """
-        SELECT id, rule, severity, headline, detail, tags, ticker, member_id, created_at
+        SELECT id, rule, severity, headline, detail, tags, ticker, member_id, created_at,
+               lifecycle_stage
         FROM alerts
         WHERE ticker LIKE ?
           AND datetime(created_at) >= datetime('now', ?)

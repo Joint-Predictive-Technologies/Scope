@@ -231,6 +231,22 @@
     } catch { td.textContent = '—'; }
   }
 
+  function renderClusters(alerts) {
+    const clusters = alerts.filter(a => a.rule === 'RULE_CLUSTER');
+    if (!clusters.length) return '';
+    const rows = clusters.map(a => {
+      let fp = '';
+      try { fp = (JSON.parse(a.tags || '{}').fingerprint || ''); } catch {}
+      const href = fp ? '/cluster/' + encodeURIComponent(fp.replace('CLUSTER::','').replace(/::/g,'__')) : '#';
+      const sup = a.lifecycle_stage === 'superseded';
+      return `<a href="${href}" style="display:flex;gap:0.7rem;align-items:center;background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;padding:0.6rem 0.9rem;margin-bottom:0.4rem;text-decoration:none;color:var(--cream2);font-size:0.82rem;${sup?'opacity:0.55':''}">
+        <span style="flex:1">${(a.headline||'').replace(/</g,'&lt;')}</span>
+        <span style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem;color:var(--muted)">${new Date(a.created_at+'Z').toLocaleDateString('en-US',{month:'short',day:'numeric'})}${sup?' · superseded':''}</span>
+      </a>`;
+    }).join('');
+    return `<div class="section-label">Clusters (${clusters.length})</div>${rows}`;
+  }
+
   function renderTimeline(alerts) {
     if (!alerts.length) return '';
     const dates = alerts.map(a => new Date(a.created_at + 'Z').getTime());
@@ -444,6 +460,7 @@
           <div class="sum-stat"><div class="sum-val">${txs.length}</div><div class="sum-label">Trades on Record</div></div>
         </div>
       </div>
+      ${renderClusters(alerts)}
       ${renderTimeline(alerts)}
       ${renderRuleGraph(alerts)}
       ${membersSection}
