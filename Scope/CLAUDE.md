@@ -19,15 +19,31 @@ for conventions — keep it in sync when they change.
 - `data/backups/` is gitignored (hourly snapshots).
 - `created_at` is stored UTC-naive (`datetime('now')`). Window comparisons use SQL `datetime('now','-Xh')` — keep them SQL-side and UTC-naive; do not mix tz-aware Python datetimes into these comparisons.
 
-## Alerts: the single write point
-**Insert every alert through `jpt_common.insert_alert(conn, rule, ticker, severity, headline, ...)`.**
-It normalizes the ticker and computes the Phase-2 scores (novelty, opportunity,
-evidence_confidence, time_horizon, source_quality) inline. Do **not** write raw
-`INSERT INTO alerts` in rule scripts.
+## Alerts: two valid write paths
+There are **two accepted ways** to write an alert. New rules SHOULD use path (a).
 
+**(a) `jpt_common.insert_alert(conn, rule, ticker, severity, headline, ...)` — preferred.**
+Normalizes the ticker and computes the Phase-2 scores (novelty, opportunity,
+evidence_confidence, time_horizon, source_quality) **inline, at write time**.
 - Optional kwargs: `why_matters, tags (dict|str), member_id, source_url, verify_url, detail, event_date, theme_id, distinct_rule_count, has_conflict, absorption_pct`.
 - `tags` may be a dict (auto-JSON) or a JSON string.
-- Scoring safety net: `scripts/enrich_scores.py` (10-min job) backfills scores for any alert still at defaults — but that is a *fallback*, not a license to bypass `insert_alert`. (Known debt: ~16 legacy scripts still raw-insert; tracked for migration.)
+- On path (a) today: `scripts/rule_osint.py`, `scripts/rule_reddit.py`,
+  `scripts/rule_10_corroboration.py`, `scripts/rule_cluster.py`.
+
+**(b) Direct `INSERT INTO alerts`, relying on `enrich_scores` to backfill.**
+Legacy rules insert raw and leave scores at schema defaults; the 10-min
+`scripts/enrich_scores.py` job (`jpt_common.enrich_alert_scores`, criterion
+`opportunity_score=0 AND evidence_confidence=0`) fills in novelty_score,
+opportunity_score, evidence_confidence, time_horizon and source_quality afterward.
+- **This path depends on `enrich_scores` running reliably** — it is a single point
+  of failure. `MONITOR_ENRICH_STALL` (hourly) watches for it (see Known Issues).
+- Path (b) does NOT normalize the ticker — another reason to prefer (a) for new rules.
+- On path (b) today (raw INSERT): `rule_07_polymarket.py`, `rule_06_form4.py`,
+  `rule_08_federal_register.py`, `rule_09_lobbying.py`, `rule_02_cluster.py`,
+  `scripts/rule_01b_first_touch.py`, `scripts/rule_11_contracts.py`,
+  `scripts/rule_12_fara.py`, `scripts/rule_13_fec.py`, `scripts/rule_14_patents.py`,
+  `scripts/rule_15_earnings_nlp.py`, `scripts/rule_anomaly.py`,
+  `scripts/rule_adsb.py`, `scripts/rule_telegram_osint.py`, `ingest_senate.py`.
 
 ## Scoring model (jpt_common)
 Two **independent** scores, never merged:
@@ -89,8 +105,16 @@ blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
   `match_member_id` (suffix/middle-name/credential stripping).
 - **Member-matching is a Stage-1 metric.** The unmatched count is logged by
   INGEST_HOUSE_INDEX (where matching happens), not PARSE_HOUSE_PDFS.
-- **~16 rules bypass `insert_alert`** (raw INSERT); scoring survives only via the
-  10-min `enrich_scores` backfill. Decide: migrate, or formally bless enrich.
+- **~15 rules on write path (b)** (raw INSERT, listed under "Alerts: two valid
+  write paths"). Accepted pattern — scoring survives via the 10-min `enrich_scores`
+  backfill. This is a **single point of failure**: if `enrich_scores` stalls, new
+  alerts sit at default scores. Guarded by the hourly `MONITOR_ENRICH_STALL` job
+  (`scripts/monitor_enrich_stall.py`) which logs a CRITICAL `activity_log` row
+  (and optional Telegram) when alerts >30 min old remain unscored. Not migrating
+  the 15 scripts for now (too much surface area on working code).
+- **~3% PDF parse failure rate** (88 historical `parse_failed`, 14 from the
+  backlog catch-up). Worth a one-time look at whether the failures share a common
+  PDF format/layout the parser doesn't handle.
 
 ## Conventions
 - Reference code as `file_path:line`. Match surrounding style; no new frameworks.

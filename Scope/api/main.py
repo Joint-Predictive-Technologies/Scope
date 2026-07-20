@@ -56,6 +56,8 @@ _RULE_SCHEDULE: dict[str, int] = {
     "scripts/rule_10_corroboration.py":    60,
     # Phase-2 scoring — score any newly-inserted alerts every 10 min
     "scripts/enrich_scores.py":            10,
+    # Stall monitor — make a silent enrich_scores failure loud (hourly)
+    "scripts/monitor_enrich_stall.py":     60,
     # Anomaly detection
     "scripts/rule_anomaly.py":             180,
     # Congressional cluster detection — 3+ members, same ticker, 72h
