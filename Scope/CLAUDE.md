@@ -111,6 +111,22 @@ converge on the same ticker within 24h. Excluded from the eligible set:
 RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY (and RULE_10 itself). It also
 creates/evolves a `themes` row (Market Thesis) and links evidence in `theme_signals`.
 
+**RULE_CLUSTER (`scripts/rule_cluster.py`, path a):** fires when 3+ DISTINCT
+members trade the same normalized ticker inside a rolling 72h window by
+`transaction_date`. HIGH for 3-4 members, CRITICAL for 5+. Direction is
+per-member buy/sell → `consensus_buy` / `consensus_sell` / `mixed` (mixed carries
+`has_conflict=True`, all three fire). **Cluster identity = (sorted member set,
+ticker, direction)**; a member joining a prior smaller cluster is a NEW alert that
+supersedes the earlier one (`lifecycle_stage='superseded'`, "expanded to N
+members") — dedup is on identity, never on ticker+time-window. Novelty is computed
+on the cluster identity via `insert_alert(..., novelty_key=fingerprint)` (with the
+fingerprint also embedded in `why_matters` so `calculate_novelty_score`'s LIKE
+match finds prior occurrences), so a cluster launches novel even though RULE_01B
+already fired the ticker per member. **Windowing:** because PTRs disclose 30-45
+days after the trade, "last 72h" means trades within 72h *of each other*, found by
+sliding a 72h window over a 45-day disclosure-lag scan horizon (`SCAN_HORIZON_DAYS`)
+and picking the strongest window per ticker (most members; ties → most recent).
+
 ## External sources (status per last diagnostic)
 GDELT (`data.gdeltproject.org`), Arctic Shift (Reddit), Polymarket Gamma+CLOB,
 FEC (`api.open.fec.gov/v1`), OpenSky, USASpending, Federal Register, Senate LDA,

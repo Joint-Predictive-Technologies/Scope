@@ -841,16 +841,22 @@ def insert_alert(conn, rule, ticker, severity, headline, why_matters=None,
                  tags=None, member_id=None, source_url=None, verify_url=None,
                  detail=None, event_date=None, theme_id=None,
                  distinct_rule_count=None, has_conflict=False,
-                 absorption_pct=0.0) -> int:
+                 absorption_pct=0.0, novelty_key=None) -> int:
     """
     Single entry point for alert inserts that computes Phase-2 scores inline and
     normalizes the ticker (the one write point where canonicalization happens).
     Alerts inserted by other paths are still scored by enrich_alert_scores() on
     the scheduler. Returns the new row id.
+
+    novelty_key: overrides the string novelty is computed against (default: the
+    ticker). RULE_CLUSTER passes a cluster-identity fingerprint so novelty counts
+    prior occurrences of *that cluster*, not ticker mentions overall. For it to
+    match, the caller must also embed the same fingerprint in headline/why_matters
+    (calculate_novelty_score does a LIKE match on those fields).
     """
     import json as _json
     ticker = normalize_ticker(ticker)
-    anchor = (ticker or (headline or "")[:30]) or rule
+    anchor = novelty_key or (ticker or (headline or "")[:30]) or rule
     novelty = calculate_novelty_score(rule, anchor, conn)
     horizon = assign_time_horizon(rule)
     quality = RULE_SOURCE_QUALITY.get(rule, "Secondary")

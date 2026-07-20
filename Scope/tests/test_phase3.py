@@ -31,20 +31,22 @@ def test_cluster_detection_emits_alert():
     from scripts.rule_cluster import run
     conn = db_connection()
     _cleanup(conn, "ZCLU")
+    # 3 members buying the same ticker within the 72h window (recent dates).
     for i, mid in enumerate(("TESTM1", "TESTM2", "TESTM3")):
         conn.execute(
             "INSERT INTO transactions (member_id, raw_ticker_string, transaction_type, transaction_date) "
-            "VALUES (?, 'ZCLU', 'Purchase', date('now'))", (mid,))
+            "VALUES (?, 'ZCLU', 'Purchase', date('now', ?))", (mid, f"-{i} days"))
     conn.commit(); conn.close()
 
-    run(emit=True)
+    run(dry_run=False)
 
     conn = db_connection()
     a = conn.execute("SELECT severity, headline, opportunity_score, evidence_confidence, tags "
                      "FROM alerts WHERE rule='RULE_CLUSTER' AND ticker='ZCLU'").fetchone()
     ok = a is not None
     if ok:
-        assert "buying" in a["headline"]
+        assert "bought" in a["headline"]                 # consensus_buy phrasing
+        assert a["severity"] == "HIGH"                   # 3 members
         assert a["opportunity_score"] and a["opportunity_score"] > 0  # scored via insert_alert
     _cleanup(conn, "ZCLU"); conn.close()
     assert ok

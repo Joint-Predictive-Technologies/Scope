@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""
+Tests for RULE_CLUSTER (congressional trading clusters).
+
+Runs under pytest or standalone:  python3 tests/test_rule_cluster.py
+
+Each test gets a fresh temp DB (DATABASE_PATH) with the full app schema, seeds
+members + transactions, and drives rule_cluster.run() end to end.
+"""
+import importlib.util
+import json
+import os
+import sys
+from datetime import date, timedelta
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+_REPO = os.path.join(os.path.dirname(__file__), "..")
+_spec = importlib.util.spec_from_file_location(
+    "rule_cluster", os.path.join(_REPO, "scripts", "rule_cluster.py"))
+rc = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(rc)
+
+import jpt_common  # noqa: E402
+
+MEMBERS = [
+    ("A000001", "Alpha, Aaron"),
+    ("B000002", "Bravo, Bianca"),
+    ("C000003", "Charlie, Cara"),
+    ("D000004", "Delta, Dan"),
+    ("E000005", "Echo, Ed"),
+]
+
+D0 = date.today() - timedelta(days=10)   # inside the 45-day horizon
+D1 = D0 + timedelta(days=1)
+D2 = D0 + timedelta(days=2)               # D0..D2 span = 48h, inside the 72h window
+
+
+@pytest.fixture(autouse=True)
+def temp_db(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "t.db"))
+    conn = jpt_common.db_connection()
+    conn.executemany(
+        "INSERT INTO members (bioguide_id, full_name, party, state, chamber, is_current) "
+        "VALUES (?,?,?,?,?,1)",
+        [(bid, name, "Democratic", "CA", "House of Representatives") for bid, name in MEMBERS],
+    )
+    conn.commit()
+    conn.close()
+    yield
+
+
+def _tx(member, ticker, ttype, d, band="$1,001 - $15,000"):
+    conn = jpt_common.db_connection()
+    conn.execute(
+        "INSERT INTO transactions (member_id, raw_ticker_string, transaction_type, "
+        "amount_band, transaction_date) VALUES (?,?,?,?,?)",
+        (member, ticker, ttype, band, d.isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _cluster_alerts(ticker="AAA"):
+    conn = jpt_common.db_connection()
+    rows = conn.execute(
+        "SELECT * FROM alerts WHERE rule='RULE_CLUSTER' AND ticker=? ORDER BY id",
+        (ticker,),
+    ).fetchall()
+    out = [dict(r) for r in rows]
+    conn.close()
+    return out
+
+
+def test_three_member_consensus_buy_is_high():
+    _tx("A000001", "AAA", "purchase", D0)
+    _tx("B000002", "AAA", "purchase", D1)
+    _tx("C000003", "AAA", "purchase", D2)
+    res = rc.run()
+    assert res["emitted"] == 1
+    a = _cluster_alerts()[0]
+    assert a["severity"] == "HIGH"
+    tags = json.loads(a["tags"])
+    assert tags["direction"] == "consensus_buy"
+    assert tags["distinct_members"] == 3
+    assert "bought AAA" in a["headline"]
+    assert a["time_horizon"] == "IMMEDIATE"
+
+
+def test_five_member_cluster_is_critical():
+    for m in ("A000001", "B000002", "C000003", "D000004", "E000005"):
+        _tx(m, "AAA", "purchase", D1)
+    res = rc.run()
+    assert res["emitted"] == 1
+    a = _cluster_alerts()[0]
+    assert a["severity"] == "CRITICAL"
+    assert json.loads(a["tags"])["distinct_members"] == 5
+
+
+def test_mixed_cluster_flags_conflict_and_headline():
+    _tx("A000001", "AAA", "purchase", D0)
+    _tx("B000002", "AAA", "purchase", D1)
+    _tx("C000003", "AAA", "sale", D2)      # disagreement → mixed
+    res = rc.run()
+    assert res["emitted"] == 1
+    a = _cluster_alerts()[0]
+    tags = json.loads(a["tags"])
+    assert tags["direction"] == "mixed"                    # has_conflict basis
+    assert "mixed" in a["headline"].lower()
+    assert "cluster" in [t for t in tags["tags"]]
+
+
+def test_dedup_same_identity_then_upgrade_on_new_member():
+    # 3-member cluster fires once …
+    _tx("A000001", "AAA", "purchase", D0)
+    _tx("B000002", "AAA", "purchase", D1)
+    _tx("C000003", "AAA", "purchase", D2)
+    assert rc.run()["emitted"] == 1
+    # … re-detecting the identical identity does NOT fire again …
+    assert rc.run()["emitted"] == 0
+    assert len(_cluster_alerts()) == 1
+    # … a 4th member joining IS a new (upgrade) alert that supersedes the first.
+    _tx("D000004", "AAA", "purchase", D1)
+    res = rc.run()
+    assert res["emitted"] == 1
+    assert res["upgrades"] == 1
+    alerts = _cluster_alerts()
+    assert len(alerts) == 2
+    first, second = alerts
+    assert first["lifecycle_stage"] == "superseded"
+    assert json.loads(second["tags"])["distinct_members"] == 4
+    assert "expanded to 4" in second["headline"]
+
+
+if __name__ == "__main__":
+    sys.exit(pytest.main([__file__, "-q"]))
