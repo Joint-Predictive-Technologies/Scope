@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 from jpt_common import db_connection
 
 
-BATCH_SIZE = 10
+BATCH_SIZE = 20
 DOWNLOAD_SLEEP_SECONDS = 1
 REQUEST_TIMEOUT_SECONDS = 30
 
@@ -612,6 +612,9 @@ def process_filing(conn, filing: Filing) -> tuple[bool, int, bool]:
 
 def main() -> None:
     load_dotenv()
+    import time as _time
+    from jpt_common import record_activity
+    _t0 = _time.time()
 
     downloaded_count = 0
     parsed_transaction_count = 0
@@ -619,10 +622,16 @@ def main() -> None:
 
     with db_connection() as conn:
         ensure_tables(conn)
+        pending_before = conn.execute(
+            "SELECT COUNT(*) FROM filings WHERE extraction_status='pending' AND source='house'"
+        ).fetchone()[0]
         filings = fetch_pending_filings(conn)
 
         if not filings:
             print("No pending House filings found.")
+            record_activity("PARSE_HOUSE_PDFS", scanned=0, flagged=0, emitted=0,
+                            duration_seconds=round(_time.time() - _t0, 2),
+                            notes="pending_before=0, nothing to parse")
             return
 
         print(f"Found {len(filings)} pending House filings. Processing batch of {BATCH_SIZE}.")
@@ -657,6 +666,11 @@ def main() -> None:
         f"{parsed_transaction_count} transactions parsed, "
         f"{failed_count} failed."
     )
+    notes = (f"pending_before={pending_before}, processed={len(filings)}, "
+             f"transactions_parsed={parsed_transaction_count}, failures={failed_count}")
+    record_activity("PARSE_HOUSE_PDFS", scanned=len(filings), flagged=downloaded_count,
+                    emitted=parsed_transaction_count,
+                    duration_seconds=round(_time.time() - _t0, 2), notes=notes)
 
 
 if __name__ == "__main__":

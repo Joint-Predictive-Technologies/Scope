@@ -85,6 +85,12 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
     # USPTO patents — twice weekly (Tue + Fri early morning)
     "scripts/rule_14_patents.py":       {"day_of_week": "tue,fri", "hour": 4, "minute": 30},
+    # ── Congressional ingestion (offset so stage 2 always trails stage 1) ──
+    # Stage 1: House PTR index -> filings (registers new pending), every 6h on the hour.
+    "ingest_house_index.py":            {"hour": "0,6,12,18", "minute": 0},
+    # Stage 2: parse pending PTR PDFs -> transactions, every 4h at :30 (never
+    # simultaneous with stage 1; runs more often so it always finds work).
+    "parse_house_pdfs.py":              {"hour": "0,4,8,12,16,20", "minute": 30},
     # Alert severity decay — daily at 1am, keeps the feed and counts honest
     "scripts/decay_alerts.py":          {"hour": 1,  "minute": 0},
     # (interval job for scoring is registered in _RULE_SCHEDULE)

@@ -349,7 +349,8 @@ def parse_house_filings(
     return filings
 
 
-def upsert_filing(conn, filing: HouseFiling) -> None:
+def upsert_filing(conn, filing: HouseFiling) -> bool:
+    """Insert or update a filing. Returns True if a NEW filing was inserted."""
     existing = conn.execute(
         """
         SELECT id
@@ -377,6 +378,7 @@ def upsert_filing(conn, filing: HouseFiling) -> None:
                 existing["id"],
             ),
         )
+        return False
     else:
         conn.execute(
             """
@@ -406,14 +408,18 @@ def upsert_filing(conn, filing: HouseFiling) -> None:
                 filing.raw_url,
             ),
         )
+        return True
 
 
-def register_filings(conn, filings: list[HouseFiling]) -> int:
+def register_filings(conn, filings: list[HouseFiling]) -> tuple[int, int]:
+    """Returns (total_registered, new_inserted)."""
+    new_count = 0
     for filing in filings:
-        upsert_filing(conn, filing)
+        if upsert_filing(conn, filing):
+            new_count += 1
 
     conn.commit()
-    return len(filings)
+    return len(filings), new_count
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -427,6 +433,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=datetime.now().year,
         help="Disclosure year to ingest. Default: current year.",
     )
+    # Accepted (and ignored) for scheduler-runner uniformity.
+    parser.add_argument("--emit-alerts", action="store_true", help=argparse.SUPPRESS)
 
     return parser
 
@@ -439,6 +447,10 @@ def main() -> None:
 
     year = args.year
 
+    import time as _time
+    from jpt_common import record_activity
+    _t0 = _time.time()
+
     with db_connection() as conn:
         run_id = start_ingestion_run(conn, year)
 
@@ -449,20 +461,28 @@ def main() -> None:
 
             members = load_members(conn)
             filings = parse_house_filings(entries, members, year)
-            registered_count = register_filings(conn, filings)
+            registered_count, new_count = register_filings(conn, filings)
+            unmatched = sum(1 for f in filings if f.member_id is None)
 
             details = (
-                f"{len(entries)} total entries parsed, "
-                f"{registered_count} PTRs registered"
+                f"{len(entries)} entries scanned, {registered_count} PTRs found, "
+                f"{new_count} new filings inserted, {unmatched} unmatched filers"
             )
 
             finish_ingestion_run(conn, run_id, len(entries), 0, details)
+            print(details)
 
-            print(f"{len(entries)} total entries parsed, {registered_count} PTRs registered")
+            # Activity log — so a future stall is visible here, not only via a
+            # diagnostic sweep. scanned=index entries, flagged=PTRs, emitted=new.
+            record_activity("INGEST_HOUSE_INDEX", scanned=len(entries),
+                            flagged=registered_count, emitted=new_count,
+                            duration_seconds=round(_time.time() - _t0, 2), notes=details)
 
         except Exception as exc:
             details = f"Failed ingesting House index for year {year}: {exc}"
             finish_ingestion_run(conn, run_id, 0, 1, details)
+            record_activity("INGEST_HOUSE_INDEX", scanned=0, flagged=0, emitted=0,
+                            duration_seconds=round(_time.time() - _t0, 2), notes=details)
             print(f"ERROR: {details}")
             sys.exit(1)
 

@@ -78,6 +78,20 @@ FEC (`api.open.fec.gov/v1`), OpenSky, USASpending, Federal Register, Senate LDA,
 SEC (needs a contact `User-Agent`), PatentsView (`search.patentsview.org` — DNS
 blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
 
+## Known issues (tracked, not yet fixed)
+- **Unmatched House filers** (~11/run): `ingest_house_index.parse_house_filings`
+  → `match_member_id` returns None for some filers (name-normalization gap, e.g.
+  "April McClain Delaney", "Earl Leroy Carter", "Neal Patrick MD, Facs Dunn").
+  Those PTRs still register and parse into `transactions` with `member_id=NULL`,
+  so they JOIN out of RULE_01B/02/CLUSTER — and crucially they won't count toward
+  RULE_CLUSTER's "distinct members" threshold. Surfaced in the INGEST_HOUSE_INDEX
+  activity_log notes as "N unmatched filers". Fix = better name normalization in
+  `match_member_id` (suffix/middle-name/credential stripping).
+- **Member-matching is a Stage-1 metric.** The unmatched count is logged by
+  INGEST_HOUSE_INDEX (where matching happens), not PARSE_HOUSE_PDFS.
+- **~16 rules bypass `insert_alert`** (raw INSERT); scoring survives only via the
+  10-min `enrich_scores` backfill. Decide: migrate, or formally bless enrich.
+
 ## Conventions
 - Reference code as `file_path:line`. Match surrounding style; no new frameworks.
 - Commit/push only when asked. End commit messages with the Co-Authored-By line.
