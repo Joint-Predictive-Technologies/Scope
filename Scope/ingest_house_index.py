@@ -72,6 +72,12 @@ def finish_ingestion_run(conn, run_id: int, filings_seen: int, errors: int, note
     conn.commit()
 
 
+class IngestError(RuntimeError):
+    """A fetch/parse failure with a note ready for activity_log. Raised instead of
+    sys.exit() so main()'s handler always logs an error row (a silent SystemExit
+    would bypass logging and leave zero trace of a failed run)."""
+
+
 def download_house_zip(year: int) -> bytes:
     url = HOUSE_ZIP_URL_TEMPLATE.format(year=year)
     print(f"Downloading House index ZIP: {url}")
@@ -82,17 +88,19 @@ def download_house_zip(year: int) -> bytes:
             headers={"User-Agent": USER_AGENT},
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
-
-        if response.status_code == 404:
-            print(f"ERROR: House disclosure ZIP not found for year {year}: {url}")
-            sys.exit(1)
-
-        response.raise_for_status()
-        return response.content
-
     except requests.exceptions.RequestException as exc:
-        print(f"ERROR: Failed to download House disclosure ZIP: {exc}")
-        sys.exit(1)
+        # Network-layer failure (timeout, connection reset, DNS): report the
+        # exception type so a transient blip is distinguishable from a 4xx/5xx.
+        raise IngestError(f"network {type(exc).__name__} fetching {url}: {exc}") from exc
+
+    if response.status_code == 404:
+        # Distinct, actionable case: the source URL likely moved.
+        raise IngestError(f"HTTP 404 — House disclosure ZIP not found (source URL may "
+                          f"have changed) for year {year}: {url}")
+    if response.status_code != 200:
+        raise IngestError(f"HTTP {response.status_code} fetching {url}")
+
+    return response.content
 
 
 def extract_xml_from_zip(zip_bytes: bytes) -> bytes:
@@ -105,16 +113,15 @@ def extract_xml_from_zip(zip_bytes: bytes) -> bytes:
             ]
 
             if not xml_names:
-                print("ERROR: No XML file found inside House ZIP.")
-                sys.exit(1)
+                raise IngestError("no XML file found inside the House ZIP")
 
             xml_name = xml_names[0]
             print(f"Extracting XML: {xml_name}")
             return zf.read(xml_name)
 
-    except zipfile.BadZipFile:
-        print("ERROR: Downloaded House file is not a valid ZIP.")
-        sys.exit(1)
+    except zipfile.BadZipFile as exc:
+        raise IngestError("downloaded House file is not a valid ZIP "
+                          "(truncated download or an error page served instead)") from exc
 
 
 def strip_namespace(tag: str) -> str:
@@ -337,8 +344,7 @@ def iter_xml_entries(xml_bytes: bytes) -> list[dict[str, str]]:
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as exc:
-        print(f"ERROR: Could not parse House XML: {exc}")
-        sys.exit(1)
+        raise IngestError(f"could not parse House XML: {exc}") from exc
 
     entries: list[dict[str, str]] = []
 
@@ -614,11 +620,23 @@ def main() -> None:
                             duration_seconds=round(_time.time() - _t0, 2), notes=details)
 
         except Exception as exc:
-            details = f"Failed ingesting House index for year {year}: {exc}"
+            level = "ERROR" if isinstance(exc, IngestError) else "CRITICAL"
+            details = f"{level}: House index ingest failed (year {year}) — {exc}"
+            # Note when this failure follows a prior failure — a persistent break
+            # reads differently from one flaky run.
+            try:
+                prev = conn.execute(
+                    "SELECT notes FROM activity_log WHERE source='INGEST_HOUSE_INDEX' "
+                    "ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if prev and (prev["notes"] or "").startswith(("ERROR", "CRITICAL")):
+                    details += " [consecutive failure — prior run also failed]"
+            except Exception:
+                pass
             finish_ingestion_run(conn, run_id, 0, 1, details)
             record_activity("INGEST_HOUSE_INDEX", scanned=0, flagged=0, emitted=0,
                             duration_seconds=round(_time.time() - _t0, 2), notes=details)
-            print(f"ERROR: {details}")
+            print(details)
             sys.exit(1)
 
 

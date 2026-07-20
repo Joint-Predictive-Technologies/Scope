@@ -621,58 +621,82 @@ def main() -> None:
     downloaded_count = 0
     parsed_transaction_count = 0
     failed_count = 0
+    pending_before = "?"
 
-    with db_connection() as conn:
-        ensure_tables(conn)
-        pending_before = conn.execute(
-            "SELECT COUNT(*) FROM filings WHERE extraction_status='pending' AND source='house'"
-        ).fetchone()[0]
-        filings = fetch_pending_filings(conn)
+    try:
+        with db_connection() as conn:
+            ensure_tables(conn)
+            pending_before = conn.execute(
+                "SELECT COUNT(*) FROM filings WHERE extraction_status='pending' AND source='house'"
+            ).fetchone()[0]
+            filings = fetch_pending_filings(conn)
 
-        if not filings:
-            print("No pending House filings found.")
-            record_activity("PARSE_HOUSE_PDFS", scanned=0, flagged=0, emitted=0,
-                            duration_seconds=round(_time.time() - _t0, 2),
-                            notes="pending_before=0, nothing to parse")
-            return
+            if not filings:
+                print("No pending House filings found.")
+                record_activity("PARSE_HOUSE_PDFS", scanned=0, flagged=0, emitted=0,
+                                duration_seconds=round(_time.time() - _t0, 2),
+                                notes="pending_before=0, nothing to parse")
+                return
 
-        print(f"Found {len(filings)} pending House filings. Processing batch of {BATCH_SIZE}.")
+            print(f"Found {len(filings)} pending House filings. Processing batch of {BATCH_SIZE}.")
 
-        for index, filing in enumerate(filings, start=1):
-            try:
-                downloaded, parsed_count, _used_ocr = process_filing(conn, filing)
+            for index, filing in enumerate(filings, start=1):
+                try:
+                    downloaded, parsed_count, _used_ocr = process_filing(conn, filing)
 
-                if downloaded:
-                    downloaded_count += 1
+                    if downloaded:
+                        downloaded_count += 1
 
-                if parsed_count > 0:
-                    parsed_transaction_count += parsed_count
-                else:
+                    if parsed_count > 0:
+                        parsed_transaction_count += parsed_count
+                    else:
+                        failed_count += 1
+
+                except KeyboardInterrupt:
+                    print("Interrupted by user.")
+                    sys.exit(130)
+
+                except Exception as exc:
+                    print(f"ERROR: Unexpected failure for filing id={filing.id}: {exc}")
+                    update_filing_status(conn, filing.id, "parse_failed")
                     failed_count += 1
 
-            except KeyboardInterrupt:
-                print("Interrupted by user.")
-                sys.exit(130)
+                if index < len(filings):
+                    time.sleep(DOWNLOAD_SLEEP_SECONDS)
 
-            except Exception as exc:
-                print(f"ERROR: Unexpected failure for filing id={filing.id}: {exc}")
-                update_filing_status(conn, filing.id, "parse_failed")
-                failed_count += 1
+        print(
+            "Done. "
+            f"{downloaded_count} PDFs downloaded, "
+            f"{parsed_transaction_count} transactions parsed, "
+            f"{failed_count} failed."
+        )
+        notes = (f"pending_before={pending_before}, processed={len(filings)}, "
+                 f"transactions_parsed={parsed_transaction_count}, failures={failed_count}")
+        record_activity("PARSE_HOUSE_PDFS", scanned=len(filings), flagged=downloaded_count,
+                        emitted=parsed_transaction_count,
+                        duration_seconds=round(_time.time() - _t0, 2), notes=notes)
 
-            if index < len(filings):
-                time.sleep(DOWNLOAD_SLEEP_SECONDS)
-
-    print(
-        "Done. "
-        f"{downloaded_count} PDFs downloaded, "
-        f"{parsed_transaction_count} transactions parsed, "
-        f"{failed_count} failed."
-    )
-    notes = (f"pending_before={pending_before}, processed={len(filings)}, "
-             f"transactions_parsed={parsed_transaction_count}, failures={failed_count}")
-    record_activity("PARSE_HOUSE_PDFS", scanned=len(filings), flagged=downloaded_count,
-                    emitted=parsed_transaction_count,
-                    duration_seconds=round(_time.time() - _t0, 2), notes=notes)
+    except SystemExit:
+        raise  # deliberate exit (e.g. KeyboardInterrupt) — not a failure to log
+    except Exception as exc:
+        # Catastrophic failure in setup (db/ensure_tables/fetch) — never die silent.
+        details = (f"CRITICAL: parse_house_pdfs failed before completing "
+                   f"(pending_before={pending_before}) — {type(exc).__name__}: {exc}")
+        try:
+            _c = db_connection()
+            prev = _c.execute(
+                "SELECT notes FROM activity_log WHERE source='PARSE_HOUSE_PDFS' "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if prev and (prev["notes"] or "").startswith(("ERROR", "CRITICAL")):
+                details += " [consecutive failure — prior run also failed]"
+            _c.close()
+        except Exception:
+            pass
+        record_activity("PARSE_HOUSE_PDFS", scanned=0, flagged=0, emitted=0,
+                        duration_seconds=round(_time.time() - _t0, 2), notes=details)
+        print(details)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
