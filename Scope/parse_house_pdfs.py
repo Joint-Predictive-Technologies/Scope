@@ -77,7 +77,7 @@ TRANSACTION_TYPE_RE = re.compile(
 @dataclass
 class Filing:
     id: int
-    member_id: str
+    member_id: str | None
     raw_url: str
 
 
@@ -126,8 +126,10 @@ def fetch_pending_filings(conn) -> list[Filing]:
 
     return [
         Filing(
+            # Preserve SQL NULL — never coerce to the string "None", which used
+            # to poison transactions.member_id for unmatched filers.
             id=int(row["id"]),
-            member_id=str(row["member_id"]),
+            member_id=row["member_id"],
             raw_url=str(row["raw_url"]),
         )
         for row in rows

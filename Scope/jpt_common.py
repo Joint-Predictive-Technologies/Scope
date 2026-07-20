@@ -780,18 +780,40 @@ def enrich_alert_scores(conn, only_unscored: bool = True) -> int:
     ).fetchall()
     n = 0
     for r in rows:
-        s = score_alert_fields(conn, r["rule"] or "", r["ticker"] or "",
+        # Canonicalize the ticker in the same pass so legacy path-(b) rows (which
+        # INSERT raw, without normalize_ticker) end up behaviorally equivalent to
+        # path-(a) rows for downstream corroboration (RULE_10 / RULE_CLUSTER).
+        norm_ticker = normalize_ticker(r["ticker"])
+        s = score_alert_fields(conn, r["rule"] or "", norm_ticker or "",
                                r["headline"] or "", r["tags"] or "",
                                r["conflict_score"] if "conflict_score" in r.keys() else None)
         conn.execute(
-            """UPDATE alerts SET novelty_score=?, time_horizon=?, source_quality=?,
+            """UPDATE alerts SET ticker=?, novelty_score=?, time_horizon=?, source_quality=?,
                    evidence_confidence=?, opportunity_score=? WHERE id=?""",
-            (s["novelty_score"], s["time_horizon"], s["source_quality"],
+            (norm_ticker, s["novelty_score"], s["time_horizon"], s["source_quality"],
              s["evidence_confidence"], s["opportunity_score"], r["id"]),
         )
         n += 1
     conn.commit()
     return n
+
+
+def normalize_existing_tickers(conn) -> int:
+    """One-pass historical backfill: canonicalize alerts.ticker for every row
+    whose stored value differs from normalize_ticker(ticker). Ticker-only — does
+    NOT rescore, so detection-time novelty/opportunity scores are left intact.
+    Returns the number of rows whose ticker changed."""
+    rows = conn.execute(
+        "SELECT id, ticker FROM alerts WHERE ticker IS NOT NULL AND ticker != ''"
+    ).fetchall()
+    changed = 0
+    for r in rows:
+        norm = normalize_ticker(r["ticker"])
+        if norm != r["ticker"]:
+            conn.execute("UPDATE alerts SET ticker=? WHERE id=?", (norm, r["id"]))
+            changed += 1
+    conn.commit()
+    return changed
 
 
 def normalize_ticker(ticker):

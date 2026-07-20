@@ -37,7 +37,9 @@ Legacy rules insert raw and leave scores at schema defaults; the 10-min
 opportunity_score, evidence_confidence, time_horizon and source_quality afterward.
 - **This path depends on `enrich_scores` running reliably** — it is a single point
   of failure. `MONITOR_ENRICH_STALL` (hourly) watches for it (see Known Issues).
-- Path (b) does NOT normalize the ticker — another reason to prefer (a) for new rules.
+- `enrich_scores` **normalizes tickers** on the rows it touches (`normalize_ticker`
+  in the same UPDATE), so path (a) and path (b) are behaviorally equivalent for
+  downstream corroboration (RULE_10 / RULE_CLUSTER) once enrichment has run.
 - On path (b) today (raw INSERT): `rule_07_polymarket.py`, `rule_06_form4.py`,
   `rule_08_federal_register.py`, `rule_09_lobbying.py`, `rule_02_cluster.py`,
   `scripts/rule_01b_first_touch.py`, `scripts/rule_11_contracts.py`,
@@ -95,16 +97,24 @@ SEC (needs a contact `User-Agent`), PatentsView (`search.patentsview.org` — DN
 blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
 
 ## Known issues (tracked, not yet fixed)
-- **Unmatched House filers** (~11/run): `ingest_house_index.parse_house_filings`
-  → `match_member_id` returns None for some filers (name-normalization gap, e.g.
-  "April McClain Delaney", "Earl Leroy Carter", "Neal Patrick MD, Facs Dunn").
-  Those PTRs still register and parse into `transactions` with `member_id=NULL`,
-  so they JOIN out of RULE_01B/02/CLUSTER — and crucially they won't count toward
-  RULE_CLUSTER's "distinct members" threshold. Surfaced in the INGEST_HOUSE_INDEX
-  activity_log notes as "N unmatched filers". Fix = better name normalization in
-  `match_member_id` (suffix/middle-name/credential stripping).
+- **Unmatched House filers — largely resolved.** `match_member_id` now does
+  deterministic anchor matching (credential/suffix stripping, compound-surname
+  subset match, first-given-token equality, unique-candidate guard, with the old
+  difflib as fallback). This fixed the recurring misses — April McClain Delaney
+  (M001232), Neal P. Dunn (D000628), Earl L. "Buddy" Carter (C001103) — and a
+  one-time backfill (`scripts/backfill_member_ids.py`, re-downloads the FD.zip
+  indexes since raw names aren't persisted) matched 27 filings / ~360 txns.
+  **Residual (needs manual review):** *Linda T. Sanchez* (doc 20033755, 1 txn) —
+  she is **absent from the `members` table** (only `Sanchez, Loretta` is present),
+  so this is a roster-completeness gap, not a normalization bug. Fix = refresh the
+  members roster, not the matcher. Match/unmatch counts are surfaced in the
+  INGEST_HOUSE_INDEX activity_log notes as "matched=X, unmatched=Y".
 - **Member-matching is a Stage-1 metric.** The unmatched count is logged by
   INGEST_HOUSE_INDEX (where matching happens), not PARSE_HOUSE_PDFS.
+- **`transactions.member_id` string-`'None'` bug — fixed.** An older parse path
+  (`parse_house_pdfs.fetch_pending_filings`) coerced `str(row["member_id"])`,
+  writing the literal string `'None'` for unmatched filers. Now preserves SQL
+  NULL; the backfill above rewrote the 75 legacy `'None'` rows.
 - **~15 rules on write path (b)** (raw INSERT, listed under "Alerts: two valid
   write paths"). Accepted pattern — scoring survives via the 10-min `enrich_scores`
   backfill. This is a **single point of failure**: if `enrich_scores` stalls, new

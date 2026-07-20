@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import io
+import re
 import sys
 import zipfile
 from dataclasses import dataclass
@@ -170,6 +171,37 @@ def normalize_name(value: str | None) -> str:
     return " ".join(value.strip().lower().replace(",", " ").split())
 
 
+# Credentials / generational suffixes that pollute House filer name fields
+# (e.g. "Neal Patrick MD, Facs" | "Dunn"). Stripped before matching.
+_CREDENTIAL_TOKENS = {
+    "md", "do", "dds", "dmd", "phd", "jd", "esq", "cpa", "rn", "facs", "mba",
+    "jr", "sr", "ii", "iii", "iv", "v",
+}
+
+
+def name_tokens(value: str | None) -> list[str]:
+    """Lowercase name tokens with nicknames, parentheticals, punctuation and
+    credential/suffix tokens removed. Deterministic — safe to call repeatedly."""
+    if not value:
+        return []
+    v = value.lower()
+    v = re.sub(r'"[^"]*"', " ", v)      # drop "Buddy" style nicknames
+    v = re.sub(r"\([^)]*\)", " ", v)    # drop parentheticals
+    v = re.sub(r"[.,;:]", " ", v)       # punctuation -> space
+    return [t for t in v.split() if t and t not in _CREDENTIAL_TOKENS]
+
+
+def split_member_name(full_name: str) -> tuple[list[str], list[str]]:
+    """members.full_name is stored 'Last, First Middle'. Returns
+    (last_tokens, first_tokens). Handles compound surnames (McClain Delaney)."""
+    if "," in full_name:
+        last_part, first_part = full_name.split(",", 1)
+    else:
+        parts = full_name.rsplit(" ", 1)
+        first_part, last_part = (parts[0], parts[1]) if len(parts) == 2 else ("", full_name)
+    return name_tokens(last_part), name_tokens(first_part)
+
+
 def load_members(conn) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -185,11 +217,14 @@ def load_members(conn) -> list[dict[str, Any]]:
         if not full_name:
             continue
 
+        last_tokens, first_tokens = split_member_name(full_name)
         members.append(
             {
                 "bioguide_id": row["bioguide_id"],
                 "full_name": full_name,
                 "normalized_name": normalize_name(full_name),
+                "last_tokens": last_tokens,
+                "first_tokens": first_tokens,
                 "state": row["state"],
                 "chamber": row["chamber"],
             }
@@ -198,11 +233,13 @@ def load_members(conn) -> list[dict[str, Any]]:
     return members
 
 
-def match_member_id(
+def _difflib_match(
     first_name: str | None,
     last_name: str | None,
     members: list[dict[str, Any]],
 ) -> str | None:
+    """Original fuzzy fallback — preserved so previously-matching filers never
+    regress when the deterministic anchor doesn't yield a unique candidate."""
     first = normalize_name(first_name)
     last = normalize_name(last_name)
 
@@ -212,12 +249,7 @@ def match_member_id(
     target_variants = []
 
     if first and last:
-        target_variants.extend(
-            [
-                f"{first} {last}",
-                f"{last} {first}",
-            ]
-        )
+        target_variants.extend([f"{first} {last}", f"{last} {first}"])
 
     target_variants.append(last)
 
@@ -250,6 +282,45 @@ def match_member_id(
         return None
 
     return best_member_id
+
+
+def match_member_id(
+    first_name: str | None,
+    last_name: str | None,
+    members: list[dict[str, Any]],
+) -> str | None:
+    """Deterministic anchor match with credential/compound-surname handling.
+
+    A member is a candidate when the filer's surname token is a subset of the
+    member's surname tokens (handles 'Delaney' ⊂ 'McClain Delaney') AND the
+    filer's first given token equals the member's first given token. We accept
+    ONLY when exactly one member qualifies — 0 candidates (roster gap, e.g.
+    Linda T. Sanchez) or ≥2 (genuine ambiguity) fall through to the difflib
+    fallback so nothing that matched before regresses.
+    """
+    filer_first = name_tokens(first_name)
+    filer_last = name_tokens(last_name)
+
+    if not filer_last:
+        return _difflib_match(first_name, last_name, members)
+
+    filer_last_anchor = filer_last[-1]
+    filer_first_anchor = filer_first[0] if filer_first else None
+
+    candidates = []
+    for member in members:
+        if filer_last_anchor not in member["last_tokens"]:
+            continue
+        m_first = member["first_tokens"]
+        if filer_first_anchor and m_first and filer_first_anchor != m_first[0]:
+            continue
+        candidates.append(member)
+
+    if len(candidates) == 1:
+        return candidates[0]["bioguide_id"]
+
+    # 0 or ambiguous -> preserve original fuzzy behaviour.
+    return _difflib_match(first_name, last_name, members)
 
 
 def iter_xml_entries(xml_bytes: bytes) -> list[dict[str, str]]:
@@ -463,10 +534,11 @@ def main() -> None:
             filings = parse_house_filings(entries, members, year)
             registered_count, new_count = register_filings(conn, filings)
             unmatched = sum(1 for f in filings if f.member_id is None)
+            matched = registered_count - unmatched
 
             details = (
                 f"{len(entries)} entries scanned, {registered_count} PTRs found, "
-                f"{new_count} new filings inserted, {unmatched} unmatched filers"
+                f"{new_count} new filings inserted, matched={matched}, unmatched={unmatched}"
             )
 
             finish_ingestion_run(conn, run_id, len(entries), 0, details)
