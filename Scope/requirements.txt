@@ -5,3 +5,5 @@ fastapi
 uvicorn[standard]
 feedparser
 apscheduler
+pytesseract
+pdfplumber
