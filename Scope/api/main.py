@@ -98,6 +98,10 @@ _CRON_SCHEDULE: dict[str, dict] = {
     # (interval job for scoring is registered in _RULE_SCHEDULE)
     # Backtest rebuild — weekly Sunday 2am (Yahoo Finance price lookups)
     "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},
+    # Roster freshness — monthly (1st, 4am): flag recurring unmatched House filers.
+    "scripts/roster_check.py":          {"day": 1, "hour": 4, "minute": 0},
+    # Forward-return outcome labeling — daily 2am (matches decay cadence).
+    "scripts/label_outcomes.py":        {"hour": 2, "minute": 0},
 }
 
 

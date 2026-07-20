@@ -47,6 +47,15 @@ opportunity_score, evidence_confidence, time_horizon and source_quality afterwar
   `scripts/rule_15_earnings_nlp.py`, `scripts/rule_anomaly.py`,
   `scripts/rule_adsb.py`, `scripts/rule_telegram_osint.py`, `ingest_senate.py`.
 
+**Detection-time scores are immutable.** `enrich_scores` populates *missing*
+scores but never overwrites existing ones (`enrich_alert_scores(only_unscored=True)`
+is the default and the only form the scheduler runs). **Never run enrich with
+`only_unscored=False` on historical alerts** (that's what `enrich_scores.py --all`
+does) — it recomputes novelty against *today's* population and destroys the
+detection-time values that calibration and `alert_outcomes` depend on. For
+ticker-only backfills, use the dedicated ticker-normalization path
+(`jpt_common.normalize_existing_tickers`), **not** full enrichment.
+
 ## Scoring model (jpt_common)
 Two **independent** scores, never merged:
 - `calculate_evidence_confidence(distinct_rule_count, source_quality_scores, has_conflict)` — how well-supported.
@@ -83,7 +92,19 @@ Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged,
 Non-rule scheduled jobs: `scripts/enrich_scores.py` (10 min, scoring backfill),
 `scripts/telegram_bot.py` (60 min, push), `scripts/decay_alerts.py` (cron 01:00),
 `generate_brief.py` (cron 06:30), `scripts/ingest_lobbying.py` (cron Mon 04:45),
-`scripts/run_backtest.py` (cron Sun 02:00).
+`scripts/run_backtest.py` (cron Sun 02:00),
+`scripts/label_outcomes.py` (cron daily 02:00, forward-return labeling),
+`scripts/roster_check.py` (cron monthly 1st 04:00, recurring-unmatched-filer guard),
+`ingest_house_index.py` (cron 6h) + `parse_house_pdfs.py` (cron 4h), congressional ingestion.
+
+**Outcome labeling / calibration seed:** `alert_outcomes` (separate table, one row
+per alert) records forward returns once an alert's +20-trading-day horizon has
+elapsed — `price_at_detection`, `price_/return_{1d,5d,20d}` (returns are decimals),
+SPY `benchmark_return_{1d,5d,20d}` for alpha, and `status`
+(`complete`/`unavailable`/`pending`). Written only by `scripts/label_outcomes.py`;
+never entangle rules or scoring with it. Non-equity / basket / delisted tickers get
+`status='unavailable'`. This is the raw material for the future calibration report —
+do not interpret small per-rule samples early.
 
 **RULE_10 is the corroboration engine:** fires when 4+ *distinct eligible* rules
 converge on the same ticker within 24h. Excluded from the eligible set:
@@ -97,18 +118,22 @@ SEC (needs a contact `User-Agent`), PatentsView (`search.patentsview.org` — DN
 blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
 
 ## Known issues (tracked, not yet fixed)
-- **Unmatched House filers — largely resolved.** `match_member_id` now does
-  deterministic anchor matching (credential/suffix stripping, compound-surname
-  subset match, first-given-token equality, unique-candidate guard, with the old
-  difflib as fallback). This fixed the recurring misses — April McClain Delaney
-  (M001232), Neal P. Dunn (D000628), Earl L. "Buddy" Carter (C001103) — and a
-  one-time backfill (`scripts/backfill_member_ids.py`, re-downloads the FD.zip
-  indexes since raw names aren't persisted) matched 27 filings / ~360 txns.
-  **Residual (needs manual review):** *Linda T. Sanchez* (doc 20033755, 1 txn) —
-  she is **absent from the `members` table** (only `Sanchez, Loretta` is present),
-  so this is a roster-completeness gap, not a normalization bug. Fix = refresh the
-  members roster, not the matcher. Match/unmatch counts are surfaced in the
-  INGEST_HOUSE_INDEX activity_log notes as "matched=X, unmatched=Y".
+- **Unmatched House filers — resolved.** `match_member_id` now does deterministic
+  anchor matching (credential/suffix stripping, compound-surname subset match,
+  first-given-token equality, unique-candidate guard, with the old difflib as
+  fallback) plus **diacritic folding** (`fold_accents`). This fixed the recurring
+  misses — April McClain Delaney (M001232), Neal P. Dunn (D000628), Earl L. "Buddy"
+  Carter (C001103), and Linda T. Sánchez (S001156 — present all along, spelled
+  `Sánchez`; the ASCII PTR "Sanchez" never matched). A one-time backfill
+  (`scripts/backfill_member_ids.py`, re-downloads the FD.zip indexes since raw
+  names aren't persisted) matched 28 filings / ~361 txns. **0 unmatched House
+  filers remain; 0 `transactions.member_id` NULL.** Match/unmatch counts surface in
+  the INGEST_HOUSE_INDEX activity_log notes as "matched=X, unmatched=Y".
+- **Roster-freshness guard:** `ingest_house_index` records still-unmatched filer
+  names in `unmatched_filers`; the monthly `ROSTER_CHECK` job
+  (`scripts/roster_check.py`) re-tests them against the current matcher (resolved
+  names auto-clear) and logs a WARNING when a name recurs on 2+ filings — so the
+  next Sánchez surfaces without a manual diagnostic.
 - **Member-matching is a Stage-1 metric.** The unmatched count is logged by
   INGEST_HOUSE_INDEX (where matching happens), not PARSE_HOUSE_PDFS.
 - **`transactions.member_id` string-`'None'` bug — fixed.** An older parse path
@@ -122,9 +147,14 @@ blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
   (`scripts/monitor_enrich_stall.py`) which logs a CRITICAL `activity_log` row
   (and optional Telegram) when alerts >30 min old remain unscored. Not migrating
   the 15 scripts for now (too much surface area on working code).
-- **~3% PDF parse failure rate** (88 historical `parse_failed`, 14 from the
-  backlog catch-up). Worth a one-time look at whether the failures share a common
-  PDF format/layout the parser doesn't handle.
+- **PDF parse failures are a stable paper-filing long-tail — accept, don't fix.**
+  102 house `parse_failed` filings. The split is structural: **98/102 are 7-digit
+  `8xxxxxx`/paper (scanned image) doc_ids; only 4 are electronic `200xxxxx`.**
+  Electronic PTRs parse at 720/724 ≈ 99.5%; the failures are handwritten/scanned
+  forms from paper filers (Khanna, McCaul, Rogers — 18 each) that pdfplumber can't
+  read as text. This is not a growing electronic-format regression, so the parser
+  needs no fix. Recovering paper filers would be a dedicated OCR project (high
+  effort, low yield) — tracked separately, not urgent.
 
 ## Conventions
 - Reference code as `file_path:line`. Match surrounding style; no new frameworks.

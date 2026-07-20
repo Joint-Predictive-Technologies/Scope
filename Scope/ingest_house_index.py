@@ -13,6 +13,7 @@ import difflib
 import io
 import re
 import sys
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -164,11 +165,20 @@ def parse_filing_date(value: str | None) -> str | None:
     return value
 
 
+def fold_accents(value: str) -> str:
+    """Fold diacritics to ASCII (Sánchez -> Sanchez) so House PTR filings, which
+    spell names in plain ASCII, match the accented members.full_name spellings."""
+    return "".join(
+        ch for ch in unicodedata.normalize("NFKD", value)
+        if not unicodedata.combining(ch)
+    )
+
+
 def normalize_name(value: str | None) -> str:
     if not value:
         return ""
 
-    return " ".join(value.strip().lower().replace(",", " ").split())
+    return " ".join(fold_accents(value).strip().lower().replace(",", " ").split())
 
 
 # Credentials / generational suffixes that pollute House filer name fields
@@ -184,7 +194,7 @@ def name_tokens(value: str | None) -> list[str]:
     credential/suffix tokens removed. Deterministic — safe to call repeatedly."""
     if not value:
         return []
-    v = value.lower()
+    v = fold_accents(value).lower()
     v = re.sub(r'"[^"]*"', " ", v)      # drop "Buddy" style nicknames
     v = re.sub(r"\([^)]*\)", " ", v)    # drop parentheticals
     v = re.sub(r"[.,;:]", " ", v)       # punctuation -> space
@@ -493,6 +503,58 @@ def register_filings(conn, filings: list[HouseFiling]) -> tuple[int, int]:
     return len(filings), new_count
 
 
+def ensure_unmatched_filers_table(conn) -> None:
+    """Persist the raw names of filers we couldn't match (the raw name is not
+    otherwise stored anywhere), so ROSTER_CHECK can spot a name recurring across
+    ingestions — that's how we catch the next Sanchez without a manual sweep."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS unmatched_filers (
+            norm_name   TEXT PRIMARY KEY,
+            first_name  TEXT,
+            last_name   TEXT,
+            occurrences INTEGER DEFAULT 0,
+            doc_ids     TEXT,
+            first_seen  TEXT,
+            last_seen   TEXT
+        );
+        """
+    )
+    conn.commit()
+
+
+def record_unmatched_filers(conn, filings: list[HouseFiling]) -> None:
+    """Upsert each still-unmatched filer name (deduped per doc_id)."""
+    ensure_unmatched_filers_table(conn)
+    for f in filings:
+        if f.member_id is not None:
+            continue
+        norm = normalize_name(f"{f.first_name or ''} {f.last_name or ''}")
+        if not norm:
+            continue
+        row = conn.execute(
+            "SELECT doc_ids FROM unmatched_filers WHERE norm_name=?", (norm,)
+        ).fetchone()
+        if row:
+            docs = set((row["doc_ids"] or "").split(",")) - {""}
+            if f.doc_id in docs:
+                continue  # already counted this filing
+            docs.add(f.doc_id)
+            conn.execute(
+                "UPDATE unmatched_filers SET occurrences=?, doc_ids=?, last_seen=datetime('now') "
+                "WHERE norm_name=?",
+                (len(docs), ",".join(sorted(docs)), norm),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO unmatched_filers (norm_name, first_name, last_name, "
+                "occurrences, doc_ids, first_seen, last_seen) "
+                "VALUES (?,?,?,1,?,datetime('now'),datetime('now'))",
+                (norm, f.first_name, f.last_name, f.doc_id),
+            )
+    conn.commit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Ingest House annual disclosure index and register PTR filings."
@@ -533,6 +595,7 @@ def main() -> None:
             members = load_members(conn)
             filings = parse_house_filings(entries, members, year)
             registered_count, new_count = register_filings(conn, filings)
+            record_unmatched_filers(conn, filings)
             unmatched = sum(1 for f in filings if f.member_id is None)
             matched = registered_count - unmatched
 
