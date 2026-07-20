@@ -59,7 +59,7 @@ ticker-only backfills, use the dedicated ticker-normalization path
 ## Scoring model (jpt_common)
 Two **independent** scores, never merged:
 - `calculate_evidence_confidence(distinct_rule_count, source_quality_scores, has_conflict)` — how well-supported.
-- `calculate_opportunity_score(novelty, absorption_pct, time_horizon)` — how much opportunity remains (clamped 0–100).
+- `calculate_opportunity_score(novelty, absorption_pct, time_horizon)` — how much opportunity remains (clamped 0–100). Formula: `novelty*40 − (absorption/100)*30 + horizon*20 + win_rate*10`, then `× liquidity_score`. The `win_rate*10` term is real but currently a fixed **0.5 placeholder (+5 on every alert)**, reserved for per-rule *realized* win rate from `alert_outcomes` once calibrated; `liquidity_score` defaults 1.0. The score decomposition surfaces all four terms.
 - `calculate_novelty_score(rule, region_or_ticker, conn)` — 1.0 first-ever, log-decays with 30-day recurrence (intended floor 0.1).
 - Rule → `RULE_TIME_HORIZONS` / `RULE_SOURCE_QUALITY` maps also live in jpt_common.
 

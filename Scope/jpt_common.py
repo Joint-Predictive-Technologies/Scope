@@ -768,7 +768,15 @@ def calculate_evidence_confidence(distinct_rule_count, source_quality_scores,
 
 def calculate_opportunity_score(novelty_score, absorption_pct, time_horizon,
                                 liquidity_score=1.0, historical_win_rate=0.5) -> float:
-    """Is there still likely actionable opportunity? Separate from evidence."""
+    """Is there still likely actionable opportunity? Separate from evidence.
+
+    Four additive terms, then a liquidity multiplier, clamped 0-100:
+        novelty*40  -  (absorption/100)*30  +  horizon*20  +  win_rate*10
+    The win_rate term is a real term, currently a fixed 0.5 placeholder (=> +5 on
+    every alert) — a reserved input for per-rule *realized* win rate once the
+    `alert_outcomes` calibration has enough data. `liquidity_score` defaults 1.0
+    (no-op) until per-ticker liquidity is wired in. Keep opportunity_score_breakdown
+    in sync with this formula."""
     horizon_scores = {"IMMEDIATE": 1.0, "SHORT": 0.85, "MEDIUM": 0.65, "LONG": 0.45}
     raw = (novelty_score * 40.0
            - (absorption_pct / 100.0) * 30.0
