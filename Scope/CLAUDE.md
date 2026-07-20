@@ -63,6 +63,15 @@ Two **independent** scores, never merged:
 - `calculate_novelty_score(rule, region_or_ticker, conn)` — 1.0 first-ever, log-decays with 30-day recurrence (intended floor 0.1).
 - Rule → `RULE_TIME_HORIZONS` / `RULE_SOURCE_QUALITY` maps also live in jpt_common.
 
+## Scheduler safety net
+Every scheduled job runs through `_run_rule` (subprocess). **Any** failure —
+non-zero exit, **import-time crash (ImportError/SyntaxError) that runs before the
+script's own error handling**, timeout, or an exception invoking the subprocess —
+is guaranteed to produce an `activity_log` row with `source='SCHEDULER_JOB_FAILURE'`
+capturing the job name, exit code / exception type, and the stderr/traceback tail.
+This is the universal net: no scheduled-job failure, including import-time, can be
+silent. (Per-script logging still adds richer rows from inside `run()`.)
+
 ## Activity log
 Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged, emitted, duration_seconds)` (fresh connection). `scanned` = raw records examined, `flagged` = passed quality filter, `emitted` = alerts inserted. Powers `/status` and the homepage activity strip.
 

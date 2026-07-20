@@ -7,3 +7,4 @@ feedparser
 apscheduler
 pytesseract
 pdfplumber
+pillow

@@ -139,11 +139,27 @@ def _hours_since_last_alert() -> float:
         return float("inf")
 
 
+def _log_job_failure(rule: str, kind: str, detail: str) -> None:
+    """Universal safety net: guarantee an activity_log row for ANY scheduled-job
+    failure — including import-time crashes (ImportError/SyntaxError) that happen
+    before the script's own error handling can run and would otherwise vanish."""
+    tail = (detail or "").strip()
+    last_line = next((ln for ln in reversed(tail.splitlines()) if ln.strip()), "")
+    notes = f"CRITICAL: job '{rule}' {kind}. {last_line[:200]} | tail: {tail[-300:]}"
+    try:
+        from jpt_common import record_activity
+        record_activity("SCHEDULER_JOB_FAILURE", scanned=0, flagged=0, emitted=0, notes=notes)
+    except Exception as exc:  # never let the safety net itself take down the scheduler
+        print(f"[scheduler] failed to log job failure for {rule}: {exc}", flush=True)
+
+
 def _run_rule(rule: str) -> str:
     """Run a single rule script; return 'ok' or the last 300 chars of stderr.
 
     Rule scripts write their own activity_log row (with scanned/flagged/emitted)
-    from inside run(); the scheduler only tracks pass/fail via _job_last_run.
+    from inside run(); the scheduler additionally guarantees a
+    SCHEDULER_JOB_FAILURE row for ANY failure (non-zero exit, import-time crash,
+    timeout, or exception invoking the subprocess) so no failure is ever silent.
     """
     try:
         r = subprocess.run(
@@ -151,11 +167,17 @@ def _run_rule(rule: str) -> str:
             capture_output=True, text=True, timeout=300,
             cwd=str(CODE_DIR),
         )
-        result = "ok" if r.returncode == 0 else r.stderr[-300:].strip()
+        if r.returncode == 0:
+            result = "ok"
+        else:
+            result = r.stderr[-300:].strip()
+            _log_job_failure(rule, f"exited with code {r.returncode}", r.stderr or r.stdout)
     except subprocess.TimeoutExpired:
         result = "timeout after 300s"
+        _log_job_failure(rule, "timed out after 300s", "subprocess.TimeoutExpired")
     except Exception as e:
         result = str(e)[:200]
+        _log_job_failure(rule, f"could not be invoked ({type(e).__name__})", str(e))
     print(f"[scheduler] {rule}: {result}", flush=True)
     return result
 
