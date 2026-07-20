@@ -201,7 +201,7 @@
       <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
         <span class="status-badge sev-${(a.severity||'').toLowerCase()}">${esc(a.severity)}</span>
         <span class="status-badge dir-${esc(d.direction)}">${esc((d.direction||'').replace('_',' '))}</span>
-        <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem">${d.distinct_members} members · ${d.window_hours||72}h window</span>
+        <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem" title="RULE_CLUSTER fires on 3+ distinct members trading the same ticker inside a rolling ${d.window_hours||72}h window; 3-4 members = HIGH, 5+ = CRITICAL.">${d.distinct_members} distinct members within a ${d.window_hours||72}h window <span style="opacity:0.7">(HIGH threshold: 3+, CRITICAL: 5+)</span></span>
       </div>
       <div class="t-title">${esc(a.headline)}</div>
       <div class="t-meta"><a class="tick-chip" href="/ticker/${esc(a.ticker)}">${esc(a.ticker)}</a> &nbsp; detected ${ago(a.created_at)} · most recent trade ${esc(maxD||'—')}
