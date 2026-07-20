@@ -14,6 +14,23 @@ router = APIRouter()
 PER_PAGE = 20
 
 
+@router.get("/rules")
+def rule_facets(days: int = Query(default=90, ge=1, le=3650)):
+    """Distinct rules that have actually fired in the window, with counts — so the
+    feed filter only lists real, non-empty rules. Sorted by fire count desc."""
+    conn = db_connection()
+    rows = conn.execute(
+        """SELECT rule, COUNT(*) AS count FROM alerts
+           WHERE rule IS NOT NULL AND rule != ''
+             AND datetime(created_at) >= datetime('now', ?)
+           GROUP BY rule
+           ORDER BY count DESC, rule ASC""",
+        (f"-{int(days)} days",),
+    ).fetchall()
+    conn.close()
+    return [{"rule": r["rule"], "count": r["count"]} for r in rows]
+
+
 def _row_to_dict(row) -> dict:
     return dict(row)
 

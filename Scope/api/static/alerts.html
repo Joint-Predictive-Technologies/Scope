@@ -231,21 +231,7 @@
       <option value="" selected>Default view (signal-only)</option>
       <option value="ALL">All sources</option>
       <option value="NOISY">Polymarket / OSINT / Reddit only</option>
-      <option value="RULE_10">RULE_10 — Corroboration ★</option>
-      <option value="RULE_01B">RULE_01B — First Touch</option>
-      <option value="RULE_02">RULE_02 — Clusters</option>
-      <option value="RULE_06">RULE_06 — Insider</option>
-      <option value="RULE_07">RULE_07 — Polymarket</option>
-      <option value="RULE_08">RULE_08 — Fed Register</option>
-      <option value="RULE_09">RULE_09 — Lobbying</option>
-      <option value="RULE_11">RULE_11 — Gov Contracts</option>
-      <option value="RULE_12">RULE_12 — FARA Foreign</option>
-      <option value="RULE_13">RULE_13 — PAC Finance</option>
-      <option value="RULE_14">RULE_14 — Patents</option>
-      <option value="RULE_15">RULE_15 — Earnings NLP</option>
-      <option value="RULE_ANOMALY">RULE_ANOMALY — Attention Spike</option>
-      <option value="RULE_REDDIT">RULE_REDDIT — Reddit Signal</option>
-      <option value="RULE_OSINT">RULE_OSINT — Geopolitical</option>
+      <!-- per-rule options injected by populateRuleFilter() from /alerts/rules -->
     </select>
     <select class="filter-select" id="f-cap" onchange="onCapChange()">
       <option value="">All market caps</option>
@@ -1046,8 +1032,36 @@
     load(1);
   }
 
+  // ── Rule filter — populated from rules that actually fired (last 90d) ────────
+  const RULE_LABELS = {
+    RULE_10:'Corroboration ★', RULE_01B:'First Touch', RULE_02:'Clusters',
+    RULE_CLUSTER:'Congressional Cluster', RULE_06:'Insider', RULE_07:'Polymarket',
+    RULE_08:'Fed Register', RULE_09:'Lobbying', RULE_11:'Gov Contracts',
+    RULE_12:'FARA Foreign', RULE_13:'PAC Finance', RULE_14:'Patents',
+    RULE_15:'Earnings NLP', RULE_ANOMALY:'Attention Spike', RULE_REDDIT:'Reddit Signal',
+    RULE_OSINT:'Geopolitical', RULE_ADSB:'Flight Tracking',
+    RULE_TELEGRAM_OSINT:'Telegram OSINT', RULE_OPTIONS:'Options Flow',
+  };
+  async function populateRuleFilter() {
+    try {
+      const rules = await (await fetch('/alerts/rules?days=90')).json();
+      const sel = document.getElementById('f-rule');
+      rules.forEach(r => {
+        const o = document.createElement('option');
+        o.value = r.rule;
+        const label = RULE_LABELS[r.rule] || r.rule.replace('RULE_','').replace(/_/g,' ');
+        o.textContent = `${r.rule} — ${label} (${r.count})`;
+        sel.appendChild(o);
+      });
+      // Re-apply any rule pre-selected from the URL (its option now exists).
+      const urlRule = new URLSearchParams(window.location.search).get('rule');
+      if (urlRule) sel.value = urlRule;
+    } catch {}
+  }
+
   // ── Init ───────────────────────────────────────────────────────────────────
   readParams();
+  populateRuleFilter();
   load();
   updateAlertBadge();
   setInterval(updateAlertBadge, 5 * 60 * 1000);
