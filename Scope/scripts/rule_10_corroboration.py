@@ -262,6 +262,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="Print clusters without writing to DB or calling LLM.")
     parser.add_argument("--window-hours", type=int, default=24,
                         help="Lookback window in hours (default: 24).")
+    # Accepted (and ignored) for scheduler-runner uniformity — the scheduler
+    # invokes every job with --emit-alerts; without this, argparse would reject it
+    # (exit 2) and RULE_10 would fail on every scheduled run.
+    parser.add_argument("--emit-alerts", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
