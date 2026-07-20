@@ -906,6 +906,42 @@ def normalize_existing_tickers(conn) -> int:
     return changed
 
 
+def congress_day_digest(conn, day=None, limit=None) -> dict:
+    """Below-threshold congressional trade digest, grouped by ticker with member
+    count and buy/sell mix. Shared by the morning brief's 'Yesterday in Congress'
+    section (day=None → rolling last 24h, limit=10) and the standalone
+    /congress/digest/<date> view (day='YYYY-MM-DD', full list). Keyed on
+    created_at (disclosure/ingestion time), matching the brief."""
+    if day:
+        window, tot_window, params = "date(t.created_at) = ?", "date(created_at) = ?", [day]
+    else:
+        window = "t.created_at >= datetime('now','-24 hours')"
+        tot_window = "created_at >= datetime('now','-24 hours')"
+        params = []
+    lim = f" LIMIT {int(limit)}" if limit else ""
+    rows = conn.execute(
+        f"""SELECT COALESCE(tk.symbol, t.raw_ticker_string) AS ticker,
+                  COUNT(DISTINCT t.member_id) AS members,
+                  SUM(CASE WHEN t.transaction_type='purchase' THEN 1 ELSE 0 END) AS buys,
+                  SUM(CASE WHEN t.transaction_type IN ('sale','sale_partial') THEN 1 ELSE 0 END) AS sells,
+                  COUNT(*) AS txns
+           FROM transactions t
+           LEFT JOIN tickers tk ON t.ticker_id = tk.id
+           WHERE {window}
+             AND t.member_id IS NOT NULL AND t.member_id != 'None'
+             AND COALESCE(tk.symbol, t.raw_ticker_string) IS NOT NULL
+             AND COALESCE(tk.symbol, t.raw_ticker_string) != ''
+           GROUP BY COALESCE(tk.symbol, t.raw_ticker_string)
+           ORDER BY members DESC, txns DESC{lim}""",
+        params,
+    ).fetchall()
+    total = conn.execute(
+        f"SELECT COUNT(*) n FROM transactions WHERE {tot_window} "
+        "AND member_id IS NOT NULL AND member_id != 'None'", params,
+    ).fetchone()["n"]
+    return {"date": day, "rows": [dict(r) for r in rows], "total_txns": total}
+
+
 def annotation_counts(conn, alert_ids=None) -> dict:
     """Backend aggregate: {alert_id: {'up': n, 'down': n}} in ONE grouped query
     (never per-card). Counts are for analysis only — not surfaced to the feed."""

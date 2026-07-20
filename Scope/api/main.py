@@ -732,6 +732,36 @@ def morning_brief_page(date: str):
     out = generate(date_str=date)
     return HTMLResponse(out["html"])
 
+# ── Standalone congressional digest (browsable, dated) ───────────────────────
+def _digest_today() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+@app.get("/api/congress-digest", tags=["Congress"])
+@app.get("/api/congress-digest/{date}", tags=["Congress"])
+def congress_digest_data(date: str | None = None):
+    """Full below-threshold congressional trade digest for a day (no top-N cap).
+    Same shared aggregation the morning brief's section (b) uses."""
+    from datetime import datetime, timedelta, timezone
+    from fastapi.responses import JSONResponse
+    from jpt_common import db_connection as _dbc, congress_day_digest
+    day = date or _digest_today()
+    if not _valid_brief_date(day):
+        return JSONResponse(status_code=404, content={"error": "bad date"})
+    conn = _dbc()
+    out = congress_day_digest(conn, day=day, limit=None)
+    conn.close()
+    d = datetime.strptime(day, "%Y-%m-%d").date()
+    today = datetime.now(timezone.utc).date()
+    out["prev"] = (d - timedelta(days=1)).isoformat()
+    out["next"] = (d + timedelta(days=1)).isoformat() if d < today else None
+    return out
+
+@app.get("/congress/digest", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/congress/digest/{date}", response_class=HTMLResponse, include_in_schema=False)
+def congress_digest_page(date: str | None = None):
+    return FileResponse(STATIC_DIR / "congress_digest.html")
+
 @app.get("/contracts", response_class=HTMLResponse, include_in_schema=False)
 def contracts_page():
     return FileResponse(STATIC_DIR / "contracts.html")
