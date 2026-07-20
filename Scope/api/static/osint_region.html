@@ -117,16 +117,28 @@
   <button class="hamburger" id="ham-btn">☰</button>
   <div class="nav-links" id="nav-links">
     <a href="/">Dashboard</a>
+    <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
     <a href="/congress">Congress</a>
     <a href="/insiders">Insiders</a>
     <a href="/contracts">Contracts</a>
     <a href="/lobbying">Lobbying</a>
-    <a href="/osint">OSINT Globe</a>
+    <a href="/intelligence">Intelligence</a>
+    <a href="/clusters">Clusters</a>
+    <a href="/osint" class="active">OSINT Globe</a>
     <a href="/ask">Ask Scope</a>
-    <a href="/feed">Alerts</a>
   </div>
   <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
+
+<!-- CMD PALETTE -->
+<div id="cmd-backdrop" onclick="if(event.target===this)closeCmd()">
+  <div id="cmd-box">
+    <input id="cmd-input" placeholder="Search tickers, members, headlines…" autocomplete="off" />
+    <div id="cmd-results"><div class="cmd-empty">Type to search…</div></div>
+    <div class="cmd-hint"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+  </div>
+</div>
+
 
 <div class="page">
   <a href="/osint" class="page-back">← Back to Globe</a>

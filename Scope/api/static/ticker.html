@@ -36,6 +36,8 @@
     .sum-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
     .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
+    .show-more-btn { display: block; width: 100%; margin-top: 1rem; padding: 0.7rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; color: var(--amber); font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
+    .show-more-btn:hover { border-color: var(--amber); background: rgba(200,146,42,0.08); }
 
     /* TIMELINE */
     .timeline-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1.4rem; overflow-x: auto; }
@@ -120,23 +122,45 @@
     .cmd-empty { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
     .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+  
+    /* --- unified nav mobile (injected) --- */
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
   </style>
 </head>
 <body>
 <!-- NOTHING renders above this line except the nav -->
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <div class="nav-links">
-    <a href="/">Home</a>
-    <a href="/feed">Alerts</a>
-    <a href="/members-list">Members</a>
-    <a href="/watchlist">Watchlist</a>
+  <button class="hamburger" onclick="document.getElementById('nav-links').classList.toggle('open')">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/intelligence">Intelligence</a>
+    <a href="/clusters">Clusters</a>
     <a href="/osint">OSINT Globe</a>
-    <a href="/ask">Chat</a>
+    <a href="/ask">Ask Scope</a>
   </div>
   <a href="/feed" class="nav-cta">Live Feed →</a>
   <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
+
+<!-- CMD PALETTE -->
+<div id="cmd-backdrop" onclick="if(event.target===this)closeCmd()">
+  <div id="cmd-box">
+    <input id="cmd-input" placeholder="Search tickers, members, headlines…" autocomplete="off" />
+    <div id="cmd-results"><div class="cmd-empty">Type to search…</div></div>
+    <div class="cmd-hint"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+  </div>
+</div>
 
 <div class="page">
   <div id="content"><div class="loading">Loading…</div></div>
@@ -178,7 +202,7 @@
       return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
     if (rule === 'RULE_06')
       return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
-    if (rule === 'RULE_07') { const p = tags.split(','); return `https://polymarket.com/event/${p[p.length - 1].trim()}`; }
+    if (rule === 'RULE_07') { const p = tags.split(','); const slug = p[p.length - 1].trim(); return slug ? `https://polymarket.com/event/${slug}` : 'https://polymarket.com/markets?category=politics'; }
     if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
     if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
     if (rule === 'RULE_10') return `/feed?ticker=${ticker}`;
@@ -270,9 +294,11 @@
       </div>`;
   }
 
+  const ALERTS_PAGE_SIZE = 25;
   function renderAlerts(alerts) {
     if (!alerts.length) return '<div class="empty">No alerts found for this ticker.</div>';
-    return alerts.map((a, i) => {
+    const shown = _alertsExpanded ? alerts : alerts.slice(0, ALERTS_PAGE_SIZE);
+    const cards = shown.map((a, i) => {
       const url = sourceUrl(a);
       let detail = '';
       if (a.detail) detail = `<div class="detail-label">AI Analysis</div>${a.detail}`;
@@ -289,6 +315,10 @@
           ${detail || verifyBtn ? `<div class="alert-detail">${detail}${verifyBtn}</div>` : ''}
         </div>`;
     }).join('');
+    const moreBtn = alerts.length > shown.length
+      ? `<button class="show-more-btn" onclick="expandAlerts(event)">Show all ${alerts.length} alerts (${alerts.length - shown.length} more) →</button>`
+      : '';
+    return cards + moreBtn;
   }
 
   function renderTransactions(txs) {
@@ -388,6 +418,7 @@
 
   function filterByRule(rule, idx) {
     _activeRuleFilter = _activeRuleFilter === rule ? null : rule;
+    _alertsExpanded = false;
     document.querySelectorAll('.rule-node').forEach((el, i) => {
       el.classList.toggle('active-filter', i === idx && _activeRuleFilter);
     });
@@ -397,12 +428,15 @@
 
   function clearRuleFilter() {
     _activeRuleFilter = null;
+    _alertsExpanded = false;
     document.querySelectorAll('.rule-node').forEach(el => el.classList.remove('active-filter'));
     document.getElementById('clear-filter').style.display = 'none';
     applyAlertFilter();
   }
 
   let _allAlerts = [];
+  let _alertsExpanded = false;
+  function expandAlerts(e) { if (e) e.stopPropagation(); _alertsExpanded = true; applyAlertFilter(); }
   function applyAlertFilter() {
     const visible = _activeRuleFilter ? _allAlerts.filter(a => a.rule === _activeRuleFilter) : _allAlerts;
     const listEl = document.querySelector('.alerts-list');

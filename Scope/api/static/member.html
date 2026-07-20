@@ -142,6 +142,14 @@
     .cmd-empty { font-family:'IBM Plex Mono',monospace; font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
     .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+  
+    /* --- unified nav mobile (injected) --- */
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
   </style>
 </head>
 <body>
@@ -149,16 +157,32 @@
 
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <div class="nav-links">
-    <a href="/">Home</a>
-    <a href="/feed">Alerts</a>
-    <a href="/watchlist">Watchlist</a>
+  <button class="hamburger" onclick="document.getElementById('nav-links').classList.toggle('open')">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
+    <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/intelligence">Intelligence</a>
+    <a href="/clusters">Clusters</a>
     <a href="/osint">OSINT Globe</a>
-    <a href="/ask">Chat</a>
+    <a href="/ask">Ask Scope</a>
   </div>
   <a href="/feed" class="nav-cta">Live Feed →</a>
   <button onclick="openCmd()" style="font-family:'IBM Plex Mono',monospace;font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
+
+<!-- CMD PALETTE -->
+<div id="cmd-backdrop" onclick="if(event.target===this)closeCmd()">
+  <div id="cmd-box">
+    <input id="cmd-input" placeholder="Search tickers, members, headlines…" autocomplete="off" />
+    <div id="cmd-results"><div class="cmd-empty">Type to search…</div></div>
+    <div class="cmd-hint"><span><kbd>↑↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+  </div>
+</div>
+
 
 <div class="page">
   <div id="content"><div class="loading-msg">Loading member profile…</div></div>

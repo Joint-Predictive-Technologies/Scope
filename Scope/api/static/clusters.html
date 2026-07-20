@@ -42,16 +42,31 @@
     .c-score { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--green-light); min-width: 54px; text-align: right; }
     .c-superseded { opacity: 0.5; }
     .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+  
+    /* --- unified nav mobile (injected) --- */
+    .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 9px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
+      .nav-links.open { display: flex; }
+    }
   </style>
 </head>
 <body>
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <div class="nav-links">
-    <a href="/feed">Alerts</a>
-    <a href="/intelligence">Theses</a>
-    <a href="/clusters">Clusters</a>
+  <button class="hamburger" onclick="document.getElementById('nav-links').classList.toggle('open')">☰</button>
+  <div class="nav-links" id="nav-links">
+    <a href="/">Dashboard</a>
+    <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
     <a href="/congress">Congress</a>
+    <a href="/insiders">Insiders</a>
+    <a href="/contracts">Contracts</a>
+    <a href="/lobbying">Lobbying</a>
+    <a href="/intelligence">Intelligence</a>
+    <a href="/clusters" class="active">Clusters</a>
+    <a href="/osint">OSINT Globe</a>
+    <a href="/ask">Ask Scope</a>
   </div>
 </nav>
 
