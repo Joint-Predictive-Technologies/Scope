@@ -81,6 +81,8 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "rule_09_lobbying.py":              {"hour": 3,  "minute": 0},
     # Daily brief after overnight data collection
     "generate_brief.py":                {"hour": 6,  "minute": 30},
+    # Deterministic morning brief (source DAILY_BRIEF) — generates + caches at 06:30.
+    "scripts/morning_brief.py":         {"hour": 6,  "minute": 30},
     # FARA filings update slowly — weekly Monday 4am scan is sufficient
     "scripts/rule_12_fara.py":          {"day_of_week": "mon", "hour": 4,  "minute": 0},
     # Broad lobbying dataset (AIPAC + notable lobbies) — weekly Monday 4:45am
@@ -675,6 +677,34 @@ def digest_page():
 @app.get("/brief", response_class=HTMLResponse, include_in_schema=False)
 def brief_page():
     return FileResponse(STATIC_DIR / "brief.html")
+
+def _valid_brief_date(date: str) -> bool:
+    import re as _re
+    from datetime import datetime as _dt
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        return False
+    try:
+        _dt.strptime(date, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+@app.get("/brief/{date}.txt", include_in_schema=False)
+def morning_brief_text(date: str):
+    from fastapi.responses import PlainTextResponse
+    from scripts.morning_brief import generate
+    if not _valid_brief_date(date):
+        return PlainTextResponse("Not found", status_code=404)
+    out = generate(date_str=date)
+    return PlainTextResponse(out["text"])
+
+@app.get("/brief/{date}", response_class=HTMLResponse, include_in_schema=False)
+def morning_brief_page(date: str):
+    from scripts.morning_brief import generate
+    if not _valid_brief_date(date):
+        return HTMLResponse("<h1>Not found</h1>", status_code=404)
+    out = generate(date_str=date)
+    return HTMLResponse(out["html"])
 
 @app.get("/contracts", response_class=HTMLResponse, include_in_schema=False)
 def contracts_page():

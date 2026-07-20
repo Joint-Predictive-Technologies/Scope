@@ -604,6 +604,23 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m011_war_rooms')")
         conn.commit()
 
+    # m012: briefs — cached deterministic morning brief (one row per date), so a
+    # subscriber loads instantly and repeat views don't re-query.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m012_briefs'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS briefs (
+                   date         TEXT PRIMARY KEY,
+                   html         TEXT,
+                   text         TEXT,
+                   meta_json    TEXT,
+                   generated_at TEXT
+               )"""
+        )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m012_briefs')")
+        conn.commit()
+
     conn.commit()
 
 
