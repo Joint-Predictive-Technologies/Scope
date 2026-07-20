@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Congressional Digest — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
+      --cream: #e8e0cc; --cream2: #c8bfa8;
+      --amber: #c8922a; --amber2: #e8aa3a;
+      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
+      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 900px; margin: 0 auto; padding: 2.2rem 2rem; }
+    h1 { font-family: 'Playfair Display', serif; font-size: 1.8rem; font-weight: 800; margin-bottom: 0.2rem; }
+    .sub { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); margin-bottom: 1rem; }
+    .datenav { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.4rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
+    .datenav a { color: var(--amber); text-decoration: none; border: 1px solid var(--border2); padding: 4px 10px; border-radius: 4px; }
+    .datenav a:hover { border-color: var(--amber); }
+    .datenav .cur { color: var(--cream); font-size: 0.9rem; font-weight: 500; }
+    .datenav .disabled { color: var(--muted); border-color: var(--border); opacity: 0.4; pointer-events: none; }
+
+    table.dg { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    table.dg th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); }
+    table.dg td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
+    table.dg tr:hover td { background: rgba(255,255,255,0.015); }
+    .tk { font-family: 'IBM Plex Mono', monospace; color: var(--amber); text-decoration: none; }
+    .tk:hover { text-decoration: underline; }
+    .mix .b { color: var(--green-light); } .mix .s { color: var(--red-light); }
+    .bar { display: inline-block; height: 6px; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+    .bar .bb { display: inline-block; height: 6px; background: var(--green-light); border-radius: 3px 0 0 3px; }
+    .bar .ss { display: inline-block; height: 6px; background: var(--red-light); border-radius: 0 3px 3px 0; }
+    .summary { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--cream2); margin-bottom: 1rem; }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Alerts</a>
+    <a href="/congress">Congress</a>
+    <a href="/clusters">Clusters</a>
+    <a href="/intelligence">Theses</a>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Congressional Digest</h1>
+  <div class="sub">Below-threshold congressional trading disclosed on a given day — grouped by ticker. The full list the morning brief summarizes.</div>
+  <div class="datenav" id="datenav"></div>
+  <div id="content"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+  const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Date from /congress/digest/<date>, default today (UTC).
+  const parts = location.pathname.split('/congress/digest/');
+  const DATE = (parts[1] || new Date().toISOString().slice(0,10)).replace(/\/+$/,'');
+  const tk = t => (t||'').replace(/\$/g,'').split(' ')[0];
+
+  function render(d) {
+    // date navigation
+    const dn = document.getElementById('datenav');
+    const nextLink = d.next ? `<a href="/congress/digest/${d.next}">next →</a>`
+                            : `<a class="disabled">next →</a>`;
+    dn.innerHTML = `<a href="/congress/digest/${d.prev}">← prev</a>`
+                 + `<span class="cur">${esc(d.date)}</span>` + nextLink;
+
+    const rows = d.rows || [];
+    if (!rows.length) {
+      document.getElementById('content').innerHTML =
+        '<div class="empty">No congressional transactions disclosed on this day.</div>';
+      return;
+    }
+    const maxTx = Math.max(...rows.map(r => r.txns || 0), 1);
+    const body = rows.map(r => {
+      const buys = r.buys || 0, sells = r.sells || 0, tot = buys + sells || 1;
+      const w = 60 * (r.txns || 0) / maxTx;
+      return `<tr>
+        <td><a class="tk" href="/ticker/${esc(tk(r.ticker))}">${esc(r.ticker)}</a></td>
+        <td>${r.members}</td>
+        <td class="mix"><span class="b">${buys} buy</span> / <span class="s">${sells} sell</span></td>
+        <td>${r.txns}<span class="bar" style="width:${w}px"><span class="bb" style="width:${Math.round(w*buys/tot)}px"></span><span class="ss" style="width:${Math.round(w*sells/tot)}px"></span></span></td>
+      </tr>`;
+    }).join('');
+    document.getElementById('content').innerHTML =
+      `<div class="summary">${d.total_txns} transactions across ${rows.length} tickers.</div>
+       <table class="dg"><thead><tr><th>Ticker</th><th>Members</th><th>Buy / Sell</th><th>Transactions</th></tr></thead>
+       <tbody>${body}</tbody></table>`;
+  }
+
+  fetch(`/api/congress-digest/${encodeURIComponent(DATE)}`)
+    .then(r => r.json())
+    .then(render)
+    .catch(() => { document.getElementById('content').innerHTML = '<div class="empty">Failed to load digest.</div>'; });
+</script>
+</body>
+</html>

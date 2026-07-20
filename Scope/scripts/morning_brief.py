@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import db_connection, record_activity
+from jpt_common import db_connection, record_activity, congress_day_digest
 
 RULES_TOTAL = 19  # ground-truth rule count (see CLAUDE.md rules table)
 
@@ -88,27 +88,9 @@ def gather(conn) -> dict:
            LIMIT 1"""
     ).fetchone()
 
-    # (b) YESTERDAY IN CONGRESS — transactions newly ingested in last 24h.
-    cong_rows = conn.execute(
-        """SELECT COALESCE(tk.symbol, t.raw_ticker_string) AS ticker,
-                  COUNT(DISTINCT t.member_id) AS members,
-                  SUM(CASE WHEN t.transaction_type='purchase' THEN 1 ELSE 0 END) AS buys,
-                  SUM(CASE WHEN t.transaction_type IN ('sale','sale_partial') THEN 1 ELSE 0 END) AS sells,
-                  COUNT(*) AS txns
-           FROM transactions t
-           LEFT JOIN tickers tk ON t.ticker_id = tk.id
-           WHERE t.created_at >= datetime('now','-24 hours')
-             AND t.member_id IS NOT NULL AND t.member_id != 'None'
-             AND COALESCE(tk.symbol, t.raw_ticker_string) IS NOT NULL
-             AND COALESCE(tk.symbol, t.raw_ticker_string) != ''
-           GROUP BY COALESCE(tk.symbol, t.raw_ticker_string)
-           ORDER BY members DESC, txns DESC LIMIT 10"""
-    ).fetchall()
-    total_txns = conn.execute(
-        "SELECT COUNT(*) n FROM transactions WHERE created_at >= datetime('now','-24 hours') "
-        "AND member_id IS NOT NULL AND member_id != 'None'"
-    ).fetchone()["n"]
-    d["congress"] = {"rows": [dict(r) for r in cong_rows], "total_txns": total_txns}
+    # (b) YESTERDAY IN CONGRESS — rolling last-24h digest (top 10). Same shared
+    # aggregation the standalone /congress/digest/<date> view uses (full list).
+    d["congress"] = congress_day_digest(conn, day=None, limit=10)
 
     # (c) OVERNIGHT SIGNALS — OSINT + Polymarket in last 24h (IMMEDIATE horizon).
     d["overnight"] = [dict(r) for r in conn.execute(
@@ -288,7 +270,9 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
             for r in cg["rows"])
         P(f'<section id="congress"><h2>Yesterday in Congress <a href="#congress">¶</a></h2>'
           f'<div class="empty" style="margin-bottom:0.4rem">{cg["total_txns"]} congressional '
-          f'transactions across {len(cg["rows"])} tickers (last 24h). Highlights:</div>{rows}</section>')
+          f'transactions across {len(cg["rows"])} tickers (last 24h). Highlights '
+          f'(<a href="/congress/digest/{_esc(date_str)}" style="color:var(--amber)">see full digest for this day →</a>):'
+          f'</div>{rows}</section>')
 
     # (c) overnight signals
     if d["overnight"]:
@@ -382,6 +366,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
               f"{cg['total_txns']} transactions across {len(cg['rows'])} tickers. Highlights:"]
         for r in cg["rows"]:
             L.append(f"  {r['ticker']}: {r['members']} members · {r['buys'] or 0} buy / {r['sells'] or 0} sell ({r['txns']} txns)")
+        L.append(f"  Full digest for this day: /congress/digest/{date_str}")
 
     if d["overnight"]:
         L += ["", "OVERNIGHT SIGNALS", "-" * 17]
