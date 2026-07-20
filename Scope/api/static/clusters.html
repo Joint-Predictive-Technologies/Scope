@@ -42,7 +42,14 @@
     .c-score { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--green-light); min-width: 54px; text-align: right; }
     .c-superseded { opacity: 0.5; }
     .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
-  
+
+    /* Below ~560px the ticker/badge/score row leaves too little room for the
+       headline on a single line — drop the headline to its own full-width row. */
+    @media (max-width: 560px) {
+      .c-card { flex-wrap: wrap; }
+      .c-headline { flex: 1 1 100%; order: 1; }
+    }
+
     /* --- unified nav mobile (injected) --- */
     .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 9px 13px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
     @media (max-width: 900px) {

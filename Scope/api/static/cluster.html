@@ -52,7 +52,8 @@
     .section { margin-top: 1.8rem; }
     .section h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
 
-    table.members { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .table-wrap { overflow-x: auto; }
+    table.members { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.78rem; }
     table.members th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
     table.members td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
     .dir-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; }
@@ -238,7 +239,7 @@
       </div>
 
       <div class="section"><h3>Members (${members.length})</h3>
-        <table class="members"><thead><tr><th>Member</th><th>Party</th><th>State</th><th>Trade date</th>${d.direction==='mixed'?'<th>Direction</th>':''}<th>Amount</th><th>Filing</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="table-wrap"><table class="members"><thead><tr><th>Member</th><th>Party</th><th>State</th><th>Trade date</th>${d.direction==='mixed'?'<th>Direction</th>':''}<th>Amount</th><th>Filing</th></tr></thead><tbody>${rows}</tbody></table></div>
       </div>
 
       <div class="section"><h3>Trade-proximity window (${d.window_hours||72}h)</h3>
