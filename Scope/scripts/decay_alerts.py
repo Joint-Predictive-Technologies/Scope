@@ -95,13 +95,16 @@ def run(dry_run: bool = False) -> tuple[int, int]:
         """
     )
     conn.commit()
+    # Annotation usage — so we can see whether the thumbs feedback loop is used at all.
+    from jpt_common import annotation_daily_summary
+    annot = annotation_daily_summary(conn)
     conn.close()
-    print(f"[DECAY] downgraded {crit_to_high} CRITICAL→HIGH, {high_to_med} HIGH→MEDIUM")
+    print(f"[DECAY] downgraded {crit_to_high} CRITICAL→HIGH, {high_to_med} HIGH→MEDIUM; {annot}")
     from jpt_common import record_activity
     record_activity("DECAY", scanned=crit_to_high + high_to_med,
                     flagged=crit_to_high + high_to_med, emitted=0,
                     duration_seconds=round(_time.time() - _t0, 2),
-                    notes=f"{crit_to_high} C→H, {high_to_med} H→M")
+                    notes=f"{crit_to_high} C→H, {high_to_med} H→M; {annot}")
     return crit_to_high, high_to_med
 
 

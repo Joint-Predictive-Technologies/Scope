@@ -297,6 +297,7 @@
   let allLoaded     = [];
   let capCache      = {};
   let socialCache   = {};
+  let annotationCache = {};   // alert_id -> 'up' | 'down' | null (caller's own annotation)
   let memberMap     = {};
   let currentPage   = 1;
   let sinceFilter   = null;
@@ -601,20 +602,44 @@
     } catch {}
   }
 
-  // ── Annotation: useful / not-useful (Phase 3) ──────────────────────────────
-  async function rateAlert(e, alertId, vote) {
-    e.stopPropagation();
+  // ── Annotation: thumbs up / down (training signal for source weighting) ─────
+  // Counts are intentionally NOT shown — only the caller's own state highlights.
+  async function loadAnnotationBatch(ids) {
+    if (!ids.length) return;
     try {
-      const r = await fetch(`/social/${alertId}/rate`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({session_id: SESSION_ID, vote})
-      });
+      const r = await fetch(`/api/annotations?alert_ids=${ids.join(',')}`);
       const d = await r.json();
-      const up = document.getElementById(`rate-up-${alertId}`);
-      const down = document.getElementById(`rate-down-${alertId}`);
-      if (up)   up.classList.toggle('rated', d.my_vote === 'useful');
-      if (down) down.classList.toggle('rated', d.my_vote === 'not_useful');
+      for (const [id, data] of Object.entries(d)) { annotationCache[id] = data.annotation; }
+      ids.forEach(id => updateAnnotationUI(id));
     } catch {}
+  }
+  function updateAnnotationUI(alertId) {
+    const cur = annotationCache[String(alertId)] || null;
+    const up = document.getElementById(`rate-up-${alertId}`);
+    const down = document.getElementById(`rate-down-${alertId}`);
+    if (up)   up.classList.toggle('rated', cur === 'up');
+    if (down) down.classList.toggle('rated', cur === 'down');
+  }
+  async function annotateAlert(e, alertId, annotation) {
+    e.stopPropagation();
+    const key = String(alertId);
+    const prev = annotationCache[key] || null;
+    // Optimistic: same thumb toggles off, otherwise switches.
+    annotationCache[key] = (prev === annotation) ? null : annotation;
+    updateAnnotationUI(alertId);
+    try {
+      const r = await fetch(`/api/annotations`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({alert_id: alertId, annotation})
+      });
+      if (!r.ok) throw new Error('bad status');
+      const d = await r.json();
+      annotationCache[key] = d.annotation;   // confirm from server
+      updateAnnotationUI(alertId);
+    } catch {
+      annotationCache[key] = prev;           // roll back on error
+      updateAnnotationUI(alertId);
+    }
   }
 
   // ── Comment thread ─────────────────────────────────────────────────────────
@@ -822,14 +847,15 @@
             <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
             <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>
             <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
-            <button class="rate-btn" id="rate-up-${a.id}" title="Signal useful" onclick="rateAlert(event,${a.id},'useful')">👍</button>
-            <button class="rate-btn" id="rate-down-${a.id}" title="Not useful" onclick="rateAlert(event,${a.id},'not_useful')">👎</button>
+            <button class="rate-btn" id="rate-up-${a.id}" title="Thumbs up" onclick="annotateAlert(event,${a.id},'up')">👍</button>
+            <button class="rate-btn" id="rate-down-${a.id}" title="Thumbs down" onclick="annotateAlert(event,${a.id},'down')">👎</button>
           </div>
           <div class="alert-detail">${detailHtml}</div>
         </div>`;
     }).join('');
 
     loadSocialBatch(data.map(a => a.id));
+    loadAnnotationBatch(data.map(a => a.id));
 
     data.filter(a => a.rule === 'RULE_10').forEach(a => {
       const thread = document.getElementById(`thread-${a.id}`);

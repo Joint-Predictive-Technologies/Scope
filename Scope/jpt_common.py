@@ -560,6 +560,30 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         except Exception:
             pass
 
+    # m010: alert_annotations — thumbs up/down, the training signal for future
+    # source-quality weighting. One annotation per (alert_id, user_id); updating
+    # replaces the prior one. user_id nullable now (single-user) — hooked in so a
+    # multi-user migration isn't needed later. note nullable for a future "why?".
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m010_alert_annotations'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS alert_annotations (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   alert_id     INTEGER NOT NULL,
+                   annotation   TEXT NOT NULL,          -- 'up' | 'down'
+                   user_id      TEXT,                   -- nullable (single-user for now)
+                   note         TEXT,                   -- nullable (future 'why?' comment)
+                   annotated_at TEXT DEFAULT (datetime('now'))
+               )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_alert_annotations_alert "
+                     "ON alert_annotations(alert_id)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_annotations_pair "
+                     "ON alert_annotations(alert_id, user_id)")
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m010_alert_annotations')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -814,6 +838,39 @@ def normalize_existing_tickers(conn) -> int:
             changed += 1
     conn.commit()
     return changed
+
+
+def annotation_counts(conn, alert_ids=None) -> dict:
+    """Backend aggregate: {alert_id: {'up': n, 'down': n}} in ONE grouped query
+    (never per-card). Counts are for analysis only — not surfaced to the feed."""
+    if alert_ids:
+        ph = ",".join("?" * len(alert_ids))
+        rows = conn.execute(
+            f"SELECT alert_id, annotation, COUNT(*) c FROM alert_annotations "
+            f"WHERE alert_id IN ({ph}) GROUP BY alert_id, annotation", list(alert_ids)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT alert_id, annotation, COUNT(*) c FROM alert_annotations "
+            "GROUP BY alert_id, annotation"
+        ).fetchall()
+    out: dict = {}
+    for r in rows:
+        out.setdefault(r["alert_id"], {"up": 0, "down": 0})[r["annotation"]] = r["c"]
+    return out
+
+
+def annotation_daily_summary(conn) -> str:
+    """One-line summary of today's annotation activity for a daily job note."""
+    row = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN annotation='up' THEN 1 ELSE 0 END) ups,
+                  SUM(CASE WHEN annotation='down' THEN 1 ELSE 0 END) downs
+           FROM alert_annotations
+           WHERE date(annotated_at) = date('now')"""
+    ).fetchone()
+    total = row["total"] or 0
+    return f"annotations_today={total} (up={row['ups'] or 0}, down={row['downs'] or 0})"
 
 
 def normalize_ticker(ticker):

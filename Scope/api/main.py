@@ -30,6 +30,7 @@ from api.routers import (
     lobbying as lobbying_router,
     evidence,
     themes as themes_router,
+    annotations as annotations_router,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -263,6 +264,7 @@ app.include_router(intel.router,         prefix="/api/intel", tags=["Intel"])
 app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbying"])
 app.include_router(evidence.router,      prefix="/api/evidence", tags=["Evidence"])
 app.include_router(themes_router.router, prefix="/api/themes", tags=["Themes"])
+app.include_router(annotations_router.router, prefix="/api/annotations", tags=["Annotations"])
 
 
 @app.get("/health", tags=["Health"])
