@@ -95,7 +95,10 @@
     .vote-btn.voted { border-color: var(--amber); color: var(--amber); }
     .comment-btn { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; }
     .comment-btn:hover { border-color: #6ab0e0; color: #6ab0e0; }
-    .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 7px; border-radius: 3px; cursor: pointer; font-size: 0.72rem; line-height: 1; filter: grayscale(0.6); opacity: 0.7; transition: all 0.15s; flex-shrink: 0; }
+    /* Annotation thumbs are a secondary feedback action — kept quieter than
+       primary card content and on par with vote/comment: smaller + near-mono at
+       rest, full colour only on hover or when set. */
+    .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.66rem; line-height: 1; filter: grayscale(0.85); opacity: 0.5; transition: all 0.15s; flex-shrink: 0; }
     .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
     .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
 
