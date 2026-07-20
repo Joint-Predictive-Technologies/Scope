@@ -22,13 +22,24 @@ HIGH_AMOUNT_THRESHOLD = 50_000
 FUZZY_CUTOFF = 0.8
 
 
+class IngestError(RuntimeError):
+    """A fetch/validation failure carrying the exact activity_log source label for
+    its failure class. Raised instead of sys.exit() so main()'s handler always
+    writes a distinct, greppable activity_log row — a silent SystemExit would
+    bypass logging and leave zero trace of a failed run."""
+
+    def __init__(self, message: str, source: str):
+        super().__init__(message)
+        self.source = source
+
+
 def get_api_key() -> str:
     load_dotenv()
     api_key = os.getenv("QUIVER_API_KEY")
 
     if not api_key:
         print("ERROR: QUIVER_API_KEY is missing. Add it to your .env file.")
-        sys.exit(1)
+        raise IngestError("QUIVER_API_KEY is missing", "INGEST_SENATE_MISSING_KEY")
 
     return api_key
 
@@ -49,19 +60,23 @@ def fetch_congress_trades(api_key: str) -> list[dict[str, Any]]:
     except requests.exceptions.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "unknown"
         print(f"ERROR: Quiver Quantitative request failed: HTTP {status_code}")
-        sys.exit(1)
+        raise IngestError(f"Quiver HTTP {status_code} from {QUIVER_URL}",
+                          "INGEST_SENATE_HTTP_ERROR") from exc
 
     except requests.exceptions.RequestException as exc:
         print(f"ERROR: Quiver Quantitative request failed: {exc}")
-        sys.exit(1)
+        raise IngestError(f"network {type(exc).__name__} contacting {QUIVER_URL}: {exc}",
+                          "INGEST_SENATE_NETWORK_ERROR") from exc
 
     except ValueError as exc:
         print(f"ERROR: Quiver Quantitative response was not valid JSON: {exc}")
-        sys.exit(1)
+        raise IngestError(f"response was not valid JSON: {exc}",
+                          "INGEST_SENATE_BAD_JSON") from exc
 
     if not isinstance(data, list):
         print("ERROR: Unexpected response shape from Quiver Quantitative.")
-        sys.exit(1)
+        raise IngestError(f"unexpected response shape ({type(data).__name__}, expected list)",
+                          "INGEST_SENATE_BAD_SHAPE")
 
     return data
 
@@ -284,17 +299,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    load_dotenv()
-
-    parser = build_parser()
-    args = parser.parse_args()
-
+def _ingest(args) -> tuple[int, int, int]:
+    """The happy-path ingest. Raises IngestError on any recoverable failure class;
+    returns (records_fetched, transactions_stored, alerts_emitted)."""
     try:
         since_date = datetime.strptime(args.since, "%Y-%m-%d").date()
-    except ValueError:
+    except ValueError as exc:
         print("ERROR: --since must be in YYYY-MM-DD format.")
-        raise SystemExit(1)
+        raise IngestError(f"--since must be YYYY-MM-DD, got {args.since!r}",
+                          "INGEST_SENATE_BAD_ARGS") from exc
 
     api_key = get_api_key()
     raw_records = fetch_congress_trades(api_key)
@@ -366,6 +379,42 @@ def main() -> None:
         f"Transactions stored: {transactions_stored}. "
         f"Alerts emitted: {alerts_emitted}."
     )
+    return len(raw_records), transactions_stored, alerts_emitted
+
+
+def main() -> None:
+    load_dotenv()
+    parser = build_parser()
+    args = parser.parse_args()
+
+    import time as _time
+    from jpt_common import record_activity
+    _t0 = _time.time()
+
+    try:
+        fetched, stored, emitted = _ingest(args)
+        record_activity(
+            "INGEST_SENATE", scanned=fetched, flagged=stored, emitted=emitted,
+            duration_seconds=round(_time.time() - _t0, 2),
+            notes=f"fetched={fetched}, stored={stored}, alerts={emitted}, since={args.since}",
+        )
+    except IngestError as err:
+        # Distinct, greppable source per failure class — no need to grep stderr.
+        record_activity(
+            err.source, scanned=0, flagged=0, emitted=0,
+            duration_seconds=round(_time.time() - _t0, 2),
+            notes=f"ERROR: {err} (since={args.since})",
+        )
+        print(f"{err.source}: {err}")
+        sys.exit(1)
+    except Exception as exc:
+        record_activity(
+            "INGEST_SENATE_UNEXPECTED", scanned=0, flagged=0, emitted=0,
+            duration_seconds=round(_time.time() - _t0, 2),
+            notes=f"CRITICAL: unexpected {type(exc).__name__}: {exc}",
+        )
+        print(f"CRITICAL: unexpected {type(exc).__name__}: {exc}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

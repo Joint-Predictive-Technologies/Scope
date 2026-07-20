@@ -211,6 +211,9 @@ def build_parser() -> argparse.ArgumentParser:
         default=3,
         help="Minimum distinct members to form a cluster. Default: 3.",
     )
+    # Accepted (and ignored) for scheduler-runner uniformity — the scheduler
+    # invokes every job with --emit-alerts; without this, argparse would reject it.
+    parser.add_argument("--emit-alerts", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 

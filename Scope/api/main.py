@@ -64,6 +64,10 @@ _RULE_SCHEDULE: dict[str, int] = {
     "scripts/rule_anomaly.py":             180,
     # Congressional cluster detection — 3+ members, same ticker, 72h
     "scripts/rule_cluster.py":             240,
+    # RULE_02 — 3+ members, same ticker, 7-day window (looser sibling of
+    # RULE_CLUSTER). Same 4h cadence as the rule it overlaps; independent
+    # subprocess so co-firing with rule_cluster is harmless.
+    "rule_02_cluster.py":                  240,
     # Government contracts
     "scripts/rule_11_contracts.py":        360,
     # Federal Register publishes daily ~6am ET, check every 4h
