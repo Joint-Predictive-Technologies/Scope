@@ -1,4 +1,5 @@
 ---
+aliases: [RULE Design Decisions]
 type: architecture
 stage: iPhone-1
 status: implemented

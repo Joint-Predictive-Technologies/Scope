@@ -57,9 +57,10 @@ RULE_10 fix was ever pre-approved).
 
 ## Branches Created
 
-| Branch | Description | Status |
-|--------|-------------|--------|
-| (none) | Reconciliation + vault write only | — |
+| Branch | Description                       | Status |
+| ------ | --------------------------------- | ------ |
+| (none) | Reconciliation + vault write only | —      |
+|        |                                   |        |
 
 ## Blockers Encountered
 

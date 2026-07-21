@@ -1,15 +1,18 @@
 ---
+aliases: [Roadmap Tracking]
 type: roadmap
 stage: iPhone-5
 status: active
 priority: high
 tags: [roadmap, planning]
-related: [[iPhone Stage Progress]], [[Known Issues]]
+related: [[Master Plan]], [[iPhone Stage Progress]], [[Known Issues]]
 ---
 
 # Active Roadmap Tracking
 
-What's in flight, what's up next, dependencies.
+What's in flight, what's up next, dependencies. This is the short-horizon view;
+the long-term phased plan it feeds into lives in [[Master Plan]] (the queued
+items below map to **Phase 0** and **Phase 1** there).
 
 *Last reconciled: 2026-07-21 (branch/merge state verified against `main`).*
 
@@ -60,4 +63,4 @@ origin on 2026-07-21):
 
 ---
 
-See also: [[iPhone Stage Progress]], [[Current Blockers]]
+See also: [[Master Plan]], [[iPhone Stage Progress]], [[Current Blockers]]

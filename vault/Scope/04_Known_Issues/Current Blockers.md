@@ -1,4 +1,5 @@
 ---
+aliases: [Current Blockers, Known Issues]
 type: issue
 stage: iPhone-1
 status: active

@@ -1,15 +1,18 @@
 ---
+aliases: [iPhone Stage Progress]
 type: roadmap
 stage: iPhone-5
 status: in-progress
 priority: high
 tags: [roadmap, vision]
-related: [[Roadmap Tracking]], SCOPE_IPHONE15_VISION.md
+related: [[Master Plan]], [[Roadmap Tracking]], SCOPE_IPHONE15_VISION.md
 ---
 
 # iPhone Stage Progress
 
-Tracking progress against the SCOPE_IPHONE15_VISION.md roadmap.
+Tracking progress against the maturity ladder. The full phased plan and the
+North Star live in [[Master Plan]]; this file is the stage-status detail behind
+that ladder.
 
 ## Current Status
 
@@ -45,4 +48,4 @@ maturation is the real lever.
 
 ---
 
-See also: [[Roadmap Tracking]], SCOPE_IPHONE15_VISION.md, SCOPE_PROGRESS_STATUS.md
+See also: [[Master Plan]], [[Roadmap Tracking]], SCOPE_PROGRESS_STATUS.md
