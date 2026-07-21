@@ -19,7 +19,11 @@ Issues actively blocking progress or needing a human decision.
   -automation`, merged to main). No remote/off-volume storage yet — still the
   single biggest residual risk, since local backups share the same Railway
   volume as the primary DB (same failure domain). Blocked on a cloud storage
-  decision (see below).
+  decision (see below). **Restore procedure verified 2026-07-21** — both the
+  preferred `snapshot_*.db.gz` and the fallback raw copy restore to a complete,
+  integrity-checked DB via `RESTORE.md` (tested against a scratch copy; live DB
+  untouched). So the residual risk is now purely the *missing off-volume copy*,
+  not an unproven restore path.
 
 ## Decisions Pending
 

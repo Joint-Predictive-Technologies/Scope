@@ -137,7 +137,7 @@ the product down, so that everything built later stands on solid ground.
 - [ ] Review + merge `fix/remove-dead-generate-brief-job` (`d3687eb`)
 - [ ] Add `GROQ_API_KEY_FALLBACK` to Railway prod env (after the merge — fallback is inert in prod without it)
 - [ ] Provision off-volume backup storage (`BACKUP_S3_*` creds + `boto3`); `db_backup.py:upload_remote()` activates with no code change
-- [ ] **Test a full restore end-to-end** from an off-volume snapshot (untested today — a backup you haven't restored is a hope, not a backup)
+- [x] **Restore procedure verified end-to-end (2026-07-21)** — both the preferred `snapshot_*.db.gz` and the fallback raw hourly copy restore to a complete DB (`integrity_check=ok`, 37 tables, 11 migrations, row counts match source). `RESTORE.md` steps 1–4 exercised against a scratch copy; the live DB was never touched. **Still owed:** a restore from an *off-volume* snapshot (blocked on remote storage above), and a rehearsal of the production swap (steps 5–8).
 - [ ] Confirm disk-usage fix (resized to 5GB) is real — flagged unverified in [[Current Blockers]]
 
 **Gate:** none — this is always-safe hygiene work.
@@ -244,7 +244,7 @@ inside them. Violating one is how the moat gets silently destroyed.
 
 | Risk | Severity | Status / mitigation |
 |---|---|---|
-| No off-volume DB backup; restore untested | **Critical** | Phase 0. Local snapshots share the primary failure domain. `upload_remote()` is storage-ready — needs creds only. |
+| No off-volume DB backup | **Critical** | Phase 0. Local snapshots share the primary failure domain. `upload_remote()` is storage-ready — needs creds only. *(Restore **procedure** verified 2026-07-21 — see Phase 0; the residual risk is now purely the missing off-volume copy, not an unproven restore.)* |
 | Reasoning layer unstarted while it's the whole defensibility story | High | Accepted for now — correctly gated on calibration (Phase 1). Risk is *delay*, not *direction*. |
 | `enrich_scores` is a single point of failure (~15 path-(b) rules) | Medium | Guarded by hourly `MONITOR_ENRICH_STALL`. Not migrating working scripts. |
 | Reading noise from small per-rule outcome samples | Medium | Phase 1 minimum-sample threshold before any rule's stats are trusted. |
@@ -270,6 +270,10 @@ inside them. Violating one is how the moat gets silently destroyed.
 
 *One line per update. Newest first. This is how the plan proves it's alive.*
 
+- **2026-07-21** — Restore procedure verified end-to-end against a scratch copy
+  (preferred snapshot + fallback raw copy; `integrity_check=ok`, counts match
+  source). Phase 0 restore box checked. Critical backup risk narrowed to "no
+  off-volume copy" only — the restore is no longer unproven.
 - **2026-07-21** — Master Plan created. Defined North Star, maturity ladder,
   4-phase path (Phase 0 harden / Phase 1 calibrate / Phase 2 first-reasoning /
   Phase 3 structural / Phase 4 authority), constraints, and risk register.
