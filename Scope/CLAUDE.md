@@ -99,8 +99,11 @@ Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged,
 | RULE_OPTIONS | `scripts/rule_options_correlation.py` | 15 min (enriches existing alerts) |
 
 Non-rule scheduled jobs: `scripts/enrich_scores.py` (10 min, scoring backfill),
+`scripts/monitor_enrich_stall.py` (60 min, scoring-stall guard),
 `scripts/telegram_bot.py` (60 min, push), `scripts/decay_alerts.py` (cron 01:00),
-`generate_brief.py` (cron 06:30), `scripts/ingest_lobbying.py` (cron Mon 04:45),
+`scripts/morning_brief.py` (cron 06:30, deterministic daily brief),
+`scripts/db_backup.py` (cron 03:00, verified compressed DB snapshot),
+`scripts/ingest_lobbying.py` (cron Mon 04:45),
 `scripts/run_backtest.py` (cron Sun 02:00),
 `scripts/label_outcomes.py` (cron daily 02:00, forward-return labeling),
 `scripts/roster_check.py` (cron monthly 1st 04:00, recurring-unmatched-filer guard),
@@ -180,6 +183,15 @@ blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
   read as text. This is not a growing electronic-format regression, so the parser
   needs no fix. Recovering paper filers would be a dedicated OCR project (high
   effort, low yield) — tracked separately, not urgent.
+- **Legacy `generate_brief.py` (Groq narrative brief) — retired.** It was registered
+  in `_CRON_SCHEDULE` under the bare filename, but the script only ever existed at
+  `scripts/generate_brief.py` — every scheduled run failed with "file not found"
+  from the day it was added (2026-07-10) until removal (~11 days, 100% failure
+  rate). Fully superseded by `scripts/morning_brief.py` (deterministic, correctly
+  scheduled at the same 06:30 UTC slot), so the dead cron entry was deleted rather
+  than path-fixed. The script file and the old `/brief` (dateless) page's
+  lazy-generation trigger are untouched and still work standalone if invoked
+  directly — only the broken automatic scheduling was removed.
 
 ## Conventions
 - Reference code as `file_path:line`. Match surrounding style; no new frameworks.

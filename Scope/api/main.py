@@ -83,8 +83,6 @@ _RULE_SCHEDULE: dict[str, int] = {
 _CRON_SCHEDULE: dict[str, dict] = {
     # LDA lobbying filings are quarterly — daily scan at 3am is enough
     "rule_09_lobbying.py":              {"hour": 3,  "minute": 0},
-    # Daily brief after overnight data collection
-    "generate_brief.py":                {"hour": 6,  "minute": 30},
     # Deterministic morning brief (source DAILY_BRIEF) — generates + caches at 06:30.
     "scripts/morning_brief.py":         {"hour": 6,  "minute": 30},
     # FARA filings update slowly — weekly Monday 4am scan is sufficient
