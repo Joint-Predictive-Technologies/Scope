@@ -1070,6 +1070,69 @@ def log_activity(conn, source, scanned=0, flagged=0, emitted=0,
         pass
 
 
+# ── LLM narrative generation — multi-provider fallback ───────────────────────
+# Groq powers narrative generation ONLY (war-room summaries, brief preamble,
+# OSINT region summaries, weekly digest) — never facts, scores, timestamps, or
+# links, which always render deterministically. This is the single choke point
+# every narrative call site should route through: retry the primary key twice
+# with a short backoff, then the same treatment on a secondary key
+# (GROQ_API_KEY_FALLBACK) if configured. If every attempt on every provider is
+# exhausted, return None — callers render their page/section WITHOUT
+# narrative, clearly labeled absent. Never broken, never fabricated.
+_LLM_RETRY_ATTEMPTS = 2
+_LLM_RETRY_BACKOFF_SECONDS = 1.5
+_LLM_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+
+def generate_narrative(messages, model=_LLM_DEFAULT_MODEL, max_tokens=256,
+                       timeout=None, temperature=None) -> str | None:
+    """Chat-completion with retry + secondary-key fallback. `messages` is a raw
+    Groq/OpenAI-style messages list (system/user roles) — callers keep full
+    control of their own prompt. Returns the completion text, or None if every
+    provider/attempt is exhausted (or no key is configured at all). Logs one
+    activity_log row per call, source='LLM_NARRATIVE', with notes recording
+    which provider actually served the request (or 'none') — so fallback rate
+    is visible over time without a dedicated dashboard."""
+    import time as _time
+    providers = [
+        ("primary", os.getenv("GROQ_API_KEY", "").strip()),
+        ("fallback", os.getenv("GROQ_API_KEY_FALLBACK", "").strip()),
+    ]
+    t0 = _time.time()
+    attempt_log: list[str] = []
+
+    for label, key in providers:
+        if not key:
+            attempt_log.append(f"{label}=no_key")
+            continue
+        for attempt in range(1, _LLM_RETRY_ATTEMPTS + 1):
+            try:
+                from groq import Groq
+                client = Groq(api_key=key)
+                kwargs = {"model": model, "messages": messages, "max_tokens": max_tokens}
+                if timeout is not None:
+                    kwargs["timeout"] = timeout
+                if temperature is not None:
+                    kwargs["temperature"] = temperature
+                resp = client.chat.completions.create(**kwargs)
+                text = resp.choices[0].message.content.strip()
+                needed_retry = bool(attempt_log)
+                notes = f"provider={label} attempt={attempt}" + (
+                    f" (after: {', '.join(attempt_log)})" if attempt_log else "")
+                record_activity("LLM_NARRATIVE", scanned=1, flagged=1 if needed_retry else 0,
+                                emitted=1, duration_seconds=round(_time.time() - t0, 2), notes=notes)
+                return text
+            except Exception as exc:
+                attempt_log.append(f"{label}#{attempt}={type(exc).__name__}")
+                if attempt < _LLM_RETRY_ATTEMPTS:
+                    _time.sleep(_LLM_RETRY_BACKOFF_SECONDS)
+
+    notes = f"provider=none (exhausted): {', '.join(attempt_log) or 'no keys configured'}"
+    record_activity("LLM_NARRATIVE", scanned=1, flagged=1, emitted=0,
+                    duration_seconds=round(_time.time() - t0, 2), notes=notes)
+    return None
+
+
 # ── Federal contractor → public equity resolution ───────────────────────────
 # Government contractors are a known, finite set, so an explicit table beats
 # fuzzy matching — which produced false positives like

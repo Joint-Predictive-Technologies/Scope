@@ -21,7 +21,7 @@ from collections import defaultdict
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import db_connection, insert_alert, score_alert_fields
+from jpt_common import db_connection, insert_alert, score_alert_fields, generate_narrative
 
 
 def upsert_theme(conn, ticker, distinct_rules, scores) -> int:
@@ -135,13 +135,7 @@ def _build_narrative(ticker: str, alerts: list, rules_fired: str, window_hours: 
         f"Signals from {rules_fired} converged on {ticker} within {window_hours}h. "
         "See individual rule alerts for details."
     )
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key:
-        return fallback
-    try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        prompt = f"""You are a political intelligence analyst for macro investors.
+    prompt = f"""You are a political intelligence analyst for macro investors.
 
 The following signals have fired on ticker {ticker} within the past 48 hours:
 
@@ -150,15 +144,8 @@ The following signals have fired on ticker {ticker} within the past 48 hours:
 Rules triggered: {rules_fired}
 
 In 2-3 sentences, explain why this convergence of signals is notable for an investor watching {ticker}. Be specific. Do not say "you should buy" or give investment advice. Describe what the signals collectively suggest about political/regulatory/insider activity around this stock."""
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=256,
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as exc:
-        print(f"  [warn] LLM call failed for {ticker}: {exc}", file=sys.stderr)
-        return fallback
+    text = generate_narrative([{"role": "user", "content": prompt}], max_tokens=256)
+    return text if text is not None else fallback
 
 
 MAX_PER_RUN = 10  # hard cap — prevents any future flood

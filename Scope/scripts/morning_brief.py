@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import db_connection, record_activity, congress_day_digest
+from jpt_common import db_connection, record_activity, congress_day_digest, generate_narrative
 
 RULES_TOTAL = 19  # ground-truth rule count (see CLAUDE.md rules table)
 
@@ -172,30 +172,23 @@ def _earnings_this_week(conn) -> list:
 
 
 def _preamble(d: dict) -> str | None:
-    """Optional Groq 1-2 sentence 'what's noteworthy'. Never blocks the brief."""
-    key = os.getenv("GROQ_API_KEY", "").strip()
-    if not key:
-        return None
+    """Optional 1-2 sentence 'what's noteworthy', with retry + secondary-provider
+    fallback (jpt_common.generate_narrative). Never blocks the brief — if every
+    provider/attempt is exhausted, returns None and the preamble section simply
+    doesn't render (see render_html/render_text)."""
     facts = (f"headline={d['headline']['headline'] if d['headline'] else 'none'}; "
              f"active_theses={len(d['theses'])}; live_clusters={len(d['clusters'])}; "
              f"congress_txns_24h={d['congress']['total_txns']}; "
              f"overnight_signals={len(d['overnight'])}")
-    try:
-        from groq import Groq
-        client = Groq(api_key=key)
-        r = client.chat.completions.create(
-            model="llama-3.3-70b-versatile", max_tokens=120,
-            messages=[
-                {"role": "system", "content": "You write a 1-2 sentence factual preamble "
-                 "for a political-market intelligence brief. No hype, no advice, no adjectives "
-                 "like 'strong'/'significant'. Just what to pay attention to today."},
-                {"role": "user", "content": f"Facts: {facts}. Write the preamble."},
-            ],
-            timeout=8,
-        )
-        return r.choices[0].message.content.strip()
-    except Exception:
-        return None
+    return generate_narrative(
+        [
+            {"role": "system", "content": "You write a 1-2 sentence factual preamble "
+             "for a political-market intelligence brief. No hype, no advice, no adjectives "
+             "like 'strong'/'significant'. Just what to pay attention to today."},
+            {"role": "user", "content": f"Facts: {facts}. Write the preamble."},
+        ],
+        max_tokens=120, timeout=8,
+    )
 
 
 # ── render HTML ───────────────────────────────────────────────────────────────

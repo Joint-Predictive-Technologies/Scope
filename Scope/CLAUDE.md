@@ -72,6 +72,20 @@ capturing the job name, exit code / exception type, and the stderr/traceback tai
 This is the universal net: no scheduled-job failure, including import-time, can be
 silent. (Per-script logging still adds richer rows from inside `run()`.)
 
+## LLM narrative generation — Groq primary/fallback
+Groq powers narrative generation **only** (war-room/RULE_10 convergence summaries,
+the morning brief's preamble, OSINT region summaries, the weekly digest) — never
+facts, scores, timestamps, or links, which always render deterministically. Every
+narrative call site routes through `jpt_common.generate_narrative(messages, ...)`:
+retries the primary key (`GROQ_API_KEY`) twice with a short backoff, then applies
+the same treatment to a secondary key (`GROQ_API_KEY_FALLBACK`, optional) if
+configured. Logs one `activity_log` row per call, `source='LLM_NARRATIVE'`, with
+`provider=primary|fallback|none` in `notes` (so fallback rate is visible over
+time). If every provider/attempt is exhausted, returns `None` — callers render
+their page/section **without** narrative, clearly labeled absent. Never broken,
+never fabricated. Do not call `groq.Groq(...)` directly in new code; add the call
+site to `generate_narrative` instead.
+
 ## Activity log
 Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged, emitted, duration_seconds)` (fresh connection). `scanned` = raw records examined, `flagged` = passed quality filter, `emitted` = alerts inserted. Powers `/status` and the homepage activity strip.
 

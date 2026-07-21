@@ -984,31 +984,28 @@ def osint_summary(region: str):
         for r in rows
     ) or "No recent signals."
 
-    api_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not api_key:
-        conn.close()
-        return {"region": region, "summary": "GROQ_API_KEY not configured.", "cached": False}
+    from jpt_common import generate_narrative
+    prompt = (
+        f"You are a geopolitical intelligence analyst. Summarize the current situation in the {region} region "
+        f"based on these recent signals from the Scope platform:\n\n{signals_text}\n\n"
+        f"Write 3-4 sentences covering: the main threat or development, affected markets, and what to watch next. "
+        f"Be concise and direct. Do not use bullet points."
+    )
+    summary = generate_narrative(
+        [
+            {"role": "system", "content": "You are a geopolitical intelligence analyst. Be concise and factual."},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=300,
+    )
 
-    try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
-        prompt = (
-            f"You are a geopolitical intelligence analyst. Summarize the current situation in the {region} region "
-            f"based on these recent signals from the Scope platform:\n\n{signals_text}\n\n"
-            f"Write 3-4 sentences covering: the main threat or development, affected markets, and what to watch next. "
-            f"Be concise and direct. Do not use bullet points."
-        )
-        resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            max_tokens=300,
-            messages=[
-                {"role": "system", "content": "You are a geopolitical intelligence analyst. Be concise and factual."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        summary = resp.choices[0].message.content.strip()
-    except Exception as e:
-        summary = f"Unable to generate summary: {e}"
+    if summary is None:
+        # Every provider/attempt exhausted — labeled absent, never fabricated.
+        # Do NOT overwrite region_summaries: if a stale-but-real cached summary
+        # exists it stays available rather than being clobbered by a failure.
+        conn.close()
+        return {"region": region, "summary": "Summary unavailable — narrative "
+                "generation is temporarily down for this region.", "cached": False}
 
     generated_at = datetime.now(timezone.utc).isoformat()
     conn.execute(

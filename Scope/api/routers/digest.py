@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -66,10 +65,6 @@ def _gather_data(conn) -> dict:
 
 
 def _generate(week_start: str) -> dict:
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
-    if not groq_key:
-        return {"error": "GROQ_API_KEY not set", "week_start": week_start}
-
     conn = db_connection()
     data = _gather_data(conn)
     conn.close()
@@ -89,34 +84,33 @@ Return ONLY a JSON object with exactly these keys:
 }}
 Be analytical, concise, and focused on what matters for investors. No preamble."""
 
-    try:
-        from groq import Groq
-        client = Groq(api_key=groq_key)
-        resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=900,
-            temperature=0.3,
-        )
-        raw = resp.choices[0].message.content.strip()
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        content = match.group(0) if match else raw
+    from jpt_common import generate_narrative
+    raw = generate_narrative([{"role": "user", "content": prompt}],
+                             max_tokens=900, temperature=0.3)
 
-        conn2 = db_connection()
-        conn2.execute(
-            "INSERT OR REPLACE INTO digests (week_start, content) VALUES (?,?)",
-            (week_start, content),
-        )
-        conn2.commit()
-        conn2.close()
+    if raw is None:
+        # Every provider/attempt exhausted — labeled absent, not fabricated.
+        # Nothing is written to `digests`, so a retry (next view, or /regenerate)
+        # tries fresh rather than being stuck behind a cached failure.
+        return {"error": "narrative generation unavailable (all providers exhausted)",
+                "week_start": week_start}
 
-        return {
-            "week_start": week_start,
-            "content": content,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-        }
-    except Exception as exc:
-        return {"error": str(exc), "week_start": week_start}
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    content = match.group(0) if match else raw
+
+    conn2 = db_connection()
+    conn2.execute(
+        "INSERT OR REPLACE INTO digests (week_start, content) VALUES (?,?)",
+        (week_start, content),
+    )
+    conn2.commit()
+    conn2.close()
+
+    return {
+        "week_start": week_start,
+        "content": content,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @router.get("")
