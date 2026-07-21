@@ -1,4 +1,5 @@
 ---
+aliases: [Outcome Tracking Status]
 type: architecture
 stage: iPhone-8
 status: in-progress

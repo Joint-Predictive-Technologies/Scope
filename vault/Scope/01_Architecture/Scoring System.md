@@ -1,4 +1,5 @@
 ---
+aliases: [Scoring System]
 type: architecture
 stage: iPhone-1
 status: implemented
