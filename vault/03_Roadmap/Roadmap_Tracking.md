@@ -11,25 +11,34 @@ related: [[iPhone Stage Progress]], [[Known Issues]]
 
 What's in flight, what's up next, dependencies.
 
-## Recently Completed (this bulk-session arc)
+*Last reconciled: 2026-07-21 (branch/merge state verified against `main`).*
 
-- RULE_10 `--emit-alerts` fix — merged, confirmed live in production
-- RULE_02 scheduling + ingest_senate hardening — merged
-- Database backup automation (local interim) — merged (`feat/db-backup
-  -automation`); remote upload storage-ready, pending credentials
-- Groq multi-provider fallback — implemented (`feat/llm-fallback`, pushed,
-  not yet merged; needs `GROQ_API_KEY_FALLBACK` added to Railway prod)
-- Congressional digest standalone view (`/congress/digest/<date>`) — merged
-- `generate_brief.py` dead cron entry — removed (`fix/remove-dead-generate
-  -brief-job`, pushed, not yet merged)
+## In Flight / Awaiting Review
+
+Nothing is actively being coded right now. Two branches are complete and
+pushed, waiting only on a review/merge decision (confirmed in sync with
+origin on 2026-07-21):
+
+- `feat/llm-fallback` (`9f77654`) — Groq primary/fallback narrative generation
+- `fix/remove-dead-generate-brief-job` (`d3687eb`) — dead cron entry removal
+
+## Recently Completed (this bulk-session arc — all merged to main)
+
+- RULE_10 `--emit-alerts` fix — merged (`6ea6a7a`), confirmed live in prod
+- RULE_02 scheduling + ingest_senate hardening — merged (`b55e88c`)
+- Scheduler-level failure safety net + pdfplumber/pillow deps — merged (`445e3ad`)
+- Database backup automation (local interim) — merged (`83b3213`); local
+  snapshot verified running; remote upload storage-ready, pending credentials
+- Congressional digest standalone view (`/congress/digest/<date>`) — merged (`1647655`)
+- Obsidian vault scaffold — merged (`dedd6f5`)
 - Production audit sweep (argparse contract, silent failures, scheduler
   reconciliation) — completed, findings documented in [[Current Blockers]]
 
 ## Queued (Next Priority)
 
-1. Merge the open branches above (none merged to main without explicit
-   approval per this project's convention)
-2. Add `GROQ_API_KEY_FALLBACK` to Railway production env
+1. Review + merge the two branches in "In Flight / Awaiting Review" (none
+   merged to main without explicit approval per this project's convention)
+2. Add `GROQ_API_KEY_FALLBACK` to Railway production env (after #1)
 3. Get remote backup storage credentials, wire up `boto3` + `upload_remote()`
 4. Theme Temperature design session (pending)
 5. Continue outcome tracking calibration (passive, clock-ticking)

@@ -33,28 +33,47 @@ Issues actively blocking progress or needing a human decision.
   are set and `boto3` is added to requirements.txt. No code change needed,
   just the credentials.
 
-## Production Issues (from latest audit)
+## Awaiting review / merge (complete, not merged)
 
-- **RULE_10 argparse contract:** Fixed AND merged to main (`fix/rule10-emit
-  -alerts`, commit `6ea6a7a`). Confirmed live in production — clean hourly
-  runs since deploy, 0 failures. Root cause: RULE_10 was broken for its
-  *entire* scheduled lifetime (~13.5 days, 2026-07-07 onward) before this fix —
-  100% failure rate, zero automatic corroboration alerts in that window. Not
-  retroactively recoverable, but the exposure is now closed and documented.
-- **Groq LLM fallback:** Implemented (`feat/llm-fallback`, pushed, not yet
-  merged to main). `jpt_common.generate_narrative()` retries the primary Groq
-  key twice, then falls back to a secondary key (`GROQ_API_KEY_FALLBACK`),
-  logging `provider=primary|fallback|none` to `activity_log` every call.
-  Verified live end-to-end against the real fallback key. **Remaining step:**
-  add `GROQ_API_KEY_FALLBACK` to the Railway production environment — the code
-  is deployed-ready but the env var only exists locally today.
-- **`generate_brief.py` dead cron entry:** Fixed (`fix/remove-dead-generate
-  -brief-job`, pushed). Was registered at the wrong path, 100% failure since
-  2026-07-10 (~11 days) — superseded by `scripts/morning_brief.py`, so the
-  entry was removed rather than path-fixed.
-- **Disk usage at 92%:** Fixed (resized to 5GB). *(Not independently verified
-  this session — carried over from a prior audit.)*
-- **pdfplumber / pillow missing:** Fixed (added to requirements.txt).
+Confirmed by the 2026-07-21 reconciliation: both branches are complete,
+pushed, and in sync with origin. Not merged — only `fix/rule10-emit-alerts`
+was ever pre-approved (and it is already merged). These wait for review:
+
+- **`feat/llm-fallback`** (`9f77654`) — Groq primary/fallback narrative
+  generation. Ready.
+- **`fix/remove-dead-generate-brief-job`** (`d3687eb`) — removes the dead
+  `generate_brief.py` cron entry. Ready.
+
+## Open action items (no code — production config)
+
+- **Add `GROQ_API_KEY_FALLBACK` to the Railway production environment.** The
+  fallback code is deployed-ready but the env var only exists in the local
+  `.env` today, so the secondary provider is inert in prod until this is set.
+  (Depends on merging `feat/llm-fallback` first.)
+
+## Resolved (kept for the audit trail)
+
+- **RULE_10 argparse contract — RESOLVED 2026-07-20.** Fixed AND merged to
+  main (`fix/rule10-emit-alerts`, commit `6ea6a7a`); confirmed live in
+  production — clean hourly runs since deploy, 0 failures. Root cause: RULE_10
+  was broken for its *entire* scheduled lifetime (~13.5 days, 2026-07-07
+  onward) before this fix — 100% failure rate, zero automatic corroboration
+  alerts in that window. Not retroactively recoverable, but the exposure is
+  now closed and documented.
+- **Groq LLM fallback — IMPLEMENTED, awaiting merge.** `jpt_common
+  .generate_narrative()` retries the primary Groq key twice, then falls back
+  to a secondary key (`GROQ_API_KEY_FALLBACK`), logging
+  `provider=primary|fallback|none` to `activity_log` every call. Verified live
+  end-to-end against the real fallback key. On `feat/llm-fallback` (see
+  "Awaiting review" above); prod env var still needed (see "Open action
+  items").
+- **`generate_brief.py` dead cron entry — FIXED, awaiting merge.** Was
+  registered at the wrong path, 100% failure since 2026-07-10 (~11 days) —
+  superseded by `scripts/morning_brief.py`, so the entry was removed rather
+  than path-fixed. On `fix/remove-dead-generate-brief-job`.
+- **Disk usage at 92% — reported fixed (resized to 5GB).** *(Not independently
+  verified this session — carried over from a prior audit.)*
+- **pdfplumber / pillow missing — FIXED** (added to requirements.txt, merged).
 
 ---
 

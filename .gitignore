@@ -7,3 +7,4 @@ Scope/data/moat/
 Scope/scripts/.fara_cache.json
 *.csv
 Scope/data/backups/
+.obsidian/
