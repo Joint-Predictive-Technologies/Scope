@@ -5,7 +5,7 @@ stage: iPhone-1
 status: implemented
 priority: critical
 tags: [rules, architecture, scoring]
-related: [[Scoring System]], [[Data Hierarchy]]
+related: [[Scoring System]], [[Master Plan]]
 ---
 
 # RULE Design Decisions
