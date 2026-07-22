@@ -244,6 +244,7 @@ inside them. Violating one is how the moat gets silently destroyed.
 
 | Risk | Severity | Status / mitigation |
 |---|---|---|
+| RULE_06 (Form 4) times out every run — no insider-trade data collected | High | Detected 2026-07-22. Root cause: 7-day full re-scan × serial fetch × 300s limit. Fix drafted (human-gated, not applied): [[RULE_06 Timeout Fix Plan]]. Safety net catching it. See [[Production Health]]. |
 | No off-volume DB backup | **Critical** | Phase 0. Local snapshots share the primary failure domain. `upload_remote()` is storage-ready — needs creds only. *(Restore **procedure** verified 2026-07-21 — see Phase 0; the residual risk is now purely the missing off-volume copy, not an unproven restore.)* |
 | Reasoning layer unstarted while it's the whole defensibility story | High | Accepted for now — correctly gated on calibration (Phase 1). Risk is *delay*, not *direction*. |
 | `enrich_scores` is a single point of failure (~15 path-(b) rules) | Medium | Guarded by hourly `MONITOR_ENRICH_STALL`. Not migrating working scripts. |
@@ -270,6 +271,11 @@ inside them. Violating one is how the moat gets silently destroyed.
 
 *One line per update. Newest first. This is how the plan proves it's alive.*
 
+- **2026-07-22** — Verified prod is actively collecting data (32 jobs, 17 sources /
+  180 alerts in a 3h window). Found RULE_06 (Form 4) timing out every run — added
+  to risk register, [[Current Blockers]], and drafted [[RULE_06 Timeout Fix Plan]].
+  Vault reorganised: added the `07_Operations` domain ([[Production Health]] + fix
+  plans) and refreshed the index.
 - **2026-07-21** — Restore procedure verified end-to-end against a scratch copy
   (preferred snapshot + fallback raw copy; `integrity_check=ok`, counts match
   source). Phase 0 restore box checked. Critical backup risk narrowed to "no

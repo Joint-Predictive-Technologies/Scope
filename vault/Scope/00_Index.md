@@ -2,49 +2,59 @@
 type: index
 status: active
 tags: [index, map-of-content]
-last-reviewed: 2026-07-21
+last-reviewed: 2026-07-22
 ---
 
 # Scope — Vault Index
 
-Knowledge base for Scope, the political-market intelligence terminal. Start
-with the Master Plan; everything else is detail hanging off it.
+Knowledge base for Scope, the political-market intelligence terminal. Start with
+the Master Plan; everything else is detail hanging off it. The vault is organised
+by domain (numbered folders): **plan → how it works → what's live → what's
+broken → what we decided → the moat → sessions.**
 
 ## Start here
 
 - **[[Master Plan]]** — the living long-term plan: what Scope is at the end, the
-  phased path from here to there, the constraints that path respects, and the
-  risk register. **The source-of-truth roadmap.**
+  phased path from here to there, the constraints it respects, and the risk
+  register. **The source-of-truth roadmap.**
 
-## Roadmap (`03_Roadmap/`)
+## `03_Roadmap/` — the plan
 
 - [[Master Plan]] — North Star + phases 0→4 (living).
 - [[iPhone Stage Progress]] — stage-by-stage status against the maturity ladder.
 - [[Roadmap Tracking]] — short-horizon: what's in flight this week.
 
-## Architecture (`01_Architecture/`)
+## `01_Architecture/` — how it works
 
 - [[Scoring System]] — Evidence Confidence + Opportunity, how they're computed.
 - [[RULE Design Decisions]] — rule mechanics, thresholds, score immutability.
 
-## Data moat (`06_Data_Moat/`)
+## `07_Operations/` — production health & fixes
 
-- [[Outcome Tracking Status]] — the calibration dataset; the defensible moat.
+- [[Production Health]] — live-system health log + how to re-check the deployment.
+- [[RULE_06 Timeout Fix Plan]] — proposed remediation for the Form 4 timeout
+  (human-gated, awaiting approval).
 
-## Known issues (`04_Known_Issues/`)
+## `04_Known_Issues/` — what's blocked
 
 - [[Current Blockers]] — active blockers + pending human decisions.
 
-## Sessions (`02_Sessions/`)
+## `06_Data_Moat/` — the moat
 
-- Work-log per session. Use `SESSION_TEMPLATE` for new entries.
+- [[Outcome Tracking Status]] — the calibration dataset; the defensible moat.
 
-## Decisions (`05_Decisions/`)
+## `05_Decisions/` — settled decisions
 
 - One file per architecture decision (rationale + date). See its `README`.
+
+## `02_Sessions/` — work log
+
+- One entry per session (`SESSION_TEMPLATE` for new ones). Latest:
+  `2026-07-22` (prod verification + RULE_06), `2026-07-21` (status reconciliation).
 
 ---
 
 **Conventions:** `Scope/CLAUDE.md` is engineering ground truth and wins over the
-vault on any factual conflict. Scoring/ingestion changes are human-gated (no
-scoring subagent by design). Keep the Master Plan's Change Log current.
+vault on any factual conflict. Scoring/ingestion/rule changes are human-gated (no
+scoring subagent by design). Note filenames match their `[[wikilink]]` titles.
+Keep the Master Plan's Change Log and [[Production Health]] current.

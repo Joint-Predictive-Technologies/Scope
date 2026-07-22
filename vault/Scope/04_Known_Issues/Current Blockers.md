@@ -5,12 +5,23 @@ stage: iPhone-1
 status: active
 priority: critical
 tags: [blockers, production, infrastructure]
-related: [[In-Flight Sessions]], [[Roadmap Tracking]]
+related: [[Roadmap Tracking]], [[Production Health]]
 ---
 
 # Current Blockers and Open Items
 
 Issues actively blocking progress or needing a human decision.
+
+## Production (active)
+
+- **RULE_06 (Form 4) times out every run — data gap.** `rule_06_form4.py` re-scans
+  a 7-day window (~1,950 filings) serially on a 2-hour job and is killed at the
+  300s subprocess limit before finishing, so it records **no activity and collects
+  no SEC Form 4 data**. The scheduler safety net logs it as CRITICAL
+  `SCHEDULER_JOB_FAILURE` (caught, not silent). Diagnosed 2026-07-22. Remediation
+  drafted (human-gated, not applied): **[[RULE_06 Timeout Fix Plan]]** — ship
+  Phase A (incremental window + time budget, no schema change) first. See
+  [[Production Health]].
 
 ## Infrastructure
 
