@@ -9,6 +9,7 @@ from the executive's historical pattern and emits RULE_06 alerts.
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from datetime import date, timedelta
 
 import requests
 
-from jpt_common import db_connection
+from jpt_common import db_connection, _get_db_path
 
 
 RULE = "RULE_06"
@@ -27,10 +28,25 @@ HEADERS = {
     "User-Agent": "Scope/0.1 sloppysecondstbb@gmail.com",
     "Accept-Encoding": "gzip, deflate",
 }
-SLEEP = 0.5
+SLEEP = 0.15            # SEC fair-access allows ~10 req/s with a contact UA; stay well under
 HISTORY_COUNT = 5
 MIN_VALUE = 50_000.0
 MIN_MULTIPLE = 2.0
+
+# Per-run wall-clock budget. The scheduler kills this subprocess at 300s; finish
+# and record activity gracefully before then instead of being hard-killed.
+TIME_BUDGET_SECONDS = 240
+# Incremental scan-window bounds (days back from today). EDGAR date bounds are
+# inclusive, so MIN_DAYS=1 scans yesterday+today — enough to cover the midnight
+# boundary and same-day indexing, with the 2-hour cadence (12 runs/day) as
+# redundancy. Kept small so a run fits the time budget and completes.
+WINDOW_MIN_DAYS = 1     # always look back at least this far
+WINDOW_MAX_DAYS = 7     # never look back more than this far (catch-up ceiling)
+
+# Run-scoped caches (cleared at the top of run()) — avoid refetching the same
+# owner's submissions or the same filing XML twice within a single run.
+_SUBMISSIONS_CACHE: dict[str, dict | None] = {}
+_XML_CACHE: dict[str, str | None] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +56,34 @@ MIN_MULTIPLE = 2.0
 def _get(url: str, params: dict | None = None) -> requests.Response:
     time.sleep(SLEEP)
     return requests.get(url, headers=HEADERS, params=params, timeout=20)
+
+
+def _incremental_since(today_iso: str) -> str:
+    """Scan-window start date: the last successful RULE_06 run minus a 1-day
+    overlap, clamped to [today-WINDOW_MAX_DAYS, today-WINDOW_MIN_DAYS].
+
+    Falls back to today-WINDOW_MIN_DAYS when the rule has no prior successful run
+    (e.g. the first run after this fix, or if the DB is unreachable). Uses a
+    read-only connection so it never triggers migrations or a backup.
+    """
+    today = date.fromisoformat(today_iso)
+    near = today - timedelta(days=WINDOW_MIN_DAYS)   # always look back >= MIN
+    far = today - timedelta(days=WINDOW_MAX_DAYS)    # never look back  > MAX
+    since = near
+    try:
+        conn = sqlite3.connect(f"file:{_get_db_path(None)}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT MAX(run_at) FROM activity_log WHERE source = ?", (RULE,)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row and row[0]:
+            since = date.fromisoformat(str(row[0])[:10]) - timedelta(days=1)
+    except Exception:
+        since = near
+    # clamp into [far, near]
+    return max(far, min(since, near)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +198,17 @@ def _xml_text(root: ET.Element, path: str) -> str:
 
 
 def fetch_filing_xml(ref: FilingRef) -> str | None:
-    """Return raw XML text for the filing, or None on failure."""
+    """Return raw XML text for the filing, or None on failure. Memoized per run
+    by accession number, so a filing already fetched as a current ref isn't
+    re-fetched when it reappears in an owner's history."""
+    if ref.adsh in _XML_CACHE:
+        return _XML_CACHE[ref.adsh]
+    result = _fetch_filing_xml_uncached(ref)
+    _XML_CACHE[ref.adsh] = result
+    return result
+
+
+def _fetch_filing_xml_uncached(ref: FilingRef) -> str | None:
     accession_clean = ref.adsh.replace("-", "")
 
     if ref.filename:
@@ -226,17 +280,34 @@ def parse_form4(xml_text: str) -> ParsedFiling | None:
 # Historical average — last N Form 4 filings for the same owner
 # ---------------------------------------------------------------------------
 
+def _submissions_recent(owner_cik: str) -> dict | None:
+    """Owner's `filings.recent` block from EDGAR submissions, memoized per run.
+
+    The same owner can appear on several filings in one window; the submissions
+    list is identical for all of them, so fetch it at most once per owner.
+    """
+    if owner_cik in _SUBMISSIONS_CACHE:
+        return _SUBMISSIONS_CACHE[owner_cik]
+    recent: dict | None = None
+    r = _get(f"{EDGAR_SUBMISSIONS}/CIK{owner_cik.zfill(10)}.json")
+    if r.status_code == 200:
+        try:
+            recent = r.json().get("filings", {}).get("recent", {})
+        except ValueError:
+            recent = None
+    _SUBMISSIONS_CACHE[owner_cik] = recent
+    return recent
+
+
 def historical_avg(owner_cik: str, skip_adsh: str) -> float | None:
     """
     Return the mean total P/S value across the last HISTORY_COUNT Form 4
     filings for this owner (excluding the current filing). None if no history.
     """
-    cik_padded = owner_cik.zfill(10)
-    r = _get(f"{EDGAR_SUBMISSIONS}/CIK{cik_padded}.json")
-    if r.status_code != 200:
+    recent = _submissions_recent(owner_cik)
+    if recent is None:
         return None
 
-    recent = r.json().get("filings", {}).get("recent", {})
     forms = recent.get("form", [])
     accessions = recent.get("accessionNumber", [])
 
@@ -309,15 +380,25 @@ def _fmt_dollars(value: float) -> str:
 def run(since: str, today: str, emit_alerts: bool) -> tuple[int, int]:
     """Return (significant_count, alerts_emitted)."""
     _t0 = time.time()
+    _SUBMISSIONS_CACHE.clear()
+    _XML_CACHE.clear()
+
     refs = search_form4_filings(since, today)
 
-    scanned = len(refs)
+    total = len(refs)
+    processed = 0
     significant = 0
     emitted = 0
+    budget_hit = False
 
     conn = db_connection() if emit_alerts else None
 
     for ref in refs:
+        if time.time() - _t0 > TIME_BUDGET_SECONDS:
+            budget_hit = True
+            break
+        processed += 1
+
         xml_text = fetch_filing_xml(ref)
         if not xml_text:
             continue
@@ -371,9 +452,14 @@ def run(since: str, today: str, emit_alerts: bool) -> tuple[int, int]:
     if conn is not None:
         conn.close()
 
+    note = (
+        f"time budget hit: processed {processed}/{total} in window {since}..{today}"
+        if budget_hit
+        else f"window {since}..{today}, processed {processed}"
+    )
     from jpt_common import record_activity
-    record_activity("RULE_06", scanned=scanned, flagged=significant, emitted=emitted,
-                    duration_seconds=round(time.time() - _t0, 2))
+    record_activity("RULE_06", scanned=processed, flagged=significant, emitted=emitted,
+                    duration_seconds=round(time.time() - _t0, 2), notes=note)
     return significant, emitted
 
 
@@ -383,8 +469,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--since",
-        default=(date.today() - timedelta(days=7)).isoformat(),
-        help="Start date YYYY-MM-DD. Default: 7 days ago.",
+        default=None,
+        help="Start date YYYY-MM-DD. Default: incremental "
+             "(last successful run − 1 day, clamped to a 2–7 day window).",
     )
     parser.add_argument(
         "--emit-alerts",
@@ -399,12 +486,13 @@ def main() -> None:
     args = parser.parse_args()
 
     today = date.today().isoformat()
-    if args.since > today:
+    since = args.since or _incremental_since(today)
+    if since > today:
         print("ERROR: --since date is in the future.")
         raise SystemExit(1)
 
-    print(f"Scanning Form 4 filings from {args.since} to {today} ...")
-    significant, emitted = run(args.since, today, args.emit_alerts)
+    print(f"Scanning Form 4 filings from {since} to {today} ...")
+    significant, emitted = run(since, today, args.emit_alerts)
     print(f"{significant} significant filings found, {emitted} alerts emitted")
 
 
