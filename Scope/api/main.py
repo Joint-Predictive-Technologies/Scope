@@ -284,6 +284,18 @@ app.include_router(filter_router.router, prefix="/filter",   tags=["Filter"])
 app.include_router(social.router,        prefix="/social",    tags=["Social"])
 app.include_router(backtest.router,      prefix="/backtest",  tags=["Backtest"])
 app.include_router(sectors.router,       prefix="/sectors",   tags=["Sectors"])
+@app.get("/digest", include_in_schema=False)
+def digest_entry(request: Request):
+    """Content-negotiated entry (registered BEFORE the digest router so the JSON
+    root no longer shadows the page): browsers (Accept: text/html) get the
+    tokenized digest.html; the page's own fetch('/digest') and API clients get
+    the weekly-digest JSON."""
+    if "text/html" in request.headers.get("accept", ""):
+        return FileResponse(STATIC_DIR / "digest.html")
+    from api.routers.digest import get_digest
+    return get_digest()
+
+
 app.include_router(digest.router,        prefix="/digest",    tags=["Digest"])
 app.include_router(brief.router,         prefix="/brief",     tags=["Brief"])
 app.include_router(contracts.router,     prefix="/contracts", tags=["Contracts"])
@@ -737,9 +749,8 @@ def backtest_page():
 def sectors_page():
     return FileResponse(STATIC_DIR / "sectors.html")
 
-@app.get("/digest", response_class=HTMLResponse, include_in_schema=False)
-def digest_page():
-    return FileResponse(STATIC_DIR / "digest.html")
+# NOTE: /digest is served by digest_entry() (content-negotiated) registered above
+# the digest router — it replaced the old digest_page() that the JSON router shadowed.
 
 @app.get("/brief", response_class=HTMLResponse, include_in_schema=False)
 def brief_page():

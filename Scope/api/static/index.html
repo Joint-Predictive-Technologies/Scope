@@ -153,7 +153,7 @@
 
     /* Confidence tooltip */
     .conf-wrap { position: relative; display: inline-block; cursor: help; }
-    .conf-tooltip { display: none; position: absolute; top: 100%; left: 0; z-index: 50; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.7rem 0.9rem; min-width: 200px; font-family: var(--font-mono); font-size: 0.6rem; color: var(--cream2); line-height: 1.7; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+    .conf-tooltip { display: none; position: absolute; top: 100%; left: 0; z-index: 50; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.7rem 0.9rem; min-width: 200px; font-family: var(--font-mono); font-size: 0.6rem; color: var(--cream2); line-height: 1.7; white-space: nowrap; }
     .conf-wrap:hover .conf-tooltip { display: block; }
     .conf-tooltip .ct-row { display: flex; justify-content: space-between; gap: 1rem; }
     .conf-tooltip .ct-row .val { color: var(--amber2); }
@@ -286,7 +286,7 @@
     /* ── EVIDENCE DRAWER ── */
     #ev-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 8000; backdrop-filter: blur(3px); }
     #ev-backdrop.open { display: block; }
-    #ev-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(460px, 94vw); background: #16140f; border-left: 1px solid var(--border2); box-shadow: -12px 0 40px rgba(0,0,0,0.5); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; }
+    #ev-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(460px, 94vw); background: #16140f; border-left: 1px solid var(--border2); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; }
     #ev-backdrop.open #ev-drawer { transform: translateX(0); }
     .ev-head { display: flex; align-items: flex-start; gap: 0.6rem; padding: 1.1rem 1.2rem; border-bottom: 1px solid var(--border); }
     .ev-head-main { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; }
@@ -328,7 +328,7 @@
     /* ── CMD PALETTE ── */
     #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
     #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
-    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7); }
+    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; }
     #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:var(--font-mono); font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
     #cmd-results { max-height:360px; overflow-y:auto; }
     .cmd-group-label { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }

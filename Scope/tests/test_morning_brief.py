@@ -51,7 +51,11 @@ def test_brief_with_alerts_renders_headline():
     assert "Insider buying NVDA" in out["text"]
     assert out["meta"]["headline_rule"] == "RULE_06"
     assert out["meta"]["sections_populated"] >= 1
-    assert 'id="headline"' in out["html"]        # permalink anchor
+    # The old headline card is replaced by the synthesized serif hero. With two
+    # single-source tickers there is no convergence, so the hero honestly names
+    # the strongest single signal (NVDA) and offers its war-room link.
+    assert "<h1>" in out["html"] and "NVDA" in out["html"]
+    assert "Open strongest war room" in out["html"]
     assert "SYSTEM HEALTH" in out["text"]         # health always present
 
 
