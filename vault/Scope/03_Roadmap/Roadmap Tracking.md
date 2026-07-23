@@ -14,13 +14,21 @@ What's in flight, what's up next, dependencies. This is the short-horizon view;
 the long-term phased plan it feeds into lives in [[Master Plan]] (the queued
 items below map to **Phase 0** and **Phase 1** there).
 
-*Last reconciled: 2026-07-21 (branch/merge state verified against `main`).*
+*Last reconciled: 2026-07-23 (two feature branches added; base = `origin/main`).*
 
 ## In Flight / Awaiting Review
 
-Nothing is actively being coded right now. Two branches are complete and
-pushed, waiting only on a review/merge decision (confirmed in sync with
-origin on 2026-07-21):
+Four branches are complete and pushed, awaiting a review/merge decision.
+
+**New this session (2026-07-23, both off `origin/main`):**
+
+- `feat/alert-provenance` — factual "receipts" block on alert cards (feed, ticker,
+  thesis; cluster war room already native). Server-assembled, additive, tested.
+- `feat/brief-as-landing` — `/` lands on today's cached morning brief with
+  yesterday/feed fallbacks (never generates on load); feed preserved at `/feed`.
+  See [[2026-07-23-brief-as-default-landing]].
+
+**Carried over (2026-07-21):**
 
 - `feat/llm-fallback` (`9f77654`) — Groq primary/fallback narrative generation
 - `fix/remove-dead-generate-brief-job` (`d3687eb`) — dead cron entry removal
