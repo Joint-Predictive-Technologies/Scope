@@ -52,26 +52,28 @@ def resolve_landing(conn, today: str, yesterday: str) -> Tuple[str, Optional[str
     return ("feed", None, None)
 
 
-# Styled with design tokens (the brief HTML this bar is injected into links
-# /tokens.css), so the sticky bar tracks the current copper/mono system instead
-# of the pre-design-pass amber + IBM Plex values it used to hard-code.
+# Fallback-notice banner ONLY. The old bar also carried a "Morning Brief |
+# See raw feed →" toggle; that toggle is removed — the main page IS the
+# experience and the feed is now a first-class nav tab, so the toggle was
+# redundant chrome. This banner appears only when we're serving a fallback
+# (yesterday's brief), to explain why. Static (not sticky) so it never overlaps
+# the sticky nav. Tokenized (the brief links /tokens.css).
 _BAR_TMPL = (
-    '<div class="scope-brief-bar" style="position:sticky;top:0;z-index:9999;'
+    '<div class="scope-brief-bar" style="'
     'background:var(--surface-2,#181610);border-bottom:1px solid var(--border-subtle,#2a2620);'
     'color:var(--text-secondary,#c8bfa8);'
-    'font-family:var(--font-mono,monospace);font-size:.72rem;padding:8px 16px;'
-    'display:flex;gap:16px;align-items:center;justify-content:space-between'
-    '"><span>{left}</span>'
-    '<a href="/feed" style="color:var(--accent,#c8922a);text-decoration:none;white-space:nowrap">'
-    'See raw feed &rarr;</a></div>'
+    'font-family:var(--font-mono,monospace);font-size:.72rem;padding:8px 16px;text-align:center'
+    '">{left}</div>'
 )
 
 
 def inject_brief_header(html: str, notice: Optional[str] = None) -> str:
-    """Prepend a sticky bar to the cached brief HTML: the fallback notice (if any)
-    plus an always-visible 'See raw feed →' link."""
-    left = _html.escape(notice) if notice else "Morning Brief"
-    bar = _BAR_TMPL.format(left=left)
+    """Prepend a fallback-notice banner to the cached brief HTML, but ONLY when
+    there is a notice (i.e. we're serving yesterday's brief). In the normal case
+    (today's brief) nothing is injected — the page stands on its own."""
+    if not notice:
+        return html
+    bar = _BAR_TMPL.format(left=_html.escape(notice))
     if "<body>" in html:
         return html.replace("<body>", "<body>" + bar, 1)
     return bar + html

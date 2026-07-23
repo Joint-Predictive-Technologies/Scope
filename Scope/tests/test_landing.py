@@ -57,10 +57,16 @@ def test_missing_briefs_table_degrades_to_feed():
     assert mode == "feed"
 
 
-def test_header_injection_adds_feed_link_and_notice():
+def test_header_injection_shows_fallback_notice_only():
+    # With a fallback notice: a banner carries the notice text, injected before
+    # the content. The old "See raw feed →" toggle is removed (feed is a nav tab).
     out = inject_brief_header("<html><body>X</body></html>", "note here")
-    assert "See raw feed" in out and "note here" in out
-    assert out.index("scope-brief-bar") < out.index("X")  # bar before content
+    assert "note here" in out and "scope-brief-bar" in out
+    assert "See raw feed" not in out
+    assert out.index("scope-brief-bar") < out.index("X")  # banner before content
+    # Normal case (no notice): nothing is injected — the page stands on its own.
+    plain = inject_brief_header("<html><body>X</body></html>", None)
+    assert "scope-brief-bar" not in plain
 
 
 # --- integration: the actual routing behavior -------------------------------
@@ -90,7 +96,8 @@ def _run_integration():
     # 1) today's brief present → served at /
     state["conn"] = _db([(TODAY, "<html><body>TODAY BRIEF</body></html>")])
     r = c.get("/")
-    assert r.status_code == 200 and "TODAY BRIEF" in r.text and "See raw feed" in r.text
+    # Today's brief served verbatim; no fallback banner injected (notice is None).
+    assert r.status_code == 200 and "TODAY BRIEF" in r.text and "scope-brief-bar" not in r.text
 
     # 2) today missing, yesterday present → yesterday + notice
     state["conn"] = _db([(YDAY, "<html><body>YDAY BRIEF</body></html>")])
