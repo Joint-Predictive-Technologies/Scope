@@ -24,7 +24,7 @@
     .ticker-symbol { font-family: var(--font-display); font-size: 3rem; font-weight: 900; color: var(--amber); }
     .ticker-meta-line { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-top: 0.4rem; }
     .ticker-cap { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--cream2); margin-top: 0.3rem; }
-    .ticker-summary { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.4rem; display: flex; gap: 2rem; flex-wrap: wrap; }
+    .ticker-summary { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem 1.4rem; display: flex; gap: 2rem; flex-wrap: wrap; }
     .sum-stat { text-align: center; }
     .sum-val { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--amber); }
     .sum-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
@@ -34,7 +34,7 @@
     .show-more-btn:hover { border-color: var(--amber); background: rgba(200,146,42,0.08); }
 
     /* TIMELINE */
-    .timeline-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1.4rem; overflow-x: auto; }
+    .timeline-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.4rem; overflow-x: auto; }
     .timeline-rules { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-bottom: 1.2rem; }
     .rule-dot { display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; color: var(--cream2); }
     .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -89,7 +89,7 @@
     .loading { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; padding: 2rem 0; }
 
     /* RELATIONSHIP GRAPH */
-    .graph-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 0; overflow: hidden; }
+    .graph-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0; overflow: hidden; }
     .graph-wrap svg { display: block; width: 100%; }
     .graph-filter-note { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); padding: 0.5rem 1rem; }
     .rule-node { cursor: pointer; }
@@ -100,7 +100,7 @@
     /* ── CMD PALETTE ── */
     #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
     #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
-    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; box-shadow:0 24px 60px rgba(0,0,0,0.7); }
+    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius: var(--radius-md); width:min(640px,92vw); overflow:hidden; }
     #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
     #cmd-results { max-height:360px; overflow-y:auto; }
     .cmd-group-label { font-family:'IBM Plex Mono',monospace; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
