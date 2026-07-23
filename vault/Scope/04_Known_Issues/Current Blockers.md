@@ -12,6 +12,29 @@ related: [[In-Flight Sessions]], [[Roadmap Tracking]]
 
 Issues actively blocking progress or needing a human decision.
 
+## Data gaps — alert provenance ("receipts") follow-up (2026-07-23)
+
+Surfaced by the `feat/alert-provenance` audit. Several rules don't capture enough
+provenance at **ingestion time** to build strong receipts. Not fixed this session
+(ingestion changes were out of scope); the receipts block degrades gracefully and
+flags each gap honestly. Follow-up tickets, highest value first:
+
+- **RULE_06 (Form 4 insider) — highest value.** Stores only `name,action,multiple`
+  in `tags`; **no SEC Form 4 URL and no structured transaction detail**
+  (shares/price/date). Capture the Form 4 accession URL + txn fields at ingestion.
+- **RULE_01B (first-touch trade).** Has member + action + date but **no PTR
+  filing_url**, even though RULE_CLUSTER already stores one per member. Add the PTR
+  PDF link.
+- **RULE_02 (7-day cluster).** `detail` empty; member names are comma-joined in
+  `tags` (unparseable — names contain commas) with no per-member detail or links.
+- **RULE_08 / RULE_09.** `detail` empty; no source URL (Federal Register doc /
+  lobbying disclosure).
+- **RULE_11 (contracts).** `award_id` stored but **no USASpending URL** captured.
+- **RULE_14 / RULE_15 / RULE_TELEGRAM_OSINT / RULE_ADSB.** No `source_url` stored.
+
+These are **ingestion/rule changes → human-gated** (DATA-LOSS class); do not
+automate. See [[2026-07-23-provenance-and-brief-landing]] for the full audit table.
+
 ## Infrastructure
 
 - **Database backups:** Automated locally (verified compressed daily snapshot,
