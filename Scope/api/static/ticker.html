@@ -66,9 +66,9 @@
     .alert-card.expanded { border-color: var(--amber); }
     .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
-    .badge-CRITICAL { background: rgba(192,57,43,0.18); color: #e55b4d; border: 1px solid rgba(192,57,43,0.3); }
-    .badge-HIGH     { background: rgba(200,146,42,0.15); color: var(--amber2); border: 1px solid rgba(200,146,42,0.3); }
-    .badge-MEDIUM   { background: rgba(42,100,160,0.15); color: #6ab0e0; border: 1px solid rgba(42,100,160,0.25); }
+    .badge-CRITICAL { background: color-mix(in srgb, var(--severity-critical) 16%, transparent); color: var(--severity-critical); border: 1px solid color-mix(in srgb, var(--severity-critical) 32%, transparent); }
+    .badge-HIGH     { background: color-mix(in srgb, var(--severity-high) 15%, transparent); color: var(--accent-bright); border: 1px solid color-mix(in srgb, var(--severity-high) 32%, transparent); }
+    .badge-MEDIUM   { background: color-mix(in srgb, var(--severity-medium) 18%, transparent); color: var(--text-secondary); border: 1px solid color-mix(in srgb, var(--severity-medium) 30%, transparent); }
     .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
     .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
     .alert-time { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
@@ -127,21 +127,25 @@
   </style>
 <style>
 /* --- alert receipts (provenance block) --- */
-details.receipts{margin-top:.55rem;border-left:2px solid var(--amber,#d99a2b);padding-left:.7rem}
-details.receipts>summary{cursor:pointer;list-style:none;font-size:.72rem;color:var(--cream2,#d8cfc0)}
+/* receipts — the evidence block; amplified + tokenized (Principle 2) */
+details.receipts{margin-top:var(--space-2);background:var(--bg-1);border:1px solid var(--border);border-left:2px solid var(--accent);border-radius:var(--radius-sm);padding:var(--space-2) var(--space-3)}
+details.receipts>summary{cursor:pointer;list-style:none;display:flex;align-items:baseline;gap:var(--space-2);font-size:var(--text-sm);color:var(--text-secondary)}
 details.receipts>summary::-webkit-details-marker{display:none}
 details.receipts>summary::marker{content:''}
-.receipts-label{font-family:'IBM Plex Mono',monospace;font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--amber,#d99a2b);margin-right:.5rem}
-.receipts-summary{font-family:'IBM Plex Mono',monospace}
-details.receipts[open]>summary{margin-bottom:.45rem}
-.receipts-body{display:flex;flex-direction:column;gap:.35rem}
-.receipt-item{display:flex;flex-wrap:wrap;gap:.5rem;align-items:baseline;font-size:.78rem;color:var(--cream2,#d8cfc0)}
-.receipt-primary{font-weight:600}
-.receipt-secondary{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--muted,#8a8175)}
-a.receipt-link{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--amber,#d99a2b);text-decoration:none;white-space:nowrap}
+details.receipts>summary:hover .receipts-summary{color:var(--text-primary)}
+.receipts-label{font-family:var(--font-mono);font-size:var(--text-xs);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--accent);flex-shrink:0}
+.receipts-summary{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+details.receipts[open]>summary{margin-bottom:var(--space-2);padding-bottom:var(--space-2);border-bottom:1px solid var(--border)}
+.receipts-body{display:flex;flex-direction:column;gap:var(--space-2)}
+details.receipts[open] .receipts-body{animation:receipts-reveal var(--dur-mid) var(--ease-out)}
+@keyframes receipts-reveal{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+.receipt-item{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;font-size:var(--text-sm);color:var(--text-secondary)}
+.receipt-primary{font-weight:var(--weight-medium);color:var(--text-primary)}
+.receipt-secondary{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary);font-variant-numeric:tabular-nums}
+a.receipt-link{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--accent);text-decoration:none;white-space:nowrap}
 a.receipt-link:hover{text-decoration:underline}
-.receipt-source{margin-top:.15rem}
-.receipt-gap{font-size:.7rem;color:var(--muted,#8a8175);font-style:italic}
+.receipt-source{margin-top:var(--space-1)}
+.receipt-gap{font-size:var(--text-xs);color:var(--text-tertiary);font-style:italic}
 </style>
 <script>
 /* renderReceipts — factual alert provenance (server-assembled; never LLM). */
