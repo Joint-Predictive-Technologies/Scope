@@ -5,20 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Alerts — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red: #c0392b; --green: #2a8a4a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
 
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-display); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; }
     .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
@@ -32,7 +26,7 @@
     .page { max-width: 1000px; margin: 0 auto; padding: 3rem 2rem; }
     .page-header { margin-bottom: 1.5rem; }
     .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
-    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); }
+    .page-title { font-family: var(--font-display); font-size: 2rem; font-weight: 700; color: var(--cream); }
 
     /* THESIS */
     .thesis-row { display: flex; gap: 0.6rem; margin-bottom: 1.2rem; }

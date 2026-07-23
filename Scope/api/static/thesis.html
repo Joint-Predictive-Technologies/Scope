@@ -5,19 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Thesis War Room — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-display); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
     .nav-links a:hover { color: var(--amber); }
@@ -30,7 +24,7 @@
     .st-saturated { background: rgba(122,112,96,0.15); color: var(--muted); }
     .st-fading { background: rgba(122,112,96,0.15); color: var(--muted); }
     .st-resolved { background: rgba(77,196,122,0.14); color: var(--green-light); }
-    .t-title { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
+    .t-title { font-family: var(--font-display); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
     .t-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); }
     .tick-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; text-decoration: none; }
     .tick-chip:hover { border-color: var(--amber); }
@@ -38,7 +32,7 @@
     .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
     .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
     .score-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    .score-value { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 800; line-height: 1.1; }
+    .score-value { font-family: var(--font-display); font-size: 2rem; font-weight: 800; line-height: 1.1; }
     .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
     .bar > span { display: block; height: 100%; }
     .score-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem 1rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--cream2); }

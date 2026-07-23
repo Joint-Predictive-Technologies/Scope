@@ -5,20 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ticker — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red: #c0392b; --green: #2a8a4a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
+    .nav-brand { font-family: var(--font-display); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
     .nav-links { display: flex; gap: 2rem; align-items: center; }
     .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
     .nav-links a:hover { color: var(--amber); }
@@ -27,12 +21,12 @@
     .page { max-width: 900px; margin: 0 auto; padding: 3rem 2rem; }
 
     .ticker-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 2.5rem; flex-wrap: wrap; }
-    .ticker-symbol { font-family: 'Playfair Display', serif; font-size: 3rem; font-weight: 900; color: var(--amber); }
+    .ticker-symbol { font-family: var(--font-display); font-size: 3rem; font-weight: 900; color: var(--amber); }
     .ticker-meta-line { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.06em; margin-top: 0.4rem; }
     .ticker-cap { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--cream2); margin-top: 0.3rem; }
     .ticker-summary { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.4rem; display: flex; gap: 2rem; flex-wrap: wrap; }
     .sum-stat { text-align: center; }
-    .sum-val { font-family: 'Playfair Display', serif; font-size: 1.6rem; font-weight: 700; color: var(--amber); }
+    .sum-val { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; color: var(--amber); }
     .sum-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
     .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
@@ -435,7 +429,7 @@ function renderReceipts(r){
 
     const center = `<g transform="translate(${CX},${CY})">
       <circle r="${centerR}" fill="#c8922a" fill-opacity="0.9"/>
-      <text dy="0.35em" text-anchor="middle" fill="#0c0b09" font-family="Playfair Display,serif" font-size="11" font-weight="700">${symbol}</text>
+      <text dy="0.35em" text-anchor="middle" fill="#0c0b09" font-family=var(--font-display)" font-size="11" font-weight="700">${symbol}</text>
     </g>`;
 
     return `

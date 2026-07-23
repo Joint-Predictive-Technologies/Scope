@@ -1,0 +1,102 @@
+/* ============================================================================
+   Scope — Design Tokens (single source of truth)
+   Refero-inspired: dense, dark, information-forward, terminal-adjacent.
+   Elevation is communicated by --bg-0/1/2 layering + borders ONLY — no
+   shadows, no gradients, no glow, no glassmorphism.
+   Two font families only: sans (Inter) + mono (IBM Plex Mono).
+   ============================================================================ */
+:root {
+  /* ---- color: surfaces (elevation by layering) ---- */
+  --bg-0: #0b0a08;          /* deep warm near-black — page background */
+  --bg-1: #131109;          /* elevated surface — cards, panels */
+  --bg-2: #1c1810;          /* further elevated — hover / active surfaces */
+  --border: #2a2620;        /* subtle divider */
+  --border-strong: #3a3428; /* stronger divider / active edge */
+
+  /* ---- color: text ---- */
+  --text-primary: #e8e0cc;    /* near-white, warm — not pure #fff */
+  --text-secondary: #c0b6a0;  /* dimmed — secondary content */
+  --text-tertiary: #83795f;   /* further dimmed — metadata */
+
+  /* ---- color: accent (used sparingly) ---- */
+  --accent: #c8922a;          /* amber — brand + non-severity emphasis */
+  --accent-bright: #e8aa3a;
+
+  /* ---- color: severity / direction (strategic, sparse) ---- */
+  --severity-critical: #e5544a;
+  --severity-high:     #d9932b;
+  --severity-medium:   #8a8175;
+  --direction-buy:     #4dc47a;
+  --direction-sell:    #e5544a;   /* shares hue with critical, by design */
+  --link:              #6ab0e0;
+
+  /* ---- typography ---- */
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-display: var(--font-sans);   /* serif retired — titles use sans */
+
+  --text-xs:   0.68rem;
+  --text-sm:   0.78rem;
+  --text-base: 0.86rem;
+  --text-lg:   1.0rem;
+  --text-xl:   1.25rem;
+  --text-2xl:  1.6rem;
+
+  --leading-tight:  1.25;
+  --leading-normal: 1.55;
+
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-bold:   700;
+
+  --tracking-label: 0.08em;   /* uppercase mono labels */
+
+  /* ---- spacing: 4px grid ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---- radius (restrained — this is a terminal) ---- */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+
+  /* ---- motion (functional only) ---- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-mid:  220ms;
+  --dur-slow: 400ms;
+
+  /* ========================================================================
+     Legacy aliases → canonical tokens.
+     Existing pages reference these older names; mapping them here makes the
+     token file the single source of truth and resolves prior per-page
+     inconsistencies (e.g. --red / --green differed between pages) to ONE value.
+     New/retokenized code should prefer the canonical names above.
+     ======================================================================== */
+  --bg:  var(--bg-0);
+  --bg2: var(--bg-1);
+  --bg3: var(--bg-2);
+  --cream:  var(--text-primary);
+  --cream2: var(--text-secondary);
+  --muted:  var(--text-tertiary);
+  --amber:  var(--accent);
+  --amber2: var(--accent-bright);
+  --border2: var(--border-strong);
+  --red:        var(--severity-critical);
+  --red-light:  var(--severity-critical);
+  --green:      var(--direction-buy);
+  --green-light: var(--direction-buy);
+  --blue: var(--link);
+}
+
+/* Monospace utility — apply to tickers, amounts, %s, dates, IDs, actors. */
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -693,6 +693,12 @@ def landing_dashboard():
 def feed():
     return FileResponse(STATIC_DIR / "alerts.html")
 
+@app.get("/tokens.css", include_in_schema=False)
+def design_tokens():
+    """Single source of truth for the design system (colors, type, spacing,
+    radius, motion). Linked by the client-rendered pages."""
+    return FileResponse(STATIC_DIR / "tokens.css", media_type="text/css")
+
 @app.get("/ask", response_class=HTMLResponse, include_in_schema=False)
 def ask():
     return FileResponse(STATIC_DIR / "chat.html")
