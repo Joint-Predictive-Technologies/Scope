@@ -1,0 +1,136 @@
+/* ============================================================================
+   Scope — Design Tokens (single source of truth)
+   Fey/Slash synthesis: terminal register (Fey — dense, dark, all-sans) +
+   editorial register (Slash — serif hero, brief page only).
+   Elevation = surface layering (--surface-canvas → 1 → 2 → 3) + hairline
+   borders ONLY. No gradients, glass, glow, or drop shadows.
+   ============================================================================ */
+:root {
+  /* ---- surfaces (near-black, warm-neutral, layered) ---- */
+  --surface-canvas:  #0a0a0c;
+  --surface-1:       #131317;
+  --surface-2:       #1a1a1f;
+  --surface-3:       #232329;
+  --surface-overlay: rgba(0,0,0,0.75);
+
+  /* ---- borders (hairlines only) ---- */
+  --border-subtle:   #2a2a30;
+  --border-default:  #3a3a42;
+  --border-emphasis: #5a5a62;
+
+  /* ---- text (three-tier hierarchy) ---- */
+  --text-primary:   #e8e8ee;
+  --text-secondary: #8a8a92;
+  --text-tertiary:  #7e7e86;   /* WCAG AA: 4.9:1 on canvas, 4.6:1 on surface-1 */
+  --text-inverse:   #0a0a0c;
+
+  /* ---- chromatic accent (SINGLE — the "signal" color: copper) ---- */
+  --accent:     #c89664;
+  --accent-dim: #8a6a48;
+
+  /* ---- direction (functional) ---- */
+  --direction-buy:     #4ebe96;
+  --direction-sell:    #e06868;
+  --direction-neutral: #8a8a92;
+
+  /* ---- severity (escalating) ---- */
+  --severity-low:      #8a8a92;
+  --severity-medium:   #c89664;   /* == accent — attention */
+  --severity-high:     #e88b4a;
+  --severity-critical: #e06868;
+
+  /* ---- semantic ---- */
+  --link: #7ba3d4;   /* muted cool blue — hyperlinks ONLY */
+
+  /* ---- typography ---- */
+  --font-sans:  'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-serif: 'Fraunces', 'Playfair Display', ui-serif, Georgia, serif;
+
+  --text-2xs: 11px;
+  --text-xs:  12px;
+  --text-sm:  13px;
+  --text-base:14px;
+  --text-md:  15px;
+  --text-lg:  18px;
+  --text-xl:  22px;
+  --text-2xl: 28px;   /* page titles (terminal register) */
+  --text-3xl: 40px;   /* brief hero (editorial register only) */
+  --text-4xl: 52px;   /* brief hero max — do not exceed */
+
+  --leading-body:    1.4;
+  --leading-heading: 1.2;
+  --leading-prose:   1.5;
+
+  --tracking-tight: -0.02em;  /* sans headings >= 22px */
+  --tracking-label:  0.06em;  /* uppercase micro-labels */
+
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+
+  /* ---- spacing (4px grid) ---- */
+  --space-1: 4px;   --space-2: 8px;   --space-3: 12px;  --space-4: 16px;
+  --space-5: 20px;  --space-6: 24px;  --space-8: 32px;  --space-10: 40px;
+  --space-12: 48px; --space-16: 64px; --space-20: 80px;
+  --section-gap-terminal:  var(--space-8);   /* dense */
+  --section-gap-editorial: var(--space-16);  /* spacious, not marketing */
+
+  /* ---- radius (restrained — NEVER pill) ---- */
+  --radius-icon: 3px;
+  --radius-sm:   4px;   /* buttons, badges, chips */
+  --radius-md:   6px;   /* inputs */
+  --radius-lg:   8px;   /* cards */
+
+  /* ---- motion (functional only) ---- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 150ms;
+  --dur-mid:  200ms;
+  --dur-slow: 400ms;
+
+  /* ========================================================================
+     Legacy aliases → canonical tokens. The existing pages reference these
+     older names; mapping them makes tokens.css the single source of truth and
+     shifts the whole app to the copper/surface palette without a per-line
+     rewrite. New/retokenized code should use the canonical names above.
+     ======================================================================== */
+  --bg:  var(--surface-canvas);
+  --bg2: var(--surface-1);
+  --bg3: var(--surface-2);
+  --cream:  var(--text-primary);
+  --cream2: var(--text-secondary);
+  --muted:  var(--text-tertiary);
+  --amber:  var(--accent);
+  --amber2: var(--accent);
+  --border: var(--border-subtle);
+  --border2: var(--border-default);
+  --red:        var(--severity-critical);
+  --red-light:  var(--severity-critical);
+  --green:      var(--direction-buy);
+  --green-light: var(--direction-buy);
+  --blue: var(--link);
+}
+
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   Functional motion — ONLY for state changes. No decorative motion.
+   (a) new alert   (b) score updating   (c) cluster HIGH->CRITICAL
+   (d) receipts expand — inline on details.receipts (Phase 2, 180ms).
+   ============================================================================ */
+@keyframes alert-in { from { opacity: 0; transform: translateY(-4px); }
+                      to   { opacity: 1; transform: none; } }
+.alert-new { animation: alert-in 220ms var(--ease-out); }
+
+@keyframes score-flash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
+.score-updating { animation: score-flash var(--dur-mid) var(--ease-out); }
+
+/* single pulse via scale + brightness (NOT a shadow) — 400ms */
+@keyframes badge-pulse { 0% { transform: scale(1); filter: brightness(1); }
+                         40% { transform: scale(1.03); filter: brightness(1.4); }
+                         100% { transform: scale(1); filter: brightness(1); } }
+.badge-upgraded { animation: badge-pulse var(--dur-slow) var(--ease-out) 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
