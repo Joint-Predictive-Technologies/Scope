@@ -207,8 +207,10 @@ _CSS = """
 body{background:var(--surface-canvas);color:var(--text-primary);font-family:var(--font-sans);min-height:100vh}
 nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border-subtle);background:rgba(10,10,12,0.95);backdrop-filter:blur(12px);padding:0 var(--space-6);display:flex;align-items:center;gap:var(--space-4);height:56px}
 .brand{font-family:var(--font-sans);font-weight:var(--weight-semibold);font-size:var(--text-lg);letter-spacing:0.01em;color:var(--accent);text-decoration:none}
-.nav-links a{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-secondary);text-decoration:none;letter-spacing:var(--tracking-label);text-transform:uppercase;margin-left:var(--space-5)}
-.nav-links a:hover{color:var(--accent)}
+.nav-links{display:flex;align-items:center;gap:var(--space-4);overflow-x:auto;flex:1;scrollbar-width:none}
+.nav-links::-webkit-scrollbar{display:none}
+.nav-links a{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-secondary);text-decoration:none;letter-spacing:var(--tracking-label);text-transform:uppercase;white-space:nowrap}
+.nav-links a:hover,.nav-links a.active{color:var(--accent)}
 .page{max-width:860px;margin:0 auto;padding:var(--space-12) var(--space-5) var(--space-16)}
 h1{font-family:var(--font-serif);font-weight:var(--weight-normal);font-size:var(--text-3xl);letter-spacing:-0.01em;line-height:1.15;color:var(--text-primary)}
 .date{font-family:var(--font-sans);font-size:var(--text-sm);color:var(--text-tertiary);margin-top:var(--space-2);margin-bottom:var(--space-12)}
@@ -238,7 +240,68 @@ a.wr{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-
 .health{margin-top:var(--section-gap-editorial);padding-top:var(--space-3);border-top:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary)}
 .health .crit{color:var(--severity-critical)}
 .empty{color:var(--text-tertiary);font-size:var(--text-sm);font-style:italic}
+/* Ticker conveyor belt (restored; motion added in the functional-motion pass). */
+.tape{border-bottom:1px solid var(--border-subtle);background:var(--surface-1);overflow:hidden;white-space:nowrap}
+.tape-inner{display:inline-flex;gap:var(--space-5);padding:var(--space-2) var(--space-5);align-items:center}
+.tape-item{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-secondary);text-decoration:none;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tape-item:hover{color:var(--accent)}
+.tape-item .tk{color:var(--accent);font-weight:var(--weight-medium)}
+.tape-item.sev-critical .tk{color:var(--severity-critical)}
+.tape-item.sev-high .tk{color:var(--severity-high)}
+/* Week calendar (7 cells: date + alert count, tinted by high/critical activity). */
+.weekcal{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--space-2)}
+.daycell{border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:var(--space-2);text-decoration:none;display:flex;flex-direction:column;gap:2px;transition:background 120ms ease}
+.daycell:hover{background:var(--surface-2)}
+.daycell .d{font-family:var(--font-mono);font-size:var(--text-2xs);color:var(--text-tertiary);text-transform:uppercase;letter-spacing:0.04em}
+.daycell .n{font-family:var(--font-mono);font-size:var(--text-lg);color:var(--text-primary);font-variant-numeric:tabular-nums}
+.daycell.has-high{border-color:var(--severity-high)}
+.daycell.today{border-left:2px solid var(--accent)}
 """
+
+
+# Full navigation for the main page (the brief IS the main page). The brand
+# links to `/` (this page); these cover the major routes so nothing is hidden.
+_FULL_NAV = (
+    '<a href="/feed">Alerts</a><a href="/congress">Congress</a>'
+    '<a href="/insiders">Insiders</a><a href="/contracts">Contracts</a>'
+    '<a href="/lobbying">Lobbying</a><a href="/intelligence">Theses</a>'
+    '<a href="/clusters">Clusters</a><a href="/osint">OSINT</a>'
+    '<a href="/sectors">Sectors</a><a href="/ask">Ask</a>'
+)
+
+# Client-side hydration for the two live components on the main page: the ticker
+# belt (/api/ticker-tape) and the week calendar (/api/activity). Plain string
+# (NOT an f-string) so JS braces need no escaping. Both fail closed (hide belt /
+# leave calendar empty) rather than showing a broken widget.
+_MAIN_JS = """<script>
+(function(){
+  var esc=function(s){return (s==null?'':String(s)).replace(/[<>&]/g,'');};
+  fetch('/api/ticker-tape').then(function(r){return r.json();}).then(function(items){
+    var el=document.getElementById('tape'); if(!el)return;
+    if(!Array.isArray(items)||!items.length){var t=el.closest('.tape'); if(t)t.style.display='none'; return;}
+    el.innerHTML=items.map(function(it){
+      var sev=(it.severity||'').toLowerCase();
+      var tk=(it.ticker||'').replace(/[^A-Za-z0-9.-]/g,'');
+      var href=tk?('/ticker/'+encodeURIComponent(tk)):'/feed';
+      return '<a class="tape-item sev-'+sev+'" href="'+href+'"><span class="tk">'+(tk||'\\u25CF')+'</span><span>'+esc(it.text)+'</span></a>';
+    }).join('');
+  }).catch(function(){var el=document.getElementById('tape'); var t=el&&el.closest('.tape'); if(t)t.style.display='none';});
+  fetch('/api/activity?days=7&mode=signal').then(function(r){return r.json();}).then(function(res){
+    var data=(res&&res.data)||{}; var el=document.getElementById('weekcal'); if(!el)return;
+    var iso=function(dt){return dt.toISOString().slice(0,10);};
+    var today=iso(new Date()); var cells=[];
+    for(var i=6;i>=0;i--){
+      var dt=new Date(Date.now()-i*86400000); var key=iso(dt); var rules=data[key]||{};
+      var count=0,high=0;
+      Object.keys(rules).forEach(function(k){count+=rules[k].count||0; high+=rules[k].high_crit||0;});
+      var cls='daycell'+(key===today?' today':'')+(high>0?' has-high':'');
+      var dow=dt.toLocaleDateString('en-US',{weekday:'short'});
+      cells.push('<a class="'+cls+'" href="/feed?since='+key+'"><span class="d">'+dow+' '+dt.getDate()+'</span><span class="n">'+count+'</span></a>');
+    }
+    el.innerHTML=cells.join('');
+  }).catch(function(){});
+})();
+</script>"""
 
 
 def render_html(d: dict, date_str: str, preamble: str | None) -> str:
@@ -340,10 +403,11 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/tokens.css"/>
 <style>{_CSS}</style></head><body>
-<nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">
-<a href="/feed">Alerts</a><a href="/clusters">Clusters</a><a href="/intelligence">Theses</a></div></nav>
+<nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">{_FULL_NAV}</div></nav>
+<div class="tape" aria-label="Live signal ticker"><div class="tape-inner" id="tape"></div></div>
 <div class="page"><h1>Daily Brief</h1><div class="date">{date_str} · 06:30 UTC</div>
-{pre}{body}</div></body></html>"""
+<section id="thisweek"><h2>This Week <a href="#thisweek">¶</a></h2><div class="weekcal" id="weekcal"></div></section>
+{pre}{body}</div>{_MAIN_JS}</body></html>"""
 
 
 # ── render plain text (email/telegram ready) ─────────────────────────────────
@@ -416,7 +480,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "fey-slash-1"
+TEMPLATE_VERSION = "ui-restore-1"
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
 # In-process de-dup so concurrent page loads trigger at most one async regen/date.
