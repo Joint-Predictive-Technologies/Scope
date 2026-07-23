@@ -21,7 +21,7 @@
   /* ---- text (three-tier hierarchy) ---- */
   --text-primary:   #e8e8ee;
   --text-secondary: #8a8a92;
-  --text-tertiary:  #5a5a62;
+  --text-tertiary:  #7e7e86;   /* WCAG AA: 4.9:1 on canvas, 4.6:1 on surface-1 */
   --text-inverse:   #0a0a0c;
 
   /* ---- chromatic accent (SINGLE — the "signal" color: copper) ---- */
