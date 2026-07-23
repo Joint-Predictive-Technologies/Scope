@@ -91,13 +91,17 @@
   function setF(f){ filter=f; document.querySelectorAll('.filt').forEach(e=>e.classList.toggle('active', e.dataset.f===f)); render(); }
   function render(){
     const items = ALL.filter(c => filter==='all' || c.direction===filter);
+    // Functional motion: pulse ONCE a cluster that upgraded to CRITICAL since last visit.
+    const _K='scope_cluster_sev'; let _prev={}; try{_prev=JSON.parse(localStorage.getItem(_K)||'{}')||{};}catch(e){_prev={};}
+    const _up = c => !!(_prev[c.fingerprint] && _prev[c.fingerprint]!=='critical' && (c.severity||'').toLowerCase()==='critical');
     document.getElementById('list').innerHTML = items.length ? items.map(c => `
-      <a class="c-card ${(c.severity||'').toLowerCase()} ${c.lifecycle_stage==='superseded'?'c-superseded':''}" href="/cluster/${encodeURIComponent(c.fingerprint)}">
+      <a class="c-card ${(c.severity||'').toLowerCase()} ${c.lifecycle_stage==='superseded'?'c-superseded':''}${_up(c)?' badge-upgraded':''}" href="/cluster/${encodeURIComponent(c.fingerprint)}">
         <span class="c-tick">${esc(c.ticker)}</span>
         <span class="c-headline">${esc(c.headline)}<div style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem;color:var(--muted);margin-top:2px">${ago(c.created_at)}${c.lifecycle_stage==='superseded'?' · superseded':''}</div></span>
         <span class="status-badge dir-${esc(c.direction)}">${esc((c.direction||'').replace('_',' '))}</span>
         <span class="c-score">${c.opportunity_score ?? 0} opp</span>
       </a>`).join('') : '<div class="empty">No clusters match this filter.</div>';
+    try{ const m={}; ALL.forEach(c=>m[c.fingerprint]=(c.severity||'').toLowerCase()); localStorage.setItem(_K, JSON.stringify(m)); }catch(e){}
   }
 
   fetch('/api/clusters').then(r=>r.json()).then(d => { ALL = d; render(); })
