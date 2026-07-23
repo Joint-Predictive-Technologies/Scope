@@ -18,7 +18,7 @@ items below map to **Phase 0** and **Phase 1** there).
 
 ## In Flight / Awaiting Review
 
-Four branches are complete and pushed, awaiting a review/merge decision.
+Complete and pushed, awaiting a review/merge decision.
 
 **New this session (2026-07-23, both off `origin/main`):**
 
@@ -27,6 +27,12 @@ Four branches are complete and pushed, awaiting a review/merge decision.
 - `feat/brief-as-landing` — `/` lands on today's cached morning brief with
   yesterday/feed fallbacks (never generates on load); feed preserved at `/feed`.
   See [[2026-07-23-brief-as-default-landing]].
+- `design/refero-inspired-pass` — **design system pass (in review).** Single
+  token source (`/tokens.css`), serif retired (two families: Inter + IBM Plex
+  Mono), receipts amplified, drop shadows removed, functional-only motion.
+  Builds on the two feature branches above (merged into it, not into main). See
+  [[2026-07-23 Design Pass]]. Done: **design tokens established**, **monospace
+  fonts installed** (IBM Plex Mono, already present, now the single mono token).
 
 **Carried over (2026-07-21):**
 
