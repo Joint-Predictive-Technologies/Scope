@@ -47,10 +47,19 @@ broken → what we decided → the moat → sessions.**
 
 - One file per architecture decision (rationale + date). See its `README`.
 
+## `08_Ideas/` — idea inbox
+
+- [[Ideas Backlog]] — the capture inbox for raw ideas before they enter the plan.
+
+## `09_Reference/` — reading & references
+
+- [[Reading List]] — curated, Scope-specific reading, tiered by leverage.
+
 ## `02_Sessions/` — work log
 
-- One entry per session (`SESSION_TEMPLATE` for new ones). Latest:
-  `2026-07-22` (prod verification + RULE_06), `2026-07-21` (status reconciliation).
+- One entry per session (`SESSION_TEMPLATE` for new ones). Latest: `2026-07-23`
+  (provenance + brief landing), `2026-07-22` (prod verification + RULE_06),
+  `2026-07-21` (status reconciliation).
 
 ---
 
