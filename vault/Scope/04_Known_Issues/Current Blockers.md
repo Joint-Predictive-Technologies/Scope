@@ -59,6 +59,32 @@ automate. See [[2026-07-23-provenance-and-brief-landing]] for the full audit tab
   broken window and the RULE_06 data gap (fewer distinct rules firing = fewer
   corroborations). See [[2026-07-23 Design Pass Regression Repair]].
 
+## UI / design residuals (2026-07-23, from the UI restoration session)
+
+On `fix/ui-restoration-and-completion` (awaiting review). None block the branch;
+listed for the follow-up pass. See [[2026-07-23 UI Restoration and Completion]].
+
+- **Hex→token residual — 476 legacy inline hex** (26 distinct palette values)
+  across ~18 static pages. `box-shadow`, pills, and legacy fonts are all zero and
+  the palette is visually consistent with tokens, but these inline literals bypass
+  the token system (e.g. 43 spots still render the OLD amber `#c8922a` instead of
+  copper). **Cannot be scripted blindly** — `#c8922a` appears in SVG `fill="…"`
+  attributes and JS chart-color maps where `var()` doesn't resolve. Needs a
+  context-aware (CSS-only) sweep.
+- **`/api/osint-region-context` returns 500** (`api/main.py:1326`) and
+  `osint_region.html`'s `loadAlerts()` reads `data.items` while `/alerts` returns
+  a bare array when unpaginated — so `/region/<name>` alert lists render empty.
+  **Pre-existing backend bug**, surfaced during Phase 5; not touched (out of the
+  UI scope).
+- **`/sector/<name>` case-sensitivity 404** — the client lowercases the sector
+  ("Defense"→"defense") and `/api/intel/sector/defense` has no match, so the page
+  shows "Unknown sector". Pre-existing; verify against real linked sector values.
+- **`insiders.html` has no `<table>`** — it's a card list, so the Phase-3 table
+  hardening didn't apply. A rigorous insiders *table* view would be a restructure
+  (follow-up), not styling.
+- **Globe follow-ups (deferred, non-blocking):** lat/lon graticule hairlines and
+  on-hover dot-expand tooltip. The click-to-open side panel already covers detail.
+
 ## Infrastructure
 
 - **Database backups:** Automated locally (verified compressed daily snapshot,

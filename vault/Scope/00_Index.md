@@ -22,7 +22,8 @@ broken → what we decided → the moat → sessions.**
 
 - [[Master Plan]] — North Star + phases 0→4 (living).
 - [[iPhone Stage Progress]] — stage-by-stage status against the maturity ladder.
-- [[Roadmap Tracking]] — short-horizon: what's in flight this week.
+- [[Roadmap Tracking]] — short-horizon: what's in flight this week (+ Feature Candidates backlog).
+- [[Competitive Positioning]] — Scope vs. QuiverQuant; compete on convergence, not dataset breadth.
 
 ## `01_Architecture/` — how it works
 
