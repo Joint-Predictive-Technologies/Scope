@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from jpt_common import db_connection
+from api.receipts import build_receipts
 
 
 router = APIRouter()
@@ -33,6 +34,16 @@ def rule_facets(days: int = Query(default=90, ge=1, le=3650)):
 
 def _row_to_dict(row) -> dict:
     return dict(row)
+
+
+def _rows_with_receipts(rows, conn) -> list[dict]:
+    """Attach the server-assembled factual receipts block to each alert."""
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        d["receipts"] = build_receipts(d, conn)
+        out.append(d)
+    return out
 
 
 def _build_conditions(
@@ -179,10 +190,11 @@ def get_alerts(
         rows = conn.execute(
             base_select + f" LIMIT {per_page} OFFSET {offset}", params
         ).fetchall()
+        items = _rows_with_receipts(rows, conn)
         conn.close()
         pages = max(1, math.ceil(total / per_page))
         return {
-            "items": [_row_to_dict(r) for r in rows],
+            "items": items,
             "total": total,
             "page": page,
             "pages": pages,
@@ -192,8 +204,9 @@ def get_alerts(
         # Legacy flat-list response (used by widgets, section pages)
         params["limit"] = limit
         rows = conn.execute(base_select + " LIMIT :limit", params).fetchall()
+        items = _rows_with_receipts(rows, conn)
         conn.close()
-        return [_row_to_dict(r) for r in rows]
+        return items
 
 
 @router.get("/{alert_id}/context")

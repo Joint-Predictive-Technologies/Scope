@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from jpt_common import db_connection
+from api.receipts import build_receipts
 
 router = APIRouter()
 
@@ -264,7 +265,7 @@ def get_ticker_alerts(
     alerts = conn.execute(
         """
         SELECT id, rule, severity, headline, detail, tags, ticker, member_id, created_at,
-               lifecycle_stage
+               lifecycle_stage, source_url, verify_url, theme_id
         FROM alerts
         WHERE ticker LIKE ?
           AND datetime(created_at) >= datetime('now', ?)
@@ -304,10 +305,15 @@ def get_ticker_alerts(
         (f"%{sym}%",),
     ).fetchall()
 
+    alert_dicts = []
+    for r in alerts:
+        d = dict(r)
+        d["receipts"] = build_receipts(d, conn)
+        alert_dicts.append(d)
     conn.close()
     return {
         "symbol": sym,
-        "alerts": [dict(r) for r in alerts],
+        "alerts": alert_dicts,
         "related_members": [dict(r) for r in members],
         "transactions": [dict(r) for r in transactions],
     }
