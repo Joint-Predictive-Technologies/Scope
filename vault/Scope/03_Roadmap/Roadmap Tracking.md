@@ -27,6 +27,13 @@ Four branches are complete and pushed, awaiting a review/merge decision.
 - `feat/brief-as-landing` — `/` lands on today's cached morning brief with
   yesterday/feed fallbacks (never generates on load); feed preserved at `/feed`.
   See [[2026-07-23-brief-as-default-landing]].
+- `design/fey-slash-synthesis` — **design system pass (in review).** Single token
+  source (`/tokens.css`); copper accent, JetBrains Mono + Fraunces (serif = brief
+  hero only), two-register system (terminal / editorial brief), no shadows,
+  functional-only motion. Builds on the two feature branches above (merged into
+  it, not into main). See [[2026-07-23 Fey-Slash Design Pass]] +
+  [[Fey-Slash Design System]]. **Open decision:** `--text-tertiary` contrast
+  (2.90:1 — below WCAG AA).
 
 **Carried over (2026-07-21):**
 
