@@ -186,6 +186,37 @@
     .cmd-hint { font-family:'IBM Plex Mono',monospace; font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
     .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
   </style>
+<style>
+/* --- alert receipts (provenance block) --- */
+details.receipts{margin-top:.55rem;border-left:2px solid var(--amber,#d99a2b);padding-left:.7rem}
+details.receipts>summary{cursor:pointer;list-style:none;font-size:.72rem;color:var(--cream2,#d8cfc0)}
+details.receipts>summary::-webkit-details-marker{display:none}
+details.receipts>summary::marker{content:''}
+.receipts-label{font-family:'IBM Plex Mono',monospace;font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;color:var(--amber,#d99a2b);margin-right:.5rem}
+.receipts-summary{font-family:'IBM Plex Mono',monospace}
+details.receipts[open]>summary{margin-bottom:.45rem}
+.receipts-body{display:flex;flex-direction:column;gap:.35rem}
+.receipt-item{display:flex;flex-wrap:wrap;gap:.5rem;align-items:baseline;font-size:.78rem;color:var(--cream2,#d8cfc0)}
+.receipt-primary{font-weight:600}
+.receipt-secondary{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--muted,#8a8175)}
+a.receipt-link{font-family:'IBM Plex Mono',monospace;font-size:.72rem;color:var(--amber,#d99a2b);text-decoration:none;white-space:nowrap}
+a.receipt-link:hover{text-decoration:underline}
+.receipt-source{margin-top:.15rem}
+.receipt-gap{font-size:.7rem;color:var(--muted,#8a8175);font-style:italic}
+</style>
+<script>
+/* renderReceipts — factual alert provenance (server-assembled; never LLM). */
+function renderReceipts(r){
+  if(!r) return '';
+  const e=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const lk=(u,l)=>u?`<a class="receipt-link" href="${e(u)}"${/^https?:/.test(u)?' target="_blank" rel="noopener"':''}>${e(l||'open')} →</a>`:'';
+  const items=(r.items||[]).map(it=>`<div class="receipt-item"><span class="receipt-primary">${e(it.primary)}</span>${it.secondary?`<span class="receipt-secondary">${e(it.secondary)}</span>`:''}${lk(it.url,it.url_label)}</div>`).join('');
+  const src=r.source&&r.source.url?`<div class="receipt-source">${lk(r.source.url,r.source.label)}</div>`:'';
+  const gap=r.gap?`<div class="receipt-gap">⚠ ${e(r.gap)}</div>`:'';
+  const body=(items+src+gap)||'<div class="receipt-gap">No further detail captured.</div>';
+  return `<details class="receipts"><summary><span class="receipts-label">Receipts</span><span class="receipts-summary">${e(r.summary||'')}</span></summary><div class="receipts-body">${body}</div></details>`;
+}
+</script>
 </head>
 <body>
 <!-- NOTHING renders above this line except the nav -->
@@ -807,6 +838,7 @@
         ? `<span class="ai-label">AI SUMMARY · Groq Llama 3.3</span>` : '';
 
       let detailHtml = '';
+      if (a.receipts) detailHtml += renderReceipts(a.receipts);
       detailHtml += `<div class="detail-label">Historical Context</div>
         <div class="context-section" id="ctx-${a.id}" data-aid="${a.id}" style="color:var(--muted)">Loading…</div>`;
 

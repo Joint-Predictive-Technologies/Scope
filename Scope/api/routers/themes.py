@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from jpt_common import db_connection
+from api.receipts import build_receipts
 
 router = APIRouter()
 
@@ -61,6 +62,7 @@ def theme_detail(theme_id: int):
                    a.why_matters, a.verify_url, a.source_url, a.created_at,
                    a.evidence_confidence, a.opportunity_score, a.time_horizon,
                    a.novelty_score, a.absorption_pct,
+                   a.tags, a.member_id, a.theme_id,
                    ts.added_at
             FROM alerts a
             JOIN theme_signals ts ON a.id = ts.alert_id
@@ -70,6 +72,8 @@ def theme_detail(theme_id: int):
             (theme_id,),
         ).fetchall()
     ]
+    for s in signals:
+        s["receipts"] = build_receipts(s, conn)
 
     # Group into a date-bucketed timeline (newest day first).
     timeline: dict[str, list] = {}
