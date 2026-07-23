@@ -22,6 +22,7 @@ import html
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -334,6 +335,7 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Daily Brief {date_str} — Scope</title>
+{_TEMPLATE_MARKER}
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/tokens.css"/>
@@ -409,6 +411,48 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 
 # ── generate + cache ──────────────────────────────────────────────────────────
 
+# Bump this whenever render_html's markup/design changes in a way that makes an
+# already-cached brief visually stale (e.g. a design-system pass). A cached brief
+# whose embedded marker != the current version is treated as a cache MISS by
+# generate() and as "not current" by brief_is_current(), so the next scheduled
+# run — or a non-blocking page-load-triggered regen — rebuilds it.
+TEMPLATE_VERSION = "fey-slash-1"
+_TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
+
+# In-process de-dup so concurrent page loads trigger at most one async regen/date.
+_regen_lock = threading.Lock()
+_regen_inflight: set[str] = set()
+
+
+def brief_is_current(html: str | None) -> bool:
+    """True if cached brief HTML was rendered by the CURRENT template version.
+
+    Version-stale or empty briefs return False so callers can trigger a rebuild."""
+    return bool(html) and _TEMPLATE_MARKER in html
+
+
+def regenerate_if_stale_async(date_str: str) -> None:
+    """Fire-and-forget rebuild of the brief for date_str, de-duplicated per date.
+
+    Safe to call from a request handler: spawns a daemon thread and returns
+    immediately so the page load never blocks on generation (LLM included)."""
+    with _regen_lock:
+        if date_str in _regen_inflight:
+            return
+        _regen_inflight.add(date_str)
+
+    def _work():
+        try:
+            generate(date_str=date_str, force=True)
+        except Exception as e:  # never let a background regen crash the worker
+            print(f"[DAILY_BRIEF] async regen failed for {date_str}: {e}")
+        finally:
+            with _regen_lock:
+                _regen_inflight.discard(date_str)
+
+    threading.Thread(target=_work, name=f"brief-regen-{date_str}", daemon=True).start()
+
+
 def _sections_populated(d: dict) -> int:
     n = 0
     if d["headline"]: n += 1
@@ -430,10 +474,11 @@ def generate(date_str: str | None = None, force: bool = False, use_llm: bool = T
         cached = conn.execute(
             "SELECT html, text, generated_at FROM briefs WHERE date=?", (date_str,)
         ).fetchone()
-        if cached and cached["html"]:
+        if cached and cached["html"] and brief_is_current(cached["html"]):
             conn.close()
             return {"date": date_str, "html": cached["html"], "text": cached["text"],
                     "generated_at": cached["generated_at"], "cache": "hit"}
+        # A cached-but-template-stale brief falls through and is regenerated below.
 
     d = gather(conn)
     preamble = _preamble(d) if use_llm else None

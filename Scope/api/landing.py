@@ -52,13 +52,17 @@ def resolve_landing(conn, today: str, yesterday: str) -> Tuple[str, Optional[str
     return ("feed", None, None)
 
 
+# Styled with design tokens (the brief HTML this bar is injected into links
+# /tokens.css), so the sticky bar tracks the current copper/mono system instead
+# of the pre-design-pass amber + IBM Plex values it used to hard-code.
 _BAR_TMPL = (
     '<div class="scope-brief-bar" style="position:sticky;top:0;z-index:9999;'
-    'background:#181610;border-bottom:1px solid #2a2620;color:#c8bfa8;'
-    "font-family:'IBM Plex Mono',monospace;font-size:.72rem;padding:8px 16px;"
+    'background:var(--surface-2,#181610);border-bottom:1px solid var(--border-subtle,#2a2620);'
+    'color:var(--text-secondary,#c8bfa8);'
+    'font-family:var(--font-mono,monospace);font-size:.72rem;padding:8px 16px;'
     'display:flex;gap:16px;align-items:center;justify-content:space-between'
     '"><span>{left}</span>'
-    '<a href="/feed" style="color:#c8922a;text-decoration:none;white-space:nowrap">'
+    '<a href="/feed" style="color:var(--accent,#c8922a);text-decoration:none;white-space:nowrap">'
     'See raw feed &rarr;</a></div>'
 )
 

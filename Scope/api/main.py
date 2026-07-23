@@ -681,6 +681,17 @@ def home():
     finally:
         conn.close()
     if mode == "brief" and html:
+        # If today's brief exists but was rendered by an older template version
+        # (e.g. before a design pass), serve it now and kick off a non-blocking
+        # rebuild so the next load is fresh. `notice is None` == today's brief
+        # (not a yesterday fallback); the fallback path keeps the existing policy.
+        if notice is None:
+            try:
+                from scripts.morning_brief import brief_is_current, regenerate_if_stale_async
+                if not brief_is_current(html):
+                    regenerate_if_stale_async(today)
+            except Exception:
+                pass  # regen is best-effort; never block the landing page on it
         return HTMLResponse(inject_brief_header(html, notice))
     return RedirectResponse(url="/feed?notice=nobrief", status_code=302)
 

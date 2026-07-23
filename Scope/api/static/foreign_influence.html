@@ -5,50 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Foreign Influence — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red-light: #e55b4d; --green-light: #4dc47a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
 
     .page { max-width: 1100px; margin: 0 auto; padding: 2.5rem 2rem; }
-    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
-    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: var(--font-sans); font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
     .page-sub { font-size: 0.85rem; color: var(--cream2); margin-bottom: 2rem; max-width: 680px; line-height: 1.6; }
 
-    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin: 1.8rem 0 0.9rem; }
+    .section-label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin: 1.8rem 0 0.9rem; }
     .country-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.9rem; }
     .country-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.1rem; }
-    .country-name { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--cream); font-weight: 600; }
-    .country-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber2); margin: 0.3rem 0 0.5rem; }
+    .country-name { font-family: var(--font-sans); font-size: 1.05rem; color: var(--cream); font-weight: 600; }
+    .country-meta { font-family: var(--font-mono); font-size: 0.62rem; color: var(--amber2); margin: 0.3rem 0 0.5rem; }
     .principal { font-size: 0.7rem; color: var(--cream2); line-height: 1.5; }
 
     .theme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
     @media (max-width: 820px) { .theme-grid { grid-template-columns: 1fr; } }
     .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1.1rem 1.2rem; }
-    .panel-title { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--cream); margin-bottom: 0.2rem; }
+    .panel-title { font-family: var(--font-sans); font-size: 1.05rem; color: var(--cream); margin-bottom: 0.2rem; }
     .panel-desc { font-size: 0.68rem; color: var(--muted); margin-bottom: 0.8rem; line-height: 1.5; }
     .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.76rem; }
     .row:last-child { border-bottom: none; }
-    .badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.54rem; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
+    .badge { font-family: var(--font-mono); font-size: 0.54rem; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; }
     .b-CRITICAL { background: rgba(192,57,43,0.18); color: var(--red-light); }
     .b-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); }
     .b-MEDIUM { background: rgba(42,100,160,0.15); color: #6ab0e0; }
-    .tkr { font-family: 'IBM Plex Mono', monospace; color: var(--amber); text-decoration: none; flex-shrink: 0; }
+    .tkr { font-family: var(--font-mono); color: var(--amber); text-decoration: none; flex-shrink: 0; }
     .hl { color: var(--cream2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
     .muted-row { color: var(--muted); font-size: 0.74rem; padding: 0.5rem 0; line-height: 1.5; }
-    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+    .loading { padding: 3rem; text-align: center; font-family: var(--font-mono); color: var(--muted); }
     .disclaimer { margin-top: 2rem; font-size: 0.68rem; color: var(--muted); font-style: italic; line-height: 1.6; }
   
     /* --- unified nav mobile (injected) --- */

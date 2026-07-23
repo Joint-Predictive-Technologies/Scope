@@ -4,28 +4,28 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>System Status — Scope</title>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root { --bg:#0c0b09; --bg2:#111009; --bg3:#181610; --cream:#e8e0cc; --cream2:#c8bfa8; --amber:#c8922a; --amber2:#e8aa3a; --muted:#7a7060; --border:#2a2620; --border2:#3a3428; --red:#e55b4d; --green:#4dc47a; }
-    * { box-sizing:border-box; margin:0; padding:0; }
+* { box-sizing:border-box; margin:0; padding:0; }
     body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; min-height:100vh; }
     nav { position:sticky; top:0; border-bottom:1px solid var(--border); background:rgba(12,11,9,0.95); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
-    .nav-brand { font-family:'Playfair Display',serif; font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
-    nav a { font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
+    .nav-brand { font-family:var(--font-sans); font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
+    nav a { font-family:var(--font-mono); font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
     nav a:hover { color:var(--amber); }
     .page { max-width:1000px; margin:0 auto; padding:2.5rem 2rem; }
-    .page-title { font-family:'Playfair Display',serif; font-size:2rem; font-weight:700; margin-bottom:0.3rem; }
+    .page-title { font-family:var(--font-sans); font-size:2rem; font-weight:700; margin-bottom:0.3rem; }
     .page-sub { color:var(--cream2); font-size:0.85rem; margin-bottom:1.5rem; }
-    .status-pill { display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:0.66rem; padding:3px 10px; border-radius:20px; margin-bottom:1.5rem; }
+    .status-pill { display:inline-block; font-family:var(--font-mono); font-size:0.66rem; padding:3px 10px; border-radius:20px; margin-bottom:1.5rem; }
     .ok { background:rgba(77,196,122,0.15); color:var(--green); } .bad { background:rgba(229,91,77,0.15); color:var(--red); }
-    table { width:100%; border-collapse:collapse; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; }
+    table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:0.7rem; }
     th { text-align:left; color:var(--muted); font-size:0.58rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.5rem 0.6rem; border-bottom:1px solid var(--border2); }
     td { padding:0.55rem 0.6rem; border-bottom:1px solid var(--border); }
     tr.stale td { background:rgba(229,91,77,0.06); }
     .flag { color:var(--red); font-weight:600; }
     .fresh { color:var(--green); }
     .src { color:var(--amber2); }
-    .loading { padding:3rem; text-align:center; color:var(--muted); font-family:'IBM Plex Mono',monospace; }
+    .loading { padding:3rem; text-align:center; color:var(--muted); font-family:var(--font-mono); }
   </style>
 </head>
 <body>
@@ -76,7 +76,7 @@
             <td>${r.stale?'<span class="flag">⚠ STALE</span>':'<span class="fresh">✓ healthy</span>'}</td>
           </tr>`).join('')}</tbody>
       </table>
-      <div style="margin-top:1.5rem;color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:0.62rem">
+      <div style="margin-top:1.5rem;color:var(--muted);font-family:var(--font-mono);font-size:0.62rem">
         Note: "last run" reflects the activity_log written by each rule's run(). A source with no row has never logged a run in this environment.
       </div>`;
   }).catch(()=>{ document.getElementById('content').innerHTML = '<div class="loading">Status unavailable.</div>'; });
