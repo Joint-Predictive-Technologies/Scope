@@ -795,6 +795,14 @@ function renderReceipts(r){
     const list = document.getElementById('alerts-list');
     document.getElementById('result-count').textContent = data.length + ' on page';
 
+    // Functional motion: fade in only alerts NEW since the last visit
+    // (localStorage). First visit seeds silently — no page-wide entrance.
+    const _seenKey = 'scope_seen_alert_ids';
+    let _prev; try { _prev = JSON.parse(localStorage.getItem(_seenKey) || 'null'); } catch (e) { _prev = null; }
+    const _seenSet = Array.isArray(_prev) ? new Set(_prev) : null;
+    const _isNew = id => !!(_seenSet && _seenSet.size && !_seenSet.has(id));
+    try { localStorage.setItem(_seenKey, JSON.stringify(data.map(a => a.id))); } catch (e) {}
+
     if (!data.length) {
       const sev  = document.getElementById('f-severity').value;
       const days = document.getElementById('f-days').value;
@@ -880,7 +888,7 @@ function renderReceipts(r){
 
       const sc = signalScore(a);
       return `
-        <div class="alert-card" onclick="toggle(${i},${a.id})" id="card-${i}">
+        <div class="alert-card${_isNew(a.id)?' alert-new':''}" onclick="toggle(${i},${a.id})" id="card-${i}">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>

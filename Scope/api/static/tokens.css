@@ -113,6 +113,24 @@
 
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
+/* ============================================================================
+   Functional motion — ONLY for state changes. No decorative motion.
+   (a) new alert   (b) score updating   (c) cluster HIGH->CRITICAL
+   (d) receipts expand — inline on details.receipts (Phase 2, 180ms).
+   ============================================================================ */
+@keyframes alert-in { from { opacity: 0; transform: translateY(-4px); }
+                      to   { opacity: 1; transform: none; } }
+.alert-new { animation: alert-in 220ms var(--ease-out); }
+
+@keyframes score-flash { 0% { opacity: 1; } 50% { opacity: 0.25; } 100% { opacity: 1; } }
+.score-updating { animation: score-flash var(--dur-mid) var(--ease-out); }
+
+/* single pulse via scale + brightness (NOT a shadow) — 400ms */
+@keyframes badge-pulse { 0% { transform: scale(1); filter: brightness(1); }
+                         40% { transform: scale(1.03); filter: brightness(1.4); }
+                         100% { transform: scale(1); filter: brightness(1); } }
+.badge-upgraded { animation: badge-pulse var(--dur-slow) var(--ease-out) 1; }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
