@@ -193,7 +193,7 @@
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <button class="hamburger" id="ham-btn">☰</button>
   <div class="nav-links" id="nav-links">
-    <a href="/">Dashboard</a>
+    <a href="/">Brief</a>
     <a href="/feed" class="active">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
     <a href="/congress">Congress</a>
     <a href="/insiders">Insiders</a>
@@ -1116,6 +1116,18 @@
       document.getElementById('cmd-results').innerHTML=html;
     } catch { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Search failed.</div>'; }
   }
+</script>
+<script>
+/* Phase 2: show a notice when redirected here because no brief exists yet. */
+(function(){
+  var p = new URLSearchParams(location.search);
+  if (p.get('notice') === 'nobrief') {
+    var d = document.createElement('div');
+    d.style.cssText = "background:#181610;border-bottom:1px solid #2a2620;color:#c8bfa8;font-family:'IBM Plex Mono',monospace;font-size:.72rem;padding:8px 16px;text-align:center";
+    d.textContent = "No morning brief has been generated yet — showing the live feed. Today's brief runs at 06:30 UTC.";
+    document.body.insertBefore(d, document.body.firstChild);
+  }
+})();
 </script>
 </body>
 </html>
