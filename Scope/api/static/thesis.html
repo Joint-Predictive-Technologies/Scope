@@ -26,11 +26,11 @@
     .st-resolved { background: rgba(77,196,122,0.14); color: var(--green-light); }
     .t-title { font-family: var(--font-sans); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
     .t-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
-    .tick-chip { font-family: var(--font-mono); font-size: 0.66rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; text-decoration: none; }
+    .tick-chip { font-family: var(--font-mono); font-size: 0.66rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--amber); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; text-decoration: none; }
     .tick-chip:hover { border-color: var(--amber); }
 
     .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
-    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
+    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
     .score-label { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
     .score-value { font-family: var(--font-sans); font-size: 2rem; font-weight: 800; line-height: 1.1; }
     .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
@@ -40,7 +40,7 @@
     .spark { margin-top: 0.5rem; }
 
     .decomp { cursor: help; font-size: 0.7rem; color: var(--muted); }
-    .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--surface-2); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; }
     .signal-card.open .decomp-pop, .score-card.open .decomp-pop { display: block; }
     .decomp-row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.66rem; color: var(--cream2); padding: 2px 0; }
     .decomp-row .v { color: var(--cream); }
@@ -75,7 +75,7 @@
     .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
     .annot { display: inline-flex; gap: 4px; margin-left: auto; }
 
-    .chip { font-family: var(--font-mono); font-size: 0.62rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--cream2); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; }
+    .chip { font-family: var(--font-mono); font-size: 0.62rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--cream2); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; }
     .related-card { display: flex; gap: 0.7rem; align-items: center; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.9rem; margin-bottom: 0.4rem; text-decoration: none; color: var(--cream2); font-size: 0.8rem; }
     .related-card:hover { border-color: var(--amber); }
     .related-card .score { margin-left: auto; font-family: var(--font-mono); font-size: 0.68rem; color: var(--green-light); }

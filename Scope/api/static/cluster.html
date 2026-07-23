@@ -25,11 +25,11 @@
     .dir-mixed { background: rgba(106,176,224,0.16); color: var(--blue); }
     .t-title { font-family: var(--font-sans); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
     .t-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
-    .tick-chip { font-family: var(--font-mono); font-size: 0.72rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
+    .tick-chip { font-family: var(--font-mono); font-size: 0.72rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
     .tick-chip:hover { border-color: var(--amber); }
 
     .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
-    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
+    .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
     .score-label { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
     .score-value { font-family: var(--font-sans); font-size: 2rem; font-weight: 800; line-height: 1.1; }
     .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
@@ -37,7 +37,7 @@
 
     /* score decomposition tooltip */
     .decomp { cursor: help; border-bottom: 1px dotted var(--muted); }
-    .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+    .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--surface-2); border: 1px solid var(--border-default); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; }
     .score-card.open .decomp-pop { display: block; }
     .decomp-row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.66rem; color: var(--cream2); padding: 2px 0; }
     .decomp-row .v { color: var(--cream); }
@@ -57,7 +57,7 @@
     .dir-tag.other { background: var(--bg3); color: var(--muted); }
 
     /* trade-proximity timeline viz */
-    .tl-viz { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; }
+    .tl-viz { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1rem 1.2rem; }
     .tl-track { position: relative; height: 26px; margin: 0.4rem 0; }
     .tl-line { position: absolute; top: 13px; left: 0; right: 0; height: 1px; background: var(--border2); }
     .tl-dot { position: absolute; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--amber); transform: translateX(-50%); border: 2px solid var(--bg); }
