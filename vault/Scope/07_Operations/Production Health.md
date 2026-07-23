@@ -5,7 +5,7 @@ status: living
 priority: high
 tags: [operations, production, monitoring, health]
 related: [[RULE_06 Timeout Fix Plan]], [[Current Blockers]], [[Master Plan]]
-last-checked: 2026-07-22
+last-checked: 2026-07-23
 ---
 
 # Production Health
@@ -27,6 +27,27 @@ curl -s "$B/api/activity-log?limit=200"   # recent rule runs (scanned/flagged/em
 ```
 The `SCHEDULER_JOB_FAILURE` source in the activity log is the universal safety net
 — any row there is a job that failed (exit code / timeout / import crash).
+
+## Snapshot — 2026-07-23 (post-deploy: UI restoration + completion)
+
+**Verdict: healthy; the UI restoration session is live and verified in prod.**
+
+- **Deploy:** merged `fix/ui-restoration-and-completion` → `main` (`aad9e9d`, 9
+  commits incl. the design-pass-regression base) and pushed; Railway auto-deployed
+  from `main`. 133 tests passed pre-merge.
+- **Health:** `ok`; DB present at `/app/data/jpt.db`; **24,835 total alerts**;
+  Groq key set. **Scheduler running, 32 jobs.**
+- **New code confirmed live (read-only curls):**
+  - `/` brief marker = `scope-brief-template:ui-restore-3` → the version-aware
+    cache regenerated on deploy; full nav + convergence hero + ticker belt +
+    activity strip all present.
+  - `/feed`: card-stagger motion present; AI "Analysis" block gone.
+  - `/osint`: new globe severity color `0xe06868` (was `0xff2020`).
+  - `/digest` (Accept: text/html) serves the tokenized page (shadow fixed);
+    `/brief` links `/tokens.css`.
+- **Known residuals (non-blocking, tracked in [[Current Blockers]]):** 476 legacy
+  inline-hex (context-aware sweep pending); pre-existing `/api/osint-region-context`
+  500 and `/sector` case-sensitivity.
 
 ## Snapshot — 2026-07-22
 
