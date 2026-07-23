@@ -43,6 +43,14 @@ with the Master Plan; everything else is detail hanging off it.
 
 - One file per architecture decision (rationale + date). See its `README`.
 
+## Ideas (`08_Ideas/`)
+
+- [[Ideas Backlog]] — the capture inbox for raw ideas before they enter the plan.
+
+## Reference (`09_Reference/`)
+
+- [[Reading List]] — curated, Scope-specific reading, tiered by leverage.
+
 ---
 
 **Conventions:** `Scope/CLAUDE.md` is engineering ground truth and wins over the
