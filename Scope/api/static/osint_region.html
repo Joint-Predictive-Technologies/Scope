@@ -53,6 +53,11 @@
     .alert-cards { display: flex; flex-direction: column; gap: 1px; }
     .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.3rem; transition: border-color 0.15s; }
     .alert-card:hover { border-color: var(--border2); }
+
+    /* Functional motion (b): staggered entrance on render. */
+    @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+    .alert-card.enter { animation: card-enter 200ms ease-out both; }
     .alert-top { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .ticker-link { font-family: var(--font-mono); font-size: 0.65rem; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 2px 8px; border-radius: 3px; flex-shrink: 0; }
     .ticker-link:hover { background: rgba(200,146,42,0.1); }
@@ -102,6 +107,11 @@
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
     .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
+    @media (prefers-reduced-motion: reduce) {
+      .alert-card.enter { animation: card-enter-reduced 200ms ease-out both; }
+    }
   </style>
 </head>
 <body>
@@ -171,6 +181,9 @@
 </div>
 
 <script>
+  // ── Functional motion: reduced-motion detection ───────────────────────────
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // ── Nav hamburger ──────────────────────────────────────────────────────────
   document.getElementById('ham-btn').addEventListener('click', () => {
     document.getElementById('nav-links').classList.toggle('open');
@@ -283,7 +296,7 @@
   }
 
   function renderAlerts(el, items) {
-    el.innerHTML = '<div class="alert-cards">' + items.map(a => {
+    el.innerHTML = '<div class="alert-cards">' + items.map((a, i) => {
       const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
       const tickerBadge = ticker
         ? `<a href="/ticker/${ticker}" class="ticker-link">${ticker}</a>`
@@ -297,8 +310,10 @@
         if (a.tags && a.tags.startsWith('http')) verifyLink = `<a href="${escHtml(a.tags)}" target="_blank" rel="noopener" class="verify-link">Verify →</a>`;
       }
 
+      const enterClass = REDUCE_MOTION ? '' : ' enter';
+      const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `
-        <div class="alert-card">
+        <div class="alert-card${enterClass}"${enterStyle}>
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>

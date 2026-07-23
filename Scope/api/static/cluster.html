@@ -95,6 +95,11 @@
       .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
       .nav-links.open { display: flex; }
     }
+
+    /* Functional motion — reduced motion: no CSS-driven motion on this page;
+       count-up is gated in JS via REDUCE_MOTION (see script below), rendering
+       the final value immediately instead of animating. */
+    @media (prefers-reduced-motion: reduce) { }
   </style>
 </head>
 <body>
@@ -122,6 +127,23 @@
   const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
   const annotCache = {};
+
+  // ── Functional motion (c): count-up for opportunity/evidence-confidence figures ──
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function countUp(el, target) {
+    target = Math.round(target || 0);
+    if (!el) return;
+    if (REDUCE_MOTION) { el.textContent = target; return; }
+    const start = performance.now(), duration = 400;
+    function tick(now) {
+      const p = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      el.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target;
+    }
+    requestAnimationFrame(tick);
+  }
 
   function dirTag(d){ const k=(d||'other'); const cls = k==='buy'?'buy':k==='sell'?'sell':k==='mixed'?'mixed':'other'; return `<span class="dir-tag ${cls}">${esc(k)}</span>`; }
 
@@ -221,12 +243,12 @@
       <div class="score-row">
         <div class="score-card">
           <div class="score-label">Evidence Confidence</div>
-          <div class="score-value" style="color:var(--blue)">${a.evidence_confidence ?? 0}</div>
+          <div class="score-value" id="ec-value" style="color:var(--blue)">0</div>
           <div class="bar"><span style="width:${Math.min(a.evidence_confidence||0,100)}%;background:var(--blue)"></span></div>
         </div>
         <div class="score-card">
           <div class="score-label">Opportunity Score <span class="decomp" onclick="toggleDecomp(this)" title="How this score is computed">ⓘ</span></div>
-          <div class="score-value" style="color:var(--green-light)">${a.opportunity_score ?? 0}</div>
+          <div class="score-value" id="opp-value" style="color:var(--green-light)">0</div>
           <div class="bar"><span style="width:${Math.min(a.opportunity_score||0,100)}%;background:var(--green-light)"></span></div>
           <div class="decomp-pop">${decompRows}<div class="muted" style="margin-top:4px;font-size:0.56rem">detection-time value — never recomputed</div></div>
         </div>
@@ -253,6 +275,10 @@
 
     clusterAnnot = d.war_room && d.war_room.annotation || null; updClusterAnnot();
     loadAnnotations((d.related||[]).map(r=>r.id));
+
+    // Functional motion (c): count up opportunity/evidence-confidence figures.
+    countUp(document.getElementById('ec-value'), a.evidence_confidence ?? 0);
+    countUp(document.getElementById('opp-value'), a.opportunity_score ?? 0);
   }).catch(() => {
     document.getElementById('page').innerHTML = `<div class="empty">Cluster not found.<br><a href="/clusters" style="color:var(--amber)">← Back to Clusters</a></div>`;
   });

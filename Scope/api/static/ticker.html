@@ -72,8 +72,15 @@
     .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
     .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
     .alert-time { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
-    .alert-detail { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
-    .alert-card.expanded .alert-detail { display: block; }
+
+    /* Functional motion (b): staggered entrance on render. */
+    @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+    .alert-card.enter { animation: card-enter 200ms ease-out both; }
+
+    /* Functional motion (g): expand/collapse via max-height + opacity, 180ms ease-out. */
+    .alert-detail { max-height: 0; opacity: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top: 1px solid transparent; font-size: 0.82rem; color: var(--cream2); line-height: 1.65; transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out, padding-top 180ms ease-out; }
+    .alert-card.expanded .alert-detail { max-height: 3000px; opacity: 1; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); }
     .detail-label { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.3rem; }
     .verify-link { display: inline-block; margin-top: 0.6rem; font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; }
     .verify-link:hover { background: rgba(200,146,42,0.1); }
@@ -123,6 +130,12 @@
       .hamburger { display: flex; }
       .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
       .nav-links.open { display: flex; }
+    }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
+    @media (prefers-reduced-motion: reduce) {
+      .alert-card.enter { animation: card-enter-reduced 200ms ease-out both; }
+      .alert-detail { transition: opacity 180ms ease-out; }
     }
   </style>
 <style>
@@ -197,6 +210,9 @@ function renderReceipts(r){
 </div>
 
 <script>
+  // ── Functional motion: reduced-motion detection ───────────────────────────
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
 
   const RULE_COLORS = {
@@ -338,8 +354,10 @@ function renderReceipts(r){
       let detail = '';
       if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
       const verifyBtn = url ? `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>` : '';
+      const enterClass = REDUCE_MOTION ? '' : ' enter';
+      const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `
-        <div class="alert-card" id="ac-${i}" onclick="toggle(${i})">
+        <div class="alert-card${enterClass}" id="ac-${i}"${enterStyle} onclick="toggle(${i})">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>

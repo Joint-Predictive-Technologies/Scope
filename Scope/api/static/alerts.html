@@ -59,6 +59,15 @@
     .alert-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1.1rem 1.4rem; transition: border-color 0.15s; cursor: pointer; }
     .alert-card:hover { border-color: var(--border2); }
     .alert-card.expanded { border-color: var(--amber); }
+
+    /* Functional motion (b): staggered entrance on render — opacity + 4px rise. */
+    @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+    .alert-card.enter { animation: card-enter 200ms ease-out both; }
+
+    /* Functional motion (g): expand/collapse — max-height + opacity, 180ms ease-out. */
+    .alert-detail { max-height: 0; opacity: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top: 1px solid transparent; font-size: 0.82rem; color: var(--cream2); line-height: 1.65; transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out, padding-top 180ms ease-out; }
+    .alert-card.expanded .alert-detail { max-height: 3000px; opacity: 1; margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); }
     .alert-top { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
     .badge { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 3px; font-weight: 500; flex-shrink: 0; }
     .badge-CRITICAL { background: color-mix(in srgb, var(--severity-critical) 15%, transparent); color: var(--severity-critical); border: 1px solid var(--severity-critical); }
@@ -97,8 +106,6 @@
     .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
 
     /* EXPANDED DETAIL */
-    .alert-detail { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.65; display: none; }
-    .alert-card.expanded .alert-detail { display: block; }
     .detail-label { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; margin-top: 0.7rem; }
     .detail-label:first-child { margin-top: 0; }
     .member-link { color: var(--cream2); text-decoration: none; border-bottom: 1px solid var(--border2); transition: color 0.15s; }
@@ -117,8 +124,9 @@
     .price-action { font-family: var(--font-mono); font-size: 0.72rem; margin-top: 0.5rem; }
     .social-flag  { font-family: var(--font-mono); font-size: 0.72rem; margin-top: 0.3rem; }
 
-    /* COMMENT THREAD */
-    .comment-thread { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    /* COMMENT THREAD — expand/collapse via max-height + opacity, 180ms ease-out (g) */
+    .comment-thread { max-height: 0; opacity: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top: 1px solid transparent; transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out, padding-top 180ms ease-out; }
+    .comment-thread.open { max-height: 2000px; opacity: 1; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
     .comment-list { display: flex; flex-direction: column; gap: 0.7rem; margin-bottom: 0.8rem; }
     .comment-item { background: var(--bg3); border-radius: 4px; padding: 0.6rem 0.9rem; }
     .comment-header { display: flex; gap: 0.8rem; align-items: center; margin-bottom: 0.3rem; }
@@ -159,6 +167,12 @@
     .nav-badge { background: var(--red); color: #fff; font-size: 0.52rem; font-family: var(--font-mono); padding: 1px 5px; border-radius: 10px; margin-left: 3px; vertical-align: middle; line-height: 1; }
 
     @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
+    @media (prefers-reduced-motion: reduce) {
+      .alert-card.enter { animation: card-enter-reduced 200ms ease-out both; }
+      .alert-detail, .comment-thread { transition: opacity 180ms ease-out; }
+    }
 
     /* ── CMD PALETTE ── */
     #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
@@ -307,6 +321,9 @@ function renderReceipts(r){
 </div>
 
 <script>
+  // ── Functional motion: reduced-motion detection (gates stagger/count-up/etc.) ─
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   document.getElementById('ham-btn').addEventListener('click', () => {
     document.getElementById('nav-links').classList.toggle('open');
   });
@@ -689,8 +706,8 @@ function renderReceipts(r){
     e.stopPropagation();
     const thread = document.getElementById(`thread-${alertId}`);
     if (!thread) return;
-    const wasHidden = thread.style.display === 'none' || !thread.style.display;
-    thread.style.display = wasHidden ? 'block' : 'none';
+    const wasHidden = !thread.classList.contains('open');
+    thread.classList.toggle('open', wasHidden);
     if (wasHidden && !thread.dataset.loaded) {
       thread.dataset.loaded = '1';
       thread.innerHTML = '<div style="color:var(--muted);font-size:0.72rem">Loading…</div>';
@@ -883,13 +900,15 @@ function renderReceipts(r){
       if (aiLabel) detailHtml += aiLabel;
 
       const threadOpen = a.rule === 'RULE_10';
-      detailHtml += `<div class="comment-thread" id="thread-${a.id}" style="display:${threadOpen?'block':'none'}">
+      detailHtml += `<div class="comment-thread${threadOpen?' open':''}" id="thread-${a.id}">
         <div style="color:var(--muted);font-size:0.72rem">Loading…</div>
       </div>`;
 
       const sc = signalScore(a);
+      const enterClass = REDUCE_MOTION ? '' : ' enter';
+      const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `
-        <div class="alert-card${_isNew(a.id)?' alert-new':''}" onclick="toggle(${i},${a.id})" id="card-${i}">
+        <div class="alert-card${enterClass}${_isNew(a.id)?' alert-new':''}"${enterStyle} onclick="toggle(${i},${a.id})" id="card-${i}">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             <span class="badge badge-rule">${a.rule}</span>

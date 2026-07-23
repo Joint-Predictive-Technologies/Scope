@@ -82,8 +82,15 @@
     .rule-badge { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border2); color: var(--muted); }
     .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 180px; }
     .alert-time { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
-    .alert-detail-body { margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--border); font-size: 0.8rem; color: var(--cream2); line-height: 1.6; display: none; }
-    .alert-card.expanded .alert-detail-body { display: block; }
+
+    /* Functional motion (b): staggered entrance on render. */
+    @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+    .alert-card.enter { animation: card-enter 200ms ease-out both; }
+
+    /* Functional motion (g): expand/collapse via max-height + opacity, 180ms ease-out. */
+    .alert-detail-body { max-height: 0; opacity: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top: 1px solid transparent; font-size: 0.8rem; color: var(--cream2); line-height: 1.6; transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out, padding-top 180ms ease-out; }
+    .alert-card.expanded .alert-detail-body { max-height: 3000px; opacity: 1; margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px solid var(--border); }
 
     .empty { padding: 2rem 0; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); }
     .loading-msg { color: var(--muted); font-family: var(--font-mono); font-size: 0.82rem; padding: 4rem 0; }
@@ -143,6 +150,12 @@
       .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
       .nav-links.open { display: flex; }
     }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
+    @media (prefers-reduced-motion: reduce) {
+      .alert-card.enter { animation: card-enter-reduced 200ms ease-out both; }
+      .alert-detail-body { transition: opacity 180ms ease-out; }
+    }
   </style>
 </head>
 <body>
@@ -182,6 +195,9 @@
 </div>
 
 <script>
+  // ── Functional motion: reduced-motion detection ───────────────────────────
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   const bioguideId = window.location.pathname.split('/').pop();
 
   function timeAgo(dateStr) {
@@ -326,7 +342,7 @@
       <div class="section-label">Recent Alerts — ${alerts.length} found</div>
       <div class="alerts-list">
         ${alerts.map((a, i) => `
-          <div class="alert-card" id="ac${i}" onclick="this.classList.toggle('expanded')">
+          <div class="alert-card${REDUCE_MOTION ? '' : ' enter'}" id="ac${i}"${REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`} onclick="this.classList.toggle('expanded')">
             <div class="alert-top">
               <span class="sev-badge sev-${a.severity}">${a.severity}</span>
               <span class="rule-badge">${a.rule}</span>

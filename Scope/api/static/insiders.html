@@ -50,8 +50,15 @@
     .ticker-chip:hover { background: rgba(200,146,42,0.1); }
     .alert-headline { font-size: 0.86rem; color: var(--cream); flex: 1; min-width: 200px; }
     .alert-time { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); flex-shrink: 0; cursor: help; }
-    .alert-detail { margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); font-size: 0.82rem; color: var(--cream2); line-height: 1.6; display: none; }
-    .alert-card.expanded .alert-detail { display: block; }
+
+    /* Functional motion (b): staggered entrance on render. */
+    @keyframes card-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes card-enter-reduced { from { opacity: 0; } to { opacity: 1; } }
+    .alert-card.enter { animation: card-enter 200ms ease-out both; }
+
+    /* Functional motion (g): expand/collapse via max-height + opacity, 180ms ease-out. */
+    .alert-detail { max-height: 0; opacity: 0; overflow: hidden; margin-top: 0; padding-top: 0; border-top: 1px solid transparent; font-size: 0.82rem; color: var(--cream2); line-height: 1.6; transition: max-height 180ms ease-out, opacity 180ms ease-out, margin-top 180ms ease-out, padding-top 180ms ease-out; }
+    .alert-card.expanded .alert-detail { max-height: 3000px; opacity: 1; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--border); }
     .verify-link { display: inline-block; margin-top: 0.6rem; font-family: var(--font-mono); font-size: 0.62rem; color: var(--amber); border: 1px solid rgba(200,146,42,0.3); padding: 3px 10px; border-radius: 3px; text-decoration: none; }
     .verify-link:hover { background: rgba(200,146,42,0.1); }
 
@@ -77,6 +84,12 @@
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
     .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
+    @media (prefers-reduced-motion: reduce) {
+      .alert-card.enter { animation: card-enter-reduced 200ms ease-out both; }
+      .alert-detail { transition: opacity 180ms ease-out; }
+    }
   </style>
 </head>
 <body>
@@ -135,6 +148,9 @@
 </div>
 
 <script>
+  // ── Functional motion: reduced-motion detection ───────────────────────────
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   document.getElementById('ham-btn').addEventListener('click', () => {
     document.getElementById('nav-links').classList.toggle('open');
   });
@@ -178,14 +194,16 @@
       el.innerHTML = '<div class="empty">No insider alerts for this filter.</div>';
       return;
     }
-    el.innerHTML = data.map(a => {
+    el.innerHTML = data.map((a, i) => {
       const t = a.ticker ? a.ticker.replace(/\$/g,'').split(' ')[0] : null;
       const tChip = t ? `<a href="/ticker/${t}" class="ticker-chip" onclick="event.stopPropagation()">${t}</a>` : '';
       const edgarUrl = t
         ? `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${t}&type=4&dateb=&owner=include&count=40`
         : 'https://www.sec.gov';
+      const enterClass = REDUCE_MOTION ? '' : ' enter';
+      const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `
-        <div class="alert-card" onclick="this.classList.toggle('expanded')">
+        <div class="alert-card${enterClass}"${enterStyle} onclick="this.classList.toggle('expanded')">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
             ${tChip}
