@@ -664,6 +664,29 @@ def delete_watchlist_rule(rule_id: int):
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def home():
+    """Land on today's cached morning brief (Phase 2: brief as default landing).
+    Falls back to yesterday's brief with a notice, then to the live feed with a
+    notice. Never generates a brief on page load — only reads the cache.
+    Reversible: restore `return FileResponse(STATIC_DIR / "index.html")`."""
+    from datetime import datetime, timezone, timedelta
+    from fastapi.responses import RedirectResponse
+    from jpt_common import db_connection
+    from api.landing import resolve_landing, inject_brief_header
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    conn = db_connection()
+    try:
+        mode, html, notice = resolve_landing(conn, today, yesterday)
+    finally:
+        conn.close()
+    if mode == "brief" and html:
+        return HTMLResponse(inject_brief_header(html, notice))
+    return RedirectResponse(url="/feed?notice=nobrief", status_code=302)
+
+@app.get("/home", response_class=HTMLResponse, include_in_schema=False)
+def landing_dashboard():
+    """The original dashboard/landing, preserved (was at `/` before brief-as-landing)."""
     return FileResponse(STATIC_DIR / "index.html")
 
 @app.get("/feed", response_class=HTMLResponse, include_in_schema=False)
