@@ -47,6 +47,18 @@ flags each gap honestly. Follow-up tickets, highest value first:
 These are **ingestion/rule changes → human-gated** (DATA-LOSS class); do not
 automate. See [[2026-07-23-provenance-and-brief-landing]] for the full audit table.
 
+## Data gaps — empty states (not bugs)
+
+- **0 active themes → empty `/theses` + no thesis war rooms.** Confirmed by the
+  2026-07-23 design-regression diagnostic. `/theses` (`intelligence.html`) and
+  the thesis war rooms it links are legitimately empty because the DB has **no
+  active themes**. Themes are created by RULE_10 corroboration (4+ distinct
+  rules converging on a ticker within 24h), so this clears itself once
+  corroboration fires — it is a data-accumulation gap, **not** a UI regression,
+  and was **not** fabricated to fill. Directly downstream of RULE_10's long
+  broken window and the RULE_06 data gap (fewer distinct rules firing = fewer
+  corroborations). See [[2026-07-23 Design Pass Regression Repair]].
+
 ## Infrastructure
 
 - **Database backups:** Automated locally (verified compressed daily snapshot,
@@ -93,6 +105,15 @@ was ever pre-approved (and it is already merged). These wait for review:
 
 ## Resolved (kept for the audit trail)
 
+- **Design-pass partial coverage + stale brief cache — RESOLVED 2026-07-23**
+  (on `fix/design-pass-regressions`, awaiting review). The fey-slash pass had
+  tokenized only 5 pages + the brief; the other 23 nav-reachable pages (incl.
+  `/theses`) kept the old amber/IBM Plex, and `/` served a pre-deploy cached
+  brief. Fixed: all 23 pages tokenized (pure consolidation, no value changes);
+  brief cache made template-version-aware (`TEMPLATE_VERSION` + marker +
+  non-blocking regen on `/`). No features/nav were ever removed — verified live.
+  Process fix in [[2026-07-23-design-pass-regression-postmortem]]: a Phase-0
+  route-inventory audit is now the acceptance gate for any design pass.
 - **RULE_10 argparse contract — RESOLVED 2026-07-20.** Fixed AND merged to
   main (`fix/rule10-emit-alerts`, commit `6ea6a7a`); confirmed live in
   production — clean hourly runs since deploy, 0 failures. Root cause: RULE_10

@@ -58,8 +58,9 @@ broken → what we decided → the moat → sessions.**
 ## `02_Sessions/` — work log
 
 - One entry per session (`SESSION_TEMPLATE` for new ones). Latest: `2026-07-23`
-  (provenance + brief landing), `2026-07-22` (prod verification + RULE_06),
-  `2026-07-21` (status reconciliation).
+  (design-pass regression repair), `2026-07-23` (fey-slash design pass),
+  `2026-07-23` (provenance + brief landing), `2026-07-22` (prod verification +
+  RULE_06), `2026-07-21` (status reconciliation).
 
 ---
 
