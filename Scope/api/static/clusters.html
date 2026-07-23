@@ -51,6 +51,13 @@
       .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
       .nav-links.open { display: flex; }
     }
+
+    /* Functional motion — reduced motion: disable the CRITICAL-upgrade pulse
+       (defined in tokens.css .badge-upgraded); count-up is gated in JS via
+       REDUCE_MOTION (see script below), rendering the final value immediately. */
+    @media (prefers-reduced-motion: reduce) {
+      .badge-upgraded { animation: none; }
+    }
   </style>
 </head>
 <body>
@@ -88,20 +95,38 @@
   const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
   let ALL = [], filter='all';
 
+  // ── Functional motion (c): count-up for opportunity-score figures ───────────
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function countUp(el, target) {
+    target = Math.round(target || 0);
+    if (!el) return;
+    if (REDUCE_MOTION) { el.textContent = target; return; }
+    const start = performance.now(), duration = 400;
+    function tick(now) {
+      const p = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      el.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target;
+    }
+    requestAnimationFrame(tick);
+  }
+
   function setF(f){ filter=f; document.querySelectorAll('.filt').forEach(e=>e.classList.toggle('active', e.dataset.f===f)); render(); }
   function render(){
     const items = ALL.filter(c => filter==='all' || c.direction===filter);
     // Functional motion: pulse ONCE a cluster that upgraded to CRITICAL since last visit.
     const _K='scope_cluster_sev'; let _prev={}; try{_prev=JSON.parse(localStorage.getItem(_K)||'{}')||{};}catch(e){_prev={};}
     const _up = c => !!(_prev[c.fingerprint] && _prev[c.fingerprint]!=='critical' && (c.severity||'').toLowerCase()==='critical');
-    document.getElementById('list').innerHTML = items.length ? items.map(c => `
+    document.getElementById('list').innerHTML = items.length ? items.map((c, i) => `
       <a class="c-card ${(c.severity||'').toLowerCase()} ${c.lifecycle_stage==='superseded'?'c-superseded':''}${_up(c)?' badge-upgraded':''}" href="/cluster/${encodeURIComponent(c.fingerprint)}">
         <span class="c-tick">${esc(c.ticker)}</span>
         <span class="c-headline">${esc(c.headline)}<div style="font-family:var(--font-mono);font-size:0.6rem;color:var(--muted);margin-top:2px">${ago(c.created_at)}${c.lifecycle_stage==='superseded'?' · superseded':''}</div></span>
         <span class="status-badge dir-${esc(c.direction)}">${esc((c.direction||'').replace('_',' '))}</span>
-        <span class="c-score">${c.opportunity_score ?? 0} opp</span>
+        <span class="c-score"><span id="c-opp-${i}">0</span> opp</span>
       </a>`).join('') : '<div class="empty">No clusters match this filter.</div>';
     try{ const m={}; ALL.forEach(c=>m[c.fingerprint]=(c.severity||'').toLowerCase()); localStorage.setItem(_K, JSON.stringify(m)); }catch(e){}
+    items.forEach((c, i) => countUp(document.getElementById(`c-opp-${i}`), c.opportunity_score ?? 0));
   }
 
   fetch('/api/clusters').then(r=>r.json()).then(d => { ALL = d; render(); })

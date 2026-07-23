@@ -5,51 +5,44 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Rule Performance — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red: #c0392b; --green: #2a8a4a;
-      --red-light: #e55b4d; --green-light: #4dc47a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
 
     .page { max-width: 1200px; margin: 0 auto; padding: 2.5rem 2rem; }
-    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
-    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: var(--font-sans); font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
     .page-sub { font-size: 0.85rem; color: var(--cream2); margin-bottom: 1.8rem; max-width: 640px; line-height: 1.6; }
 
     .health-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.8rem; margin-bottom: 2rem; }
     .health-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; }
-    .health-val { font-family: 'Playfair Display', serif; font-size: 1.7rem; font-weight: 700; color: var(--amber); }
-    .health-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 0.2rem; }
+    .health-val { font-family: var(--font-sans); font-size: 1.7rem; font-weight: 700; color: var(--amber); }
+    .health-label { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 0.2rem; }
 
-    .stale-banner { background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.28); border-radius: 6px; padding: 0.7rem 1.2rem; margin-bottom: 1.8rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; color: var(--red-light); line-height: 1.6; }
+    .stale-banner { background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.28); border-radius: 6px; padding: 0.7rem 1.2rem; margin-bottom: 1.8rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--red-light); line-height: 1.6; }
     .stale-ok { background: rgba(42,138,74,0.08); border-color: rgba(42,138,74,0.28); color: var(--green-light); }
 
-    .section-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.9rem; }
+    .section-label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.9rem; }
     table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
-    th { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border2); cursor: pointer; user-select: none; white-space: nowrap; }
+    th { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border2); cursor: pointer; user-select: none; white-space: nowrap; }
     th:hover { color: var(--amber); }
     td { padding: 0.7rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
     tr:hover td { background: var(--bg2); }
-    .rule-id { font-family: 'IBM Plex Mono', monospace; color: var(--amber2); font-size: 0.72rem; }
+    .rule-id { font-family: var(--font-mono); color: var(--amber2); font-size: 0.72rem; }
     .sev-bar { display: inline-flex; height: 8px; border-radius: 2px; overflow: hidden; width: 90px; background: var(--bg3); vertical-align: middle; }
     .sev-c { background: var(--red-light); } .sev-h { background: var(--amber); } .sev-m { background: #6ab0e0; }
-    .pill { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); background: var(--bg3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 6px; margin-right: 3px; }
-    .num { font-family: 'IBM Plex Mono', monospace; }
+    .pill { font-family: var(--font-mono); font-size: 0.62rem; color: var(--cream2); background: var(--bg3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 6px; margin-right: 3px; }
+    .num { font-family: var(--font-mono); }
     .corr-good { color: var(--green-light); } .corr-mid { color: var(--amber2); } .corr-low { color: var(--muted); }
     .disclaimer { margin-top: 2rem; font-size: 0.68rem; color: var(--muted); font-style: italic; line-height: 1.6; }
-    .loading { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); font-size: 0.8rem; }
+    .loading { padding: 3rem; text-align: center; font-family: var(--font-mono); color: var(--muted); font-size: 0.8rem; }
     @media (max-width: 800px) { .col-hide { display: none; } }
   
     /* --- unified nav mobile (injected) --- */

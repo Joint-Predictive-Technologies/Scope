@@ -5,37 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>API Docs — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --green-light: #4dc47a;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
     .nav-links a:hover, .nav-links a.active { color: var(--amber); }
 
     .page { max-width: 900px; margin: 0 auto; padding: 2.5rem 2rem; }
-    .page-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
-    .page-title { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
+    .page-tag { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.5rem; }
+    .page-title { font-family: var(--font-sans); font-size: 2rem; font-weight: 700; color: var(--cream); margin-bottom: 0.4rem; }
     .lede { font-size: 0.9rem; color: var(--cream2); line-height: 1.7; margin-bottom: 2rem; max-width: 680px; }
-    h2 { font-family: 'Playfair Display', serif; font-size: 1.25rem; color: var(--cream); margin: 2rem 0 0.8rem; }
+    h2 { font-family: var(--font-sans); font-size: 1.25rem; color: var(--cream); margin: 2rem 0 0.8rem; }
     p { color: var(--cream2); line-height: 1.7; font-size: 0.85rem; margin-bottom: 0.8rem; }
-    code.inline { font-family: 'IBM Plex Mono', monospace; font-size: 0.78rem; color: var(--amber2); background: var(--bg2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 3px; }
-    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font-family: 'IBM Plex Mono', monospace; font-size: 0.74rem; line-height: 1.6; color: var(--cream2); margin-bottom: 1rem; }
+    code.inline { font-family: var(--font-mono); font-size: 0.78rem; color: var(--amber2); background: var(--bg2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 3px; }
+    pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.6; color: var(--cream2); margin-bottom: 1rem; }
     pre .c { color: var(--muted); } pre .k { color: var(--amber2); } pre .s { color: var(--green-light); }
     .endpoint { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
-    .ep-method { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; letter-spacing: 0.08em; background: rgba(42,138,74,0.15); color: var(--green-light); border: 1px solid rgba(42,138,74,0.3); padding: 2px 7px; border-radius: 3px; }
-    .ep-path { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--amber2); margin-left: 0.5rem; }
+    .ep-method { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; background: rgba(42,138,74,0.15); color: var(--green-light); border: 1px solid rgba(42,138,74,0.3); padding: 2px 7px; border-radius: 3px; }
+    .ep-path { font-family: var(--font-mono); font-size: 0.82rem; color: var(--amber2); margin-left: 0.5rem; }
     .ep-desc { color: var(--cream2); font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.6; }
-    .ep-params { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }
+    .ep-params { font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }
     .note { border-left: 2px solid var(--amber); padding-left: 0.9rem; color: var(--cream2); font-size: 0.8rem; line-height: 1.6; margin: 1rem 0; }
   
     /* --- unified nav mobile (injected) --- */

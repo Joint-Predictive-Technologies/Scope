@@ -91,6 +91,13 @@
       .nav-links { display: none; flex-direction: column; position: fixed; top: 56px; left: 0; right: 0; background: var(--bg); border-bottom: 1px solid var(--border); padding: 1.2rem 2rem; gap: 1rem; z-index: 99; }
       .nav-links.open { display: flex; }
     }
+
+    /* Functional motion — reduced motion: keep opacity fades, drop transform/scale.
+       (Count-up is gated in JS via REDUCE_MOTION — see script below.) */
+    @keyframes receipts-reveal-reduced { from { opacity: 0; } to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+      details.receipts[open] .receipts-body { animation: receipts-reveal-reduced 180ms var(--ease-out); }
+    }
   </style>
 <style>
 /* --- alert receipts (provenance block) --- */
@@ -155,6 +162,23 @@ function renderReceipts(r){
   const ago = s => { if(!s) return '—'; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); if(isNaN(t))return'—'; const d=Math.floor((Date.now()-t)/1000); return d<3600?Math.floor(d/60)+'m ago':d<86400?Math.floor(d/3600)+'h ago':Math.floor(d/86400)+'d ago'; };
   const tk = t => (t||'').replace(/\$/g,'').split(' ')[0];
   const annotCache = {};
+
+  // ── Functional motion (c): count-up for opportunity/evidence-confidence figures ──
+  const REDUCE_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function countUp(el, target) {
+    target = Math.round(target || 0);
+    if (!el) return;
+    if (REDUCE_MOTION) { el.textContent = target; return; }
+    const start = performance.now(), duration = 400;
+    function tick(now) {
+      const p = Math.min((now - start) / duration, 1);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out cubic
+      el.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(tick);
+      else el.textContent = target;
+    }
+    requestAnimationFrame(tick);
+  }
 
   // opportunity-score decomposition — mirrors jpt_common.opportunity_score_breakdown
   function decomp(novelty, absorption, horizon, win=0.5){
@@ -228,7 +252,7 @@ function renderReceipts(r){
             <div class="sig-headline">${esc(s.headline)}</div>
             ${s.why_matters ? `<div class="sig-why">${esc(s.why_matters)}</div>` : ''}
             ${s.receipts ? renderReceipts(s.receipts) : ''}
-            <div class="sig-scores">EC <b>${s.evidence_confidence ?? 0}</b> · OPP <i onclick="toggleCard(this)">${s.opportunity_score ?? 0} ⓘ</i></div>
+            <div class="sig-scores">EC <b id="sig-ec-${s.id}">0</b> · OPP <i onclick="toggleCard(this)"><span id="sig-opp-${s.id}">0</span> ⓘ</i></div>
             <div class="decomp-pop">${decompHTML(dc)}</div>
             ${(s.verify_url||s.source_url) ? `<a class="verify-link" href="${esc(s.verify_url||s.source_url)}" target="_blank" rel="noopener">Verify source →</a>` : ''}
           </div>`; }).join('')}
@@ -245,7 +269,7 @@ function renderReceipts(r){
       <a class="related-card" href="/thesis/${r.id}">
         <span class="status-badge st-${(r.status||'emerging').toLowerCase()}">${esc(r.status)}</span>
         ${esc(r.title)}
-        <span class="score">${r.opportunity_score ?? 0} opp</span>
+        <span class="score"><span id="rel-opp-${r.id}">0</span> opp</span>
       </a>`).join('');
 
     const inval = (t.invalidation_conditions&&t.invalidation_conditions.length)
@@ -265,13 +289,13 @@ function renderReceipts(r){
       <div class="score-row">
         <div class="score-card">
           <div class="score-label">Evidence Confidence</div>
-          <div class="score-value" style="color:var(--blue)">${t.evidence_confidence ?? 0}</div>
+          <div class="score-value" id="ec-value" style="color:var(--blue)">0</div>
           <div class="bar"><span style="width:${Math.min(t.evidence_confidence||0,100)}%;background:var(--blue)"></span></div>
           ${ecSpark}
         </div>
         <div class="score-card">
           <div class="score-label">Opportunity Score</div>
-          <div class="score-value" style="color:var(--green-light)">${t.opportunity_score ?? 0}</div>
+          <div class="score-value" id="opp-value" style="color:var(--green-light)">0</div>
           <div class="bar"><span style="width:${Math.min(t.opportunity_score||0,100)}%;background:var(--green-light)"></span></div>
           ${opSpark}
         </div>
@@ -305,6 +329,15 @@ function renderReceipts(r){
 
     themeAnnot = war.annotation || null; updThemeAnnot();
     loadAnnotations((d.signals||[]).map(s=>s.id));
+
+    // Functional motion (c): count up opportunity/evidence-confidence figures.
+    countUp(document.getElementById('ec-value'), t.evidence_confidence ?? 0);
+    countUp(document.getElementById('opp-value'), t.opportunity_score ?? 0);
+    (d.signals||[]).forEach(s => {
+      countUp(document.getElementById(`sig-ec-${s.id}`), s.evidence_confidence ?? 0);
+      countUp(document.getElementById(`sig-opp-${s.id}`), s.opportunity_score ?? 0);
+    });
+    (d.related||[]).forEach(r => countUp(document.getElementById(`rel-opp-${r.id}`), r.opportunity_score ?? 0));
   }).catch(() => {
     document.getElementById('page').innerHTML = `<div class="empty">Thesis not found.<br><a href="/intelligence" style="color:var(--amber)">← Back to Theses</a></div>`;
   });

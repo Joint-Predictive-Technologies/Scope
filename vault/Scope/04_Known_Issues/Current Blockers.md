@@ -47,6 +47,44 @@ flags each gap honestly. Follow-up tickets, highest value first:
 These are **ingestion/rule changes → human-gated** (DATA-LOSS class); do not
 automate. See [[2026-07-23-provenance-and-brief-landing]] for the full audit table.
 
+## Data gaps — empty states (not bugs)
+
+- **0 active themes → empty `/theses` + no thesis war rooms.** Confirmed by the
+  2026-07-23 design-regression diagnostic. `/theses` (`intelligence.html`) and
+  the thesis war rooms it links are legitimately empty because the DB has **no
+  active themes**. Themes are created by RULE_10 corroboration (4+ distinct
+  rules converging on a ticker within 24h), so this clears itself once
+  corroboration fires — it is a data-accumulation gap, **not** a UI regression,
+  and was **not** fabricated to fill. Directly downstream of RULE_10's long
+  broken window and the RULE_06 data gap (fewer distinct rules firing = fewer
+  corroborations). See [[2026-07-23 Design Pass Regression Repair]].
+
+## UI / design residuals (2026-07-23, from the UI restoration session)
+
+On `fix/ui-restoration-and-completion` (awaiting review). None block the branch;
+listed for the follow-up pass. See [[2026-07-23 UI Restoration and Completion]].
+
+- **Hex→token residual — 476 legacy inline hex** (26 distinct palette values)
+  across ~18 static pages. `box-shadow`, pills, and legacy fonts are all zero and
+  the palette is visually consistent with tokens, but these inline literals bypass
+  the token system (e.g. 43 spots still render the OLD amber `#c8922a` instead of
+  copper). **Cannot be scripted blindly** — `#c8922a` appears in SVG `fill="…"`
+  attributes and JS chart-color maps where `var()` doesn't resolve. Needs a
+  context-aware (CSS-only) sweep.
+- **`/api/osint-region-context` returns 500** (`api/main.py:1326`) and
+  `osint_region.html`'s `loadAlerts()` reads `data.items` while `/alerts` returns
+  a bare array when unpaginated — so `/region/<name>` alert lists render empty.
+  **Pre-existing backend bug**, surfaced during Phase 5; not touched (out of the
+  UI scope).
+- **`/sector/<name>` case-sensitivity 404** — the client lowercases the sector
+  ("Defense"→"defense") and `/api/intel/sector/defense` has no match, so the page
+  shows "Unknown sector". Pre-existing; verify against real linked sector values.
+- **`insiders.html` has no `<table>`** — it's a card list, so the Phase-3 table
+  hardening didn't apply. A rigorous insiders *table* view would be a restructure
+  (follow-up), not styling.
+- **Globe follow-ups (deferred, non-blocking):** lat/lon graticule hairlines and
+  on-hover dot-expand tooltip. The click-to-open side panel already covers detail.
+
 ## Infrastructure
 
 - **Database backups:** Automated locally (verified compressed daily snapshot,
@@ -93,6 +131,15 @@ was ever pre-approved (and it is already merged). These wait for review:
 
 ## Resolved (kept for the audit trail)
 
+- **Design-pass partial coverage + stale brief cache — RESOLVED 2026-07-23**
+  (on `fix/design-pass-regressions`, awaiting review). The fey-slash pass had
+  tokenized only 5 pages + the brief; the other 23 nav-reachable pages (incl.
+  `/theses`) kept the old amber/IBM Plex, and `/` served a pre-deploy cached
+  brief. Fixed: all 23 pages tokenized (pure consolidation, no value changes);
+  brief cache made template-version-aware (`TEMPLATE_VERSION` + marker +
+  non-blocking regen on `/`). No features/nav were ever removed — verified live.
+  Process fix in [[2026-07-23-design-pass-regression-postmortem]]: a Phase-0
+  route-inventory audit is now the acceptance gate for any design pass.
 - **RULE_10 argparse contract — RESOLVED 2026-07-20.** Fixed AND merged to
   main (`fix/rule10-emit-alerts`, commit `6ea6a7a`); confirmed live in
   production — clean hourly runs since deploy, 0 failures. Root cause: RULE_10

@@ -62,6 +62,24 @@ Four branches are complete and pushed, awaiting a review/merge decision.
 5. Continue outcome tracking calibration (passive, clock-ticking)
 6. RULE_PHARMA design and implementation
 
+## Feature Candidates (backlog)
+
+Prospective features, each tagged by whether it serves **convergence** (Scope's
+differentiation) or **standalone value** (utility/retention only). See
+[[Competitive Positioning]] for the framing — convergence features are prioritized.
+
+- **Politician search page** — *standalone value.* A per-member directory/search
+  surface; utility, not convergence (the data already feeds Congress signals).
+- **Whale moves (13F institutional holdings)** — *convergence.* New independent
+  source type; institutional accumulation on a ticker congress/contracts also
+  touch is real corroboration. Free (EDGAR). Highest-value candidate.
+- **Stock splits (Prompt B)** — *standalone value.* Retention/utility feature; no
+  convergence contribution.
+- **Risk factors (10-K Item 1A)** — *convergence.* Thematic linkage to
+  lobbying/FARA/regulatory signals; free (EDGAR).
+- **ETF holdings** — *standalone value.* Useful context, but does not strengthen
+  the convergence thesis.
+
 ## Deferred / Waiting On
 
 - Overwatch vs Scanner mode navigation split (design-first, not code-first)

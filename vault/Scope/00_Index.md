@@ -22,7 +22,8 @@ broken → what we decided → the moat → sessions.**
 
 - [[Master Plan]] — North Star + phases 0→4 (living).
 - [[iPhone Stage Progress]] — stage-by-stage status against the maturity ladder.
-- [[Roadmap Tracking]] — short-horizon: what's in flight this week.
+- [[Roadmap Tracking]] — short-horizon: what's in flight this week (+ Feature Candidates backlog).
+- [[Competitive Positioning]] — Scope vs. QuiverQuant; compete on convergence, not dataset breadth.
 
 ## `01_Architecture/` — how it works
 
@@ -58,8 +59,9 @@ broken → what we decided → the moat → sessions.**
 ## `02_Sessions/` — work log
 
 - One entry per session (`SESSION_TEMPLATE` for new ones). Latest: `2026-07-23`
-  (provenance + brief landing), `2026-07-22` (prod verification + RULE_06),
-  `2026-07-21` (status reconciliation).
+  (design-pass regression repair), `2026-07-23` (fey-slash design pass),
+  `2026-07-23` (provenance + brief landing), `2026-07-22` (prod verification +
+  RULE_06), `2026-07-21` (status reconciliation).
 
 ---
 
