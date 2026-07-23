@@ -853,8 +853,9 @@ function renderReceipts(r){
         detailHtml += `<div class="detail-label">Thesis Relevance</div>
           <div style="color:#4dc47a;font-family:var(--font-mono);font-size:0.8rem">${a.relevance_score}/10</div>`;
 
-      if (a.detail)
-        detailHtml += `<div class="detail-label">Analysis</div><div>${a.detail}</div>`;
+      // AI-analysis block removed (vault: 2026-07-23-remove-war-room-ai-analysis).
+      // a.detail (stored LLM narrative) is no longer surfaced; the factual blocks
+      // (Historical Context, Thesis Relevance, Members, receipts) still render.
 
       if (a.rule === 'RULE_02' && a.tags) {
         detailHtml += `<div class="detail-label">Members</div>

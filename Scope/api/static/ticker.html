@@ -331,9 +331,12 @@ function renderReceipts(r){
     const cards = shown.map((a, i) => {
       const url = sourceUrl(a);
       const receipts = a.receipts ? renderReceipts(a.receipts) : '';
+      // AI-analysis block removed (vault: 2026-07-23-remove-war-room-ai-analysis).
+      // The stored alert.detail LLM narrative is no longer surfaced — factual
+      // receipts + tags carry the war room. Generation code is left intact,
+      // just unwired from the UI here.
       let detail = '';
-      if (a.detail) detail = `<div class="detail-label">AI Analysis</div>${a.detail}`;
-      else if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
+      if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
       const verifyBtn = url ? `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>` : '';
       return `
         <div class="alert-card" id="ac-${i}" onclick="toggle(${i})">
