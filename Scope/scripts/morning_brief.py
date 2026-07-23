@@ -201,40 +201,37 @@ def _preamble(d: dict) -> str | None:
 # ── render HTML ───────────────────────────────────────────────────────────────
 
 _CSS = """
-:root{--bg:#0c0b09;--bg2:#111009;--bg3:#181610;--cream:#e8e0cc;--cream2:#c8bfa8;
---amber:#c8922a;--amber2:#e8aa3a;--muted:#7a7060;--border:#2a2620;--border2:#3a3428;
---red:#e55b4d;--green:#4dc47a;--blue:#6ab0e0;}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--cream);font-family:Inter,system-ui,sans-serif;min-height:100vh}
 nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border);background:rgba(12,11,9,0.95);backdrop-filter:blur(12px);padding:0 2rem;display:flex;align-items:center;gap:1rem;height:56px}
-.brand{font-family:'Playfair Display',serif;font-weight:900;font-size:1.2rem;color:var(--amber);text-decoration:none}
-.nav-links a{font-family:'IBM Plex Mono',monospace;font-size:0.68rem;color:var(--cream2);text-decoration:none;letter-spacing:0.06em;text-transform:uppercase;margin-left:1.4rem}
+.brand{font-family:var(--font-sans);font-weight:900;font-size:1.2rem;color:var(--amber);text-decoration:none}
+.nav-links a{font-family:var(--font-mono);font-size:0.68rem;color:var(--cream2);text-decoration:none;letter-spacing:0.06em;text-transform:uppercase;margin-left:1.4rem}
 .nav-links a:hover{color:var(--amber)}
 .page{max-width:820px;margin:0 auto;padding:2.2rem 2rem}
-h1{font-family:'Playfair Display',serif;font-size:1.9rem;font-weight:800}
-.date{font-family:'IBM Plex Mono',monospace;font-size:0.66rem;color:var(--muted);margin-bottom:1.2rem}
+h1{font-family:var(--font-serif);font-size:1.9rem;font-weight:800}
+.date{font-family:var(--font-mono);font-size:0.66rem;color:var(--muted);margin-bottom:1.2rem}
 .preamble{background:rgba(200,146,42,0.06);border-left:2px solid var(--amber);padding:0.7rem 1rem;font-size:0.86rem;color:var(--cream2);line-height:1.6;margin-bottom:0.4rem}
-.gen-tag{font-family:'IBM Plex Mono',monospace;font-size:0.54rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1.6rem}
+.gen-tag{font-family:var(--font-mono);font-size:0.54rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1.6rem}
 section{margin-top:1.8rem}
-section h2{font-family:'IBM Plex Mono',monospace;font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);margin-bottom:0.7rem;border-bottom:1px solid var(--border);padding-bottom:0.3rem}
+section h2{font-family:var(--font-mono);font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);margin-bottom:0.7rem;border-bottom:1px solid var(--border);padding-bottom:0.3rem}
 section h2 a{color:var(--muted);text-decoration:none;font-size:0.7rem;float:right;opacity:0.5}
 .headline-card{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;padding:1rem 1.2rem}
 .headline-card.critical{border-left-color:var(--red)}
 .hl{font-size:1rem;color:var(--cream);margin:0.3rem 0}
 .why{font-size:0.8rem;color:var(--muted);line-height:1.5}
-.badge{font-family:'IBM Plex Mono',monospace;font-size:0.56rem;padding:2px 7px;border-radius:3px;letter-spacing:0.05em}
+.badge{font-family:var(--font-mono);font-size:0.56rem;padding:2px 7px;border-radius:3px;letter-spacing:0.05em}
 .b-critical{background:rgba(229,91,77,0.18);color:var(--red)}.b-high{background:rgba(200,146,42,0.18);color:var(--amber2)}
 .row{display:flex;gap:0.6rem;align-items:baseline;padding:0.35rem 0;border-bottom:1px solid var(--border);font-size:0.82rem}
-.row .tk{font-family:'IBM Plex Mono',monospace;color:var(--amber);min-width:70px}
-.row .meta{color:var(--muted);font-family:'IBM Plex Mono',monospace;font-size:0.66rem;margin-left:auto}
+.row .tk{font-family:var(--font-mono);color:var(--amber);min-width:70px}
+.row .meta{color:var(--muted);font-family:var(--font-mono);font-size:0.66rem;margin-left:auto}
 .row a{color:var(--cream2);text-decoration:none}.row a:hover{color:var(--amber)}
-.dir{font-family:'IBM Plex Mono',monospace;font-size:0.6rem;padding:1px 6px;border-radius:3px}
+.dir{font-family:var(--font-mono);font-size:0.6rem;padding:1px 6px;border-radius:3px}
 .dir.consensus_buy{background:rgba(77,196,122,0.14);color:var(--green)}
 .dir.consensus_sell{background:rgba(229,91,77,0.14);color:var(--red)}
 .dir.mixed{background:rgba(106,176,224,0.14);color:var(--blue)}
 .superseded{opacity:0.5}
-a.wr{color:var(--amber);text-decoration:none;font-family:'IBM Plex Mono',monospace;font-size:0.64rem}
-.health{margin-top:2.2rem;padding-top:1rem;border-top:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:0.64rem;color:var(--muted)}
+a.wr{color:var(--amber);text-decoration:none;font-family:var(--font-mono);font-size:0.64rem}
+.health{margin-top:2.2rem;padding-top:1rem;border-top:1px solid var(--border);font-family:var(--font-mono);font-size:0.64rem;color:var(--muted)}
 .health .crit{color:var(--red)}
 .empty{color:var(--muted);font-size:0.8rem;font-style:italic}
 """
@@ -335,7 +332,8 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Daily Brief {date_str} — Scope</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/tokens.css"/>
 <style>{_CSS}</style></head><body>
 <nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">
 <a href="/feed">Alerts</a><a href="/clusters">Clusters</a><a href="/intelligence">Theses</a></div></nav>

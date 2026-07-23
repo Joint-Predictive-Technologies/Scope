@@ -5,39 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Cluster War Room — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700;900&family=IBM+Plex+Mono:wght@300;400;500&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
   <style>
-    :root {
-      --bg: #0c0b09; --bg2: #111009; --bg3: #181610;
-      --cream: #e8e0cc; --cream2: #c8bfa8;
-      --amber: #c8922a; --amber2: #e8aa3a;
-      --muted: #7a7060; --border: #2a2620; --border2: #3a3428;
-      --red-light: #e55b4d; --green-light: #4dc47a; --blue: #6ab0e0;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
     nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
-    .nav-brand { font-family: 'Playfair Display', serif; font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
-    .nav-links a { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
     .nav-links a:hover { color: var(--amber); }
 
     .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
-    .status-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
+    .status-badge { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
     .sev-critical { background: rgba(229,91,77,0.18); color: var(--red-light); }
     .sev-high { background: rgba(200,146,42,0.18); color: var(--amber2); }
     .dir-consensus_buy { background: rgba(77,196,122,0.16); color: var(--green-light); }
     .dir-consensus_sell { background: rgba(229,91,77,0.16); color: var(--red-light); }
     .dir-mixed { background: rgba(106,176,224,0.16); color: var(--blue); }
-    .t-title { font-family: 'Playfair Display', serif; font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
-    .t-meta { font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--muted); }
-    .tick-chip { font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
+    .t-title { font-family: var(--font-sans); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
+    .t-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
+    .tick-chip { font-family: var(--font-mono); font-size: 0.72rem; background: var(--bg3); border: 1px solid var(--border2); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
     .tick-chip:hover { border-color: var(--amber); }
 
     .score-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1.4rem 0; }
     .score-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.2rem; flex: 1; min-width: 150px; position: relative; }
-    .score-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
-    .score-value { font-family: 'Playfair Display', serif; font-size: 2rem; font-weight: 800; line-height: 1.1; }
+    .score-label { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+    .score-value { font-family: var(--font-sans); font-size: 2rem; font-weight: 800; line-height: 1.1; }
     .bar { height: 6px; border-radius: 3px; background: var(--bg3); overflow: hidden; margin-top: 0.5rem; }
     .bar > span { display: block; height: 100%; }
 
@@ -45,18 +39,18 @@
     .decomp { cursor: help; border-bottom: 1px dotted var(--muted); }
     .decomp-pop { display: none; position: absolute; z-index: 40; left: 1rem; top: 100%; margin-top: 4px; background: var(--bg3); border: 1px solid var(--border2); border-radius: 6px; padding: 0.6rem 0.8rem; min-width: 220px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     .score-card.open .decomp-pop { display: block; }
-    .decomp-row { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.66rem; color: var(--cream2); padding: 2px 0; }
+    .decomp-row { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.66rem; color: var(--cream2); padding: 2px 0; }
     .decomp-row .v { color: var(--cream); }
     .decomp-row.total { border-top: 1px solid var(--border2); margin-top: 3px; padding-top: 4px; color: var(--amber2); }
 
     .section { margin-top: 1.8rem; }
-    .section h3 { font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
+    .section h3 { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
 
     .table-wrap { overflow-x: auto; }
     table.members { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 0.78rem; }
-    table.members th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+    table.members th { text-align: left; font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
     table.members td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
-    .dir-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; }
+    .dir-tag { font-family: var(--font-mono); font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; }
     .dir-tag.buy { background: rgba(77,196,122,0.14); color: var(--green-light); }
     .dir-tag.sell { background: rgba(229,91,77,0.14); color: var(--red-light); }
     .dir-tag.mixed { background: rgba(106,176,224,0.14); color: var(--blue); }
@@ -67,8 +61,8 @@
     .tl-track { position: relative; height: 26px; margin: 0.4rem 0; }
     .tl-line { position: absolute; top: 13px; left: 0; right: 0; height: 1px; background: var(--border2); }
     .tl-dot { position: absolute; top: 7px; width: 12px; height: 12px; border-radius: 50%; background: var(--amber); transform: translateX(-50%); border: 2px solid var(--bg); }
-    .tl-name { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--cream2); width: 130px; display: inline-block; }
-    .tl-axis { display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 0.58rem; color: var(--muted); margin-top: 0.3rem; }
+    .tl-name { font-family: var(--font-mono); font-size: 0.62rem; color: var(--cream2); width: 130px; display: inline-block; }
+    .tl-axis { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.58rem; color: var(--muted); margin-top: 0.3rem; }
     .tl-row { display: flex; align-items: center; gap: 0.6rem; }
     .tl-row .tl-track { flex: 1; }
 
@@ -77,7 +71,7 @@
     .signal-card.high { border-left-color: var(--amber); }
     .signal-card.medium { border-left-color: var(--blue); }
     .sig-top { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-    .rule-badge { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 6px; border-radius: 3px; }
+    .rule-badge { font-family: var(--font-mono); font-size: 0.56rem; color: var(--muted); border: 1px solid var(--border2); padding: 1px 6px; border-radius: 3px; }
     .sig-headline { font-size: 0.82rem; color: var(--cream); margin-top: 0.3rem; }
 
     .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.66rem; line-height: 1; filter: grayscale(0.85); opacity: 0.5; transition: all 0.15s; }
@@ -88,11 +82,11 @@
     .invalidation { background: rgba(229,91,77,0.06); border-left: 2px solid var(--red-light); padding: 0.8rem 1rem; font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
     .conflict-box { background: rgba(229,91,77,0.08); border: 1px solid rgba(229,91,77,0.3); border-radius: 6px; padding: 0.8rem 1rem; }
     .notes-area { width: 100%; min-height: 90px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--cream); font-family: Inter, sans-serif; font-size: 0.82rem; padding: 0.7rem 0.9rem; resize: vertical; }
-    .notes-save { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; margin-top: 0.4rem; color: var(--muted); }
-    .gen-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.56rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
-    .loading, .empty { padding: 3rem; text-align: center; font-family: 'IBM Plex Mono', monospace; color: var(--muted); }
+    .notes-save { font-family: var(--font-mono); font-size: 0.62rem; margin-top: 0.4rem; color: var(--muted); }
+    .gen-label { font-family: var(--font-mono); font-size: 0.56rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: var(--font-mono); color: var(--muted); }
     .muted { color: var(--muted); font-size: 0.8rem; }
-    a.verify-link { font-family: 'IBM Plex Mono', monospace; font-size: 0.62rem; color: var(--amber); text-decoration: none; }
+    a.verify-link { font-family: var(--font-mono); font-size: 0.62rem; color: var(--amber); text-decoration: none; }
   
     /* --- unified nav mobile (injected) --- */
     .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 9px 13px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
@@ -197,12 +191,12 @@
     const related = (d.related||[]).map(r => `
       <div class="signal-card ${(r.severity||'').toLowerCase()}">
         <div class="sig-top"><span class="rule-badge">${esc(r.rule)}</span>
-          <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem">${ago(r.created_at)}</span>
+          <span class="muted" style="font-family:var(--font-mono);font-size:0.6rem">${ago(r.created_at)}</span>
           ${annotBtns(r.id)}</div>
         <div class="sig-headline">${esc(r.headline)}</div></div>`).join('') || '<div class="muted">No other signals on this ticker in the last 30 days.</div>';
 
     const upgrades = (d.upgrades||[]).length ? `<div class="section"><h3>Upgrade history</h3>${
-      d.upgrades.map(u=>`<div class="signal-card medium"><div class="sig-top"><span class="rule-badge">${u.distinct_members} members</span><span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.6rem">${ago(u.created_at)} · ${esc(u.lifecycle_stage||'')}</span></div><div class="sig-headline">${esc(u.headline)}</div></div>`).join('')
+      d.upgrades.map(u=>`<div class="signal-card medium"><div class="sig-top"><span class="rule-badge">${u.distinct_members} members</span><span class="muted" style="font-family:var(--font-mono);font-size:0.6rem">${ago(u.created_at)} · ${esc(u.lifecycle_stage||'')}</span></div><div class="sig-headline">${esc(u.headline)}</div></div>`).join('')
     }</div>` : '';
 
     const conflicting = (d.conflicting||[]).length ? `<div class="section"><h3>Conflicting evidence</h3><div class="conflict-box">${
@@ -217,7 +211,7 @@
       <div style="display:flex;gap:0.6rem;align-items:center;flex-wrap:wrap">
         <span class="status-badge sev-${(a.severity||'').toLowerCase()}">${esc(a.severity)}</span>
         <span class="status-badge dir-${esc(d.direction)}">${esc((d.direction||'').replace('_',' '))}</span>
-        <span class="muted" style="font-family:'IBM Plex Mono',monospace;font-size:0.62rem" title="RULE_CLUSTER fires on 3+ distinct members trading the same ticker inside a rolling ${d.window_hours||72}h window; 3-4 members = HIGH, 5+ = CRITICAL.">${d.distinct_members} distinct members within a ${d.window_hours||72}h window <span style="opacity:0.7">(HIGH threshold: 3+, CRITICAL: 5+)</span></span>
+        <span class="muted" style="font-family:var(--font-mono);font-size:0.62rem" title="RULE_CLUSTER fires on 3+ distinct members trading the same ticker inside a rolling ${d.window_hours||72}h window; 3-4 members = HIGH, 5+ = CRITICAL.">${d.distinct_members} distinct members within a ${d.window_hours||72}h window <span style="opacity:0.7">(HIGH threshold: 3+, CRITICAL: 5+)</span></span>
       </div>
       <div class="t-title">${esc(a.headline)}</div>
       <div class="t-meta"><a class="tick-chip" href="/ticker/${esc(a.ticker)}">${esc(a.ticker)}</a> &nbsp; detected ${ago(a.created_at)} · most recent trade ${esc(maxD||'—')}
