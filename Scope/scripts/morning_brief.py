@@ -201,39 +201,42 @@ def _preamble(d: dict) -> str | None:
 # ── render HTML ───────────────────────────────────────────────────────────────
 
 _CSS = """
+/* Morning brief — editorial register (Slash-inspired). The ONLY serif hero. */
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--cream);font-family:Inter,system-ui,sans-serif;min-height:100vh}
-nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border);background:rgba(12,11,9,0.95);backdrop-filter:blur(12px);padding:0 2rem;display:flex;align-items:center;gap:1rem;height:56px}
-.brand{font-family:var(--font-sans);font-weight:900;font-size:1.2rem;color:var(--amber);text-decoration:none}
-.nav-links a{font-family:var(--font-mono);font-size:0.68rem;color:var(--cream2);text-decoration:none;letter-spacing:0.06em;text-transform:uppercase;margin-left:1.4rem}
-.nav-links a:hover{color:var(--amber)}
-.page{max-width:820px;margin:0 auto;padding:2.2rem 2rem}
-h1{font-family:var(--font-serif);font-size:1.9rem;font-weight:800}
-.date{font-family:var(--font-mono);font-size:0.66rem;color:var(--muted);margin-bottom:1.2rem}
-.preamble{background:rgba(200,146,42,0.06);border-left:2px solid var(--amber);padding:0.7rem 1rem;font-size:0.86rem;color:var(--cream2);line-height:1.6;margin-bottom:0.4rem}
-.gen-tag{font-family:var(--font-mono);font-size:0.54rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:1.6rem}
-section{margin-top:1.8rem}
-section h2{font-family:var(--font-mono);font-size:0.7rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--amber);margin-bottom:0.7rem;border-bottom:1px solid var(--border);padding-bottom:0.3rem}
-section h2 a{color:var(--muted);text-decoration:none;font-size:0.7rem;float:right;opacity:0.5}
-.headline-card{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--amber);border-radius:6px;padding:1rem 1.2rem}
-.headline-card.critical{border-left-color:var(--red)}
-.hl{font-size:1rem;color:var(--cream);margin:0.3rem 0}
-.why{font-size:0.8rem;color:var(--muted);line-height:1.5}
-.badge{font-family:var(--font-mono);font-size:0.56rem;padding:2px 7px;border-radius:3px;letter-spacing:0.05em}
-.b-critical{background:rgba(229,91,77,0.18);color:var(--red)}.b-high{background:rgba(200,146,42,0.18);color:var(--amber2)}
-.row{display:flex;gap:0.6rem;align-items:baseline;padding:0.35rem 0;border-bottom:1px solid var(--border);font-size:0.82rem}
-.row .tk{font-family:var(--font-mono);color:var(--amber);min-width:70px}
-.row .meta{color:var(--muted);font-family:var(--font-mono);font-size:0.66rem;margin-left:auto}
-.row a{color:var(--cream2);text-decoration:none}.row a:hover{color:var(--amber)}
-.dir{font-family:var(--font-mono);font-size:0.6rem;padding:1px 6px;border-radius:3px}
-.dir.consensus_buy{background:rgba(77,196,122,0.14);color:var(--green)}
-.dir.consensus_sell{background:rgba(229,91,77,0.14);color:var(--red)}
-.dir.mixed{background:rgba(106,176,224,0.14);color:var(--blue)}
+body{background:var(--surface-canvas);color:var(--text-primary);font-family:var(--font-sans);min-height:100vh}
+nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border-subtle);background:rgba(10,10,12,0.95);backdrop-filter:blur(12px);padding:0 var(--space-6);display:flex;align-items:center;gap:var(--space-4);height:56px}
+.brand{font-family:var(--font-sans);font-weight:var(--weight-semibold);font-size:var(--text-lg);letter-spacing:0.01em;color:var(--accent);text-decoration:none}
+.nav-links a{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-secondary);text-decoration:none;letter-spacing:var(--tracking-label);text-transform:uppercase;margin-left:var(--space-5)}
+.nav-links a:hover{color:var(--accent)}
+.page{max-width:860px;margin:0 auto;padding:var(--space-12) var(--space-5) var(--space-16)}
+h1{font-family:var(--font-serif);font-weight:var(--weight-normal);font-size:var(--text-3xl);letter-spacing:-0.01em;line-height:1.15;color:var(--text-primary)}
+.date{font-family:var(--font-sans);font-size:var(--text-sm);color:var(--text-tertiary);margin-top:var(--space-2);margin-bottom:var(--space-12)}
+.summary-chip{display:inline-block;font-family:var(--font-mono);font-size:var(--text-2xs);letter-spacing:var(--tracking-label);text-transform:uppercase;color:var(--text-tertiary);margin-bottom:var(--space-2)}
+.preamble{font-family:var(--font-sans);font-size:var(--text-md);color:var(--text-secondary);line-height:var(--leading-prose);border-left:2px solid var(--accent-dim);padding-left:var(--space-4);margin-bottom:var(--space-12)}
+.gen-tag{display:none}
+section{margin-top:var(--section-gap-editorial)}
+section h2{font-family:var(--font-sans);font-size:var(--text-lg);font-weight:var(--weight-semibold);letter-spacing:-0.01em;color:var(--text-primary);margin-bottom:var(--space-4);border-bottom:1px solid var(--border-subtle);padding-bottom:var(--space-2)}
+section h2 a{color:var(--text-tertiary);text-decoration:none;font-size:var(--text-sm);font-family:var(--font-mono);float:right;font-weight:var(--weight-normal)}
+.headline-card{background:var(--surface-1);border:1px solid var(--border-subtle);border-left:3px solid var(--accent);border-radius:var(--radius-lg);padding:var(--space-4) var(--space-5)}
+.headline-card.critical{border-left-color:var(--severity-critical)}
+.hl{font-size:var(--text-md);color:var(--text-primary);margin:var(--space-1) 0;line-height:var(--leading-body)}
+.why{font-size:var(--text-sm);color:var(--text-secondary);line-height:var(--leading-prose)}
+.badge{font-family:var(--font-mono);font-size:var(--text-2xs);padding:2px 7px;border-radius:var(--radius-sm);letter-spacing:0.05em}
+.b-critical{background:color-mix(in srgb,var(--severity-critical) 15%,transparent);color:var(--severity-critical);border:1px solid var(--severity-critical)}
+.b-high{background:color-mix(in srgb,var(--severity-high) 15%,transparent);color:var(--severity-high);border:1px solid var(--severity-high)}
+.row{display:flex;gap:var(--space-3);align-items:baseline;padding:var(--space-2) 0;border-bottom:1px solid var(--border-subtle);font-size:var(--text-sm)}
+.row .tk{font-family:var(--font-mono);color:var(--accent);min-width:70px}
+.row .meta{color:var(--text-tertiary);font-family:var(--font-mono);font-size:var(--text-xs);margin-left:auto;font-variant-numeric:tabular-nums}
+.row a{color:var(--text-secondary);text-decoration:none}.row a:hover{color:var(--accent)}
+.dir{font-family:var(--font-mono);font-size:var(--text-2xs);padding:1px 6px;border-radius:var(--radius-sm)}
+.dir.consensus_buy{background:color-mix(in srgb,var(--direction-buy) 14%,transparent);color:var(--direction-buy)}
+.dir.consensus_sell{background:color-mix(in srgb,var(--direction-sell) 14%,transparent);color:var(--direction-sell)}
+.dir.mixed{background:color-mix(in srgb,var(--direction-neutral) 14%,transparent);color:var(--direction-neutral)}
 .superseded{opacity:0.5}
-a.wr{color:var(--amber);text-decoration:none;font-family:var(--font-mono);font-size:0.64rem}
-.health{margin-top:2.2rem;padding-top:1rem;border-top:1px solid var(--border);font-family:var(--font-mono);font-size:0.64rem;color:var(--muted)}
-.health .crit{color:var(--red)}
-.empty{color:var(--muted);font-size:0.8rem;font-style:italic}
+a.wr{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-size:var(--text-xs)}
+.health{margin-top:var(--section-gap-editorial);padding-top:var(--space-3);border-top:1px solid var(--border-subtle);font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-tertiary)}
+.health .crit{color:var(--severity-critical)}
+.empty{color:var(--text-tertiary);font-size:var(--text-sm);font-style:italic}
 """
 
 
@@ -324,8 +327,8 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 
     pre = ""
     if preamble:
-        pre = (f'<div class="preamble">{_esc(preamble)}</div>'
-               f'<div class="gen-tag">↑ generated summary — everything below is deterministic</div>')
+        pre = (f'<div class="summary-chip">Summary</div>'
+               f'<div class="preamble">{_esc(preamble)}</div>')
 
     body = "".join(parts) or '<div class="empty">No activity to report in this window.</div>'
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
