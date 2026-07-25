@@ -59,6 +59,7 @@ broken → what we decided → the moat → sessions.**
 
 ## `02_Sessions/` — work log
 
+- [[SESSION-2026-07-25-gate-reachability]] — **verdict (B): the convergence gate is structurally unreachable**; 8 of 14 eligible rules can't contribute and 3 of the 6 that can are one instrument. Key normalization is voided as a convergence fix.
 - [[SESSION-2026-07-25-rule10-convergence-trace]] — **verdict: convergence was never generated, not destroyed**; the 28 "lost" RULE_10 alerts were ZWAR test fixtures. DATA-LOSS flag retracted.
 - One entry per session (`SESSION_TEMPLATE` for new ones). Latest: `2026-07-23`
   (design-pass regression repair), `2026-07-23` (fey-slash design pass),
