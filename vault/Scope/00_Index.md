@@ -46,6 +46,7 @@ broken → what we decided → the moat → sessions.**
 
 ## `05_Decisions/` — settled decisions
 
+- [[2026-07-25-subagent-roster]] — five **advisory, human-gated** specialist subagents; autonomous production-mutating agents stay excluded. Notes that the four agents `CLAUDE.md` documents do not exist on disk.
 - One file per architecture decision (rationale + date). See its `README`.
 
 ## `08_Ideas/` — idea inbox
