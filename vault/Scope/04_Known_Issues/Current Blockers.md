@@ -12,6 +12,31 @@ related: [[Roadmap Tracking]], [[Production Health]]
 
 Issues actively blocking progress or needing a human decision.
 
+## Open questions (active)
+
+- **RULE_10 convergence has never fired on real data — RESOLVED as "never
+  generated", not data loss.** Traced 2026-07-25 (read-only), full evidence in
+  [[SESSION-2026-07-25-rule10-convergence-trace]]. The 28 RULE_10 emits in
+  `activity_log` are entirely accounted for by the `ZWAR` test fixture in
+  `tests/test_war_rooms.py:108-133` (28 themes and 140 = 28×5 theme_signals in
+  `sqlite_sequence`, all deleted by the test teardown). **The earlier DATA-LOSS
+  flag is retracted.** The real open questions this leaves:
+  - **Why does nothing converge?** 0 ticker/24h-windows have *ever* reached the
+    4-distinct-eligible-rule gate; the maximum ever observed is 3 (`SPCX`).
+    Candidate causes for Priority #2: multi-symbol ticker keys (`LMT RTX NOC`
+    stored as one opaque ticker across 511 alerts, 72 of them from the *eligible*
+    RULE_08), the HIGH/CRITICAL severity gate, and rule cadences that make four
+    distinct rules inside 24h structurally unlikely. Not investigated here.
+  - **Tests mutate the production database.** `tests/test_phase3.py` and
+    `tests/test_war_rooms.py` run real rule scripts against live `db_connection()`
+    with no fixture DB. This is what manufactured the phantom data-loss signal and
+    will keep doing so. Needs a human-gated decision.
+  - **`Scope/data/jpt.db` is tracked in git** (42 commits). `sqlite_sequence` moves
+    backward between commits, so the committed DB is not a reliable historical
+    record.
+  - Verification on production is still outstanding — the distinguishing query is
+    in the session note's Provenance section.
+
 ## Production (active)
 
 - **RULE_06 (Form 4) times out every run — data gap.** `rule_06_form4.py` re-scans

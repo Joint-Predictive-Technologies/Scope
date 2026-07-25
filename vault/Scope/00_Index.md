@@ -58,6 +58,7 @@ broken → what we decided → the moat → sessions.**
 
 ## `02_Sessions/` — work log
 
+- [[SESSION-2026-07-25-rule10-convergence-trace]] — **verdict: convergence was never generated, not destroyed**; the 28 "lost" RULE_10 alerts were ZWAR test fixtures. DATA-LOSS flag retracted.
 - One entry per session (`SESSION_TEMPLATE` for new ones). Latest: `2026-07-23`
   (design-pass regression repair), `2026-07-23` (fey-slash design pass),
   `2026-07-23` (provenance + brief landing), `2026-07-22` (prod verification +
