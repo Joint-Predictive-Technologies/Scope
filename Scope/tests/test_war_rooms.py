@@ -16,22 +16,68 @@ from jpt_common import db_connection, opportunity_score_breakdown  # noqa: E402
 _c = TestClient(app)
 
 
-def _spcx_fingerprint():
-    conn = db_connection()
-    row = conn.execute(
-        "SELECT tags FROM alerts WHERE rule='RULE_CLUSTER' AND ticker='SPCX' "
-        "ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    conn.close()
+# ── cluster fixture ───────────────────────────────────────────────────────────
+# These tests used to assert on SPCX — a real RULE_CLUSTER alert that happened to
+# sit in the working database. They passed only because the suite was reading
+# production data. Now each test seeds the cluster it asserts on, so it holds on
+# an empty DB and is independent of whatever prod contains.
+#
+# Shapes mirror scripts/rule_cluster.py exactly: fingerprint
+# `CLUSTER::<members joined by +>::<ticker>::<direction>` (rule_cluster.py:80),
+# tags carry members/direction/distinct_members/fingerprint, and detail carries
+# the per-member records the war room renders.
+
+_T = "TCLU"                                    # synthetic test ticker
+_MEMBERS = [                                   # (bioguide_id, full_name, party, state)
+    ("TCLUM1", "Alpha, Ada",   "D", "CA"),
+    ("TCLUM2", "Bravo, Ben",   "R", "TX"),
+    ("TCLUM3", "Charlie, Cai", "I", "VT"),
+]
+# novelty 1.0, absorption 0, IMMEDIATE -> 40 - 0 + 20 + 5 = 65 (must equal the
+# stored opportunity_score, since the war room asserts decomposition == stored).
+_NOVELTY, _ABSORPTION, _HORIZON, _OPPORTUNITY = 1.0, 0.0, "IMMEDIATE", 65.0
+
+
+def _seed_cluster(direction="consensus_buy", ticker=_T, members=_MEMBERS):
+    """Insert a RULE_CLUSTER alert (+ its members) and return its URL fingerprint."""
     import json
-    fp = json.loads(row["tags"])["fingerprint"] if row else ""
+    ids = sorted(m[0] for m in members)
+    fp = f"CLUSTER::{'+'.join(ids)}::{ticker}::{direction}"
+    names = [m[1] for m in members]
+    conn = db_connection()
+    for bioguide_id, full_name, party, state in members:
+        conn.execute(
+            "INSERT OR REPLACE INTO members (bioguide_id, full_name, party, state, chamber) "
+            "VALUES (?,?,?,?,'House')", (bioguide_id, full_name, party, state))
+    tags = json.dumps({
+        "members": ids, "member_names": names, "direction": direction,
+        "distinct_members": len(members), "fingerprint": fp, "is_upgrade": False,
+        "tags": ["congressional", "cluster", direction],
+    })
+    detail = json.dumps({
+        "fingerprint": fp, "direction": direction, "distinct_members": len(members),
+        "members": [{"member_id": m[0], "name": m[1], "direction": "buy",
+                     "transaction_dates": ["2026-07-01"], "sizes": ["$1,001 - $15,000"],
+                     "doc_id": "TESTDOC", "filing_url": "https://example.invalid/ptr"}
+                    for m in members],
+        "unusual_types_members": [], "window_hours": 72,
+    })
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, why_matters, tags, detail,
+               novelty_score, absorption_pct, time_horizon, opportunity_score,
+               evidence_confidence, source_quality, created_at)
+           VALUES ('RULE_CLUSTER',?,'HIGH',?,?,?,?,?,?,?,?,?, 'Primary', datetime('now'))""",
+        (ticker, f"{len(members)} members bought {ticker} in 72h",
+         f"{len(members)} distinct members bought {ticker}. Identity {fp}.",
+         tags, detail, _NOVELTY, _ABSORPTION, _HORIZON, _OPPORTUNITY, 20.0))
+    conn.commit(); conn.close()
     return fp.replace("CLUSTER::", "").replace("::", "__")
 
 
 # ── score decomposition ───────────────────────────────────────────────────────
 
 def test_decomposition_math():
-    # SPCX: novelty 1.0, absorption 0, IMMEDIATE -> 40 - 0 + 20 + 5 = 65
+    # novelty 1.0, absorption 0, IMMEDIATE -> 40 - 0 + 20 + 5 = 65
     d = opportunity_score_breakdown(1.0, 0.0, "IMMEDIATE")
     assert d["total"] == 65.0
     vals = {c["value"] for c in d["components"]}
@@ -52,32 +98,36 @@ def test_cluster_page_route_serves():
     assert "Cluster War Room" in r.text
 
 
-def test_cluster_detail_spcx_three_members():
-    fp = _spcx_fingerprint()
-    assert fp, "SPCX cluster must exist (run rule_cluster first)"
+def test_cluster_detail_three_members():
+    fp = _seed_cluster()
     d = _c.get(f"/api/clusters/{fp}").json()
     assert d["direction"] == "consensus_buy"
     assert d["distinct_members"] == 3
     names = sorted(m["name"] for m in d["members"])
-    assert names == ["Cisneros, Gilbert Ray", "McGuire, John J.", "Meuser, Daniel"]
-    # party/state enriched
+    assert names == ["Alpha, Ada", "Bravo, Ben", "Charlie, Cai"]
+    # party/state enriched from the members table
     assert all(m.get("party") for m in d["members"])
+    assert {m["state"] for m in d["members"]} == {"CA", "TX", "VT"}
     # decomposition present and immutable (detection-time)
-    assert d["decomposition"]["total"] == d["alert"]["opportunity_score"]
+    assert d["decomposition"]["total"] == d["alert"]["opportunity_score"] == _OPPORTUNITY
     # EC and OS are separate fields
     assert "evidence_confidence" in d["alert"] and "opportunity_score" in d["alert"]
 
 
 def test_clusters_index():
+    _seed_cluster()
     d = _c.get("/api/clusters").json()
     assert isinstance(d, list)
-    assert any(c["ticker"] == "SPCX" for c in d)
+    hit = [c for c in d if c["ticker"] == _T]
+    assert len(hit) == 1, f"seeded {_T} cluster must appear exactly once"
+    assert hit[0]["direction"] == "consensus_buy"
+    assert hit[0]["distinct_members"] == 3
 
 
 # ── notes + entity annotation (integration with Part 1 pattern) ───────────────
 
 def test_warroom_note_and_annotation_upsert():
-    fp = _spcx_fingerprint()
+    fp = _seed_cluster()
     # note upsert
     _c.post("/api/warroom/note", json={"entity_type": "cluster", "entity_id": fp, "note": "watching closely"})
     got = _c.get(f"/api/warroom/cluster/{fp}").json()

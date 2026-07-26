@@ -245,11 +245,62 @@ Nothing in this session touched rule, scoring, or corroboration logic, and no
 migration was run. [[2026-07-25-gate-redesign]] remains recorded-but-unapplied;
 it lands in WS4.
 
+---
+
+## Addendum — 2026-07-26, C4 resolved and F1/F2 closed
+
+The C4 decision was taken: fix the four tests to seed their own fixtures. Done in
+a follow-up commit on the same branch.
+
+- `tests/test_war_rooms.py` — `_spcx_fingerprint()` (which read a real SPCX
+  cluster out of the working DB) is replaced by `_seed_cluster()`, which inserts
+  a RULE_CLUSTER alert on synthetic ticker `TCLU` plus three synthetic members,
+  matching `scripts/rule_cluster.py`'s tag/detail/fingerprint shape exactly. Three
+  call sites updated — including `test_warroom_note_and_annotation_upsert`, which
+  was previously passing a **blank** fingerprint and therefore asserting nothing.
+- `tests/test_influence_entity.py` — added `_seed_lobbying()`. The entity stays
+  AIPAC deliberately: `resolve_org` matches an in-code registry, not the DB, so
+  only the *filings* were ever a prod dependency. Assertions tightened from
+  `total_spend > 0` to exact values, and `test_partial_year_yoy_omitted` now
+  asserts the partial-year branch specifically rather than "either outcome".
+  One test added (`test_yoy_computed_on_complete_years`) to cover the other branch.
+- **F1** `.venv/` added to `.gitignore`. **F2** `Scope/CLAUDE.md:13` now points at
+  `pytest tests/` as the supported path.
+
+**Result: 134/134 green on the empty default** (133 + the one added test). Working
+DB byte-identical across the run. Each of the four fails when its seed is removed,
+verified by temporarily neutering the seeders.
+
+### ❌ New known limitation — `SCOPE_TEST_SEED_DB` mode is now broken
+
+`SCOPE_TEST_SEED_DB=<snapshot> pytest tests/` gives **131 passed, 3 failed**:
+
+```
+test_entity_endpoint_lobbying_available   assert 8425783.0 == 500000.0
+test_partial_year_yoy_omitted             '2025' not in '2026 is a partial year (1 filings) — YoY omitted'
+test_yoy_computed_on_complete_years       assert None == 100.0
+```
+
+The seeded snapshot contains **real AIPAC filings ($8.4M across years through
+2026)**, which collide with the now-exact assertions. This is the new tests
+correctly refusing to pass when ambient production data is present — the intended
+behaviour — not a defect in them.
+
+It cannot be fixed within this pass's constraints: weakening the assertions to
+`>=` is forbidden (and would reintroduce ambient-data tolerance), and every one of
+the five orgs in the `resolve_org` registry has prod filings, so no collision-free
+entity exists. Editing `conftest.py` was out of scope.
+
+**Recommendation:** delete the `SCOPE_TEST_SEED_DB` knob from `tests/conftest.py`
+at merge. It existed solely to make the four prod-coupled tests pass; that purpose
+is gone, and the knob now only offers a way to run the suite against ambient data,
+which is what WS1 set out to eliminate. Roughly a four-line removal.
+
 ## Next
 
 WS2 — RULE_06 reliability, the insider instrument the threshold-3 gate needs as a
-real third leg. Note WS2 will want a green suite at commit time, which is what
-makes the C4 decision timely.
+real third leg. The suite is green on the supported path, so WS2's commit gate is
+unblocked.
 
 ---
 

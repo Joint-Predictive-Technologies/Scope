@@ -10,7 +10,7 @@ for conventions — keep it in sync when they change.
 - `api/static/*.html` — client-rendered pages (vanilla JS + `fetch`), dark terminal aesthetic. No Jinja.
 - `jpt_common.py` — shared DB connection, scoring engine, sector maps, migrations, `insert_alert`.
 - Rule scripts — some at repo root (`rule_0X_*.py`), some in `scripts/`. Run as subprocesses by the scheduler with `--emit-alerts`.
-- `tests/*.py` — self-contained (pytest-compatible, also runnable via `python3 tests/<f>.py`).
+- `tests/*.py` — run with `pytest tests/` (the supported path; `tests/conftest.py` gives each test a disposable DB). Running a module directly now fails fast unless `DATABASE_PATH` points at a throwaway file.
 
 ## Database
 - SQLite. Path resolution (`jpt_common._get_db_path`): explicit arg → `DATABASE_PATH` env → Railway volume `/app/data/jpt.db` if present → local `./data/jpt.db`.
