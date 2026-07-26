@@ -264,38 +264,158 @@ def test_the_api_labels_these_as_not_confirmed():
     assert payload["threshold"] == 3
 
 
-def test_the_api_returns_no_confidence_or_win_rate_field():
-    """A near-miss is a watch item — it must carry no score-like number."""
+# An ALLOW-list, not a deny-list. A deny-list of banned words misses anything
+# renamed (`likelihood_of_firing`, `strength`, `completion_pct`, `odds`) and is
+# brittle in the other direction — a legitimate headline like "LMT scored $2B Navy
+# award" would trip a naive grep for "score". Pinning the exact schema is both
+# stricter and stable.
+ALLOWED_TOP_KEYS = {"status", "label", "window_days", "threshold", "count", "forming"}
+ALLOWED_ITEM_KEYS = {"ticker", "instruments", "instrument_count", "needed",
+                     "missing_legs", "latest_at", "alerts"}
+ALLOWED_ALERT_KEYS = {"id", "rule", "severity", "headline", "created_at"}
+
+
+def test_the_api_payload_schema_admits_no_score_like_field():
+    """A near-miss is a watch item. Nothing score-shaped may reach the client."""
     _seed([("NOCONF", "RULE_01B", "-1 days"), ("NOCONF", "RULE_11", "-2 days")])
 
     payload = _get("/forming")
-    blob = repr(payload).lower()
-    for banned in ("confidence", "win_rate", "win-rate", "probability",
-                   "opportunity_score", "evidence_confidence", "score"):
-        assert banned not in blob, f"the forming payload exposes {banned!r}"
+    assert set(payload) == ALLOWED_TOP_KEYS, set(payload) ^ ALLOWED_TOP_KEYS
+    for item in payload["forming"]:
+        assert set(item) == ALLOWED_ITEM_KEYS, set(item) ^ ALLOWED_ITEM_KEYS
+        for alert in item["alerts"]:
+            assert set(alert) == ALLOWED_ALERT_KEYS, set(alert) ^ ALLOWED_ALERT_KEYS
+
+    # `threshold` and `instrument_count` are counts of instruments, not scores
+    assert isinstance(payload["threshold"], int)
+    assert all(isinstance(i["instrument_count"], int) for i in payload["forming"])
 
 
 def test_the_page_states_these_are_not_signals():
     html = (STATIC / "forming.html").read_text()
     assert "These are not signals" in html
-    assert "2 of the 3 independent instruments" in html
-    assert "one\n    leg short" in html or "leg short" in html
+    assert "independent instruments" in html
+    assert "short of firing" in html
+    assert "no confidence score and no probability" in html
+    assert "Most will do the latter" in html          # i.e. most will NOT complete
 
 
-def test_the_page_renders_no_confidence_or_probability():
-    html = (STATIC / "forming.html").read_text().lower()
-    # the disclaimer may NAME these to deny them; no data binding may render one
-    for banned in ("f.confidence", "f.win_rate", "f.score", "f.probability",
-                   "opportunity_score", "evidence_confidence"):
-        assert banned not in html, f"forming.html renders {banned!r}"
+def test_the_page_binds_only_the_allowed_fields():
+    """Allow-list the template bindings.
+
+    The previous deny-list version was decisively too weak: an independent pass
+    showed it missed 5 of 5 mutants that added confidence framing — a computed
+    percentage, a per-alert score, a "chance of firing", a STRENGTH meter, and a
+    rewritten disclaimer claiming a historical completion rate. Enumerating what
+    MAY be bound catches all of those, because any new binding is a new name.
+    """
+    import re
+
+    html = (STATIC / "forming.html").read_text()
+    bound = set(re.findall(r"\b(?:f|a|data)\.([A-Za-z_][A-Za-z0-9_]*)", html))
+    allowed = ALLOWED_TOP_KEYS | ALLOWED_ITEM_KEYS | ALLOWED_ALERT_KEYS | {"length", "map"}
+
+    unexpected = bound - allowed
+    assert not unexpected, (
+        f"forming.html binds fields outside the allowed schema: {sorted(unexpected)}")
+
+    # and no arithmetic dressing a count up as a rate
+    for pattern in (r"100\s*\*", r"\*\s*100", r"toFixed\(", r"%\s*(chance|confidence|probability)"):
+        assert not re.search(pattern, html, re.I), f"forming.html computes {pattern!r}"
 
 
-def test_the_page_is_routed_and_the_router_registered():
+def test_the_disclaimer_does_not_hardcode_the_threshold():
+    """The one sentence whose job is to be true must not carry a stale copy."""
+    html = (STATIC / "forming.html").read_text()
+    assert "2 of the 3" not in html
+    assert 'id="d-need"' in html and "data.threshold" in html
+
+
+def test_the_html_page_is_actually_served_at_slash_forming(tmp_path, monkeypatch):
+    """The API must NOT shadow the page.
+
+    The router was first mounted at the bare `/forming`, the same path as the HTML
+    page. Starlette matches the first registered route, so `GET /forming` returned
+    JSON and the page — with the "these are not signals" disclaimer that is the
+    entire point of it — was unreachable. The nav link served raw JSON. The old
+    test only asserted `"/forming" in routes`, which is true for either handler,
+    so it was green for the wrong reason.
+
+    TestClient is used WITHOUT its context manager on purpose: entering it runs
+    the app lifespan, which shells out to every rule script.
+    """
+    from starlette.testclient import TestClient
+
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "route.db"))
+    jpt_common.db_connection().close()
+
     from api import main as appmain
+    client = TestClient(appmain.app)
 
-    routes = {getattr(r, "path", "") for r in appmain.app.routes}
-    assert "/forming" in routes
-    assert any(p.startswith("/forming") for p in routes)
+    page = client.get("/forming")
+    assert page.status_code == 200
+    assert page.text.lstrip().startswith("<!DOCTYPE"), (
+        "GET /forming did not serve the HTML page — the API router is shadowing it")
+    assert "These are not signals" in page.text
+
+    api = client.get("/api/forming")
+    assert api.status_code == 200
+    assert api.headers["content-type"].startswith("application/json")
+    assert client.get("/api/forming/count").status_code == 200
+
+
+def test_the_window_is_taken_from_the_gate_not_hardcoded():
+    """A literal 14 here would pass an equality check via the unused import.
+
+    Assert structurally that the constant is USED, not merely imported — a
+    hardcoded window would keep the gate's value in scope while ignoring it.
+    """
+    source = pathlib.Path(forming.__file__).read_text()
+    assert "window_days if window_days is not None else CONVERGENCE_WINDOW_DAYS" in source
+    assert "= 14" not in source, "the window looks hardcoded"
+
+
+def test_a_ticker_that_already_fired_is_not_shown_as_forming():
+    """Otherwise the same ticker means two different things in two places.
+
+    A fired convergence re-enters this list as "forming" as soon as one leg ages
+    out of the window. The gate guards its own re-firing with a dedup window;
+    this mirrors it using the same imported constant.
+    """
+    _seed([("FIREDX", "RULE_01B", "-1 days"), ("FIREDX", "RULE_11", "-2 days")])
+    assert "FIREDX" in _tickers(), "precondition: it is a 2-instrument near-miss"
+
+    conn = jpt_common.db_connection()
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, created_at)
+           VALUES ('RULE_10','FIREDX','CRITICAL','[CORROBORATION] FIREDX',
+                   datetime('now','-2 days'))"""
+    )
+    conn.commit()
+    conn.close()
+
+    assert "FIREDX" not in _tickers(), (
+        "a ticker that already fired RULE_10 is being shown as forming")
+
+
+def test_the_already_fired_guard_uses_the_gates_dedup_window():
+    from scripts.rule_10_corroboration import DEDUP_WINDOW_DAYS
+
+    assert forming.DEDUP_WINDOW_DAYS == DEDUP_WINDOW_DAYS
+    # a corroboration older than the dedup window no longer suppresses it
+    _seed([("OLDFIRE", "RULE_01B", "-1 days"), ("OLDFIRE", "RULE_11", "-2 days")])
+    conn = jpt_common.db_connection()
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, created_at)
+           VALUES ('RULE_10','OLDFIRE','CRITICAL','old corroboration',
+                   datetime('now', ? || ' days'))""",
+        (f"-{DEDUP_WINDOW_DAYS + 3}",),
+    )
+    conn.commit()
+    conn.close()
+
+    assert "OLDFIRE" in _tickers(), (
+        "an expired corroboration should no longer suppress the near-miss")
 
 
 # ---------------------------------------------------------------------------

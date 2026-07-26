@@ -461,7 +461,7 @@
   // Forming-convergence count. Deliberately a bare number linking to /forming,
   // which does the explaining — no one-word label could carry the "not a
   // confirmed signal" caveat honestly, so the caveat lives on the page itself.
-  fetch('/forming/count')
+  fetch('/api/forming/count')
     .then(r => r.json())
     .then(d => {
       if (d && d.count > 0) {

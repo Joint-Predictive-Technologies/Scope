@@ -318,7 +318,12 @@ app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbyi
 app.include_router(evidence.router,      prefix="/api/evidence", tags=["Evidence"])
 app.include_router(themes_router.router, prefix="/api/themes", tags=["Themes"])
 app.include_router(annotations_router.router, prefix="/api/annotations", tags=["Annotations"])
-app.include_router(forming_router.router,  prefix="/forming",  tags=["Forming"])
+# NOTE: mounted at /api/forming, NOT /forming. The HTML page lives at /forming,
+# and Starlette matches the FIRST registered route — a router at the bare path
+# would shadow the page entirely, serving raw JSON to anyone following the nav
+# link and silently hiding the "these are not signals" disclaimer that is the
+# whole point of the page.
+app.include_router(forming_router.router,  prefix="/api/forming", tags=["Forming"])
 app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
 
 

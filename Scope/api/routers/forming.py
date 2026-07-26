@@ -27,7 +27,7 @@ from jpt_common import (RULE_10_EXCLUDED, RULE_10_INSTRUMENTS,
                         RULE_10_MIN_INSTRUMENTS, db_connection, rule10_instruments)
 # The window belongs to the gate, not to this surface — import it rather than
 # restating "14", so a change there moves this too.
-from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
+from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS, DEDUP_WINDOW_DAYS
 
 router = APIRouter()
 
@@ -71,6 +71,25 @@ def _candidate_rows(conn, window_days: int):
     ).fetchall()
 
 
+def _recently_corroborated(conn) -> set[str]:
+    """Tickers that have already FIRED a corroboration recently.
+
+    Without this a ticker that fired RULE_10 re-enters this list as "forming"
+    the moment one of its legs ages out of the window — so the same ticker would
+    appear as a confirmed convergence in one place and a forming one in another,
+    with two different meanings. The gate guards its own re-firing with
+    `_already_corroborated` over DEDUP_WINDOW_DAYS; this mirrors it, importing the
+    same constant so the two cannot diverge.
+    """
+    rows = conn.execute(
+        """SELECT DISTINCT ticker FROM alerts
+           WHERE rule = 'RULE_10' AND ticker IS NOT NULL AND ticker != ''
+             AND created_at >= datetime('now', ? || ' days')""",
+        (f"-{DEDUP_WINDOW_DAYS}",),
+    ).fetchall()
+    return {r["ticker"] for r in rows}
+
+
 def find_near_misses(conn, window_days: int | None = None) -> list[dict]:
     """Tickers in the near-miss band: FLOOR <= instruments < the gate threshold.
 
@@ -87,8 +106,12 @@ def find_near_misses(conn, window_days: int | None = None) -> list[dict]:
     for row in rows:
         by_ticker.setdefault(row["ticker"], []).append(row)
 
+    already_fired = _recently_corroborated(conn)
+
     out: list[dict] = []
     for ticker, alerts in by_ticker.items():
+        if ticker in already_fired:
+            continue                      # it fired; it is not "forming"
         instruments = rule10_instruments({a["rule"] for a in alerts})
         if not (NEAR_MISS_FLOOR_INSTRUMENTS
                 <= len(instruments) < RULE_10_MIN_INSTRUMENTS):

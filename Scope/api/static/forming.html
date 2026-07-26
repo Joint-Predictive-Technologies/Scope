@@ -65,9 +65,10 @@
 
   <div class="disclaimer" id="disclaimer">
     <strong>These are not signals.</strong> Each ticker below has signals from
-    <strong>2 of the 3 independent instruments</strong> a corroboration requires — one
-    leg short. They are shown so you can watch a pattern form, not act on it. A
-    forming convergence carries no confidence score and no probability: it either
+    <strong><span id="d-have">fewer</span> of the <span id="d-need">required</span>
+    independent instruments</strong> a corroboration requires — short of firing.
+    They are shown so you can watch a pattern form, not act on it. A forming
+    convergence carries no confidence score and no probability: it either
     completes and fires as a corroboration, or it ages out of the window and
     disappears. Most will do the latter.
   </div>
@@ -93,6 +94,14 @@
   }
 
   function render(data) {
+    // The threshold is rendered from the payload, never hardcoded — this is the
+    // one sentence on the page whose entire job is to be accurate.
+    document.getElementById('d-need').textContent = data.threshold;
+    document.getElementById('d-have').textContent =
+      data.forming && data.forming.length
+        ? [...new Set(data.forming.map(f => f.instrument_count))].sort().join(' or ')
+        : 'fewer than ' + data.threshold;
+
     document.getElementById('sub').textContent =
       `${data.count} forming · ${data.threshold} instruments needed to fire · ${data.window_days}-day window`;
 
@@ -131,7 +140,7 @@
       </div>`).join('');
   }
 
-  fetch('/forming')
+  fetch('/api/forming')
     .then(r => r.json())
     .then(render)
     .catch(() => {
