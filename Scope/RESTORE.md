@@ -10,8 +10,8 @@ Two kinds of backup exist under `data/backups/`:
 
 | File pattern | Made by | Method | Trust |
 |---|---|---|---|
-| `snapshot_YYYYMMDD_HHMM.db.gz` | `scripts/db_backup.py` (daily 03:00 UTC) | SQLite **online backup API** + `PRAGMA integrity_check` + gzip | **Preferred** — verified consistent |
-| `jpt_YYYYMMDD_HHMM.db` | `jpt_common._backup_db` (hourly, on DB connect) | raw `shutil.copy2` | Fallback only — a raw copy can catch a half-written page; not integrity-checked |
+| `snapshot_YYYYMMDD_HHMM.db.gz` | `scripts/db_backup.py` (**hourly at :05**) | SQLite **online backup API** + `PRAGMA integrity_check` + gzip | **Preferred** — verified consistent |
+| `jpt_YYYYMMDD_HHMM.db` | `jpt_common._backup_db` — **RETIRED, no longer produced** | raw `shutil.copy2` | Last resort only. A raw copy of a live DB can capture a torn write, and such a copy **still passes `integrity_check`** — it is structurally valid but missing part of a transaction. Verify the row counts look sane before trusting one. |
 
 > ⚠️ **Same-volume caveat.** Both live on the same Railway volume as the primary
 > DB — the same failure domain. They protect against *logical* corruption / bad
@@ -54,7 +54,7 @@ cp /tmp/restore_candidate.db data/jpt.db
 #    /api/stats returns sane counts, then delete the .broken file once satisfied.
 ```
 
-## Restore from an `jpt_*.db` hourly copy (fallback)
+## Restore from a legacy `jpt_*.db` copy (last resort — no longer produced)
 
 Same as above but skip the gunzip (it's already a `.db`), and **still run the
 integrity_check in step 3** — these are unverified raw copies, so a check is
@@ -74,7 +74,7 @@ When object storage is provisioned, backups are uploaded to
 
 `db_backup.py` writes locally today and **skips** remote upload because no store
 is configured. To enable off-volume backups, set these env vars (Backblaze B2 or
-Cloudflare R2 are cheap S3-compatible options) and add `boto3` to
+Cloudflare R2 are cheap S3-compatible options). `boto3` is already in
 `requirements.txt`:
 
 ```
@@ -85,5 +85,5 @@ BACKUP_S3_ACCESS_KEY_ID
 BACKUP_S3_SECRET_ACCESS_KEY
 ```
 
-No code change is needed beyond adding `boto3` — `upload_remote()` already reads
+No code change is needed at all — `boto3` is installed and `upload_remote()` reads
 these and uploads on the next scheduled run.

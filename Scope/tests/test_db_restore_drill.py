@@ -235,6 +235,53 @@ def test_online_backup_is_consistent_while_a_writer_commits(source_db, tmp_path)
     assert not torn, f"snapshot captured a partial transaction: {torn}"
 
 
+def test_online_backup_uses_the_online_api_not_a_file_copy():
+    """Pins the method itself — the safety property no behavioural test caught.
+
+    The matched-pair test above passes even when `online_backup` is replaced by
+    `shutil.copy2`: a 2-page transaction closes too fast for the copy window to
+    tear. So the property that justifies the whole design was untested.
+
+    An empirical "prove the raw copy tears" test would be flaky — it depends on
+    winning a race. I ran 12 attempts on this machine (single writer, 200-row
+    multi-page ledger) and produced ZERO torn copies; the independent verifier,
+    using 4 writer threads against a 4.1MB DB, tore 30 of 40. The risk is real
+    but not reliably reproducible here, so it is asserted structurally instead.
+    """
+    import inspect
+
+    src = inspect.getsource(dbb.online_backup)
+    assert ".backup(" in src, "online_backup no longer uses SQLite's backup API"
+    assert "copy2" not in src and "copyfile" not in src, (
+        "online_backup is doing a raw file copy — that can capture a torn write")
+
+
+def test_a_torn_copy_would_pass_integrity_check_anyway(tmp_path):
+    """Why "the raw copies were never integrity-checked" understates it.
+
+    A torn copy is *structurally* valid — a well-formed database missing part of
+    a transaction. integrity_check inspects B-tree structure, not logical
+    invariants, so it returns "ok". Verifying the raw copies would NOT have made
+    them safe; only taking them correctly does.
+    """
+    db = str(tmp_path / "ledger.db")
+    conn = sqlite3.connect(db)
+    conn.execute("CREATE TABLE ledger (id INTEGER PRIMARY KEY, balance INTEGER)")
+    conn.executemany("INSERT INTO ledger VALUES (?,1000)", [(i,) for i in range(50)])
+    conn.commit()
+    # a half-applied transfer: the debit landed, the credit did not
+    conn.execute("UPDATE ledger SET balance = balance - 500 WHERE id=0")
+    conn.commit()
+    conn.close()
+
+    ok, message = dbb.integrity_ok(db)
+    total = sqlite3.connect(db).execute(
+        "SELECT SUM(balance) FROM ledger").fetchone()[0]
+
+    assert (ok, message) == (True, "ok"), "structurally sound"
+    assert total != 50 * 1000, "yet logically inconsistent — the check cannot tell"
+
+
 def test_online_backup_survives_a_writer_holding_an_open_transaction(source_db, tmp_path):
     """An uncommitted transaction must NOT appear in the snapshot."""
     writer = sqlite3.connect(source_db, timeout=30)
@@ -349,6 +396,93 @@ def test_retention_keeps_exactly_the_policy_set(tmp_path):
         f"unexpected survivors: extra={survivors-expected} missing={expected-survivors}")
     assert not (survivors & doomed), f"should have been pruned: {survivors & doomed}"
     assert retained == len(expected)
+
+
+def test_retention_tier_boundaries_are_pinned(tmp_path):
+    """The tier CONSTANTS, not just the shape.
+
+    The exact-set test above seeds at days 2/3/10/45/200 — every age far from
+    every boundary — so `DAILY_DAYS 30 -> 3` and `WEEKLY_DAYS 90 -> 9` both left
+    the surviving set unchanged and killed no test. These fixtures straddle the
+    boundaries so a moved constant changes the outcome.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+    now = datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc)
+
+    def make(dt):
+        name = f"snapshot_{dt.strftime('%Y%m%d_%H%M')}.db.gz"
+        (backup_dir / name).write_bytes(b"x")
+        return name
+
+    # DAILY_DAYS: two snapshots on DIFFERENT calendar days but in the SAME ISO
+    # week (2026-07-16 Thu and 2026-07-15 Wed, both ISO week 2026-29), aged
+    # 10-11d. With DAILY_DAYS=30 the DAY tier keeps BOTH. Shrink it to 3 and they
+    # fall into the WEEK tier, which keeps only one — so the constant is pinned.
+    day_a = make(now - timedelta(days=10))
+    day_b = make(now - timedelta(days=11))
+
+    # WEEKLY_DAYS: two snapshots in DIFFERENT ISO weeks but the SAME calendar
+    # month (2026-06-25 week 26 and 2026-06-21 week 25), aged 31-35d — past the
+    # day tier. With WEEKLY_DAYS=90 the WEEK tier keeps BOTH. Shrink it to 9 and
+    # they fall into the MONTH tier, which keeps only one.
+    week_a = make(now - timedelta(days=31))
+    week_b = make(now - timedelta(days=35))
+
+    dbb.prune(str(backup_dir), now=now)
+    survivors = {p.name for p in backup_dir.glob("snapshot_*.db.gz")}
+
+    assert {day_a, day_b} <= survivors, (
+        f"DAILY_DAYS boundary moved — both same-ISO-week days should survive the "
+        f"day tier: {sorted(survivors)}")
+    assert {week_a, week_b} <= survivors, (
+        f"WEEKLY_DAYS boundary moved — both same-month weeks should survive the "
+        f"week tier: {sorted(survivors)}")
+
+
+def test_prune_sweeps_orphaned_uncompressed_snapshots(tmp_path):
+    """The disk leak: a raw snapshot_*.db left behind by an interrupted run.
+
+    `run()` writes snapshot_*.db then gzips it. If it dies in between — gzip
+    ENOSPC, or the scheduler SIGKILLing the job at 300s while src.backup() is
+    blocked on a write lock — the raw file survives. Retention globbed only
+    `*.db.gz`, so these accumulated at full DB size (~5.7MB) once per failed run.
+    """
+    backup_dir = tmp_path / "backups"
+    backup_dir.mkdir()
+
+    stale = backup_dir / "snapshot_20260725_0300.db"      # abandoned
+    stale.write_bytes(b"x" * 5_000_000)
+    old = time.time() - 7200                              # 2h — past the grace
+    os.utime(stale, (old, old))
+
+    fresh = backup_dir / "snapshot_20260726_1200.db"      # a run in flight
+    fresh.write_bytes(b"x" * 1000)
+
+    keeper = backup_dir / "snapshot_20260726_1100.db.gz"
+    keeper.write_bytes(b"x")
+
+    dbb.prune(str(backup_dir), now=None)
+
+    assert not stale.exists(), "orphaned raw snapshot was not swept — disk leak"
+    assert fresh.exists(), "swept a raw snapshot that may belong to a live run"
+    assert keeper.exists(), "compressed snapshots must be untouched by the sweep"
+
+
+def test_a_failed_gzip_leaves_no_orphan_behind(source_db, monkeypatch):
+    """Belt and braces: run() should clean up after itself, not rely on prune."""
+    def boom(src, dest):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(dbb, "gzip_file", boom)
+
+    result = dbb.run()
+    assert result["ok"] is False
+
+    backup_dir = os.path.join(os.path.dirname(source_db), "backups")
+    leftovers = [f for f in os.listdir(backup_dir) if f.endswith(".db")]
+    assert leftovers == [], f"run() orphaned {leftovers}"
 
 
 def test_retention_does_not_keep_720_snapshots_under_hourly_cadence(tmp_path):

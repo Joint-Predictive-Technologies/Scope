@@ -43,8 +43,8 @@ def isolated_db(tmp_path, monkeypatch):
     ambient data, and the result does not vary with whatever happens to be in
     someone's working database.
 
-    Side effects stay inside `tmp_path`: `_backup_db` writes its hourly copy to
-    `<tmp_path>/backups/`, which pytest discards with the rest of the directory.
+    Side effects stay inside `tmp_path`: anything a test writes under
+    `<tmp_path>/backups/` is discarded with the rest of the directory.
     """
     db_path = tmp_path / "jpt.db"
     monkeypatch.setenv("DATABASE_PATH", str(db_path))
