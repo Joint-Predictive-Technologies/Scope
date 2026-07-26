@@ -36,6 +36,7 @@ nothing (see below).
 | `scheduler-reliability` | Keeps every scheduled rule running and logging — CLI contract mismatches, silent exit-2, import-time failures, the safety net | opus / high | Read, Grep, Glob, Bash |
 | `provenance-guardian` | Anti-slop and honesty reviewer for anything user-facing — receipts, snapshot-vs-prod labeling, no premature `win_rate` | sonnet | Read, Grep, Glob |
 | `diff-gatekeeper` | Pre-merge reviewer — scope creep, read-only violations, high-scrutiny changes, tests, vault hygiene | opus / high | Read, Grep, Glob, Bash |
+| `verifier` | Independent verification pass — re-derives each PROVEN claim from ground truth and overturns the headline when it doesn't hold | opus / high | Read, Grep, Glob, Bash |
 
 The `tools` allowlist is the blast-radius bound. `provenance-guardian` has no
 `Bash` deliberately — it reviews claims and cannot run anything.
@@ -134,6 +135,53 @@ they stop being true:
   single ticker (SPY) from RULE_07, a rule excluded from corroboration. No rule has
   enough non-generic outcomes for a win rate.
 - **Tests write to the live database**, and `Scope/data/jpt.db` is tracked in git.
+
+---
+
+## Addendum — 2026-07-26: `verifier` added (roster is now six)
+
+Added `.claude/agents/verifier.md`. Same advisory, read-only, human-gated posture
+as the rest — it changes nothing and merges nothing.
+
+**Purpose.** The independent pass that runs *after* an implementer session
+produces a report with PROVEN / UNVERIFIED / FAILED claims. It re-derives each
+PROVEN claim from ground truth on its own — fresh queries, fresh code reading, the
+check re-run from a clean process — and overturns the headline when it doesn't
+hold.
+
+**Model / effort:** opus / high. **Tools:** Read, Grep, Glob, Bash.
+
+**Standing boundary.** Read-only: no code or data changes, no migrations, no
+merges, and it never mutates the working database (copies and read-only
+connections only). It may **overturn the headline of the work it reviews, and
+doing so is a success, not a conflict** — that is the entire reason it exists.
+Claims that genuinely need production are marked "correctly UNVERIFIED — needs
+prod" and never converted to PROVEN.
+
+**Why it is not a duplicate.** Checked against the existing five before creating
+it:
+
+- `diff-gatekeeper` judges a **diff** against workflow rules (scope creep,
+  high-scrutiny changes, tests present, vault updated). It reviews the change, not
+  the claims made about it.
+- `provenance-guardian` reviews **user-facing output** for honesty (receipts,
+  snapshot-vs-prod labelling, no premature `win_rate`). Its own prompt states it
+  "cannot run queries to verify a number yourself" — it has no `Bash` by design
+  and must defer to another agent. It flags a suspect number; it cannot settle one.
+- `data-integrity`, `signal-scoring` and `scheduler-reliability` are domain
+  investigators that **produce** claims; none checks another session's.
+
+All five carry a "provenance on every claim" rule, but that governs how they label
+**their own** findings. Nothing in the roster re-derived someone else's PROVEN
+claim or was empowered to overturn a headline — the gap `verifier` fills. It was
+felt directly in
+[[SESSION-2026-07-25-gate-reachability]], whose work-order called for verification
+by a `verifier` subagent that did not exist.
+
+**Sequencing note.** `verifier` runs last, after the implementer and before the
+human reads the report. It composes with `diff-gatekeeper` rather than replacing
+it: verifier checks whether the claims are true, gatekeeper checks whether the
+diff is safe to merge.
 
 ## Activation
 
