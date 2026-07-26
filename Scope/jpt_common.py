@@ -639,21 +639,84 @@ def classify_sector(ticker: str, text: str = "") -> str:
 
 
 # ── RULE_10 corroboration — single authoritative definition ──────────────────
-# Fires when 4+ DISTINCT eligible rule families hit the same ticker within 24h.
-# Noise/synthesis rules are never eligible corroboration inputs.
+# Fires when 3+ DISTINCT INSTRUMENTS hit the same ticker inside the convergence
+# window. Noise/synthesis rules are never eligible corroboration inputs.
+#
+# D1 — count instruments, not rules. The North Star specifies "distinct
+# mechanisms"; the old implementation counted rule NAMES, so three views of the
+# congressional feed (RULE_01B, RULE_02, RULE_CLUSTER — all reading the same
+# `transactions` table) could satisfy a gate meant to require three independent
+# sources. Rules that read the same underlying source now collapse to one
+# instrument. See 05_Decisions/2026-07-25-gate-redesign.md.
 RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT", "RULE_10"}
-RULE_10_MIN_ELIGIBLE = 4
+
+# Rule -> instrument. Every mapping below was derived by reading the rule's own
+# source, not from the design note; the citation is the source it actually reads.
+RULE_10_INSTRUMENTS: dict[str, str] = {
+    # congressional disclosures — all four are the same underlying feed
+    "RULE_01":             "congressional",   # ingest_senate.py:278 (Senate PTR ingest)
+    "RULE_01B":            "congressional",   # scripts/rule_01b_first_touch.py:42
+    "RULE_02":             "congressional",   # rule_02_cluster.py:31
+    "RULE_CLUSTER":        "congressional",   # scripts/rule_cluster.py:115
+    # SEC EDGAR full-text search, but genuinely different documents:
+    "RULE_06":             "insider",         # rule_06_form4.py:136  forms=4
+    "RULE_15":             "earnings",        # scripts/rule_15_earnings_nlp.py:63  forms=8-K
+    # Senate LDA filings — RULE_12 reads the SAME endpoint as RULE_09 and merely
+    # filters for the foreign_entities field, so they are one instrument. NOTE:
+    # rule_12_fara.py's docstring claims "DOJ FARA — fara.justice.gov", but the
+    # code uses LDA_API_URL = lda.senate.gov/api/v1/filings/ (:27), same as
+    # rule_09_lobbying.py:24. The code wins. This DEVIATES from the design note,
+    # which lists lobbying and foreign-agents as separate instruments — flagged
+    # for review; collapsing is the conservative reading of D1.
+    "RULE_09":             "senate-lda",      # rule_09_lobbying.py:24
+    "RULE_12":             "senate-lda",      # scripts/rule_12_fara.py:27
+    "RULE_08":             "fed-register",    # rule_08_federal_register.py:22
+    "RULE_11":             "contracts",       # scripts/rule_11_contracts.py:24  usaspending
+    "RULE_13":             "fec",             # scripts/rule_13_fec.py  api.open.fec.gov
+    "RULE_14":             "patents",         # scripts/rule_14_patents.py  patentsview
+    "RULE_ADSB":           "flight",          # scripts/rule_adsb.py  opensky-network
+    "RULE_TELEGRAM_OSINT": "telegram",        # scripts/rule_telegram_osint.py  rsshub
+    # RULE_OPTIONS enriches existing alerts and emits none, so it has no instrument.
+}
+
+# D2 — fire at 3 distinct instruments (was 4 distinct rules). A later
+# 3=candidate / 4=strong tier is a surfacing concern, not a second gate; the
+# instrument count is recorded on every corroboration so that tier is free.
+RULE_10_MIN_INSTRUMENTS = 3
 
 
 def rule10_eligible_rules(rules) -> list[str]:
-    """Distinct, sorted eligible rule families from an arbitrary rule iterable."""
-    return sorted({(r or "").strip() for r in (rules or []) if (r or "").strip()
-                   and (r or "").strip() not in RULE_10_EXCLUDED})
+    """Distinct, sorted eligible rule families from an arbitrary rule iterable.
+
+    Names are upper-cased before matching. Previously they were only stripped, so
+    a non-canonical casing evaded BOTH the exclusion set and the instrument map:
+    `["RULE_01B", "rule_01b", "Rule_01b"]` counted as three instruments, and
+    three lower-cased *excluded* noise rules cleared the gate outright. Every
+    emitter writes an upper-case module constant and the DB holds no
+    non-canonical name today, so this changes nothing in practice — it just stops
+    the moat's core property depending on that convention holding forever.
+    """
+    return sorted({(r or "").strip().upper() for r in (rules or [])
+                   if (r or "").strip()
+                   and (r or "").strip().upper() not in RULE_10_EXCLUDED})
+
+
+def rule10_instruments(rules) -> list[str]:
+    """Distinct, sorted INSTRUMENTS represented by an arbitrary rule iterable.
+
+    Same-source rules collapse to one entry, which is the whole point of D1. An
+    eligible rule with no mapping falls back to its own name, so a newly added
+    rule counts as its own instrument rather than silently vanishing from the
+    count — add it to RULE_10_INSTRUMENTS if it shares a source with an existing
+    one.
+    """
+    return sorted({RULE_10_INSTRUMENTS.get(rule, rule)
+                   for rule in rule10_eligible_rules(rules)})
 
 
 def rule10_is_valid(rules) -> bool:
-    """True iff 4+ distinct eligible rules are present."""
-    return len(rule10_eligible_rules(rules)) >= RULE_10_MIN_ELIGIBLE
+    """True iff 3+ distinct INSTRUMENTS are present (not merely 3+ rule names)."""
+    return len(rule10_instruments(rules)) >= RULE_10_MIN_INSTRUMENTS
 
 
 def rule10_rules_from_tags(tags: str) -> list[str]:
