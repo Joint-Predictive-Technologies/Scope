@@ -26,8 +26,9 @@ Done. The full suite now runs against a disposable per-test database, and the
 working DB is **byte-identical** before and after. The DB is untracked and
 ignored; the file is untouched on disk.
 
-**One item needs a decision before merge** (Finding C4) and **one needs a
-production check** (Finding C5).
+**Both original blockers are now closed.** C4 (four prod-coupled tests) was
+resolved 2026-07-26 — see the addendum. C5 (the Railway `DATABASE_PATH` question)
+was resolved 2026-07-26 — see **C5 RESOLVED** below. WS1 is unblocked.
 
 ---
 
@@ -190,6 +191,27 @@ environment? If yes, nothing changes. If no, this fix silently corrects a
 pre-existing bug where `/health` and the staleness check were reporting on a
 stale committed database — worth knowing either way.
 
+#### ✅ C5 RESOLVED — 2026-07-26
+
+`DATABASE_PATH=/app/data/jpt.db` **is** set in the Railway environment.
+
+Consequences, both benign:
+
+- **Untracking `jpt.db` is safe.** Production reads the Railway volume, never the
+  repo copy, so removing the file from git cannot affect a deploy.
+- **The `api/main.py` path fix is a no-op on Railway.** All three sites already
+  short-circuited on `DATABASE_PATH` before reaching the branch that skipped the
+  volume. Routing them through `_get_db_path(None)` changes nothing in production;
+  it removes a latent trap that would have bitten had the variable ever been
+  unset. The predicted failure mode — `_hours_since_last_alert()` returning `inf`
+  and running every rule on every deploy boot — **would not have occurred**.
+
+> **Provenance:** human-confirmed via the Railway dashboard, 2026-07-26. **Not
+> independently verified by Claude Code**, which cannot reach production from this
+> environment. This is a reported observation, not a re-derived one.
+
+**WS1 is no longer blocked on C5.**
+
 ### C6. The tracked DB explains the rewinding sequence counter
 
 With `Scope/data/jpt.db` tracked across 42 commits, ordinary `git checkout` /
@@ -238,8 +260,11 @@ that whole class of corruption.
 
 Per `Scope/CLAUDE.md`, this branch is **not merged and must not be merged
 autonomously**. Untracking a file from git and changing the test harness is a
-conscious human merge. Two items need the human before merge: the C4 decision and
-the C5 production check.
+conscious human merge.
+
+~~Two items need the human before merge: the C4 decision and the C5 production
+check.~~ **Both closed 2026-07-26** — C4 by fixing the four tests to self-seed
+(addendum), C5 by the human's Railway confirmation above. No open blockers remain.
 
 Nothing in this session touched rule, scoring, or corroboration logic, and no
 migration was run. [[2026-07-25-gate-redesign]] remains recorded-but-unapplied;
@@ -295,6 +320,20 @@ entity exists. Editing `conftest.py` was out of scope.
 at merge. It existed solely to make the four prod-coupled tests pass; that purpose
 is gone, and the knob now only offers a way to run the suite against ambient data,
 which is what WS1 set out to eliminate. Roughly a four-line removal.
+
+#### ✅ Resolved by deletion — 2026-07-26
+
+The knob was removed from `tests/conftest.py` (env branch, `_SEED_DB` module
+constant, the `shutil.copyfile` seed step, the now-unused `shutil` import, and the
+docstring line). `grep -r SCOPE_TEST_SEED_DB` now returns nothing outside this
+historical note. **Empty-default is the sole supported path, and the suite is
+134/134 on it.** The 131/134 regression above no longer exists because the mode
+that produced it no longer exists.
+
+The references remaining earlier in this note are the historical record of the
+2026-07-26 session and are deliberately left intact — they describe what was true
+then, not what is true now. See
+[[SESSION-2026-07-26-ws1-completion]] for the full closing report.
 
 ## Next
 

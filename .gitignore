@@ -3,7 +3,16 @@
 .venv/
 __pycache__/
 .DS_Store
-.claude/
+# .claude/ is machine-local by default, EXCEPT the subagent roster: those are
+# team convention and belong in the repo. Git cannot re-include a file whose
+# parent directory is excluded, so exclude the contents rather than the dir.
+.claude/*
+!.claude/agents/
+.claude/agents/*
+!.claude/agents/*.md
+# Explicitly local, never tracked (belt and braces — already covered above):
+.claude/settings.local.json
+.claude/*.local.json
 Scope/data/moat/
 Scope/scripts/.fara_cache.json
 *.csv

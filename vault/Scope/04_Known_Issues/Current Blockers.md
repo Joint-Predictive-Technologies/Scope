@@ -27,13 +27,18 @@ Issues actively blocking progress or needing a human decision.
     stored as one opaque ticker across 511 alerts, 72 of them from the *eligible*
     RULE_08), the HIGH/CRITICAL severity gate, and rule cadences that make four
     distinct rules inside 24h structurally unlikely. Not investigated here.
-  - **Tests mutate the production database.** `tests/test_phase3.py` and
-    `tests/test_war_rooms.py` run real rule scripts against live `db_connection()`
-    with no fixture DB. This is what manufactured the phantom data-loss signal and
-    will keep doing so. Needs a human-gated decision.
-  - **`Scope/data/jpt.db` is tracked in git** (42 commits). `sqlite_sequence` moves
-    backward between commits, so the committed DB is not a reliable historical
-    record.
+  - ~~**Tests mutate the production database.**~~ **FIXED by WS1 (2026-07-26,
+    branch `fix/test-isolation-and-untrack-db`, awaiting merge).**
+    `tests/conftest.py` now gives every test a disposable temp DB, and
+    `jpt_common._get_db_path` refuses to resolve to the real DB from a test
+    process. Verified: the working DB is byte-identical across full suite runs.
+    The four tests that asserted on live production content now seed their own
+    fixtures. See [[SESSION-2026-07-26-ws1-completion]].
+  - ~~**`Scope/data/jpt.db` is tracked in git** (42 commits).~~ **FIXED by WS1** —
+    `git rm --cached` plus a `.gitignore` entry; the file stays on disk. Confirmed
+    safe: `DATABASE_PATH=/app/data/jpt.db` is set in Railway, so production reads
+    the volume, never the repo copy (human-confirmed via the Railway dashboard
+    2026-07-26; not independently verified by Claude Code, which cannot reach prod).
   - Verification on production is still outstanding — the distinguishing query is
     in the session note's Provenance section.
 
