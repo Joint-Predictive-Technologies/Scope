@@ -1338,36 +1338,26 @@ def _get_db_path(explicit: Optional[str]) -> Path:
 
 
 def _backup_db(db_file: Path) -> None:
-    """Copy the DB to a timestamped backup at most once per hour."""
-    if not db_file.exists():
-        return
+    """RETIRED — intentionally a no-op. Kept so `db_connection()` needn't change.
 
-    backup_dir = db_file.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    This used to `shutil.copy2` the live DB once an hour, from inside
+    `db_connection()`. Two problems, both now removed by doing nothing:
 
-    marker = backup_dir / "last_backup.txt"
-    if marker.exists():
-        try:
-            last = float(marker.read_text())
-            if (_dt.now().timestamp() - last) < 3600:
-                return
-        except Exception:
-            pass
+    1. **A raw file copy of a live SQLite DB can capture a torn write** — a page
+       caught mid-transaction. The resulting `jpt_*.db` file looks like a backup
+       and was never integrity-checked, so it could fail exactly when relied on.
+       `scripts/db_backup.py` supersedes it: SQLite's online backup API,
+       `PRAGMA integrity_check` **before** the snapshot is kept, gzip, and tiered
+       retention. That job now runs hourly, so no coverage is lost by retiring
+       this.
+    2. **It ran unguarded in the hot path.** Any exception here — a full disk, a
+       permissions problem — propagated out of `db_connection()` and would have
+       taken down every caller, i.e. the whole app, for a *backup* failure.
 
-    timestamp   = _dt.now().strftime("%Y%m%d_%H%M")
-    backup_path = backup_dir / f"jpt_{timestamp}.db"
-    shutil.copy2(db_file, backup_path)
-
-    # Keep the 24 most recent backups
-    backups = sorted(backup_dir.glob("jpt_*.db"))
-    for old in backups[:-24]:
-        try:
-            old.unlink()
-        except Exception:
-            pass
-
-    marker.write_text(str(_dt.now().timestamp()))
-    print(f"[backup] {backup_path.name} ({backup_path.stat().st_size // 1024} KB)", flush=True)
+    Existing `jpt_*.db` files on the volume are left alone; RESTORE.md still
+    documents how to fall back to one if that is ever all you have.
+    """
+    return
 
 
 def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:

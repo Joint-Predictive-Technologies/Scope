@@ -8,3 +8,7 @@ apscheduler
 pytesseract
 pdfplumber
 pillow
+# Offsite DB backup upload (scripts/db_backup.py::upload_remote). Dormant until
+# the BACKUP_S3_* env vars are set — but it must be INSTALLED, or the upload
+# would fail with ModuleNotFoundError the moment credentials are added.
+boto3

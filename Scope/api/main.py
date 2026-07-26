@@ -103,8 +103,12 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "parse_house_pdfs.py":              {"hour": "0,4,8,12,16,20", "minute": 30},
     # Alert severity decay — daily at 1am, keeps the feed and counts honest
     "scripts/decay_alerts.py":          {"hour": 1,  "minute": 0},
-    # Verified compressed DB backup — daily 3am UTC, low-traffic hour (DB_BACKUP).
-    "scripts/db_backup.py":             {"hour": 3,  "minute": 0},
+    # Verified compressed DB backup — HOURLY at :05 (DB_BACKUP). Was daily 03:00,
+    # which meant up to 24h of loss on the outcome dataset that is the moat and
+    # cannot be reconstructed. Hourly costs a gzipped snapshot per hour; retention
+    # thins them (24 hourly -> 30 daily -> weekly -> monthly), so the volume
+    # footprint stays bounded. :05 keeps it clear of the on-the-hour rule jobs.
+    "scripts/db_backup.py":             {"minute": 5},
     # (interval job for scoring is registered in _RULE_SCHEDULE)
     # Backtest rebuild — weekly Sunday 2am (Yahoo Finance price lookups)
     "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},

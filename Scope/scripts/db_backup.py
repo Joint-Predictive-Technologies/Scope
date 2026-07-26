@@ -33,8 +33,9 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from jpt_common import _get_db_path, record_activity
 
-SNAPSHOT_PREFIX = "snapshot_"          # distinct from the hourly jpt_*.db copies
-DAILY_DAYS = 30                        # keep every daily snapshot for 30 days
+SNAPSHOT_PREFIX = "snapshot_"          # distinct from the legacy jpt_*.db copies
+HOURLY_HOURS = 24                      # keep EVERY snapshot for the last 24h
+DAILY_DAYS = 30                        # then one per calendar day out to 30 days
 WEEKLY_DAYS = 90                       # then one per ISO week out to 90 days
 # beyond 90 days: one per calendar month
 
@@ -89,8 +90,19 @@ def _snapshot_date(path: str) -> datetime | None:
 
 
 def prune(backup_dir: str, now: datetime | None = None) -> int:
-    """Tiered retention: keep every snapshot <=30d, one per ISO-week 30-90d,
-    one per month >90d. Returns the number of snapshots retained."""
+    """Tiered retention. Returns the number of snapshots retained.
+
+        <= 24h   every snapshot          (hourly granularity for recent loss)
+        <= 30d   one per calendar day
+        <= 90d   one per ISO week
+        >  90d   one per calendar month
+
+    The hourly tier exists because the job now runs hourly. Under the previous
+    policy ("keep everything <= 30 days") that would have retained ~720
+    snapshots; the day tier thins them to one per day past the first 24 hours.
+    Newest-first iteration means the snapshot kept for each day/week/month is the
+    most recent one in that bucket.
+    """
     now = now or datetime.now(timezone.utc)
     snaps = []
     for p in glob.glob(os.path.join(backup_dir, f"{SNAPSHOT_PREFIX}*.db.gz")):
@@ -100,12 +112,19 @@ def prune(backup_dir: str, now: datetime | None = None) -> int:
     snaps.sort(reverse=True)  # newest first
 
     keep: set[str] = set()
+    seen_day: set = set()
     seen_week: set = set()
     seen_month: set = set()
     for d, p in snaps:
+        age_hours = (now - d).total_seconds() / 3600.0
         age_days = (now - d).days
-        if age_days <= DAILY_DAYS:
+        if age_hours <= HOURLY_HOURS:
             keep.add(p)
+        elif age_days <= DAILY_DAYS:
+            key = (d.year, d.month, d.day)
+            if key not in seen_day:
+                seen_day.add(key)
+                keep.add(p)
         elif age_days <= WEEKLY_DAYS:
             key = d.isocalendar()[:2]  # (ISO year, ISO week)
             if key not in seen_week:
