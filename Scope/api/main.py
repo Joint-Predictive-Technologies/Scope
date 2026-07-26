@@ -60,6 +60,11 @@ _RULE_SCHEDULE: dict[str, int] = {
     "scripts/enrich_scores.py":            10,
     # Stall monitor — make a silent enrich_scores failure loud (hourly)
     "scripts/monitor_enrich_stall.py":     60,
+    # Backup stall watchdog — hourly. db_backup.py is now the ONLY backup (the
+    # connect-triggered raw copy was retired), and the scheduler safety net can
+    # only catch a job that FAILS, not one that was never invoked. This checks
+    # the snapshot files on disk, which is what a restore actually reads.
+    "scripts/monitor_backup_stall.py":     60,
     # Anomaly detection
     "scripts/rule_anomaly.py":             180,
     # Congressional cluster detection — 3+ members, same ticker, 72h
