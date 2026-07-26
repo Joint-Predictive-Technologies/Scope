@@ -15,7 +15,7 @@ from urllib.parse import urlencode
 
 import requests
 
-from jpt_common import db_connection
+from jpt_common import db_connection, normalize_ticker
 
 
 RULE = "RULE_08"
@@ -135,10 +135,12 @@ def insert_alert(
     ticker: str | None,
     severity: str,
     tags: str,
+    detail: str | None = None,
 ) -> None:
     conn.execute(
-        "INSERT INTO alerts (rule, headline, severity, tags, ticker) VALUES (?,?,?,?,?)",
-        (RULE, headline, severity, tags, ticker),
+        "INSERT INTO alerts (rule, headline, severity, tags, ticker, detail) "
+        "VALUES (?,?,?,?,?,?)",
+        (RULE, headline, severity, tags, ticker, detail),
     )
     conn.commit()
 
@@ -170,40 +172,84 @@ def _comment_date(doc: dict) -> str:
         return raw[:10]
 
 
-def process_document(doc: dict, emit_alerts: bool, conn) -> bool:
+def process_document(doc: dict, emit_alerts: bool, conn) -> int:
+    """Emit ONE alert per affected symbol. Returns the number of alerts inserted.
+
+    Previously this emitted a single alert whose `ticker` was every matched symbol
+    space-joined — `"$LMT $RTX $NOC"`. `SECTOR_MAP`'s smallest entry has three
+    symbols, so RULE_08's ticker was ALWAYS a composite, and `normalize_ticker`
+    preserves multi-token strings ("$LMT $RTX $NOC" -> "LMT RTX NOC"). That
+    string can never equal another instrument's single symbol, so although the
+    gate maps RULE_08 to the `fed-register` instrument, it could never actually
+    contribute a leg to a convergence. Splitting at emission is what makes
+    `fed-register` a real instrument.
+
+    Returns a COUNT, not a bool: one document now yields N alerts, and
+    `record_activity(emitted=...)` means alerts inserted, not documents matched.
+
+    Forward-only. The 72 historical composite rows are frozen detection-time
+    records and are deliberately NOT rewritten — they age out of the 14-day
+    convergence window on their own.
+    """
     title = (doc.get("title") or "").strip()
     abstract = doc.get("abstract") or ""
     significant = bool(doc.get("significant"))
     pub_date = doc.get("publication_date", "")[:10]
 
-    tickers = match_tickers(title, abstract)
-    if not tickers:
-        return False
+    raw_symbols = match_tickers(title, abstract)
+    if not raw_symbols:
+        return 0
 
-    ticker_str = " ".join(tickers)
+    # Normalise at emission so the stored ticker is immediately matchable by the
+    # gate, rather than depending on enrich_scores having run first.
+    symbols: list[str] = []
+    for raw in raw_symbols:
+        symbol = normalize_ticker(raw)
+        if symbol and symbol not in symbols:
+            symbols.append(symbol)
+    if not symbols:
+        return 0
+
     comment_str = _comment_date(doc)
     comment_part = f" (comment period: {comment_str})" if comment_str else ""
-    headline = f"Federal Register: {title[:80]} — affects {ticker_str}{comment_part}"
-
     severity = "HIGH" if significant else "MEDIUM"
 
     agency = _agency_name(doc)
     docket = _docket_id(doc)
     tags = ", ".join(filter(None, [agency, docket, pub_date]))
 
+    # Provenance the split would otherwise lose: which document this came from and
+    # which other symbols the same document touched.
+    detail = " | ".join(filter(None, [
+        title[:160],
+        f"agency: {agency}" if agency else "",
+        f"docket: {docket}" if docket else "",
+        f"affects: {', '.join(symbols)}",
+    ]))
+
     print(
-        f"  [{severity}] {pub_date}  {ticker_str}\n"
+        f"  [{severity}] {pub_date}  {' '.join(symbols)}  ({len(symbols)} alerts)\n"
         f"    {title[:90]}"
         + (f"\n    Agency: {agency}" if agency else "")
         + (f"  Docket: {docket}" if docket else "")
     )
 
-    if emit_alerts and conn is not None:
-        if not alert_exists(conn, headline):
-            insert_alert(conn, headline, ticker_str, severity, tags)
-            return True
+    if not (emit_alerts and conn is not None):
+        return 0
 
-    return False
+    emitted = 0
+    for symbol in symbols:
+        # The symbol is IN the headline, so the dedup key is per (document,
+        # symbol): re-processing a document emits nothing, while two different
+        # documents affecting the same symbol both emit.
+        headline = (f"Federal Register: {title[:80]} — affects {symbol}"
+                    f"{comment_part}")
+        if alert_exists(conn, headline):
+            continue
+        insert_alert(conn, headline, symbol, severity, tags, detail)
+        emitted += 1
+
+    return emitted
 
 
 # ---------------------------------------------------------------------------
@@ -242,11 +288,11 @@ def main() -> None:
     conn = db_connection() if args.emit_alerts else None
 
     for doc in documents:
-        was_emitted = process_document(doc, args.emit_alerts, conn)
+        # process_document returns a COUNT now — one document can yield several
+        # single-symbol alerts, and `emitted` must mean alerts inserted.
+        emitted += process_document(doc, args.emit_alerts, conn)
         if match_tickers(doc.get("title") or "", doc.get("abstract") or ""):
             triggered += 1
-        if was_emitted:
-            emitted += 1
 
     if conn is not None:
         conn.close()
