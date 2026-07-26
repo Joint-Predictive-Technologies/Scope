@@ -353,12 +353,15 @@ def test_chat_router_was_left_untouched_after_measurement():
     MEDIUM population — 2,202 rows against 179 CRITICAL, with overlapping score
     ranges (MEDIUM max 65.0 > CRITICAL max 62.0) — flood the LIMIT 25 window.
 
-    Measured read-only on the working DB over a 7-day window: the old ordering
-    surfaced 21 CRITICAL + 4 HIGH; ranking by score alone surfaced 19 MEDIUM +
-    3 HIGH + 3 CRITICAL, i.e. 18 of 21 CRITICALs dropped out of the chat context
-    entirely. Making it safe needs a severity floor, which is an *eligibility*
-    change and out of scope for an ordering-only pass — so this surface was
-    reverted and left for a human.
+    Measured read-only on the working DB over a 7-day window: ranking by score
+    alone displaces most CRITICALs with MEDIUMs. With the window anchored to
+    `max(created_at)` it was 21C+4H -> 19M+3H+3C (18 of 21 CRITICALs gone); with a
+    date-only anchor, 12C+13H -> 14M+6H+5C (7 of 12). **The figures are
+    anchor-dependent and come from the untrusted working DB — corroborative, not
+    proven — but the direction holds under both windows.**
+
+    Making it safe needs a severity floor, which is an *eligibility* change and out
+    of scope for an ordering-only pass, so this surface was reverted for a human.
     """
     import inspect
 
