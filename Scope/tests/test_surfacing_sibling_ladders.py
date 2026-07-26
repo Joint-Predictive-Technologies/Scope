@@ -2,26 +2,33 @@
 """
 The secondary surfaces rank by `opportunity_score` too.
 
-Two sibling surfaces still carried the hardcoded rule ladder that was removed
-from the daily brief:
+Three surfaces still carried a hardcoded rule ladder. **One was fixed; two were
+deliberately skipped**, and there are tests below locking each skip so a later
+session cannot quietly "fix" the ordering and believe the promotion is gone.
 
-  * `scripts/send_digest.py` — the email digest: severity, then
-    RULE_10 -> 1 / RULE_06 -> 2 / RULE_11 -> 3 / else -> 4.
-  * `api/routers/chat.py` — the chat context block: severity, then
-    RULE_10 -> 1 / RULE_06 -> 2 / else -> 3.
+  * **FIXED — `scripts/send_digest.py`** (the email digest): was severity, then
+    RULE_10 -> 1 / RULE_06 -> 2 / RULE_11 -> 3 / else -> 4. It ranks by
+    `opportunity_score` on top of an existing `WHERE severity IN
+    ('CRITICAL','HIGH')` floor, exactly like the reference
+    (`scripts/morning_brief.py:174-180`). No LLM in this path.
 
-A third, `api/routers/digest.py`, was deliberately NOT changed — its rule
-promotion is structural (one hardcoded query per rule, feeding fixed per-rule
-keys that `api/static/digest.html:112-115` renders as fixed cards and that are
-persisted in the `digests` table), so no ordering change can fix it. See the
-session note.
+  * **SKIPPED — `api/routers/chat.py`**: the ladder was removed and then
+    **reverted**, because chat.py has *no severity floor*. Measured on the working
+    DB read-only: ranking by score alone dropped 18 of 21 CRITICALs out of the
+    LIMIT-25 context, replaced by MEDIUMs. Adding a floor is an eligibility
+    change, out of scope for an ordering-only pass. See the test below.
 
-Each fixture is crafted so the correct order is unambiguous: the high-opportunity
+  * **SKIPPED — `api/routers/digest.py`**: its rule promotion is structural — one
+    hardcoded query per rule, feeding fixed keys that
+    `api/static/digest.html:112-115` renders as fixed cards and that the `digests`
+    table persists — so no ordering change can fix it.
+
+The fixture is crafted so the correct order is unambiguous: the high-opportunity
 signal is given the *worst* value of every other field the old query sorted on —
 HIGH not CRITICAL, the oldest row, the lowest id, and a rule in the old `ELSE`
 bucket. If it still comes first, only `opportunity_score` can have put it there.
-Each surface is then re-checked with the scores flipped, which proves the order
-came from the seeded scores rather than from ambient data.
+The order is then re-checked with the scores flipped, which proves it came from
+the seeded scores rather than from ambient data.
 
 Runs under pytest or standalone:
     python3 tests/test_surfacing_sibling_ladders.py
@@ -162,16 +169,6 @@ def test_send_digest_breaks_ties_by_recency_then_id():
     assert order.index("TIEB") < order.index("TIEA")
 
 
-def test_chat_breaks_ties_by_recency_then_id():
-    _seed_ties()
-    from api.routers import chat
-    context, _ = chat._fetch_context("what is happening", days=7)
-    block = context.split("ALERTS (")[1]
-    pos = {t: block.index(f"| {t} |") for t in ("NEWER", "OLDER", "TIEA", "TIEB")}
-    assert pos["NEWER"] < pos["OLDER"]
-    assert pos["TIEB"] < pos["TIEA"]
-
-
 def test_send_digest_rendered_email_preserves_the_order():
     """The render layer must not reorder what the query ranked."""
     _seed()
@@ -186,89 +183,38 @@ def test_send_digest_rendered_email_preserves_the_order():
 
 
 # ---------------------------------------------------------------------------
-# surface 2 — api/routers/chat.py (Groq surface: SQL *and* prompt checked)
+# surface 2 — api/routers/chat.py: SKIPPED after measurement, locked as such
 # ---------------------------------------------------------------------------
 
-def _chat_context(message: str = "what is the strongest signal right now") -> str:
-    from api.routers import chat
-    context, _count = chat._fetch_context(message, days=7)
-    return context
+def test_chat_router_was_left_untouched_after_measurement():
+    """Guards the skip decision. chat.py has NO severity floor.
 
+    The reference pattern (scripts/morning_brief.py:174-176) and send_digest both
+    rank by opportunity_score *on top of* `WHERE severity IN ('HIGH','CRITICAL')`.
+    chat.py has no severity filter at all, so ranking purely by score lets the
+    MEDIUM population — 2,202 rows against 179 CRITICAL, with overlapping score
+    ranges (MEDIUM max 65.0 > CRITICAL max 62.0) — flood the LIMIT 25 window.
 
-def _chat_order(context: str) -> list[str]:
-    block = context.split("ALERTS (")[1]
-    seen = []
-    for line in block.splitlines():
-        for ticker in EXPECTED:
-            if f"| {ticker} |" in line and ticker not in seen:
-                seen.append(ticker)
-    return seen
+    Measured read-only on the working DB over a 7-day window: the old ordering
+    surfaced 21 CRITICAL + 4 HIGH; ranking by score alone surfaced 19 MEDIUM +
+    3 HIGH + 3 CRITICAL, i.e. 18 of 21 CRITICALs dropped out of the chat context
+    entirely. Making it safe needs a severity floor, which is an *eligibility*
+    change and out of scope for an ordering-only pass — so this surface was
+    reverted and left for a human.
+    """
+    import inspect
 
-
-def test_chat_context_orders_by_opportunity_score():
-    _seed()
-    assert _chat_order(_chat_context()) == EXPECTED
-
-
-def test_chat_high_opportunity_name_beats_the_defence_names():
-    _seed()
-    order = _chat_order(_chat_context())
-    assert order[0] == "ZWAR", order
-    for prime in DEFENCE:
-        assert order.index("ZWAR") < order.index(prime)
-
-
-def test_chat_order_is_not_ambient():
-    _seed()
-    assert _chat_order(_chat_context())[0] == "ZWAR"
-    _flip_scores()
-    flipped = _chat_order(_chat_context())
-    assert flipped[0] == "RTX", flipped
-    assert flipped[-1] == "ZWAR", flipped
-
-
-def test_chat_ticker_matched_branch_also_orders_by_score():
-    """The with-tickers branch is a separate query — it must rank the same way."""
-    _seed()
-    order = _chat_order(_chat_context("tell me about ZWAR GLUE RTX LMT NOC"))
-    assert order[0] == "ZWAR", order
-    assert order.index("ZWAR") < order.index("RTX")
-
-
-def test_chat_context_label_describes_the_real_ordering():
-    """It said "ranked by severity" — a false description of its own input."""
-    _seed()
-    context = _chat_context()
-    assert "ranked by opportunity score" in context
-    assert "ranked by severity" not in context
-
-
-def test_chat_prompt_layer_does_not_promote_a_rule_category():
-    """The lesson from the brief: a promotion can live in the prompt, not the SQL."""
     from api.routers import chat
 
-    for text in (chat.SYSTEM_PROMPT,):
-        lowered = text.lower()
-        assert "lead with" not in lowered
-        assert "insider, contract" not in lowered
-        assert "strongest individual signal" not in lowered
-
-
-def test_chat_corroboration_block_is_untouched():
-    """RULE_10 keeps its own labelled block — that is not a ranking promotion."""
-    conn = jpt_common.db_connection()
-    conn.execute(
-        """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
-           VALUES ('RULE_10', 'CORR', 'HIGH', 'four rules converged', 5.0, datetime('now','-1 hours'))"""
+    src = inspect.getsource(chat._fetch_context)
+    assert "CASE rule WHEN 'RULE_10' THEN 1 WHEN 'RULE_06' THEN 2 ELSE 3 END" in src, (
+        "chat.py's ladder is gone — if that was deliberate, confirm a severity "
+        "floor was added too; see SESSION-2026-07-26-surfacing-sibling-ladders.md"
     )
-    conn.commit()
-    conn.close()
-    _seed()
-
-    context = _chat_context()
-    assert "ACTIVE CORROBORATIONS" in context
-    # and the ranked list still leads on score, not on RULE_10
-    assert _chat_order(context)[0] == "ZWAR"
+    assert "WHERE severity IN" not in src, (
+        "chat.py gained a severity filter — that is an eligibility change; "
+        "re-measure the CRITICAL displacement before ranking by score"
+    )
 
 
 # ---------------------------------------------------------------------------

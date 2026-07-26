@@ -94,35 +94,26 @@ def _fetch_context(message: str, days: int) -> tuple[str, int]:
     if all_tickers:
         like_clauses = " OR ".join("ticker LIKE ?" for _ in all_tickers)
         like_params = [f"%{t}%" for t in all_tickers]
-        # Ranked by opportunity_score — see the note in the else-branch.
         alert_rows = conn.execute(
-            f"""SELECT rule, ticker, severity, headline, detail, created_at,
-                       COALESCE(opportunity_score, 0) AS opportunity_score
+            f"""SELECT rule, ticker, severity, headline, detail, created_at
                 FROM alerts
                 WHERE ({like_clauses})
                   AND datetime(created_at) >= datetime('now', ?)
-                ORDER BY COALESCE(opportunity_score, 0) DESC,
-                         datetime(created_at) DESC,
-                         id DESC
+                ORDER BY
+                    CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END,
+                    datetime(created_at) DESC
                 LIMIT 25""",
             like_params + [f"-{days} days"],
         ).fetchall()
     else:
-        # Both branches rank by opportunity_score. This one previously carried a
-        # hardcoded rule ladder (RULE_10 -> 1, RULE_06 -> 2, everything else -> 3)
-        # on top of a severity sort, so the same rules led the chat context every
-        # time regardless of score. Severity is dropped as a ranking key in both
-        # branches: keeping it first would leave opportunity_score a tiebreak
-        # inside a severity band. Ordering only — no score is recomputed, and the
-        # RULE_10 corroboration block below is untouched.
         alert_rows = conn.execute(
-            """SELECT rule, ticker, severity, headline, detail, created_at,
-                      COALESCE(opportunity_score, 0) AS opportunity_score
+            """SELECT rule, ticker, severity, headline, detail, created_at
                FROM alerts
                WHERE datetime(created_at) >= datetime('now', ?)
-               ORDER BY COALESCE(opportunity_score, 0) DESC,
-                        datetime(created_at) DESC,
-                        id DESC
+               ORDER BY
+                   CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END,
+                   CASE rule WHEN 'RULE_10' THEN 1 WHEN 'RULE_06' THEN 2 ELSE 3 END,
+                   datetime(created_at) DESC
                LIMIT 25""",
             (f"-{days} days",),
         ).fetchall()
@@ -175,8 +166,7 @@ def _fetch_context(message: str, days: int) -> tuple[str, int]:
         lines = [f"  ★ [{r['created_at'][:10]}] {r['ticker'] or '—'} | {r['headline']}" for r in rule10_rows]
         blocks.append("ACTIVE CORROBORATIONS (RULE_10 — highest confidence):\n" + "\n".join(lines))
 
-    blocks.append(f"ALERTS ({len(alert_rows)} results, ranked by opportunity score — most opportunity remaining first):\n"
-                  + _fmt_alerts(alert_rows, 1500))
+    blocks.append(f"ALERTS ({len(alert_rows)} results, ranked by severity):\n" + _fmt_alerts(alert_rows, 1500))
 
     if trade_rows:
         lines = [f"  [{r['transaction_date']}] {r['ticker'] or '—'} | {r['transaction_type']} | {r['amount_band']} | {r['full_name']}" for r in trade_rows]
