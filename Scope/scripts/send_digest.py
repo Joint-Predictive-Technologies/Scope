@@ -71,6 +71,21 @@ def _gather_top_signals(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _ticker(value) -> str:
+    """First ticker symbol in `value`, or "" when there isn't one.
+
+    The old inline form was `(s.get("ticker") or "").replace("$","").split()[0]`,
+    which raises IndexError for None, "", "   " and "$" — and it ran *before* the
+    try/except in send(), so one blank-ticker alert in the top 5 meant the whole
+    digest email silently failed to go out. 236 HIGH/CRITICAL rows in the working
+    DB carry a blank ticker (RULE_09 182, RULE_11 54).
+
+    Callers already render nothing when this is empty.
+    """
+    parts = (value or "").replace("$", "").split()
+    return parts[0] if parts else ""
+
+
 def _build_html(signals: list[dict], date_str: str) -> str:
     body_bg = "#0c0b09"
     card_bg = "#111009"
@@ -80,7 +95,7 @@ def _build_html(signals: list[dict], date_str: str) -> str:
 
     signal_blocks = ""
     for s in signals:
-        ticker = (s.get("ticker") or "").replace("$", "").split()[0]
+        ticker = _ticker(s.get("ticker"))
         color = SEV_COLOR.get(s["severity"], muted)
         emoji = SEV_EMOJI.get(s["severity"], "⚪")
         detail = (s.get("detail") or "")[:200]
@@ -140,7 +155,7 @@ def send(recipient: str, signals: list[dict]) -> bool:
 
     html = _build_html(signals, today)
     plain = f"Scope Daily Brief — {today}\n\n" + "\n\n".join(
-        f"{s['severity']} [{s['rule']}] {s.get('ticker','')}: {s['headline']}" for s in signals
+        f"{s['severity']} [{s['rule']}] {_ticker(s.get('ticker'))}: {s['headline']}" for s in signals
     )
     msg.attach(MIMEText(plain, "plain"))
     msg.attach(MIMEText(html, "html"))

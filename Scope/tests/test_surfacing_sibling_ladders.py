@@ -341,41 +341,115 @@ def test_send_digest_rendered_email_preserves_the_order():
 
 
 # ---------------------------------------------------------------------------
-# surface 2 — api/routers/chat.py: SKIPPED after measurement, locked as such
+# surface 2 — api/routers/chat.py: now FIXED, with a severity floor
+#
+# This surface was skipped on the first pass and fixed later with explicit
+# approval for the eligibility change. The order of operations matters and is
+# the whole lesson: ranking by opportunity_score is only safe once a severity
+# floor exists. Ranking by score WITHOUT the floor was measured to evict most
+# CRITICALs from the LIMIT 25 window (MEDIUM outnumbers CRITICAL 2202:179 and its
+# score ceiling 65.0 exceeds CRITICAL's 62.0). The floor is asserted below and
+# must not be removed.
 # ---------------------------------------------------------------------------
 
-def test_chat_router_was_left_untouched_after_measurement():
-    """Guards the skip decision. chat.py has NO severity floor.
+def _chat_context(message: str = "what is the strongest signal right now") -> str:
+    from api.routers import chat
+    context, _count = chat._fetch_context(message, days=7)
+    return context
 
-    The reference pattern (scripts/morning_brief.py:174-176) and send_digest both
-    rank by opportunity_score *on top of* `WHERE severity IN ('HIGH','CRITICAL')`.
-    chat.py has no severity filter at all, so ranking purely by score lets the
-    MEDIUM population — 2,202 rows against 179 CRITICAL, with overlapping score
-    ranges (MEDIUM max 65.0 > CRITICAL max 62.0) — flood the LIMIT 25 window.
 
-    Measured read-only on the working DB over a 7-day window: ranking by score
-    alone displaces most CRITICALs with MEDIUMs. With the window anchored to
-    `max(created_at)` it was 21C+4H -> 19M+3H+3C (18 of 21 CRITICALs gone); with a
-    date-only anchor, 12C+13H -> 14M+6H+5C (7 of 12). **The figures are
-    anchor-dependent and come from the untrusted working DB — corroborative, not
-    proven — but the direction holds under both windows.**
+def _chat_order(context: str) -> list[str]:
+    block = context.split("ALERTS (")[1]
+    seen = []
+    for line in block.splitlines():
+        for ticker in EXPECTED:
+            if f"| {ticker} |" in line and ticker not in seen:
+                seen.append(ticker)
+    return seen
 
-    Making it safe needs a severity floor, which is an *eligibility* change and out
-    of scope for an ordering-only pass, so this surface was reverted for a human.
+
+def test_chat_context_orders_by_opportunity_score():
+    _seed()
+    assert _chat_order(_chat_context()) == EXPECTED
+
+
+def test_chat_high_opportunity_name_beats_the_defence_names():
+    _seed()
+    order = _chat_order(_chat_context())
+    assert order[0] == "ZWAR", order
+    for prime in DEFENCE:
+        assert order.index("ZWAR") < order.index(prime)
+
+
+def test_chat_order_is_not_ambient():
+    _seed()
+    assert _chat_order(_chat_context())[0] == "ZWAR"
+    _flip_scores()
+    flipped = _chat_order(_chat_context())
+    assert flipped[0] == "RTX", flipped
+    assert flipped[-1] == "ZWAR", flipped
+
+
+def test_chat_ticker_matched_branch_also_orders_by_score():
+    """The with-tickers branch is a separate query and must rank the same way."""
+    _seed()
+    order = _chat_order(_chat_context("tell me about ZWAR GLUE RTX LMT NOC"))
+    assert order[0] == "ZWAR", order
+    assert order.index("ZWAR") < order.index("RTX")
+
+
+def test_chat_keeps_its_severity_floor_in_BOTH_branches():
+    """The floor is the precondition that makes score-ranking safe here.
+
+    Without it, a high-scoring MEDIUM outranks every CRITICAL. Both queries are
+    checked because both lack any other severity restriction.
     """
-    import inspect
-
     from api.routers import chat
 
-    src = inspect.getsource(chat._fetch_context)
-    assert "CASE rule WHEN 'RULE_10' THEN 1 WHEN 'RULE_06' THEN 2 ELSE 3 END" in src, (
-        "chat.py's ladder is gone — if that was deliberate, confirm a severity "
-        "floor was added too; see SESSION-2026-07-26-surfacing-sibling-ladders.md"
+    code = _code_without_docstring(chat._fetch_context)
+    assert code.count("severity IN ('CRITICAL', 'HIGH')") >= 2, (
+        "a chat alert query lost its severity floor — ranking by opportunity_score "
+        "alone lets the MEDIUM population evict CRITICALs from the context"
     )
-    assert "WHERE severity IN" not in src, (
-        "chat.py gained a severity filter — that is an eligibility change; "
-        "re-measure the CRITICAL displacement before ranking by score"
+
+    conn = jpt_common.db_connection()
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, detail, opportunity_score, created_at)
+           VALUES ('RULE_09','MEDHI','MEDIUM','top score but MEDIUM','d', 99.0,
+                   datetime('now','-1 hours'))"""
     )
+    conn.commit()
+    conn.close()
+    _seed()
+
+    for message in ("what is happening", "tell me about MEDHI ZWAR RTX"):
+        assert "MEDHI" not in _chat_context(message), message
+
+
+def test_chat_context_label_describes_the_real_ordering():
+    """It said "ranked by severity" — a false description of the model's input."""
+    _seed()
+    context = _chat_context()
+    assert "ranked by opportunity score" in context
+    assert "CRITICAL/HIGH" in context
+    assert "ranked by severity" not in context
+
+
+def test_chat_prompt_layer_does_not_promote_a_rule_category():
+    """A promotion can live in the prompt rather than the ORDER BY."""
+    from api.routers import chat
+
+    lowered = chat.SYSTEM_PROMPT.lower()
+    assert "lead with" not in lowered
+    assert "insider, contract" not in lowered
+    assert "strongest individual signal" not in lowered
+
+
+def test_chat_has_no_rule_ladder():
+    from api.routers import chat
+
+    code = _code_without_docstring(chat._fetch_context)
+    assert "CASE rule" not in code, "a rule ladder is back in the chat ordering"
 
 
 # ---------------------------------------------------------------------------

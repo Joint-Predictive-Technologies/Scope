@@ -94,26 +94,42 @@ def _fetch_context(message: str, days: int) -> tuple[str, int]:
     if all_tickers:
         like_clauses = " OR ".join("ticker LIKE ?" for _ in all_tickers)
         like_params = [f"%{t}%" for t in all_tickers]
+        # See the note in the else-branch: the severity floor is what makes ranking
+        # by opportunity_score safe.
         alert_rows = conn.execute(
-            f"""SELECT rule, ticker, severity, headline, detail, created_at
+            f"""SELECT rule, ticker, severity, headline, detail, created_at,
+                       COALESCE(opportunity_score, 0) AS opportunity_score
                 FROM alerts
                 WHERE ({like_clauses})
                   AND datetime(created_at) >= datetime('now', ?)
-                ORDER BY
-                    CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END,
-                    datetime(created_at) DESC
+                  AND severity IN ('CRITICAL', 'HIGH')
+                ORDER BY COALESCE(opportunity_score, 0) DESC,
+                         datetime(created_at) DESC,
+                         id DESC
                 LIMIT 25""",
             like_params + [f"-{days} days"],
         ).fetchall()
     else:
+        # Ranked by opportunity_score, with a severity FLOOR.
+        #
+        # The floor is not cosmetic and must not be removed. This surface used to
+        # rank severity-first plus a rule ladder (RULE_10 -> 1, RULE_06 -> 2), and
+        # an earlier attempt swapped that for opportunity_score alone. Measured on
+        # real data, that evicted most CRITICALs from the LIMIT 25 window: MEDIUM
+        # outnumbers CRITICAL 2202:179 and its score ceiling (65.0) is above
+        # CRITICAL's (62.0), so score alone lets the MEDIUM population flood the
+        # context the model reads. Restricting to CRITICAL/HIGH first — the same
+        # precondition scripts/morning_brief.py and scripts/send_digest.py already
+        # had — makes score-ranking safe, which is why it is applied here now.
         alert_rows = conn.execute(
-            """SELECT rule, ticker, severity, headline, detail, created_at
+            """SELECT rule, ticker, severity, headline, detail, created_at,
+                      COALESCE(opportunity_score, 0) AS opportunity_score
                FROM alerts
                WHERE datetime(created_at) >= datetime('now', ?)
-               ORDER BY
-                   CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 ELSE 3 END,
-                   CASE rule WHEN 'RULE_10' THEN 1 WHEN 'RULE_06' THEN 2 ELSE 3 END,
-                   datetime(created_at) DESC
+                 AND severity IN ('CRITICAL', 'HIGH')
+               ORDER BY COALESCE(opportunity_score, 0) DESC,
+                        datetime(created_at) DESC,
+                        id DESC
                LIMIT 25""",
             (f"-{days} days",),
         ).fetchall()
@@ -166,7 +182,8 @@ def _fetch_context(message: str, days: int) -> tuple[str, int]:
         lines = [f"  ★ [{r['created_at'][:10]}] {r['ticker'] or '—'} | {r['headline']}" for r in rule10_rows]
         blocks.append("ACTIVE CORROBORATIONS (RULE_10 — highest confidence):\n" + "\n".join(lines))
 
-    blocks.append(f"ALERTS ({len(alert_rows)} results, ranked by severity):\n" + _fmt_alerts(alert_rows, 1500))
+    blocks.append(f"ALERTS ({len(alert_rows)} CRITICAL/HIGH results, ranked by opportunity "
+                  f"score — most opportunity remaining first):\n" + _fmt_alerts(alert_rows, 1500))
 
     if trade_rows:
         lines = [f"  [{r['transaction_date']}] {r['ticker'] or '—'} | {r['transaction_type']} | {r['amount_band']} | {r['full_name']}" for r in trade_rows]
