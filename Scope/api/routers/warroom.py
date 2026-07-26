@@ -53,13 +53,21 @@ def _detail(row) -> dict:
 
 @router.get("/clusters")
 def list_clusters(limit: int = Query(default=100, ge=1, le=500)):
-    """Recent RULE_CLUSTER alerts as cluster cards (most recent first)."""
+    """RULE_CLUSTER alerts as cluster cards, highest opportunity first.
+
+    Was recency-only, even though `opportunity_score` was already selected and
+    returned to the card — so the surface ignored the score it displayed.
+    Recency is now the tiebreak. Ordering only; scores are unchanged.
+    """
     conn = db_connection()
     rows = conn.execute(
         """SELECT id, ticker, severity, headline, tags, created_at,
                   evidence_confidence, opportunity_score, lifecycle_stage
            FROM alerts WHERE rule = 'RULE_CLUSTER'
-           ORDER BY datetime(created_at) DESC LIMIT ?""",
+           ORDER BY COALESCE(opportunity_score, 0) DESC,
+                    datetime(created_at) DESC,
+                    id DESC
+           LIMIT ?""",
         (limit,),
     ).fetchall()
     conn.close()

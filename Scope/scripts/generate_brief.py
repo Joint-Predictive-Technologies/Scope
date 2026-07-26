@@ -21,24 +21,33 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def _gather_data(conn, days: float = 2) -> dict:
-    """Pull highest-ranked signals from the lookback window, prioritised by severity and rule."""
+    """Pull the highest-opportunity signals from the lookback window.
+
+    Ordered by `opportunity_score` (how much opportunity remains) — NOT by rule.
+    The previous ORDER BY promoted RULE_11 to rank 2 for every window, which put
+    the federal-contract feed near the top of the brief every morning regardless
+    of score; that feed is heavily concentrated in the same few defence primes,
+    so the brief kept opening on them. Severity is no longer a sort key either —
+    it stays only as the eligibility filter in the WHERE clause, because ranking
+    on it first made `opportunity_score` a mere tiebreak within a severity band.
+
+    This changes ordering ONLY. `opportunity_score` is computed at write time in
+    `jpt_common` and is untouched here.
+    """
     window = f"-{int(max(days, 1))} days"
 
     signals = conn.execute(
         """
-        SELECT id, rule, ticker, headline, detail, severity, tags, created_at
+        SELECT id, rule, ticker, headline, detail, severity, tags, created_at,
+               COALESCE(opportunity_score, 0)   AS opportunity_score,
+               COALESCE(evidence_confidence, 0) AS evidence_confidence
         FROM alerts
         WHERE created_at >= datetime('now', ?)
           AND severity IN ('CRITICAL', 'HIGH')
         ORDER BY
-            CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 END,
-            CASE rule
-                WHEN 'RULE_10' THEN 1
-                WHEN 'RULE_11' THEN 2
-                WHEN 'RULE_06' THEN 3
-                ELSE 5
-            END,
-            created_at DESC
+            COALESCE(opportunity_score, 0) DESC,
+            datetime(created_at) DESC,
+            id DESC
         LIMIT 20
         """,
         (window,),
@@ -143,7 +152,7 @@ CRITICAL RULES ABOUT CORROBORATION:
 === CORROBORATIONS — RULE_10 (the ONLY thing you may call "corroborated") ===
 {rule10_block}
 
-=== ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by severity then rule) ===
+=== ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by opportunity score — most opportunity remaining first) ===
 {signal_block}
 
 === CONGRESSIONAL TRADES ({len(congressional)} transactions) ===
