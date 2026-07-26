@@ -180,5 +180,69 @@ def test_clusters_war_room_orders_by_opportunity_score():
     assert [c["opportunity_score"] for c in cards] == [88.0, 44.0, 9.0]
 
 
+# ---------------------------------------------------------------------------
+# the narrative layer — the SQL order must survive into the prompt
+#
+# The independent verifier found the ORDER BY fix alone was NOT enough: the
+# prompt separately instructed the model to "lead instead with the strongest
+# individual signal (insider, contract, congressional)" whenever RULE_10 was
+# empty. RULE_10 never fires, so that fired every morning and re-promoted the
+# contracts feed in prose no matter what the ranking said. These tests pin the
+# fix so it cannot silently regress.
+# ---------------------------------------------------------------------------
+
+def _prompt() -> str:
+    conn = jpt_common.db_connection()
+    data = generate_brief._gather_data(conn, days=2)
+    conn.close()
+    return generate_brief._build_prompt(data, "2026-07-26")
+
+
+def test_prompt_does_not_steer_the_lead_to_a_rule_category():
+    _seed()
+    prompt = _prompt()
+    assert "(insider, contract, congressional)" not in prompt
+    assert "strongest individual signal" not in prompt
+    # it points at the ranking instead
+    assert "FIRST signal in the list below" in prompt
+    # (the instruction wraps across lines in the prompt, so match a fragment)
+    assert "its rule feels more important" in prompt
+
+
+def test_prompt_signal_block_preserves_the_sql_order():
+    """No reordering may sneak in between the query and the model."""
+    _seed()
+    conn = jpt_common.db_connection()
+    data = generate_brief._gather_data(conn, days=2)
+    conn.close()
+
+    prompt = generate_brief._build_prompt(data, "2026-07-26")
+    block = prompt.split("=== ALL HIGH-PRIORITY SIGNALS")[1].split("=== CONGRESSIONAL")[0]
+
+    seen = [t for t in ("ZWAR", "GLUE", "RTX", "LMT", "NOC")
+            if t in block]
+    positions = [block.index(t) for t in seen]
+    assert seen == [s["ticker"] for s in data["signals"]]
+    assert positions == sorted(positions), "prompt order diverged from SQL order"
+
+
+def test_prompt_header_describes_the_actual_ordering():
+    """It used to claim 'ranked by severity then rule' — a false description."""
+    _seed()
+    prompt = _prompt()
+    assert "ranked by opportunity score" in prompt
+    assert "ranked by severity then rule" not in prompt
+
+
+def test_corroboration_guardrails_are_untouched():
+    """Removing the rule ladder must not weaken what may be called corroborated."""
+    _seed()
+    prompt = _prompt()
+    assert "Only a RULE_10 entry" in prompt
+    assert "are NOT" in prompt and "corroboration" in prompt
+    for excluded in ("RULE_07", "RULE_OSINT", "RULE_REDDIT", "RULE_ANOMALY"):
+        assert excluded in prompt
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

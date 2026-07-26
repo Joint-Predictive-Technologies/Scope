@@ -39,8 +39,7 @@ def _gather_data(conn, days: float = 2) -> dict:
     signals = conn.execute(
         """
         SELECT id, rule, ticker, headline, detail, severity, tags, created_at,
-               COALESCE(opportunity_score, 0)   AS opportunity_score,
-               COALESCE(evidence_confidence, 0) AS evidence_confidence
+               COALESCE(opportunity_score, 0) AS opportunity_score
         FROM alerts
         WHERE created_at >= datetime('now', ?)
           AND severity IN ('CRITICAL', 'HIGH')
@@ -147,7 +146,8 @@ CRITICAL RULES ABOUT CORROBORATION:
   market, Reddit, or an anomaly agrees with it.
 - If the CORROBORATIONS section says NONE, you MUST state plainly that there are
   no cross-source corroborations in this window, and lead instead with the
-  strongest individual signal (insider, contract, congressional).
+  FIRST signal in the list below. The list is ranked by opportunity score; do not
+  substitute a different signal because its rule feels more important.
 
 === CORROBORATIONS — RULE_10 (the ONLY thing you may call "corroborated") ===
 {rule10_block}
@@ -160,7 +160,7 @@ CRITICAL RULES ABOUT CORROBORATION:
 
 Write the Scope Daily Brief in strict JSON:
 {{
-  "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the most actionable signal — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
+  "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the FIRST signal in the ranked list — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
   "sections": {{
     "corroborations": {{ "one_liner": "If RULE_10 fired: name ticker(s) and which rules converged. If none: 'No cross-source corroborations in this window.'" }},
     "insider":        {{ "one_liner": "Name ticker and direction (RULE_06). 'No unusual insider activity.' if absent." }},
