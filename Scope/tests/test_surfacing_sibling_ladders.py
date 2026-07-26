@@ -150,12 +150,16 @@ def _seed_ties() -> None:
         """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
            VALUES ('RULE_09','OLDER','HIGH','same score, older', 70.0, datetime('now','-30 hours'))"""
     )
-    # identical score AND identical timestamp -> only `id DESC` can decide
+    # Identical score AND identical timestamp -> only `id DESC` can decide.
+    # Relative, not absolute: an earlier version hardcoded '2026-07-26 09:00:00',
+    # which the 48h window would have aged out on 2026-07-28, silently turning
+    # this guard into a crash. Anything inside the window works.
+    tie_at = conn.execute("SELECT datetime('now','-2 hours')").fetchone()[0]
     for ticker in ("TIEA", "TIEB"):
         conn.execute(
             """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
-               VALUES ('RULE_09', ?, 'HIGH', 'exact tie', 60.0, '2026-07-26 09:00:00')""",
-            (ticker,),
+               VALUES ('RULE_09', ?, 'HIGH', 'exact tie', 60.0, ?)""",
+            (ticker, tie_at),
         )
     conn.commit()
     conn.close()
@@ -169,6 +173,157 @@ def test_send_digest_breaks_ties_by_recency_then_id():
     assert order.index("TIEB") < order.index("TIEA")
 
 
+def _code_without_docstring(func) -> str:
+    """Source of `func` with its docstring removed.
+
+    The docstring legitimately names RULE_10/RULE_11 to explain what was removed,
+    so asserting on raw source would fail on the explanation rather than the code.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    tree = ast.parse(textwrap.dedent(inspect.getsource(func)))
+    node = tree.body[0]
+    if (node.body and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+            and isinstance(node.body[0].value.value, str)):
+        node.body = node.body[1:]
+    return ast.unparse(tree)
+
+
+def test_send_digest_has_no_rule_ladder_at_all():
+    """The branch's whole purpose — and nothing else asserted it.
+
+    Mutation testing found that re-adding the exact ladder as a *secondary* key
+    left all ten tests green, because no two fixture rows shared a score while
+    differing by rule. Guarded two ways: structurally, and behaviourally with
+    equal-score rows whose only difference is the rule.
+    """
+    from scripts import send_digest
+
+    code = _code_without_docstring(send_digest._gather_top_signals)
+    assert "CASE rule" not in code, "a rule ladder is back in the digest ordering"
+    assert "RULE_10" not in code and "RULE_11" not in code, code
+
+    # Behavioural: identical score AND timestamp, differing only by rule, with the
+    # LADDER-FAVOURED row inserted FIRST so it holds the LOWER id. That makes the
+    # two hypotheses disagree:
+    #   no ladder  -> `id DESC` wins -> LADD_LOWPRIO (RULE_11, higher id) first
+    #   ladder     -> rule priority  -> LADD_TOPPRIO (RULE_10 = rank 1) first
+    # An earlier version inserted them the other way round, so both hypotheses
+    # predicted the same winner and the mutant survived.
+    conn = jpt_common.db_connection()
+    at = conn.execute("SELECT datetime('now','-3 hours')").fetchone()[0]
+    for rule, ticker in (("RULE_10", "LADDTOP"), ("RULE_11", "LADDLOW")):
+        conn.execute(
+            """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
+               VALUES (?, ?, 'HIGH', 'equal score, different rule', 50.0, ?)""",
+            (rule, ticker, at),
+        )
+    conn.commit()
+    conn.close()
+
+    order = _digest_tickers()
+    assert order.index("LADDLOW") < order.index("LADDTOP"), (
+        f"RULE_10 outranked a higher-id row on equal score — rule priority is back: {order}")
+
+
+def test_send_digest_keeps_its_severity_floor():
+    """The floor is the entire reason ranking by score is safe here.
+
+    `chat.py` was skipped precisely because it lacks this. Nothing tested that
+    `send_digest` still has it — mutation testing showed removing the
+    `WHERE severity IN ('CRITICAL','HIGH')` clause left all ten tests green.
+    """
+    import inspect
+
+    from scripts import send_digest
+
+    src = inspect.getsource(send_digest._gather_top_signals)
+    assert "WHERE severity IN ('CRITICAL', 'HIGH')" in src, (
+        "the severity floor is gone — ranking by opportunity_score alone lets the "
+        "MEDIUM population evict CRITICALs; see the chat.py skip in this file"
+    )
+
+    # behavioural: a MEDIUM row scoring above everything must still not appear
+    conn = jpt_common.db_connection()
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
+           VALUES ('RULE_09','MEDONLY','MEDIUM','highest score but MEDIUM', 99.0,
+                   datetime('now','-1 hours'))"""
+    )
+    conn.commit()
+    conn.close()
+
+    _seed()
+    assert "MEDONLY" not in _digest_tickers()
+
+
+def test_send_digest_null_score_is_coalesced_to_zero():
+    """Exercises the COALESCE.
+
+    Note: dropping `COALESCE` is *behaviourally equivalent for ordering* — SQLite
+    already sorts NULL as the smallest value, so `opportunity_score DESC` puts it
+    last either way (verified directly). What COALESCE does change is the value
+    handed to the caller: `0` instead of `None`. That is what this asserts, rather
+    than pretending an ordering test covers it.
+    """
+    conn = jpt_common.db_connection()
+    # NULL must be written EXPLICITLY: `alerts.opportunity_score` is
+    # `REAL DEFAULT 0.0`, so omitting the column yields 0.0 and never exercises
+    # the COALESCE at all. An earlier version of this test did exactly that and
+    # passed even with the COALESCE stripped out.
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
+           VALUES ('RULE_09','NULLSC','HIGH','no score at all', NULL, datetime('now','-1 hours'))"""
+    )
+    conn.commit()
+    stored = conn.execute("SELECT opportunity_score FROM alerts WHERE ticker='NULLSC'").fetchone()[0]
+    conn.close()
+    assert stored is None, "fixture failed to store a real NULL"
+
+    from scripts import send_digest
+    conn = jpt_common.db_connection()
+    signals = send_digest._gather_top_signals(conn)
+    conn.close()
+
+    row = next(s for s in signals if s["ticker"] == "NULLSC")
+    assert row["opportunity_score"] is not None, "COALESCE was dropped from the SELECT"
+    assert row["opportunity_score"] == 0, row["opportunity_score"]
+
+
+def test_send_digest_window_and_limit_are_unchanged():
+    """Pins the 48h window and LIMIT 5 — both were silently mutable."""
+    from scripts import send_digest
+
+    code = _code_without_docstring(send_digest._gather_top_signals)
+    assert "'-48 hours'" in code
+    assert "LIMIT 5" in code
+
+    conn = jpt_common.db_connection()
+    conn.execute(
+        """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
+           VALUES ('RULE_09','TOOOLD','HIGH','outside the 48h window', 99.0,
+                   datetime('now','-60 hours'))"""
+    )
+    # Enough in-window rows that LIMIT 5 and a larger LIMIT give different lengths —
+    # with only five seeded rows the length assertion could not detect LIMIT 10.
+    for n in range(4):
+        conn.execute(
+            """INSERT INTO alerts (rule, ticker, severity, headline, opportunity_score, created_at)
+               VALUES ('RULE_09', ?, 'HIGH', 'filler', ?, datetime('now','-5 hours'))""",
+            (f"FILL{n}", 20.0 + n),
+        )
+    conn.commit()
+    conn.close()
+
+    _seed()                                     # 5 more in-window rows -> 9 total
+    order = _digest_tickers()
+    assert "TOOOLD" not in order, "the 48h window no longer bounds the digest"
+    assert len(order) == 5, f"LIMIT 5 no longer holds: got {len(order)} -> {order}"
+
+
 def test_send_digest_rendered_email_preserves_the_order():
     """The render layer must not reorder what the query ranked."""
     _seed()
@@ -179,6 +334,9 @@ def test_send_digest_rendered_email_preserves_the_order():
 
     html = send_digest._build_html(signals, "2026-07-26")
     positions = [html.index(t) for t in EXPECTED if t in html]
+    # Without this length check the assertion below is vacuously true whenever the
+    # fixture fails to seed — `[] == sorted([])`.
+    assert len(positions) == len(EXPECTED), f"only {len(positions)} of {len(EXPECTED)} rendered"
     assert positions == sorted(positions), "email HTML reordered the signals"
 
 
@@ -267,6 +425,13 @@ def test_excluded_surfaces_are_not_modified_here():
         "Scope/tests/conftest.py",
     ):
         assert forbidden not in changed, f"{forbidden} must not change on this branch"
+
+    # the constraint list was wider than the five paths above: no rule script, no
+    # migration, no corroboration or gate logic either
+    for path in changed:
+        assert "rule_" not in os.path.basename(path), f"rule script touched: {path}"
+        assert "migrat" not in path.lower(), f"migration touched: {path}"
+        assert "corrobor" not in path.lower(), f"corroboration touched: {path}"
 
 
 if __name__ == "__main__":

@@ -46,8 +46,16 @@ def _gather_top_signals(conn) -> list[dict]:
     eligibility filter in WHERE but is no longer a ranking key — ranking on it
     first would leave `opportunity_score` a tiebreak inside a severity band.
 
-    Mirrors scripts/morning_brief.py's headline query. Ordering only; scores are
-    computed at write time in jpt_common and are untouched here.
+    Same *pattern* as scripts/morning_brief.py's headline query — not identical to
+    it: that one adds `COALESCE(evidence_confidence,0) DESC` as its second key and
+    uses a 24h window with LIMIT 1, where this keeps its own 48h window and LIMIT 5.
+    What is shared is the part that matters: score first, severity only as the
+    WHERE floor. (That floor is why ranking by score is safe here and was NOT safe
+    in api/routers/chat.py, which has no severity filter — see
+    tests/test_surfacing_sibling_ladders.py.)
+
+    Ordering only; scores are computed at write time in jpt_common and are
+    untouched here.
     """
     rows = conn.execute("""
         SELECT rule, ticker, severity, headline, detail, created_at, why_matters,
