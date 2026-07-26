@@ -263,6 +263,34 @@ def test_rule10_is_valid_agrees_with_the_gate():
     assert rule10_is_valid(["RULE_01B", "RULE_11", "RULE_07", "RULE_OSINT"]) is False
 
 
+def test_rule_01_is_congressional_not_its_own_instrument():
+    """`ingest_senate.py:278` emits RULE_01 (Senate PTR ingest) at HIGH/CRITICAL.
+
+    It was missing from the map, so it fell through the "unmapped counts as its
+    own instrument" fallback and became a SECOND congressional leg — two views of
+    the same feed plus one other source would have cleared the gate.
+    """
+    assert rule10_instruments(["RULE_01"]) == ["congressional"]
+    assert rule10_instruments(["RULE_01", "RULE_01B", "RULE_02", "RULE_CLUSTER"]) == [
+        "congressional"]
+    # two congressional feeds + contracts is 2 instruments, not 3
+    assert rule10_is_valid(["RULE_01", "RULE_01B", "RULE_11"]) is False
+
+
+def test_the_gate_is_not_defeatable_by_rule_name_casing():
+    """Names are folded before matching the exclusion set and the map.
+
+    Without folding, three casings of ONE rule counted as three instruments, and
+    three lower-cased *excluded* noise rules cleared the gate outright.
+    """
+    assert rule10_instruments(["RULE_01B", "rule_01b", "Rule_01b"]) == ["congressional"]
+    assert rule10_is_valid(["RULE_01B", "rule_01b", "Rule_01b"]) is False
+    assert rule10_instruments(["rule_07", "rule_osint", "rule_reddit"]) == []
+    assert rule10_is_valid(["rule_07", "rule_osint", "rule_reddit"]) is False
+    # whitespace too
+    assert rule10_instruments([" RULE_02 ", "\tRULE_CLUSTER\n"]) == ["congressional"]
+
+
 def test_an_unmapped_rule_counts_as_its_own_instrument():
     """A new rule must not silently vanish from the count."""
     assert rule10_instruments(["RULE_01B", "RULE_11", "RULE_BRAND_NEW"]) == [

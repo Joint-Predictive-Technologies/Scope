@@ -653,10 +653,11 @@ RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_RED
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.
 RULE_10_INSTRUMENTS: dict[str, str] = {
-    # congressional disclosures — all three read the `transactions` table
+    # congressional disclosures — all four are the same underlying feed
+    "RULE_01":             "congressional",   # ingest_senate.py:278 (Senate PTR ingest)
     "RULE_01B":            "congressional",   # scripts/rule_01b_first_touch.py:42
     "RULE_02":             "congressional",   # rule_02_cluster.py:31
-    "RULE_CLUSTER":        "congressional",   # scripts/rule_cluster.py
+    "RULE_CLUSTER":        "congressional",   # scripts/rule_cluster.py:115
     # SEC EDGAR full-text search, but genuinely different documents:
     "RULE_06":             "insider",         # rule_06_form4.py:136  forms=4
     "RULE_15":             "earnings",        # scripts/rule_15_earnings_nlp.py:63  forms=8-K
@@ -685,9 +686,19 @@ RULE_10_MIN_INSTRUMENTS = 3
 
 
 def rule10_eligible_rules(rules) -> list[str]:
-    """Distinct, sorted eligible rule families from an arbitrary rule iterable."""
-    return sorted({(r or "").strip() for r in (rules or []) if (r or "").strip()
-                   and (r or "").strip() not in RULE_10_EXCLUDED})
+    """Distinct, sorted eligible rule families from an arbitrary rule iterable.
+
+    Names are upper-cased before matching. Previously they were only stripped, so
+    a non-canonical casing evaded BOTH the exclusion set and the instrument map:
+    `["RULE_01B", "rule_01b", "Rule_01b"]` counted as three instruments, and
+    three lower-cased *excluded* noise rules cleared the gate outright. Every
+    emitter writes an upper-case module constant and the DB holds no
+    non-canonical name today, so this changes nothing in practice — it just stops
+    the moat's core property depending on that convention holding forever.
+    """
+    return sorted({(r or "").strip().upper() for r in (rules or [])
+                   if (r or "").strip()
+                   and (r or "").strip().upper() not in RULE_10_EXCLUDED})
 
 
 def rule10_instruments(rules) -> list[str]:

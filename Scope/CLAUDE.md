@@ -115,10 +115,28 @@ never entangle rules or scoring with it. Non-equity / basket / delisted tickers 
 `status='unavailable'`. This is the raw material for the future calibration report —
 do not interpret small per-rule samples early.
 
-**RULE_10 is the corroboration engine:** fires when 4+ *distinct eligible* rules
-converge on the same ticker within 24h. Excluded from the eligible set:
-RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY (and RULE_10 itself). It also
-creates/evolves a `themes` row (Market Thesis) and links evidence in `theme_signals`.
+**RULE_10 is the corroboration engine:** fires when **3+ distinct INSTRUMENTS**
+converge on the same ticker within **14 days** (ingestion time, `created_at`).
+Excluded from the eligible set: RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY
+(and RULE_10 itself). It also creates/evolves a `themes` row (Market Thesis) and
+links evidence in `theme_signals`.
+
+**Instruments, not rule names** (`jpt_common.RULE_10_INSTRUMENTS`). Rules that read
+the same underlying source count once: `RULE_01`/`RULE_01B`/`RULE_02`/`RULE_CLUSTER`
+are all the congressional `transactions` feed = **one** instrument, and
+`RULE_09`/`RULE_12` are both Senate LDA filings (RULE_12 is a strict subset —
+LDA rows with a non-empty `foreign_entities`) = **one** instrument. `RULE_06`
+(Form 4) and `RULE_15` (8-K) share the EDGAR host but are disjoint document
+populations, so they stay separate. The test is *same document population*, not
+same endpoint. An unmapped eligible rule counts as its own instrument — if you add
+a rule that reads an existing source, **map it**, or it silently becomes a second
+leg. `jpt_common.rule10_is_valid` must agree with the gate: it is what decides
+whether the brief and the evidence API may cite a corroboration.
+
+⚠️ **D1 stops at the gate.** `_distinct_rule_count` and `api/routers/evidence.py`
+still count rule *names*, so the congressional trio no longer *opens* a
+corroboration but still inflates its `evidence_confidence`. Fixing that is a
+scoring change and human-gated. See `05_Decisions/2026-07-25-gate-redesign.md`.
 
 **RULE_CLUSTER (`scripts/rule_cluster.py`, path a):** fires when 3+ DISTINCT
 members trade the same normalized ticker inside a rolling 72h window by
