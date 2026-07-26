@@ -38,15 +38,34 @@ SEV_EMOJI = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡"}
 
 
 def _gather_top_signals(conn) -> list[dict]:
+    """Top signals for the email digest, ranked by `opportunity_score`.
+
+    Was ordered by severity, then by a hardcoded rule ladder (RULE_10 -> 1,
+    RULE_06 -> 2, RULE_11 -> 3, everything else -> 4), which pinned the same rules
+    to the top of every digest regardless of score. Severity stays as the
+    eligibility filter in WHERE but is no longer a ranking key — ranking on it
+    first would leave `opportunity_score` a tiebreak inside a severity band.
+
+    Same *pattern* as scripts/morning_brief.py's headline query — not identical to
+    it: that one adds `COALESCE(evidence_confidence,0) DESC` as its second key and
+    uses a 24h window with LIMIT 1, where this keeps its own 48h window and LIMIT 5.
+    What is shared is the part that matters: score first, severity only as the
+    WHERE floor. (That floor is why ranking by score is safe here and was NOT safe
+    in api/routers/chat.py, which has no severity filter — see
+    tests/test_surfacing_sibling_ladders.py.)
+
+    Ordering only; scores are computed at write time in jpt_common and are
+    untouched here.
+    """
     rows = conn.execute("""
-        SELECT rule, ticker, severity, headline, detail, created_at, why_matters
+        SELECT rule, ticker, severity, headline, detail, created_at, why_matters,
+               COALESCE(opportunity_score, 0) AS opportunity_score
         FROM alerts
         WHERE severity IN ('CRITICAL', 'HIGH')
           AND datetime(created_at) >= datetime('now', '-48 hours')
-        ORDER BY
-            CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 END,
-            CASE rule WHEN 'RULE_10' THEN 1 WHEN 'RULE_06' THEN 2 WHEN 'RULE_11' THEN 3 ELSE 4 END,
-            created_at DESC
+        ORDER BY COALESCE(opportunity_score, 0) DESC,
+                 datetime(created_at) DESC,
+                 id DESC
         LIMIT 5
     """).fetchall()
     return [dict(r) for r in rows]
