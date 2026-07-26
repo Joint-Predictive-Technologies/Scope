@@ -118,6 +118,69 @@ def test_reprocessing_the_same_document_emits_no_duplicates():
     assert len(_rule08_rows()) == 3
 
 
+def test_two_documents_sharing_an_80_char_title_prefix_both_emit():
+    """The dedup key must be per DOCUMENT, not per title prefix.
+
+    The headline carries only `title[:80]`, and 80-char prefixes genuinely collide
+    in the Federal Register — "Energy Conservation Program: Energy Conservation
+    Standards for Certain Commercial …" is a whole family of distinct rules. On the
+    headline alone the first emitted and every sibling silently emitted NOTHING.
+    Verified before fixing: doc A emitted 3, doc B emitted 0. The docket now forms
+    part of the key via `tags`.
+    """
+    prefix = ("Energy Conservation Program: Energy Conservation Standards for "
+              "Certain Commercial")
+    a = dict(DEFENSE_DOC, title=prefix + " Refrigeration Equipment",
+             abstract="oil sector", docket_ids=["DOE-2026-A"])
+    b = dict(DEFENSE_DOC, title=prefix + " Heating Equipment",
+             abstract="oil sector", docket_ids=["DOE-2026-B"])
+    assert a["title"][:80] == b["title"][:80], "fixture must actually collide"
+
+    conn = jpt_common.db_connection()
+    first = r08.process_document(a, emit_alerts=True, conn=conn)
+    second = r08.process_document(b, emit_alerts=True, conn=conn)
+    conn.close()
+
+    assert first == 3
+    assert second == 3, (
+        "a second document sharing an 80-char title prefix emitted nothing — "
+        "the dedup key is not per-document")
+
+
+def test_the_dedup_lookback_covers_the_whole_fetch_window():
+    """A shorter lookback than `--since` would re-emit everything each run.
+
+    `--since` defaults to today-14d and the job runs every 240 min, so a document
+    is re-processed ~84 times inside its own fetch window. If the dedup lookback
+    were shorter than that window, each re-run would re-emit N alerts per document.
+    Nothing pinned this before; a 14d -> 1d mutation went unnoticed.
+    """
+    from datetime import date, timedelta
+
+    import rule_08_federal_register as mod
+
+    assert mod.DEDUP_LOOKBACK_DAYS >= 14
+
+    # the CLI default fetch window must not exceed the dedup lookback
+    since = mod.build_parser().parse_args([]).since
+    window_days = (date.today() - date.fromisoformat(since)).days
+    assert window_days <= mod.DEDUP_LOOKBACK_DAYS, (
+        f"fetch window {window_days}d exceeds dedup lookback "
+        f"{mod.DEDUP_LOOKBACK_DAYS}d — re-runs would duplicate")
+
+    # behavioural: a document emitted N days ago is still deduped
+    conn = jpt_common.db_connection()
+    r08.process_document(DEFENSE_DOC, emit_alerts=True, conn=conn)
+    for age in (1, 5, 10, 13):
+        conn.execute(
+            "UPDATE alerts SET created_at = datetime('now', ? || ' days') "
+            "WHERE rule='RULE_08'", (f"-{age}",))
+        conn.commit()
+        assert r08.process_document(DEFENSE_DOC, emit_alerts=True, conn=conn) == 0, (
+            f"re-emitted after backdating {age} days")
+    conn.close()
+
+
 def test_two_documents_sharing_a_symbol_both_emit():
     """Per-(document, symbol) dedup, not per-symbol — LMT can appear twice."""
     other = dict(DEFENSE_DOC, title="Second defense rule on export controls",

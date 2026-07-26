@@ -115,16 +115,33 @@ def match_tickers(title: str, abstract: str | None) -> list[str]:
 # Alert helpers
 # ---------------------------------------------------------------------------
 
-def alert_exists(conn, headline: str) -> bool:
+# The dedup lookback MUST cover the fetch window (--since defaults to today-14d)
+# or a re-run re-emits everything it already emitted. At the 240-min cadence that
+# is ~84 re-runs per document, multiplied by N symbols after the split.
+DEDUP_LOOKBACK_DAYS = 14
+
+
+def alert_exists(conn, headline: str, tags: str = "") -> bool:
+    """Has this (document, symbol) already been emitted inside the lookback?
+
+    `tags` carries "agency, docket, publication_date" and is part of the key on
+    purpose. The headline holds only `title[:80]`, and 80-char title prefixes
+    genuinely collide in the Federal Register corpus — "Energy Conservation
+    Program: Energy Conservation Standards for Certain Commercial …" is a whole
+    family of distinct rules. On the headline alone, the first such document
+    emitted and every sibling silently emitted nothing. Including the docket makes
+    the key per-document in fact, not just in intent.
+    """
     row = conn.execute(
-        """
+        f"""
         SELECT 1 FROM alerts
         WHERE rule = ?
           AND headline = ?
-          AND datetime(created_at) >= datetime('now', '-14 days')
+          AND COALESCE(tags, '') = ?
+          AND datetime(created_at) >= datetime('now', '-{int(DEDUP_LOOKBACK_DAYS)} days')
         LIMIT 1
         """,
-        (RULE, headline),
+        (RULE, headline, tags or ""),
     ).fetchone()
     return row is not None
 
@@ -228,7 +245,7 @@ def process_document(doc: dict, emit_alerts: bool, conn) -> int:
     ]))
 
     print(
-        f"  [{severity}] {pub_date}  {' '.join(symbols)}  ({len(symbols)} alerts)\n"
+        f"  [{severity}] {pub_date}  {' '.join(symbols)}  ({len(symbols)} symbols)\n"
         f"    {title[:90]}"
         + (f"\n    Agency: {agency}" if agency else "")
         + (f"  Docket: {docket}" if docket else "")
@@ -239,16 +256,19 @@ def process_document(doc: dict, emit_alerts: bool, conn) -> int:
 
     emitted = 0
     for symbol in symbols:
-        # The symbol is IN the headline, so the dedup key is per (document,
-        # symbol): re-processing a document emits nothing, while two different
-        # documents affecting the same symbol both emit.
+        # Dedup key = (headline, tags, symbol). The symbol is in the headline and
+        # the docket is in the tags, so re-processing a document emits nothing
+        # while two different documents — even ones sharing an 80-char title
+        # prefix — both emit.
         headline = (f"Federal Register: {title[:80]} — affects {symbol}"
                     f"{comment_part}")
-        if alert_exists(conn, headline):
+        if alert_exists(conn, headline, tags):
             continue
         insert_alert(conn, headline, symbol, severity, tags, detail)
         emitted += 1
 
+    if emitted != len(symbols):
+        print(f"    ({emitted} new, {len(symbols) - emitted} already emitted)")
     return emitted
 
 
