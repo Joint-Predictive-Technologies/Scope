@@ -1429,7 +1429,8 @@ def db_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
 
     On Railway the persistent volume at /app/data is used automatically.
     Locally falls back to DATABASE_PATH env var or ./data/jpt.db.
-    Runs a non-blocking hourly backup before returning the connection.
+    Backups are NOT taken here — see _backup_db, which is retired. The verified
+    hourly snapshot is scripts/db_backup.py.
     """
     db_file = _get_db_path(db_path)
     db_file.parent.mkdir(parents=True, exist_ok=True)

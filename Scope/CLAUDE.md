@@ -14,9 +14,15 @@ for conventions — keep it in sync when they change.
 
 ## Database
 - SQLite. Path resolution (`jpt_common._get_db_path`): explicit arg → `DATABASE_PATH` env → Railway volume `/app/data/jpt.db` if present → local `./data/jpt.db`.
-- **Always** connect via `jpt_common.db_connection()` in app/rule code (runs schema init + idempotent migrations + hourly backup). For **read-only diagnostics**, connect directly with `sqlite3.connect('file:data/jpt.db?mode=ro', uri=True)` to avoid triggering migrations/backups.
+- **Always** connect via `jpt_common.db_connection()` in app/rule code (runs schema init + idempotent migrations; it does **not** take backups — see below). For **read-only diagnostics**, connect directly with `sqlite3.connect('file:data/jpt.db?mode=ro', uri=True)` to avoid triggering migrations/backups.
 - Migrations: additive only, tracked in `scope_migrations` (m001…m009). Never drop tables. Guard column adds with `PRAGMA table_info`.
-- `data/backups/` is gitignored (hourly snapshots).
+- **Backups:** `scripts/db_backup.py` runs **hourly at :05** — SQLite online backup API,
+  `PRAGMA integrity_check` *before* the snapshot is kept, gzip, tiered retention
+  (24h hourly → 30d daily → 90d weekly → monthly), and an env-gated S3 upload that is
+  dormant until `BACKUP_S3_*` is set. `scripts/monitor_backup_stall.py` (hourly) alarms
+  if no fresh snapshot **file** appears. The old connect-triggered raw copy in
+  `_backup_db` is **retired** — a raw copy of a live DB can tear, and a torn copy still
+  passes `integrity_check`. Restore procedure: `RESTORE.md`. `data/backups/` is gitignored.
 - `created_at` is stored UTC-naive (`datetime('now')`). Window comparisons use SQL `datetime('now','-Xh')` — keep them SQL-side and UTC-naive; do not mix tz-aware Python datetimes into these comparisons.
 
 ## Alerts: two valid write paths
