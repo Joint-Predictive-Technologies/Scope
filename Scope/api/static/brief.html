@@ -124,14 +124,20 @@
     document.getElementById('nav-links').classList.toggle('open');
   });
 
+  // Card order is presentation only — which cards APPEAR is decided by what the
+  // brief actually produced (see the filter in render()). Previously all seven
+  // rendered unconditionally, so RULE_11 held a permanent "Gov Contracts" card
+  // whatever the ranking said, and 'lobbying' / 'prediction_markets' showed a
+  // permanent "No data for this section." because the generator never emitted
+  // those keys ('prediction' vs 'prediction_markets' was a plain key mismatch).
   const SECTIONS = [
+    { key: 'corroborations',     label: 'Corroborations',         href: '/feed?rule=RULE_10' },
     { key: 'congressional',      label: 'Congressional Activity', href: '/congress' },
     { key: 'insider',            label: 'Insider Activity',       href: '/insiders' },
+    { key: 'contracts',          label: 'Gov Contracts',          href: '/contracts' },
     { key: 'regulatory',         label: 'Regulatory Filings',     href: '/feed?rule=RULE_08' },
     { key: 'prediction_markets', label: 'Prediction Markets',     href: '/feed?rule=RULE_07' },
-    { key: 'corroborations',     label: 'Corroborations',         href: '/feed?rule=RULE_10' },
     { key: 'lobbying',           label: 'Lobbying Activity',      href: '/lobbying' },
-    { key: 'contracts',          label: 'Gov Contracts',          href: '/contracts' },
   ];
 
   function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
@@ -187,9 +193,23 @@
       </div>`;
 
     const sections = parsed.sections || {};
-    document.getElementById('sections-area').innerHTML = SECTIONS.map(s => {
+    // Only render a card the brief actually produced. A rule that did not fire
+    // gets no card, rather than a guaranteed slot with filler text. Older stored
+    // briefs still render, because they carry a one_liner for every key.
+    const present = SECTIONS.filter(s => {
+      const sec = sections[s.key];
+      return sec && typeof sec.one_liner === 'string' && sec.one_liner.trim();
+    });
+
+    if (!present.length) {
+      document.getElementById('sections-area').innerHTML =
+        `<div class="notice">No individual sections fired in this window — see the summary above.</div>`;
+      return;
+    }
+
+    document.getElementById('sections-area').innerHTML = present.map(s => {
       const sec = sections[s.key] || {};
-      const oneLiner = sec.one_liner || 'No data for this section.';
+      const oneLiner = sec.one_liner;
       return `
         <div class="section-card">
           <div class="section-left">

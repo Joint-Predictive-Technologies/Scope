@@ -108,7 +108,12 @@
 </div>
 
 <script>
+  // Declaration order IS render order (see renderDigest) so the rule-agnostic
+  // section leads. Every other section is tied to one rule by construction;
+  // signal_of_week is the only one ranked purely on opportunity score, which is
+  // why it comes first.
   const SECTION_META = {
+    signal_of_week:       { label: "Signal of the Week", title: () => "Highest Opportunity This Week" },
     top_ticker:           { label: "Hot Ticker", title: d => `Most Active: ${d.name || ''}` },
     biggest_insider:      { label: "Insider Activity", title: () => "Biggest Corporate Insider Move" },
     cluster_of_week:      { label: "Congressional Cluster", title: () => "Cluster of the Week" },
@@ -124,9 +129,13 @@
         `Generated ${new Date(generatedAt).toLocaleString()}`;
     }
 
-    const sections = Object.entries(parsed)
-      .filter(([k]) => SECTION_META[k])
-      .map(([k, val]) => {
+    // Iterate SECTION_META, not the parsed object: the model's key order is not
+    // guaranteed, and the leading section must be deterministic. Sections the
+    // model omitted are skipped rather than rendered with filler.
+    const sections = Object.keys(SECTION_META)
+      .filter(k => parsed[k] && (parsed[k].summary || parsed[k].count))
+      .map(k => {
+        const val   = parsed[k];
         const meta  = SECTION_META[k];
         const title = meta.title(val);
         const body  = val.summary || '';

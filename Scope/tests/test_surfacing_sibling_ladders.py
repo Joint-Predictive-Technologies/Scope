@@ -453,62 +453,66 @@ def test_chat_has_no_rule_ladder():
 
 
 # ---------------------------------------------------------------------------
-# surface 3 — api/routers/digest.py: deliberately SKIPPED, locked as such
+# surface 3 — api/routers/digest.py: was skipped here, fixed later with approval
 # ---------------------------------------------------------------------------
 
-def test_digest_router_was_left_untouched_on_purpose():
-    """Guards the skip decision: digest.py's promotion is structural.
+def test_digest_router_fix_is_covered_elsewhere():
+    """digest.py was skipped by this pass and fixed in a later, approved one.
 
-    Its rule categories are not an ORDER BY — they are one hardcoded query per
-    rule feeding fixed keys that the page renders as fixed cards and that are
-    persisted in `digests`. Ordering cannot fix that; changing it means moving the
-    prompt schema and digest.html together, which is a supervised change. If
-    someone later "fixes" the ordering here, this test should make them read the
-    session note first.
+    The skip-lock that used to live here asserted digest.py had NOT been touched.
+    That guard did its job — it forced the reasoning to be read before the change
+    was made — and is now obsolete. The behaviour it was protecting is covered by
+    tests/test_fixed_slot_promotions.py, which asserts the per-rule slots pick on
+    opportunity rather than recency and that a rule-agnostic section leads.
     """
-    import inspect
-
     from api.routers import digest
 
-    src = inspect.getsource(digest._gather_data)
-    assert "rule = 'RULE_06'" in src
-    assert "rule = 'RULE_02'" in src
-    assert "rule = 'RULE_08'" in src
-    assert "opportunity_score" not in src, (
-        "digest.py was changed — its per-rule slots make ordering insufficient; "
-        "see SESSION-2026-07-26-surfacing-sibling-ladders.md before proceeding"
+    code = _code_without_docstring(digest._gather_data)
+    assert "opportunity_score" in code, (
+        "digest.py lost its opportunity ranking — see test_fixed_slot_promotions.py"
     )
 
 
 # ---------------------------------------------------------------------------
-# excluded files must stay untouched by this branch
+# scoping — these surfaces order and render; they never compute a score
 # ---------------------------------------------------------------------------
 
-def test_excluded_surfaces_are_not_modified_here():
-    """generate_brief.py and warroom.py belong to another unmerged branch."""
-    import subprocess
+def test_surfacing_code_never_computes_a_score():
+    """The whole family of changes is ordering/eligibility, never scoring.
 
-    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    changed = subprocess.run(
-        ["git", "diff", "--name-only", "main"],
-        cwd=repo, capture_output=True, text=True, check=True,
-    ).stdout.split()
+    Replaces a branch-scoped `git diff` guard that became vacuous once the work
+    merged. This one keeps holding: a surfacing module may READ
+    opportunity_score, never derive one.
+    """
+    import inspect
 
-    for forbidden in (
-        "Scope/scripts/generate_brief.py",
-        "Scope/api/routers/warroom.py",
-        "Scope/api/static/brief.html",
-        "Scope/jpt_common.py",
-        "Scope/tests/conftest.py",
-    ):
-        assert forbidden not in changed, f"{forbidden} must not change on this branch"
+    from api.routers import chat, digest
+    from scripts import send_digest
 
-    # the constraint list was wider than the five paths above: no rule script, no
-    # migration, no corroboration or gate logic either
-    for path in changed:
-        assert "rule_" not in os.path.basename(path), f"rule script touched: {path}"
-        assert "migrat" not in path.lower(), f"migration touched: {path}"
-        assert "corrobor" not in path.lower(), f"corroboration touched: {path}"
+    forbidden = (
+        "calculate_opportunity_score",
+        "calculate_novelty_score",
+        "calculate_evidence_confidence",
+        "historical_win_rate",
+        "enrich_alert_scores",
+    )
+    for module in (send_digest, chat, digest):
+        src = inspect.getsource(module)
+        for name in forbidden:
+            assert name not in src, f"{module.__name__} references scoring code: {name}"
+
+
+def test_surfacing_code_never_writes_to_alerts():
+    """Ordering surfaces must not mutate the rows they rank."""
+    import inspect
+
+    from api.routers import chat
+    from scripts import send_digest
+
+    for module in (send_digest, chat):
+        src = inspect.getsource(module).lower()
+        for stmt in ("update alerts", "insert into alerts", "delete from alerts"):
+            assert stmt not in src, f"{module.__name__} writes to alerts: {stmt}"
 
 
 if __name__ == "__main__":

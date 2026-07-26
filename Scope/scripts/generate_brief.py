@@ -162,14 +162,20 @@ Write the Scope Daily Brief in strict JSON:
 {{
   "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the FIRST signal in the ranked list — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
   "sections": {{
-    "corroborations": {{ "one_liner": "If RULE_10 fired: name ticker(s) and which rules converged. If none: 'No cross-source corroborations in this window.'" }},
-    "insider":        {{ "one_liner": "Name ticker and direction (RULE_06). 'No unusual insider activity.' if absent." }},
-    "contracts":      {{ "one_liner": "Name recipient, ticker, amount (RULE_11). 'No new contracts.' if absent." }},
-    "regulatory":     {{ "one_liner": "Name sector or rule affected (RULE_08). 'No new filings.' if absent." }},
-    "prediction":     {{ "one_liner": "Name the market and move direction (RULE_07). 'No significant moves.' if absent." }},
-    "congressional":  {{ "one_liner": "Name the top ticker and whether buys or sells dominate. 'No recent disclosures.' if absent." }}
+    "corroborations":     {{ "one_liner": "If RULE_10 fired: name ticker(s) and which rules converged." }},
+    "insider":            {{ "one_liner": "Name ticker and direction (RULE_06)." }},
+    "contracts":          {{ "one_liner": "Name recipient, ticker, amount (RULE_11)." }},
+    "regulatory":         {{ "one_liner": "Name sector or rule affected (RULE_08)." }},
+    "prediction_markets": {{ "one_liner": "Name the market and move direction (RULE_07)." }},
+    "congressional":      {{ "one_liner": "Name the top ticker and whether buys or sells dominate." }}
   }}
 }}
+
+OMIT any "sections" key whose rule produced NO signal in the list above. Do NOT
+emit filler like "No new contracts." — a rule that did not fire simply gets no
+section. Only "corroborations" is different: if there are no valid RULE_10
+corroborations, say so explicitly there, because their absence is itself
+information. Emitting a section for a rule that did not fire is an error.
 
 Return ONLY valid JSON. No preamble, no markdown fences, no commentary."""
 
