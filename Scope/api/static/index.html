@@ -376,6 +376,7 @@
     <a href="/lobbying">Lobbying</a>
     <a href="/intelligence">Intelligence</a>
     <a href="/clusters">Clusters</a>
+    <a href="/forming">Forming <span class="nav-badge" id="forming-badge" style="display:none"></span></a>
     <a href="/osint">OSINT Globe</a>
     <a href="/ask">Ask Scope</a>
   </div>
@@ -457,6 +458,19 @@
   <div id="theses-strip" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.8rem;max-width:1100px;margin:0.6rem auto 0;padding:0 2rem"></div>
 </div>
 <script>
+  // Forming-convergence count. Deliberately a bare number linking to /forming,
+  // which does the explaining — no one-word label could carry the "not a
+  // confirmed signal" caveat honestly, so the caveat lives on the page itself.
+  fetch('/api/forming/count')
+    .then(r => r.json())
+    .then(d => {
+      if (d && d.count > 0) {
+        const b = document.getElementById('forming-badge');
+        if (b) { b.textContent = d.count; b.style.display = ''; }
+      }
+    })
+    .catch(() => {});
+
   fetch('/api/themes?limit=3').then(r=>r.json()).then(rows => {
     if (!Array.isArray(rows) || !rows.length) return;
     document.getElementById('theses-section').style.display = 'block';

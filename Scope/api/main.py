@@ -32,6 +32,7 @@ from api.routers import (
     themes as themes_router,
     annotations as annotations_router,
     warroom as warroom_router,
+    forming as forming_router,
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -317,6 +318,12 @@ app.include_router(lobbying_router.router, prefix="/api/lobbying", tags=["Lobbyi
 app.include_router(evidence.router,      prefix="/api/evidence", tags=["Evidence"])
 app.include_router(themes_router.router, prefix="/api/themes", tags=["Themes"])
 app.include_router(annotations_router.router, prefix="/api/annotations", tags=["Annotations"])
+# NOTE: mounted at /api/forming, NOT /forming. The HTML page lives at /forming,
+# and Starlette matches the FIRST registered route — a router at the bare path
+# would shadow the page entirely, serving raw JSON to anyone following the nav
+# link and silently hiding the "these are not signals" disclaimer that is the
+# whole point of the page.
+app.include_router(forming_router.router,  prefix="/api/forming", tags=["Forming"])
 app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
 
 
@@ -887,6 +894,10 @@ def theses_page():
 @app.get("/clusters", response_class=HTMLResponse, include_in_schema=False)
 def clusters_page():
     return FileResponse(STATIC_DIR / "clusters.html")
+
+@app.get("/forming", response_class=HTMLResponse, include_in_schema=False)
+def forming_page():
+    return FileResponse(STATIC_DIR / "forming.html")
 
 @app.get("/cluster/{fingerprint}", response_class=HTMLResponse, include_in_schema=False)
 def cluster_page(fingerprint: str):

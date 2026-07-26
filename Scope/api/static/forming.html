@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Forming — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
+    h1 { font-family: var(--font-sans); font-size: 1.7rem; font-weight: 800; margin-bottom: 0.3rem; }
+    .sub { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); margin-bottom: 1rem; }
+
+    /* The honesty banner is not decoration — it is the point of the page. */
+    .disclaimer { border: 1px solid var(--border2); border-left: 3px solid var(--amber);
+                  background: var(--bg2); border-radius: var(--radius-lg);
+                  padding: 0.85rem 1.1rem; margin-bottom: 1.6rem;
+                  font-size: 0.82rem; line-height: 1.5; color: var(--cream2); }
+    .disclaimer strong { color: var(--amber); }
+
+    .f-card { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--muted);
+              border-radius: var(--radius-lg); padding: 1rem 1.2rem; margin-bottom: 0.7rem; }
+    .f-head { display: flex; gap: 0.8rem; align-items: baseline; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    .f-tick { font-family: var(--font-mono); font-size: 1rem; color: var(--amber); }
+    .f-state { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em;
+               text-transform: uppercase; padding: 2px 8px; border-radius: 3px;
+               background: rgba(200,146,42,0.14); color: var(--amber); }
+    .f-when { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-left: auto; }
+    .f-row { font-family: var(--font-mono); font-size: 0.66rem; color: var(--cream2); margin-bottom: 0.3rem; }
+    .f-row .k { color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.4rem; }
+    .chip { display: inline-block; font-family: var(--font-mono); font-size: 0.6rem;
+            border: 1px solid var(--border2); border-radius: 3px; padding: 1px 7px; margin-right: 0.3rem; }
+    .chip.have { color: var(--green-light); border-color: rgba(77,196,122,0.4); }
+    .chip.missing { color: var(--muted); border-style: dashed; }
+    .f-alerts { margin-top: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+    .f-alert { font-size: 0.78rem; color: var(--cream2); margin-bottom: 0.25rem; }
+    .f-alert .r { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); margin-right: 0.4rem; }
+    .loading, .empty { padding: 3rem; text-align: center; font-family: var(--font-mono); color: var(--muted); font-size: 0.7rem; line-height: 1.7; }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Feed</a>
+    <a href="/clusters">Clusters</a>
+    <a href="/theses">Theses</a>
+    <a href="/forming">Forming</a>
+    <a href="/status">Status</a>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Forming Convergences</h1>
+  <div class="sub" id="sub">Loading…</div>
+
+  <div class="disclaimer" id="disclaimer">
+    <strong>These are not signals.</strong> Each ticker below has signals from
+    <strong><span id="d-have">fewer</span> of the <span id="d-need">required</span>
+    independent instruments</strong> a corroboration requires — short of firing.
+    They are shown so you can watch a pattern form, not act on it. A forming
+    convergence carries no confidence score and no probability: it either
+    completes and fires as a corroboration, or it ages out of the window and
+    disappears. Most will do the latter.
+  </div>
+
+  <div id="list"><div class="loading">Loading…</div></div>
+</div>
+
+<script>
+  function esc(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c =>
+      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    const s = String(dateStr).trim().replace(' ', 'T');
+    const ts = new Date(s + (s.includes('Z') || s.includes('+') ? '' : 'Z')).getTime();
+    if (isNaN(ts)) return '';
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 3600) return `${Math.max(1, Math.floor(diff/60))}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return `${Math.floor(diff/86400)}d ago`;
+  }
+
+  function render(data) {
+    // The threshold is rendered from the payload, never hardcoded — this is the
+    // one sentence on the page whose entire job is to be accurate.
+    document.getElementById('d-need').textContent = data.threshold;
+    document.getElementById('d-have').textContent =
+      data.forming && data.forming.length
+        ? [...new Set(data.forming.map(f => f.instrument_count))].sort().join(' or ')
+        : 'fewer than ' + data.threshold;
+
+    document.getElementById('sub').textContent =
+      `${data.count} forming · ${data.threshold} instruments needed to fire · ${data.window_days}-day window`;
+
+    const el = document.getElementById('list');
+    if (!data.forming || !data.forming.length) {
+      el.innerHTML = `<div class="empty">
+        Nothing forming right now.<br>
+        No ticker currently has signals from 2 different instruments inside the
+        ${data.window_days}-day window. That is a normal state, not an error.
+      </div>`;
+      return;
+    }
+
+    el.innerHTML = data.forming.map(f => `
+      <div class="f-card">
+        <div class="f-head">
+          <span class="f-tick">${esc(f.ticker)}</span>
+          <span class="f-state">forming · ${f.instrument_count} of ${f.needed}</span>
+          <span class="f-when">latest ${timeAgo(f.latest_at)}</span>
+        </div>
+        <div class="f-row">
+          <span class="k">Present</span>
+          ${f.instruments.map(i => `<span class="chip have">${esc(i)}</span>`).join('')}
+        </div>
+        <div class="f-row">
+          <span class="k">Would need any one of</span>
+          ${(f.missing_legs || []).map(i => `<span class="chip missing">${esc(i)}</span>`).join('')}
+        </div>
+        <div class="f-alerts">
+          ${(f.alerts || []).slice(0, 6).map(a => `
+            <div class="f-alert">
+              <span class="r">[${esc(a.rule)}] ${esc((a.created_at || '').slice(0,10))}</span>
+              ${esc(a.headline)}
+            </div>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  fetch('/api/forming')
+    .then(r => r.json())
+    .then(render)
+    .catch(() => {
+      document.getElementById('list').innerHTML =
+        `<div class="empty">Could not load forming convergences.</div>`;
+    });
+</script>
+</body>
+</html>
