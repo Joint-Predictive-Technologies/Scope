@@ -59,6 +59,7 @@ broken → what we decided → the moat → sessions.**
 
 ## `02_Sessions/` — work log
 
+- [[SESSION-2026-07-26-ws1-merge-and-push]] — **WS1 merged + pushed** (`b71e71d`). ⚠️ The merge deleted the working `jpt.db`; recovered intact (checksum verified, `integrity_check: ok`). Other clones must back up before pulling.
 - [[SESSION-2026-07-26-ws1-merge-check]] — WS1 is **NOT MERGED**; all gates green, fast-forward available. Merge + push commands ready for the human; note the branch carries 4 extra doc commits.
 - [[SESSION-2026-07-26-ws1-completion]] — **WS1 unblocked and ready to merge**: SEED_DB knob deleted (134/134), C5 resolved, six subagents now tracked in git.
 - [[SESSION-2026-07-26-verifier-agent]] — added the `verifier` subagent (roster now six); independent pass that re-derives PROVEN claims and may overturn a headline. Restart required to load.
