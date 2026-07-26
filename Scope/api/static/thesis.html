@@ -187,13 +187,13 @@ function renderReceipts(r){
       {label:`novelty ${Math.round((novelty||0)*1000)/1000}`, value:Math.round((novelty||0)*40*10)/10},
       {label:`absorption ${Math.round((absorption||0)*10)/10}%`, value:Math.round(-((absorption||0)/100)*30*10)/10},
       {label:`${horizon||'—'} horizon`, value:Math.round(hs*20*10)/10},
-      {label:`base win-rate ${win}`, value:Math.round(win*10*10)/10},
+      {label:`base weight (uncalibrated placeholder)`, value:Math.round(win*10*10)/10},
     ];
     const total = Math.min(Math.max(Math.round(c.reduce((s,x)=>s+x.value,0)*10)/10,0),100);
     return {c, total};
   }
   function decompHTML(dc){ return dc.c.map(x=>`<div class="decomp-row"><span>${esc(x.label)}</span><span class="v">${x.value>=0?'+':''}${x.value}</span></div>`).join('')
-    + `<div class="decomp-row total"><span>opportunity</span><span class="v">${dc.total}</span></div><div class="muted" style="margin-top:4px;font-size:0.56rem">detection-time value — never recomputed</div>`; }
+    + `<div class="decomp-row total"><span>opportunity</span><span class="v">${dc.total}</span></div><div class="muted" style="margin-top:4px;font-size:0.56rem">detection-time value — never recomputed. The base weight is a fixed placeholder, not a measured win rate.</div>`; }
   function toggleCard(el){ el.closest('.signal-card,.score-card').classList.toggle('open'); }
 
   // sparkline of detection-time scores (chronological)

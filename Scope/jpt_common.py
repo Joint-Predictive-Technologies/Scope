@@ -790,7 +790,26 @@ def opportunity_score_breakdown(novelty_score, absorption_pct, time_horizon,
                                 historical_win_rate=0.5) -> dict:
     """Transparent decomposition of calculate_opportunity_score — the exact
     additive components, so the UI can show the reasoning, not just the number.
-    Mirrors the formula in calculate_opportunity_score (keep in sync)."""
+    Mirrors the formula in calculate_opportunity_score (keep in sync).
+
+    The fourth component is LABELLED as an uncalibrated placeholder on purpose.
+    No call site passes `historical_win_rate` — the three callers are
+    `score_alert_fields`, `enrich_alert_scores` and api/routers/warroom.py's
+    `cluster_detail`, and all take the default — so its value is the hard constant
+    +5.0 on every alert and carries no information about the signal. It was
+    previously labelled "base win-rate 0.5", which read as a measured 50% hit rate
+    and collided with the genuinely measured win rate in
+    `main.member_signal_integrity` (rendered as "Win Rate" on the member page).
+    Labels here are display strings computed at call time and are never persisted,
+    so relabelling is retroactive-safe and changes no score.
+
+    ⚠️ UNITS, before anyone wires in a real rate: `historical_win_rate` is a
+    **fraction, 0.0-1.0**. The product's measured `win_rate` is a **percent,
+    0-100**. Passing the percent straight in multiplies this term by 10-100x and
+    pins every score at the 100 clamp — while the row below would still read
+    "uncalibrated placeholder". Convert (`win_rate / 100.0`), and change this
+    label when you do: at that point it stops being a placeholder.
+    """
     horizon_scores = {"IMMEDIATE": 1.0, "SHORT": 0.85, "MEDIUM": 0.65, "LONG": 0.45}
     n = float(novelty_score or 0.0)
     a = float(absorption_pct or 0.0)
@@ -799,7 +818,8 @@ def opportunity_score_breakdown(novelty_score, absorption_pct, time_horizon,
         {"label": f"novelty {round(n, 3)}", "value": round(n * 40.0, 1)},
         {"label": f"absorption {round(a, 1)}%", "value": round(-(a / 100.0) * 30.0, 1)},
         {"label": f"{time_horizon or '—'} horizon", "value": round(hs * 20.0, 1)},
-        {"label": f"base win-rate {round(historical_win_rate, 2)}", "value": round(historical_win_rate * 10.0, 1)},
+        # Value deliberately unchanged; only the wording is honest now.
+        {"label": "base weight (uncalibrated placeholder)", "value": round(historical_win_rate * 10.0, 1)},
     ]
     total = min(max(round(sum(c["value"] for c in components), 1), 0.0), 100.0)
     return {"components": components, "total": total}
