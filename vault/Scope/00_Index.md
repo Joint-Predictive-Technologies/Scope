@@ -59,6 +59,7 @@ broken → what we decided → the moat → sessions.**
 
 ## `02_Sessions/` — work log
 
+- [[SESSION-2026-07-26-verifier-agent]] — added the `verifier` subagent (roster now six); independent pass that re-derives PROVEN claims and may overturn a headline. Restart required to load.
 - [[SESSION-2026-07-26-test-isolation]] — **WS1: tests no longer touch the live DB** (working DB byte-identical across full runs); `jpt.db` untracked from git. Awaiting review — 4 prod-coupled tests + a Railway `DATABASE_PATH` check need a decision.
 - [[SESSION-2026-07-25-gate-reachability]] — **verdict (B): the convergence gate is structurally unreachable**; 8 of 14 eligible rules can't contribute and 3 of the 6 that can are one instrument. Key normalization is voided as a convergence fix.
 - [[SESSION-2026-07-25-rule10-convergence-trace]] — **verdict: convergence was never generated, not destroyed**; the 28 "lost" RULE_10 alerts were ZWAR test fixtures. DATA-LOSS flag retracted.
