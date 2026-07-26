@@ -1,0 +1,9 @@
+# Development / test dependencies. Install alongside requirements.txt:
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# pytest is a hard requirement of the test suite, not an optional convenience:
+# seven test modules import it directly for `tmp_path` / `monkeypatch` fixtures,
+# and `tests/conftest.py` uses it to give every test a disposable database.
+# It was previously undeclared and absent from the environment, so the suite
+# could not be run at all.
+pytest

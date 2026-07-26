@@ -7,5 +7,13 @@ Scope/data/moat/
 Scope/scripts/.fara_cache.json
 *.csv
 Scope/data/backups/
+# The live database is operational state, not source. Prod's copy lives on the
+# Railway volume (/app/data); tracking it here meant ordinary git operations
+# rewound local data. Untracked 2026-07-26 (WS1) — the file stays on disk.
+Scope/data/jpt.db
+Scope/data/*.db
+Scope/data/*.db-wal
+Scope/data/*.db-shm
+Scope/data/snapshot_*.db.gz
 .obsidian/
 .playwright-mcp/

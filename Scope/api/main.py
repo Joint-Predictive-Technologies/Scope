@@ -117,8 +117,8 @@ _CRON_SCHEDULE: dict[str, dict] = {
 
 def _alert_count() -> int:
     import sqlite3
-    default_db = CODE_DIR / "data" / "jpt.db"
-    db_path = os.getenv("DATABASE_PATH") or str(default_db)
+    from jpt_common import _get_db_path
+    db_path = str(_get_db_path(None))
     try:
         conn = sqlite3.connect(db_path)
         n = conn.execute("SELECT COUNT(*) FROM alerts").fetchone()[0]
@@ -131,8 +131,8 @@ def _alert_count() -> int:
 def _hours_since_last_alert() -> float:
     import sqlite3
     from datetime import datetime, timezone
-    default_db = CODE_DIR / "data" / "jpt.db"
-    db_path = os.getenv("DATABASE_PATH") or str(default_db)
+    from jpt_common import _get_db_path
+    db_path = str(_get_db_path(None))
     try:
         conn = sqlite3.connect(db_path)
         row = conn.execute("SELECT MAX(created_at) FROM alerts").fetchone()
@@ -315,8 +315,8 @@ app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
 def health():
     import sqlite3
     from pathlib import Path
-    default_db = Path(__file__).resolve().parent.parent / "data" / "jpt.db"
-    db_path = os.getenv("DATABASE_PATH") or str(default_db)
+    from jpt_common import _get_db_path
+    db_path = str(_get_db_path(None))
     groq_set = bool(os.getenv("GROQ_API_KEY", "").strip())
     db_exists = Path(db_path).exists()
     alert_count = 0

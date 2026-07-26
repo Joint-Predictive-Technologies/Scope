@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -1256,6 +1257,26 @@ _RAILWAY_VOLUME = Path("/app/data")
 _BACKUP_MARKER  = None  # module-level sentinel; replaced with Path after first call
 
 
+def _running_under_test() -> bool:
+    """True when this process was launched by the test suite.
+
+    Two entry points matter: `pytest` (sets PYTEST_CURRENT_TEST once a test is
+    executing) and the documented standalone form `python3 tests/test_x.py`
+    (argv[0] sits directly inside a `tests/` directory). Production entry points
+    — uvicorn and the scheduler's `scripts/rule_*.py` subprocesses — match
+    neither.
+    """
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        return True
+    argv0 = sys.argv[0] if sys.argv else ""
+    if not argv0:
+        return False
+    try:
+        return Path(argv0).resolve().parent.name == "tests"
+    except (OSError, ValueError):
+        return False
+
+
 def _get_db_path(explicit: Optional[str]) -> Path:
     """
     Resolve the database file path.
@@ -1265,6 +1286,11 @@ def _get_db_path(explicit: Optional[str]) -> Path:
     2. DATABASE_PATH env var
     3. Railway persistent volume (/app/data) if the directory exists
     4. Local ./data/jpt.db fallback
+
+    Steps 3 and 4 are refused when running under the test suite: a test that
+    reaches them would read and write the real database. Tests must be pointed
+    at a disposable DB via DATABASE_PATH — `tests/conftest.py` does this
+    automatically for every test.
     """
     load_dotenv()
 
@@ -1274,6 +1300,16 @@ def _get_db_path(explicit: Optional[str]) -> Path:
     env_path = os.getenv("DATABASE_PATH", "").strip()
     if env_path:
         return Path(env_path)
+
+    if _running_under_test():
+        raise RuntimeError(
+            "Refusing to open the real database from a test.\n"
+            "DATABASE_PATH is not set, so this call would read and write the "
+            "live DB (Railway volume or Scope/data/jpt.db).\n"
+            "Run the suite with pytest (tests/conftest.py provisions a fresh "
+            "temp DB per test), or set DATABASE_PATH to a disposable file "
+            "before running a test module directly."
+        )
 
     if _RAILWAY_VOLUME.is_dir():
         return _RAILWAY_VOLUME / "jpt.db"
