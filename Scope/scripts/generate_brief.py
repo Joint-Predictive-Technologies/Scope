@@ -21,24 +21,32 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def _gather_data(conn, days: float = 2) -> dict:
-    """Pull highest-ranked signals from the lookback window, prioritised by severity and rule."""
+    """Pull the highest-opportunity signals from the lookback window.
+
+    Ordered by `opportunity_score` (how much opportunity remains) — NOT by rule.
+    The previous ORDER BY promoted RULE_11 to rank 2 for every window, which put
+    the federal-contract feed near the top of the brief every morning regardless
+    of score; that feed is heavily concentrated in the same few defence primes,
+    so the brief kept opening on them. Severity is no longer a sort key either —
+    it stays only as the eligibility filter in the WHERE clause, because ranking
+    on it first made `opportunity_score` a mere tiebreak within a severity band.
+
+    This changes ordering ONLY. `opportunity_score` is computed at write time in
+    `jpt_common` and is untouched here.
+    """
     window = f"-{int(max(days, 1))} days"
 
     signals = conn.execute(
         """
-        SELECT id, rule, ticker, headline, detail, severity, tags, created_at
+        SELECT id, rule, ticker, headline, detail, severity, tags, created_at,
+               COALESCE(opportunity_score, 0) AS opportunity_score
         FROM alerts
         WHERE created_at >= datetime('now', ?)
           AND severity IN ('CRITICAL', 'HIGH')
         ORDER BY
-            CASE severity WHEN 'CRITICAL' THEN 1 WHEN 'HIGH' THEN 2 END,
-            CASE rule
-                WHEN 'RULE_10' THEN 1
-                WHEN 'RULE_11' THEN 2
-                WHEN 'RULE_06' THEN 3
-                ELSE 5
-            END,
-            created_at DESC
+            COALESCE(opportunity_score, 0) DESC,
+            datetime(created_at) DESC,
+            id DESC
         LIMIT 20
         """,
         (window,),
@@ -138,12 +146,13 @@ CRITICAL RULES ABOUT CORROBORATION:
   market, Reddit, or an anomaly agrees with it.
 - If the CORROBORATIONS section says NONE, you MUST state plainly that there are
   no cross-source corroborations in this window, and lead instead with the
-  strongest individual signal (insider, contract, congressional).
+  FIRST signal in the list below. The list is ranked by opportunity score; do not
+  substitute a different signal because its rule feels more important.
 
 === CORROBORATIONS — RULE_10 (the ONLY thing you may call "corroborated") ===
 {rule10_block}
 
-=== ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by severity then rule) ===
+=== ALL HIGH-PRIORITY SIGNALS ({total} total, ranked by opportunity score — most opportunity remaining first) ===
 {signal_block}
 
 === CONGRESSIONAL TRADES ({len(congressional)} transactions) ===
@@ -151,7 +160,7 @@ CRITICAL RULES ABOUT CORROBORATION:
 
 Write the Scope Daily Brief in strict JSON:
 {{
-  "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the most actionable signal — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
+  "ai_summary": "4-5 sentences. Be direct and assertive. Lead with the FIRST signal in the ranked list — name the ticker, the rule that fired, and what it implies for positioning. If RULE_10 corroborations exist, mention the converging sources. Name specific tickers, dollar amounts where available. End with one forward-looking sentence about what to watch.",
   "sections": {{
     "corroborations": {{ "one_liner": "If RULE_10 fired: name ticker(s) and which rules converged. If none: 'No cross-source corroborations in this window.'" }},
     "insider":        {{ "one_liner": "Name ticker and direction (RULE_06). 'No unusual insider activity.' if absent." }},
