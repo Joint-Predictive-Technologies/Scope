@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """
-RULE_14 — USPTO Patent Filing Signals
-Source: PatentsView API — patentsview.org (free, no key required)
+RULE_14 — USPTO Patent Signals  ** RETIRED 2026-07-27 — DO NOT RESCHEDULE **
+
+Source WAS PatentsView (search.patentsview.org), which is now an authoritative NXDOMAIN:
+PatentsView migrated to the USPTO Open Data Portal and the successor API requires an ODP
+key this code never sent. Retired via RULE_10_EXCLUDED and unscheduled.
+
+NOTE ON THE DATA: `patent_date` is the GRANT date, not the filing date (~26 months of
+pendency), so headlines below saying a company "filed" N patents are wrong — those
+patents were GRANTED in the window. Left uncorrected in the strings only because the
+rule no longer runs; corrected here so nobody re-reads them as filing activity.
 
 Run daily via cron:
   0 8 * * * cd /path/to/Scope && python scripts/rule_14_patents.py

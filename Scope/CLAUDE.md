@@ -117,8 +117,10 @@ per alert) records forward returns once an alert's +20-trading-day horizon has
 elapsed — `price_at_detection`, `price_/return_{1d,5d,20d}` (returns are decimals),
 SPY `benchmark_return_{1d,5d,20d}` for alpha, and `status`
 (`complete`/`unavailable`/`pending`). Written only by `scripts/label_outcomes.py`;
-never entangle rules or scoring with it. Non-equity / basket / delisted tickers get
-`status='unavailable'`. This is the raw material for the future calibration report —
+never entangle rules or scoring with it. `_is_equity_ticker` (`scripts/label_outcomes.py:104`) excludes only
+**empty tickers and tickers containing a space** (multi-symbol baskets). Single-symbol
+ETFs are NOT excluded — SPY has 135 `complete` outcome rows. Tickers that cannot be
+priced get `status='unavailable'` via the price lookup, not via a basket-name rule. This is the raw material for the future calibration report —
 do not interpret small per-rule samples early.
 
 **RULE_10 is the corroboration engine:** fires when **3+ distinct INSTRUMENTS**

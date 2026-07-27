@@ -649,7 +649,15 @@ def classify_sector(ticker: str, text: str = "") -> str:
 # `transactions` table) could satisfy a gate meant to require three independent
 # sources. Rules that read the same underlying source now collapse to one
 # instrument. See 05_Decisions/2026-07-25-gate-redesign.md.
-RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT", "RULE_10"}
+# RULE_12/13/14 are RETIRED, not noisy. Each is EXCLUDED rather than merely deleted from
+# RULE_10_INSTRUMENTS, because rule10_instruments() resolves
+# `RULE_10_INSTRUMENTS.get(rule, rule)` — an eligible-but-unmapped rule falls back to its
+# own NAME and becomes its own PHANTOM instrument, the exact opposite of retiring it.
+#   RULE_12 — claimed DOJ FARA, actually read RULE_09's own Senate LDA endpoint; never emitted
+#   RULE_13 — 100% of its FEC requests 422; cannot finish inside the 300s timeout
+#   RULE_14 — search.patentsview.org is authoritative NXDOMAIN (moved to USPTO ODP)
+RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT",
+                              "RULE_10", "RULE_12", "RULE_13", "RULE_14"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.

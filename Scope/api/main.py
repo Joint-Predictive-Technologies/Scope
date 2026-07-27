@@ -90,11 +90,16 @@ _CRON_SCHEDULE: dict[str, dict] = {
     # LDA lobbying filings are quarterly — daily scan at 3am is enough
     "rule_09_lobbying.py":              {"hour": 3,  "minute": 0},
     # Daily brief after overnight data collection
-    "generate_brief.py":                {"hour": 6,  "minute": 30},
+    # PATH FIX: this was "generate_brief.py", which does not exist at CODE_DIR (the
+    # file is scripts/generate_brief.py), so _run_rule's subprocess raised
+    # FileNotFoundError every day at 06:30 and the LLM brief has never generated from
+    # the scheduler. Audited all 34 scheduled entries: this was the only broken path.
+    "scripts/generate_brief.py":        {"hour": 6,  "minute": 30},
     # Deterministic morning brief (source DAILY_BRIEF) — generates + caches at 06:30.
     "scripts/morning_brief.py":         {"hour": 6,  "minute": 30},
-    # FARA filings update slowly — weekly Monday 4am scan is sufficient
-    "scripts/rule_12_fara.py":          {"day_of_week": "mon", "hour": 4,  "minute": 0},
+    # RULE_12 RETIRED — its docstring claimed DOJ FARA but it read lda.senate.gov, the
+    # byte-identical endpoint RULE_09 uses, and it never emitted a single alert.
+    # Unscheduled rather than deleted; see RULE_10_EXCLUDED in jpt_common.py.
     # Broad lobbying dataset (AIPAC + notable lobbies) — weekly Monday 4:45am
     "scripts/ingest_lobbying.py":       {"day_of_week": "mon", "hour": 4,  "minute": 45},
     # 13F institutional holdings (RULE_16) — daily at 06:15. 13F is quarterly, but
@@ -103,9 +108,13 @@ _CRON_SCHEDULE: dict[str, dict] = {
     # whole quarter into one instant and destroy the leg's timing (the RULE_14 defect).
     "scripts/rule_16_institutional.py": {"hour": 6,  "minute": 15},
     # FEC PAC monitoring — daily at 5am
-    "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
+    # RULE_13 RETIRED — 100% of its FEC requests 422 (candidate IDs passed as committee_id) and it cannot finish inside the 300s timeout (931 members x a 1s sleep).
+    # Unscheduled rather than deleted; see RULE_10_EXCLUDED in jpt_common.py.
+
     # USPTO patents — twice weekly (Tue + Fri early morning)
-    "scripts/rule_14_patents.py":       {"day_of_week": "tue,fri", "hour": 4, "minute": 30},
+    # RULE_14 RETIRED — search.patentsview.org is authoritative NXDOMAIN; PatentsView moved to the USPTO Open Data Portal.
+    # Unscheduled rather than deleted; see RULE_10_EXCLUDED in jpt_common.py.
+
     # ── Congressional ingestion (offset so stage 2 always trails stage 1) ──
     # Stage 1: House PTR index -> filings (registers new pending), every 6h on the hour.
     "ingest_house_index.py":            {"hour": "0,6,12,18", "minute": 0},

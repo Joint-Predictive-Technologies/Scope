@@ -221,8 +221,18 @@ def test_the_window_is_ingestion_time_not_event_time():
 # ---------------------------------------------------------------------------
 
 def test_excluded_rules_are_still_excluded():
-    assert RULE_10_EXCLUDED == {"RULE_07", "RULE_OSINT", "RULE_ANOMALY",
-                                "RULE_REDDIT", "RULE_10"}
+    """Pinned so any eligibility change is deliberate rather than incidental.
+
+    The four noise rules plus self-reference are what the gate redesign excluded.
+    RULE_12/13/14 joined for a DIFFERENT reason — they are **retired**, not noisy —
+    and are excluded rather than merely unmapped so they cannot become phantom
+    instruments via `.get(rule, rule)`. The split is kept so a future reader does not
+    conclude they were judged noisy. See tests/test_cleanup_pass.py.
+    """
+    noisy_or_self_referential = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY",
+                                 "RULE_REDDIT", "RULE_10"}
+    retired = {"RULE_12", "RULE_13", "RULE_14"}
+    assert RULE_10_EXCLUDED == noisy_or_self_referential | retired
 
 
 def test_noisy_rules_cannot_contribute_an_instrument():
