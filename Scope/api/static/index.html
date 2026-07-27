@@ -799,8 +799,22 @@
     let tags = {};
     try { tags = JSON.parse(alert.tags || '{}'); } catch {}
     const rules = tags.rules || [];
-    // Scale with rule count: 4 rules = 40pts, 6 rules = 60pts, cap 60
-    const ruleScore = Math.min(rules.length * 10, 60);
+    // INSTRUMENTS, not rule names — this must agree with the server's
+    // /api/evidence breakdown, which counts jpt_common.rule10_instruments().
+    // Several rules can read ONE source (the congressional trio RULE_01B /
+    // RULE_02 / RULE_CLUSTER is one instrument), so rules.length over-counts and
+    // this card used to read 100/100 where the evidence drawer read 80/100 on the
+    // SAME alert. The emitter writes both counts into tags, so no map is
+    // reimplemented here — do NOT reintroduce one.
+    // Pre-D2 alerts carry no instrument_count; for those we fall back to the rule
+    // count, which is what their stored evidence_confidence was computed from, and
+    // the tooltip says so rather than claiming instruments it never counted.
+    const instrCount = tags.instrument_count
+                    ?? (Array.isArray(tags.instruments) ? tags.instruments.length : null);
+    const isLegacy   = instrCount === null;
+    const count      = isLegacy ? rules.length : instrCount;
+    // Scale with instrument count: 4 = 40pts, 6 = 60pts, cap 60
+    const ruleScore = Math.min(count * 10, 60);
     const sevScore  = alert.severity === 'CRITICAL' ? 20 : 10;
     // Recency bonus: decays from 15pts within 6h to 0 after 48h
     const ageH = alert.created_at
@@ -812,14 +826,15 @@
     return {
       total:    Math.min(ruleScore + sevScore + timePts + insScore + conScore, 100),
       breakdown: { rules: ruleScore, severity: sevScore, timing: timePts, insider: insScore, contract: conScore },
-      ruleCount: rules.length,
+      ruleCount: count,
+      countLabel: isLegacy ? 'Rule count (legacy alert)' : 'Distinct instruments',
     };
   }
 
   function corrConfidenceTooltip(conf) {
     const b = conf.breakdown;
     return `<div class="conf-tooltip">
-      <div class="ct-row"><span>Rule count (${conf.ruleCount})</span><span class="val">+${b.rules}</span></div>
+      <div class="ct-row"><span>${conf.countLabel} (${conf.ruleCount})</span><span class="val">+${b.rules}</span></div>
       <div class="ct-row"><span>Severity</span><span class="val">+${b.severity}</span></div>
       <div class="ct-row"><span>Signal timing</span><span class="val">+${b.timing}</span></div>
       ${b.insider ? `<div class="ct-row"><span>Insider trade present</span><span class="val">+${b.insider}</span></div>` : ''}
@@ -889,7 +904,7 @@
                   <strong style="cursor:help;border-bottom:1px dashed var(--amber)">${conf.total}/100</strong>
                   ${corrConfidenceTooltip(conf)}
                 </span>
-                · ${conf.ruleCount} eligible rules
+                · ${conf.ruleCount} ${conf.countLabel === 'Distinct instruments' ? 'independent instruments' : 'eligible rules'}
               </div>
               <div style="font-family:var(--font-mono);font-size:0.66rem;color:var(--cream2)">${families}</div>
               <button class="corr-expand" aria-expanded="false" onclick="toggleCorr(${a.id})">Why this fired ▾</button>

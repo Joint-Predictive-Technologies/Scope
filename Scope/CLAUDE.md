@@ -144,10 +144,25 @@ a rule that reads an existing source, **map it**, or it silently becomes a secon
 leg. `jpt_common.rule10_is_valid` must agree with the gate: it is what decides
 whether the brief and the evidence API may cite a corroboration.
 
-⚠️ **D1 stops at the gate.** `_distinct_rule_count` and `api/routers/evidence.py`
-still count rule *names*, so the congressional trio no longer *opens* a
-corroboration but still inflates its `evidence_confidence`. Fixing that is a
-scoring change and human-gated. See `05_Decisions/2026-07-25-gate-redesign.md`.
+**D1 now reaches the score.** `evidence_confidence` counts INSTRUMENTS everywhere the
+gate does: `_distinct_rule_count`, the RULE_10 emitter, `api/routers/evidence.py` (both
+the corroboration branch and the single-rule one), `api/receipts.py`, and the homepage
+hero card's `corrConfidence()` in `api/static/index.html`. The congressional trio no
+longer opens a corroboration **or** inflates its confidence. All of them call
+`rule10_instruments` — except the browser, which reads `tags.instrument_count` written
+by the emitter. **Never reimplement the map client-side.**
+
+`RULE_CLUSTER` passes `distinct_rule_count=1`: it is ONE instrument however many members
+it has. Member count still drives severity and the headline — it is not corroboration
+*breadth*.
+
+⚠️ **Open, human-gated: the tiers are in the wrong units.**
+`calculate_evidence_confidence` steps at 4/5/6, from when the gate needed 4+ distinct
+RULES. The gate now fires at **3 instruments** — below the first tier — so a minimum
+corroboration persists **6.0** while a lone `RULE_06` scores 20.0, and `mode=overwatch`
+orders on this column. Rescaling to the gate's units (>=3 -> 40, >=4 -> 60, >=5 -> 75) is
+a formula-shape change; `tests/test_phase2_intel.py::test_rule10_evidence_exceeds_single_rule`
+is a strict xfail holding the seat. See `05_Decisions/2026-07-25-gate-redesign.md`.
 
 **RULE_CLUSTER (`scripts/rule_cluster.py`, path a):** fires when 3+ DISTINCT
 members trade the same normalized ticker inside a rolling 72h window by

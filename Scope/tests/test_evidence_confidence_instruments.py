@@ -117,10 +117,17 @@ def test_the_formula_shape_is_unchanged():
 
 
 def test_opportunity_score_is_untouched():
-    from jpt_common import calculate_opportunity_score
-    assert calculate_opportunity_score(1.0, 0.0, "SHORT") == \
-           calculate_opportunity_score(1.0, 0.0, "SHORT")
-    assert calculate_opportunity_score(0.5, 10.0, "MEDIUM") > 0
+    """The OTHER axis must not move. Pinned to LITERALS, deliberately.
+
+    This test used to assert f(x) == f(x), which is true for any deterministic
+    function and therefore guarded nothing — a verifier mutated `novelty*40` to
+    `novelty*41` and it still passed. Literals make the mutation red.
+    """
+    from jpt_common import calculate_opportunity_score as opp
+    assert opp(1.0, 0.0, "SHORT") == 62.0
+    assert opp(1.0, 0.0, "IMMEDIATE") == 65.0
+    assert opp(0.5, 10.0, "MEDIUM") == 35.0
+    assert opp(0.1, 90.0, "LONG") == 0.0        # clamped, not negative
 
 
 def test_gate_firing_logic_is_untouched():
@@ -158,3 +165,98 @@ def test_rule_cluster_no_longer_passes_a_member_count_as_corroborators():
                             "rule_cluster.py"), encoding="utf-8").read()
     assert "distinct_rule_count=1," in src
     assert "distinct_rule_count=n," not in src
+
+
+# --- BEHAVIOURAL guards over the two sites unit tests could not reach ----
+#
+# A verifier mutated the RULE_10 emitter back to `distinct_rule_count=rule_count`
+# and the whole suite stayed GREEN (455 passed). Same for the evidence router's
+# `min(len(rules) * 10, 60)`. The single most important line in the change — what
+# the emitter actually PERSISTS — was covered by nothing. These two tests exercise
+# the real code paths end to end so those mutations go red.
+
+def _seed_trio_plus(conn, ticker="TRIOPLUS"):
+    """5 rule names / 3 instruments, inside the convergence window."""
+    for rule in TRIO_PLUS:
+        conn.execute(
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
+            "VALUES (?, ?, 'HIGH', ?, datetime('now','-1 hours'))",
+            (rule, ticker, f"{rule} on {ticker}"))
+    conn.commit()
+
+
+def test_emitter_persists_the_instrument_count_not_the_rule_count():
+    """The RULE_10 alert row itself — run the real gate, read what it wrote."""
+    from scripts import rule_10_corroboration as r10
+    conn = jpt_common.db_connection()
+    _seed_trio_plus(conn)
+    r10.run(dry_run=False)
+
+    row = conn.execute(
+        "SELECT evidence_confidence, tags FROM alerts "
+        "WHERE rule='RULE_10' AND ticker='TRIOPLUS' ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+    assert row is not None, "the gate did not fire — fixture is not exercising the emitter"
+
+    tags = json.loads(row[1])
+    assert tags["rule_count"] == 5, "fixture must still carry 5 rule NAMES for provenance"
+    assert tags["instrument_count"] == 3
+
+    # 3 instruments, and RULE_10's own 'Derived' source weight (0.3) -> base 0 + 6.0.
+    # Under the old rule-NAME count this row persisted 66.0.
+    expected = calculate_evidence_confidence(3, [0.3])
+    assert row[0] == expected == 6.0, (
+        f"persisted {row[0]}, expected {expected}; 66.0 means the emitter reverted to "
+        "counting rule names")
+
+
+def test_evidence_router_breakdown_counts_instruments():
+    """api/routers/evidence.py — the drawer the homepage card must agree with."""
+    from api.routers.evidence import _confidence_breakdown
+    alert = {"rule": "RULE_10", "ticker": "TRIOPLUS", "severity": "HIGH",
+             "created_at": "2026-07-27 12:00:00", "tags": _tags(TRIO_PLUS)}
+    b = _confidence_breakdown(alert, [])
+    # 3 instruments * 10 = 30. Five rule names would give 50.
+    assert b["components"]["Distinct instrument count"] == 30, b["components"]
+    assert "Eligible rule count" not in b["components"]
+
+
+def test_single_rule_branch_does_not_pay_three_times_for_one_source():
+    """The OTHER branch of the same function — missed on the first pass."""
+    from api.routers.evidence import _confidence_breakdown
+    alert = {"rule": "RULE_06", "ticker": "X", "severity": "HIGH",
+             "created_at": "2026-07-27 12:00:00", "tags": ""}
+    trio = [{"rule": r} for r in ("RULE_01B", "RULE_02", "RULE_CLUSTER")]
+    b = _confidence_breakdown(alert, trio)
+    # one instrument (congressional) * 8 = 8. Three rule names hit the 24 cap.
+    assert b["components"]["Corroborating signals"] == 8, b["components"]
+
+
+def test_receipt_calls_them_instruments_not_rule_names():
+    """api/receipts.py said '5 independent signals' about 3 instruments."""
+    from api import receipts
+    alert = {"rule": "RULE_10", "ticker": "TRIOPLUS", "severity": "HIGH",
+             "created_at": "2026-07-27 12:00:00",
+             "tags": json.dumps({"rules": TRIO_PLUS, "rule_count": 5,
+                                 "instruments": ["congressional", "contracts", "insider"],
+                                 "instrument_count": 3})}
+    r = receipts.build_receipt(alert) if hasattr(receipts, "build_receipt") else None
+    if r is None:                                    # name-agnostic: find the builder
+        fn = next(v for k, v in vars(receipts).items()
+                  if callable(v) and "receipt" in k and not k.startswith("_"))
+        r = fn(alert)
+    assert r is not None and "3 independent signals" in r["summary"], r["summary"]
+
+
+def test_homepage_hero_does_not_reimplement_the_instrument_map():
+    """The browser must READ tags.instrument_count, never recount rule names.
+
+    Pre-fix, index.html's corrConfidence() computed min(rules.length*10, 60) — the
+    exact line the server fix removed — so the same alert read 100/100 on the
+    homepage and 80/100 in the evidence drawer.
+    """
+    src = open(os.path.join(os.path.dirname(__file__), "..",
+                            "api", "static", "index.html")).read()
+    assert "tags.instrument_count" in src, "hero card is not reading the emitted count"
+    assert "Math.min(rules.length * 10, 60)" not in src, \
+        "hero card is recounting rule NAMES again"

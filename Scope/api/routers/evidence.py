@@ -92,7 +92,12 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
         }
     # Single-rule alert — lighter breakdown
     sev_pts = 40 if sev == "CRITICAL" else 25 if sev == "HIGH" else 10
-    corrob = min(len({r.get("rule") for r in related}) * 8, 24)
+    # INSTRUMENTS, not rule names — the same correction as the RULE_10 branch above.
+    # This branch scored a lone alert's support by distinct rule NAME, so the
+    # congressional trio paid three times for one source (24/24, the cap, off a single
+    # instrument). rule10_instruments is the gate's authority, imported, never copied.
+    corrob = min(len(rule10_instruments(
+        rule10_eligible_rules({r.get("rule") for r in related if r.get("rule")}))) * 8, 24)
     total = min(sev_pts + freshness + corrob, 100)
     return {
         "total": total,
