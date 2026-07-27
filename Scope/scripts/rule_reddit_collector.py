@@ -65,6 +65,12 @@ REQUIRE_BOTH = False
 # Everything below it, and everything unpriceable, is collected.
 LARGE_CAP_MIN = 10_000_000_000
 CAP_TTL_DAYS = 30           # market caps move slowly; do not re-fetch per run
+# A FAILED lookup is cached too, on a shorter clock. Unknowns were not cached at all, so
+# every still-unknown row re-hit SEC AND Yahoo on EVERY run — measured at 4 SEC + 4 Yahoo
+# calls per unpriceable row per day, growing without bound, and flatly contradicting the
+# scheduling rationale ("at most one lookup per NEW ticker"). Shorter than the success
+# TTL because an unpriceable name is often newly listed and worth retrying sooner.
+UNKNOWN_TTL_DAYS = 7
 
 # Mentions recorded before the extraction fix are ~45% English-word false positives
 # (BACK, HERE, POST...). Collecting them would fill the universe with words.
@@ -194,6 +200,18 @@ def _last_close(symbol: str) -> float | None:
         return None
 
 
+def _cache_unknown(conn, symbol: str, cache: bool) -> None:
+    """Remember a FAILED lookup, so it is not retried on every single run."""
+    if not cache:
+        return
+    conn.execute(
+        "INSERT INTO ticker_meta (symbol, market_cap, cap_updated) VALUES (?,NULL,?) "
+        "ON CONFLICT(symbol) DO UPDATE SET market_cap=NULL, "
+        "cap_updated=excluded.cap_updated",
+        (symbol, datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+
+
 def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     """Cached market cap, or None if it cannot be determined.
 
@@ -213,21 +231,24 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     row = conn.execute(
         "SELECT market_cap, cap_updated FROM ticker_meta WHERE symbol = ?",
         (symbol,)).fetchone()
-    if row and row[0] and row[1]:
+    if row and row[1]:
         try:
             age = datetime.now(timezone.utc) - datetime.fromisoformat(row[1]).replace(
                 tzinfo=timezone.utc)
-            if age < timedelta(days=CAP_TTL_DAYS):
-                return int(row[0])
+            ttl = CAP_TTL_DAYS if row[0] else UNKNOWN_TTL_DAYS
+            if age < timedelta(days=ttl):
+                return int(row[0]) if row[0] else None
         except (TypeError, ValueError):
             pass
 
     cik = _cik_for(symbol)
     if not cik:
+        _cache_unknown(conn, symbol, cache)
         return None
-    shares = _shares_outstanding(cik)
+    shares = _shares_outstanding(cik) if cik else None
     price = _last_close(symbol)
     if not shares or not price:
+        _cache_unknown(conn, symbol, cache)
         return None
     cap = int(shares * price)
     if cache:
@@ -269,7 +290,7 @@ def classify_cap(conn, ticker: str, cache: bool = True) -> tuple[str, int | None
     universe the real instruments cross-reference against. Unknown therefore collects,
     flagged, so the gap is visible rather than absent.
     """
-    cap = market_cap(conn, ticker, cache=cache)
+    cap = market_cap(conn, normalize_ticker(ticker) or ticker, cache=cache)
     if cap is None:
         return "unknown", None
     if cap >= LARGE_CAP_MIN:
@@ -305,7 +326,15 @@ def pending_mentions(conn) -> list[dict]:
     """
     rows = conn.execute(
         """SELECT ticker, subreddit, MAX(score) score, MAX(num_comments) num_comments,
-                  MAX(cashtagged) cashtagged, MAX(mentioned_at) last_mention
+                  MAX(cashtagged) cashtagged, MAX(mentioned_at) last_mention,
+                  -- THE EXACT ROWS READ. Marking by ticker was wrong in both
+                  -- directions: a mention arriving mid-run for an already-evaluated
+                  -- ticker got marked without ever being counted (a sighting lost
+                  -- forever), and a crash mid-loop left rows unmarked whose universe
+                  -- upsert had already been committed by market_cap's own commit()
+                  -- (the same sighting counted twice on the next run — the very bug the
+                  -- window fix exists to prevent, surviving on the crash path).
+                  GROUP_CONCAT(id) ids
            FROM reddit_mentions
            WHERE cashtagged = 1 AND mentioned_at >= ? AND collected_at IS NULL
            GROUP BY ticker""", (COLLECTION_EPOCH,)).fetchall()
@@ -316,7 +345,8 @@ def pending_mentions(conn) -> list[dict]:
              # test of a code path with no caller. Both checks now read the same value
              # this query selected, so the second is a real guard rather than decoration.
              "cashtagged": r["cashtagged"] or 0,
-             "last_mention": r["last_mention"]}
+             "last_mention": r["last_mention"],
+             "ids": [int(i) for i in (r["ids"] or "").split(",") if i]}
             for r in rows]
 
 
@@ -337,7 +367,12 @@ def upsert_universe(conn, ticker: str, cap_status: str, cap: int | None,
     conn.execute(
         """INSERT INTO ticker_universe
              (ticker, market_cap, cap_status, source, first_collected_at, last_seen_at)
-           VALUES (?,?,?,?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+           -- first_collected_at takes NOW; last_seen_at takes the MENTION time. They
+           -- were bound to the SAME parameter, so "first collected" silently held the
+           -- mention's timestamp — a field whose name did not match what it held. The
+           -- test only asserted `is not None`, which is unfalsifiable here: the column
+           -- has a DEFAULT and both branches COALESCE to non-null.
+           VALUES (?,?,?,?, datetime('now'), COALESCE(?, datetime('now')))
            ON CONFLICT(ticker) DO UPDATE SET
              -- the MENTION's timestamp, not "now": last_seen_at means "when was this
              -- name last mentioned", and stamping the run time made it mean "when did
@@ -352,7 +387,7 @@ def upsert_universe(conn, ticker: str, cap_status: str, cap: int | None,
              cap_status   = CASE WHEN excluded.market_cap IS NULL
                                  THEN ticker_universe.cap_status
                                  ELSE excluded.cap_status END""",
-        (ticker, cap, cap_status, source, last_seen, last_seen))
+        (ticker, cap, cap_status, source, last_seen))
 
 
 def repair_unknown_caps(conn, cache_caps: bool = True) -> dict:
@@ -369,18 +404,22 @@ def repair_unknown_caps(conn, cache_caps: bool = True) -> dict:
     """
     out = {"repaired": 0, "evicted": 0, "still_unknown": 0}
     stale = [r[0] for r in conn.execute(
-        "SELECT ticker FROM ticker_universe WHERE cap_status = 'unknown'").fetchall()]
+        "SELECT ticker FROM ticker_universe "
+        "WHERE cap_status IN ('unknown','excluded')").fetchall()]
     for t in stale:
         status, cap = classify_cap(conn, t, cache=cache_caps)
         if status == "unknown":
             out["still_unknown"] += 1
-        elif status == "excluded":
-            conn.execute("DELETE FROM ticker_universe WHERE ticker = ?", (t,))
-            out["evicted"] += 1
-        else:
-            conn.execute("UPDATE ticker_universe SET cap_status = ?, market_cap = ? "
-                         "WHERE ticker = ?", (status, cap, t))
-            out["repaired"] += 1
+            continue
+        # MARKED, NOT DELETED. Deleting made a wrongful eviction PERMANENT: one bad
+        # price tick removed a genuine small cap, and it could not return without both a
+        # fresh mention AND the 30-day cap cache expiring. That is failing CLOSED in a
+        # module that argues everywhere else that a missing name is the expensive
+        # failure. Excluded rows stay, are re-checked on every pass, and are filtered out
+        # of the API — so an exclusion is now reversible and auditable.
+        conn.execute("UPDATE ticker_universe SET cap_status = ?, market_cap = ? "
+                     "WHERE ticker = ?", (status, cap, t))
+        out["evicted" if status == "excluded" else "repaired"] += 1
     return out
 
 
@@ -389,9 +428,9 @@ def collect(conn, cache_caps: bool = True) -> dict:
     counts = {"collected": 0, "flagged_unknown": 0, "excluded_large": 0,
               "below_engagement": 0}
     counts.update(repair_unknown_caps(conn, cache_caps=cache_caps))
-    evaluated: list[str] = []
+    evaluated_ids: list[int] = []
     for m in pending_mentions(conn):
-        evaluated.append(m["ticker"])
+        evaluated_ids.extend(m["ids"])
         ok, status, cap = collectable(conn, m["ticker"], m["cashtagged"], m["score"],
                                       m["num_comments"], cache=cache_caps)
         if not ok:
@@ -403,17 +442,15 @@ def collect(conn, cache_caps: bool = True) -> dict:
         if status == "unknown":
             counts["flagged_unknown"] += 1
 
-    # Mark EVERY evaluated mention, including the rejected ones. Engagement is fixed at
-    # ingest and never improves, so re-testing a rejected row each run is pure re-work
-    # that would also re-hit the cap API. Cap changes are handled by
-    # repair_unknown_caps, which works from the universe rather than from mentions.
-    if evaluated:
-        qs = ",".join("?" * len(evaluated))
+    # Mark EVERY evaluated mention, including the rejected ones — engagement is fixed at
+    # ingest and never improves, so re-testing a rejected row is pure re-work that would
+    # also re-hit the cap API. Keyed on the ROW IDS actually read, so a mention that
+    # lands mid-run is left pending for the next one rather than marked unseen.
+    if evaluated_ids:
+        qs = ",".join("?" * len(evaluated_ids))
         conn.execute(
-            f"""UPDATE reddit_mentions SET collected_at = datetime('now')
-                WHERE collected_at IS NULL AND cashtagged = 1
-                  AND mentioned_at >= ? AND ticker IN ({qs})""",
-            (COLLECTION_EPOCH, *evaluated))
+            f"UPDATE reddit_mentions SET collected_at = datetime('now') "
+            f"WHERE id IN ({qs})", evaluated_ids)
     return counts
 
 
@@ -455,9 +492,13 @@ def run(dry_run: bool = False) -> dict:
 
     total = conn.execute("SELECT COUNT(*) FROM ticker_universe").fetchone()[0] \
         if _tables_exist(conn) else 0
+    # repaired/evicted/still_unknown were computed and then dropped on the floor, so a
+    # run that reclassified thirty rows logged nothing about it.
     notes = (f"collected={counts['collected']}, unknown_cap={counts['flagged_unknown']}, "
              f"excluded_large={counts['excluded_large']}, "
-             f"below_engagement={counts['below_engagement']}, universe={total}, "
+             f"below_engagement={counts['below_engagement']}, "
+             f"repaired={counts.get('repaired', 0)}, evicted={counts.get('evicted', 0)}, "
+             f"still_unknown={counts.get('still_unknown', 0)}, universe={total}, "
              f"dry_run={dry_run}")
     if not dry_run:
         # emitted=0 ON PURPOSE. `alerts_emitted` is rendered as "N new" in amber on the

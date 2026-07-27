@@ -370,7 +370,8 @@ def test_the_list_is_ordered_by_recency_not_by_mention_count():
 def test_dry_run_writes_nothing(monkeypatch, tmp_path):
     """The prior process failure: a --dry-run that created tables and logged a row."""
     import sqlite3 as _sq
-    coll.run(dry_run=True)          # tables do not exist -> must bail without creating
+    # FIRST with no tables: must bail without creating them.
+    coll.run(dry_run=True)
     conn = db_connection()
     names = {r[0] for r in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'")}
@@ -379,6 +380,26 @@ def test_dry_run_writes_nothing(monkeypatch, tmp_path):
     conn.close()
     assert "ticker_universe" not in names, "a dry run created the coverage table"
     assert logged == 0, "a dry run wrote an activity_log row"
+
+    # THEN with a READY schema, so the run actually reaches record_activity. The old
+    # version only ever hit the `_tables_exist` early return, so mutating the
+    # `if not dry_run:` around record_activity survived the whole suite — the test was
+    # green without reaching the guard it is named for.
+    conn = db_connection(); coll.ensure_tables(conn)
+    _mention(conn, "DRYRUN2")
+    conn.commit(); conn.close()
+    out = coll.run(dry_run=True)
+    conn = db_connection()
+    logged2 = conn.execute("SELECT COUNT(*) FROM activity_log WHERE source=?",
+                           (coll.RULE,)).fetchone()[0]
+    universe = conn.execute("SELECT COUNT(*) FROM ticker_universe").fetchone()[0]
+    pending = conn.execute("SELECT COUNT(*) FROM reddit_mentions "
+                           "WHERE collected_at IS NULL").fetchone()[0]
+    conn.close()
+    assert logged2 == 0, "a dry run on a READY schema wrote an activity_log row"
+    assert universe == 0, "a dry run wrote to the coverage list"
+    assert pending == 1, "a dry run marked a mention as collected"
+    assert out["dry_run"] is True
 
 
 def test_BOTH_cashtag_mechanisms_are_tested_separately():
@@ -494,8 +515,17 @@ def test_market_cap_fails_closed_in_every_failure_mode(monkeypatch):
 
 
 def test_an_outage_collected_megacap_is_EVICTED_when_the_cap_resolves(monkeypatch):
-    """No repair path existed: one outage seeded AAPL/NVDA/MSFT permanently, because
-    collect() skips anything it classifies as excluded and nothing ever deleted."""
+    """One outage collected AAPL/NVDA/MSFT as `unknown` and there was no repair path.
+
+    Eviction MARKS rather than deletes: deleting made a wrongful eviction permanent (a
+    single bad price tick removed a genuine small cap, recoverable only via a fresh
+    mention AND the 30-day cap-cache expiry), which is failing closed in a module that
+    argues a missing name is the expensive failure. Excluded rows stay, are re-checked
+    every pass, and are filtered out of the API.
+
+    Driven through `collect()`, NOT by calling repair directly — the call site was the
+    untested part, and deleting it left 540/540 green.
+    """
     conn = db_connection(); coll.ensure_tables(conn)
     monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: None)   # outage
     _mention(conn, "AAPL"); _mention(conn, "TINYCO")
@@ -505,12 +535,84 @@ def test_an_outage_collected_megacap_is_EVICTED_when_the_cap_resolves(monkeypatc
 
     caps = {"AAPL": 4_900_000_000_000, "TINYCO": 300_000_000}
     monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: caps.get(s))
-    out = coll.repair_unknown_caps(conn); conn.commit()
+    out = coll.collect(conn); conn.commit()          # the CALL SITE, not repair directly
     rows = {r[0]: r[1] for r in conn.execute(
         "SELECT ticker, cap_status FROM ticker_universe")}
+    assert rows.get("AAPL") == "excluded", "the outage-collected mega-cap was not evicted"
+    assert rows.get("TINYCO") == "small"
+    assert out["evicted"] == 1 and out["repaired"] == 1, out
+
+    # and the API must not show it as coverage
+    body = _c.get("/api/universe").json()
     conn.close()
-    assert "AAPL" not in rows, "an outage-collected mega-cap was never evicted"
-    assert rows.get("TINYCO") == "small" and out["evicted"] == 1 and out["repaired"] == 1
+    assert "AAPL" not in [t["ticker"] for t in body["tickers"]]
+    assert "TINYCO" in [t["ticker"] for t in body["tickers"]]
+
+
+def test_a_wrongly_excluded_ticker_can_come_back(monkeypatch):
+    """The reversibility the DELETE destroyed.
+
+    The scenario is a row ALREADY in the universe (collected during an outage as
+    `unknown`) that a bad price tick then reclassifies as large. Deleting it made that
+    permanent — recoverable only via a fresh mention AND the 30-day cap-cache expiry.
+    Marking makes the next repair pass fix it.
+
+    (A ticker that looks large on FIRST contact is simply never collected — that is the
+    ordinary gate, not an eviction, and it is not what this covers.)
+    """
+    conn = db_connection(); coll.ensure_tables(conn)
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: None)          # outage
+    _mention(conn, "SMOL")
+    coll.collect(conn); conn.commit()
+    assert conn.execute("SELECT cap_status FROM ticker_universe "
+                        "WHERE ticker='SMOL'").fetchone()["cap_status"] == "unknown"
+
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: 50_000_000_000)  # bad tick
+    coll.collect(conn); conn.commit()
+    assert conn.execute("SELECT cap_status FROM ticker_universe "
+                        "WHERE ticker='SMOL'").fetchone()["cap_status"] == "excluded"
+
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: 300_000_000)   # corrected
+    coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT cap_status, market_cap FROM ticker_universe "
+                       "WHERE ticker='SMOL'").fetchone()
+    conn.close()
+    assert row is not None, "a wrongly excluded ticker was deleted and cannot return"
+    assert (row["cap_status"], row["market_cap"]) == ("small", 300_000_000), (
+        "the exclusion did not reverse when the cap resolved correctly")
+
+
+def test_a_still_unknown_row_is_left_alone_not_evicted(monkeypatch):
+    """Documented fail-open behaviour that had no test — making the still_unknown branch
+    DELETE survived the whole suite."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: None)
+    _mention(conn, "GHOST")
+    coll.collect(conn); conn.commit()
+    out = coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT cap_status FROM ticker_universe "
+                       "WHERE ticker='GHOST'").fetchone()
+    conn.close()
+    assert row is not None and row["cap_status"] == "unknown", \
+        "a still-unpriceable row was evicted instead of left flagged for retry"
+    assert out["still_unknown"] >= 1
+
+
+def test_a_failed_cap_lookup_is_cached_so_it_is_not_retried_every_run(monkeypatch):
+    """Unknowns were not cached at all, so every still-unknown row re-hit SEC AND Yahoo
+    on EVERY run — 4 SEC + 4 Yahoo per unpriceable row per day, growing without bound,
+    and contradicting the schedule's stated 'one lookup per NEW ticker' rationale."""
+    calls = {"cik": 0}
+    conn = db_connection(); coll.ensure_tables(conn)
+    def _cik(sym):
+        calls["cik"] += 1
+        return None
+    monkeypatch.setattr(coll, "_cik_for", _cik)
+    for _ in range(4):
+        _REAL_MARKET_CAP(conn, "GHOSTY", cache=True)
+    conn.close()
+    assert calls["cik"] == 1, (
+        f"a failed lookup was retried {calls['cik']} times — failures must be cached")
 
 
 def test_an_unknown_resighting_does_not_downgrade_a_resolved_row():
@@ -680,3 +782,93 @@ def test_the_scheduled_entry_exists_and_points_at_a_real_file():
     assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", key))
     # coverage is not news: it must not be scheduled so often it looks like a feed
     assert _CRON_SCHEDULE[key].get("hour"), "no hour set — this would run every minute"
+
+
+def test_first_collected_at_is_the_COLLECTION_time_not_the_mention_time(monkeypatch):
+    """A field whose name did not match what it held — introduced by the last fix.
+
+    `first_collected_at` and `last_seen_at` were bound to the SAME parameter, so "first
+    collected" silently carried the mention's timestamp. The old assertion was
+    `is not None`, which is unfalsifiable here: the column has a DEFAULT and both INSERT
+    branches COALESCE to non-null.
+    """
+    import datetime as _dt
+    monkeypatch.setattr(coll, "COLLECTION_EPOCH", "2000-01-01 00:00:00")
+    conn = db_connection(); coll.ensure_tables(conn)
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker, cashtagged, score, "
+                 "num_comments, mentioned_at) VALUES "
+                 "('fc1','FIRSTCOL',1,20,5,'2026-07-01 09:30:00')")
+    conn.commit()
+    coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT first_collected_at, last_seen_at FROM ticker_universe "
+                       "WHERE ticker='FIRSTCOL'").fetchone()
+    conn.close()
+    assert row["last_seen_at"] == "2026-07-01 09:30:00"      # the MENTION
+    assert row["first_collected_at"] != "2026-07-01 09:30:00", (
+        "first_collected_at took the mention's timestamp — it means when we COLLECTED it")
+    age = _dt.datetime.utcnow() - _dt.datetime.fromisoformat(row["first_collected_at"])
+    assert abs(age.total_seconds()) < 300, row["first_collected_at"]
+
+
+def test_a_mention_arriving_mid_run_is_not_marked_unseen():
+    """Leak B: the marking UPDATE keyed on TICKER, so a mention landing mid-run for an
+    already-evaluated ticker was marked without ever being counted — a sighting lost
+    forever. It now keys on the row ids actually read."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    _mention(conn, "RACE", post="r1")
+    pending = coll.pending_mentions(conn)
+    assert pending and pending[0]["ids"], "pending_mentions must carry row ids"
+    _mention(conn, "RACE", post="r2")        # arrives after the read
+    # mark only what the first read saw, as collect() now does
+    qs = ",".join("?" * len(pending[0]["ids"]))
+    conn.execute(f"UPDATE reddit_mentions SET collected_at = datetime('now') "
+                 f"WHERE id IN ({qs})", pending[0]["ids"])
+    conn.commit()
+    still = {m["ticker"] for m in coll.pending_mentions(conn)}
+    conn.close()
+    assert "RACE" in still, "the mid-run mention was marked without being counted"
+
+
+def test_rule_reddit_bootstraps_the_collector_schema():
+    """Deleting `_ensure_collector(conn)` from rule_reddit.run() survived the suite. The
+    live DB still has the pre-collector five-column `reddit_mentions`, so without it
+    every mention INSERT raises into the except and logs 'mention capture skipped' —
+    the collector would collect nothing until its own 02:15 run repaired the schema."""
+    import inspect
+    from scripts import rule_reddit as rr
+    src = inspect.getsource(rr.run)
+    body = "\n".join(l.split("#")[0] for l in src.splitlines())
+    assert "_ensure_collector(conn)" in body, (
+        "rule_reddit no longer bootstraps the collector schema")
+
+
+def test_last_seen_at_updates_on_a_RE_SIGHTING_not_just_the_first(monkeypatch):
+    """The ON CONFLICT half — and the common case.
+
+    The first-collection test only exercised the INSERT branch, so mutating
+    `last_seen_at = COALESCE(excluded.last_seen_at, ...)` to `datetime('now')` on the
+    UPDATE branch survived the whole suite. That is the exact bug this session fixed,
+    re-introducible on the other half of the same statement.
+    """
+    monkeypatch.setattr(coll, "COLLECTION_EPOCH", "2000-01-01 00:00:00")
+    conn = db_connection(); coll.ensure_tables(conn)
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker, cashtagged, score, "
+                 "num_comments, mentioned_at) VALUES "
+                 "('rs1','RESEEN',1,20,5,'2026-07-01 06:00:00')")
+    conn.commit()
+    coll.collect(conn); conn.commit()
+    assert conn.execute("SELECT last_seen_at FROM ticker_universe WHERE ticker='RESEEN'"
+                        ).fetchone()["last_seen_at"] == "2026-07-01 06:00:00"
+
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker, cashtagged, score, "
+                 "num_comments, mentioned_at) VALUES "
+                 "('rs2','RESEEN',1,20,5,'2026-07-02 07:30:00')")
+    conn.commit()
+    coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT last_seen_at, times_seen FROM ticker_universe "
+                       "WHERE ticker='RESEEN'").fetchone()
+    conn.close()
+    assert row["times_seen"] == 2
+    assert row["last_seen_at"] == "2026-07-02 07:30:00", (
+        f"re-sighting stored {row['last_seen_at']!r} — the UPDATE branch took the RUN "
+        "time, so every re-seen row would carry the same value")

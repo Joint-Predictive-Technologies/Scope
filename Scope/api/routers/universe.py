@@ -39,7 +39,9 @@ def coverage_list(limit: int = Query(200, ge=1, le=1000),
     would rank names against each other, which is exactly the "reddit found something"
     reading this list must not support.
     """
-    where, params = "", []
+    #  rows are KEPT in the table so a wrongful exclusion stays visible and
+    # re-checkable, but they are not coverage — filter them out of the default listing.
+    where, params = "WHERE cap_status != 'excluded'", []
     if cap_status:
         where, params = "WHERE cap_status = ?", [cap_status]
     conn = db_connection()
