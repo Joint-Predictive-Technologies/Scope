@@ -132,56 +132,67 @@ def _fetch_subreddit(subreddit: str) -> list[dict]:
 # treated as tickers (they'd be constant false positives).
 BARE_TICKER_RE = re.compile(r"\b([A-Z]{4,5})\b")
 _CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
-# COMMON ENGLISH WORDS REQUIRE A CASHTAG.
+# THE CASHTAG IS THE DISAMBIGUATOR.
 #
 # The universe check (`t in known`) was never the problem — it PASSES these, because
 # they are genuine listed symbols that happen to spell English words:
 #     BACK -> IMAC Holdings   HERE -> Here Group   POST -> Post Holdings
-#     MOVE, BETA, BEAT, FIVE, OPEN, LOVE, CASH, REAL, FAST, WELL, HOPE, SAFE, ...
 # So RULE_REDDIT stored "HERE"/"BEAT"/"MOVE" as tickers out of ordinary sentences.
 #
-# WHAT THIS IS, HONESTLY: a LARGER hand-maintained blocklist, not a new mechanism.
-# An earlier version of this comment claimed the rule "inverts" the blocklist approach.
-# It does not — it replaced a 63-word list with a ~125-word one. A bare token that is a
-# common English word needs an explicit `$` cashtag to count, however real the symbol is
-# ("$POST beat earnings" counts; "I saw this post" does not) — but the set of such words
-# is still enumerated by hand.
+# YOU CANNOT BLOCKLIST YOUR WAY OUT OF THIS, and two attempts proved it. A 63-word list
+# became a ~125-word list, and a verifier still measured 414 real symbols slipping
+# through bare. The false positives are GENUINE TICKERS, so no amount of enumeration
+# converges — the missing information is not "is this a symbol" but "did the writer mean
+# the symbol".
 #
-# KNOWN LIMITATION, measured not guessed: intersecting the real 10,619-symbol universe
-# with a system dictionary (4-5 chars, i.e. reachable by BARE_TICKER_RE) leaves **414**
-# English words that are genuine listed symbols and are NOT covered here — ELSE, ONTO,
-# LIVE, HELP, TEAM, GIVE, ROCK, LINK, SITE, EARN, NICE, WASH, PUMP, ROAD, TECH, SHOT...
-# 13 of 15 ordinary test sentences still yield a false ticker. This covers every failure
-# actually observed in prod; it does not solve the class.
+# The `$` answers exactly that, and it is the only thing that does:
+#     $POST beat earnings   -> the writer means the stock. Accept, common word or not.
+#     I saw this post       -> ordinary prose. Reject.
+#     NVDA is up            -> unambiguous; nobody writes "nvda" as a word. Accept bare.
 #
-# THE REAL FIX, deliberately not attempted here: gate bare 4-5 char tokens on a
-# dictionary lookup (reject anything that IS an English word unless cashtagged), or
-# require a cashtag for everything outside a curated high-confidence list. Either is a
-# behavioural change to a live rule and belongs in its own session.
+# So: cashtagged + real symbol -> accept. Bare + real symbol -> accept ONLY if the token
+# is not a common English word. The hand-maintained blocklist is GONE; COMMON_WORDS is
+# generated from measured word frequency (see scripts/_common_words.py for why frequency
+# and not a dictionary, and how the cutoff was chosen).
 #
-# Cost, stated honestly: a genuine bare mention of POST is missed. That is the right
-# trade — RULE_REDDIT is a DISCOVERY feed whose value is surfacing small tickers
-# nothing else sees, so a false ticker poisons the pool it feeds while a missed
-# mention costs one candidate.
-_COMMON_WORDS = {
-    "THIS", "THAT", "THEY", "THEM", "THEN", "THAN", "WITH", "FROM", "INTO", "OVER",
-    "ONLY", "SUCH", "BOTH", "EACH", "SOME", "MOST", "MORE", "MANY", "MUCH", "SAME",
-    "OTHER", "THERE", "THESE", "THOSE", "WHICH", "WHILE", "ABOUT", "AFTER",
-    "BACK", "HERE", "DOWN", "AWAY", "ONCE", "EVER", "ALSO", "JUST", "LIKE",
-    "POST", "MOVE", "BEAT", "OPEN", "LOVE", "CASH", "REAL", "FAST", "WELL", "HOPE",
-    "SAFE", "MAIN", "LIFE", "PLAY", "STEP", "PLAN", "CARE", "GROW", "RISE", "FALL",
-    "HOLD", "SELL", "GAIN", "LOSS", "RISK", "COST", "FUND", "RATE", "TERM", "PART",
-    "WORK", "TIME", "YEAR", "WEEK", "DATE", "NEWS", "DATA", "FACT", "IDEA", "CASE",
-    "SIZE", "RANK", "PICK", "BULL", "BEAR", "LONG", "PUTS", "CALL", "MOON", "GOOD",
-    "BEST", "HUGE", "NEXT", "SOON", "BEEN", "HAVE", "WILL", "WHAT", "WHEN", "GUYS",
-    "FIVE", "NINE", "BETA", "GAMMA", "DELTA", "THETA", "ALPHA",
-    "HIGH",  # regression guard: HIGH was in the ORIGINAL list and this rewrite dropped
-             # it. Not in `tickers` today, so it was harmless — but "my cost basis is
-             # too HIGH" becomes a ticker the day it lists. See the superset test.
-    "YOLO", "FOMO", "HODL", "TLDR", "ELON", "MUSK", "GONNA", "WANNA", "TODAY",
-    "CEO", "CFO", "IPO", "ETF", "USA", "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP",
-}
-_TICKER_STOPWORDS = _COMMON_WORDS   # old name kept so nothing else breaks
+# ⚠️ THE RECALL COST, STATED PLAINLY. A BARE mention of a common-word ticker is now
+# missed BY DESIGN — "POST beat earnings" no longer yields POST; "$POST beat earnings"
+# still does. That is the correct trade for a DISCOVERY feed: measured on the 93 real
+# stored posts, the old extractor produced 53 tickers of which 21 were false — RYAN
+# (a person's first name), TECH, HELP, MATH, FORM, PUMP, FEED, SHOP. A feed that cries
+# wolf 40% of the time is worse than one that misses an ambiguous bare mention, and
+# RULE_REDDIT is gate-excluded noise, so a miss costs no corroboration.
+#
+# What it does NOT cost: 1888 common words against a 10,619-symbol universe means only
+# ~277 symbols (2.8%) require a cashtag. Every unambiguous ticker — NVDA, GME, AMD,
+# PLTR, TSLA — is untouched, asserted in the tests.
+from scripts._common_words import COMMON_WORDS
+
+# THE BOUNDED RESIDUE. General-English frequency cannot know finance/Reddit jargon, so
+# a hand-maintained set survives — but measured against the real universe it is TWO
+# entries, not 125, and that is the whole difference.
+#
+# Auditing the old ~125-word blocklist against the 10,619-symbol universe:
+#   * the English words in it (BACK, HERE, POST, MOVE, BEAT, ...) are now covered by
+#     COMMON_WORDS, along with 109 more it had missed;
+#   * CFO, CPI, DELTA, ELON, ETF, FDA, FOMO, GAMMA, GDP, IPO, MUSK, THETA, TLDR, USD,
+#     YOLO are NOT LISTED SYMBOLS AT ALL — the `t in known` check already stopped every
+#     one of them. They were dead weight that made the list look load-bearing;
+#   * exactly two entries were both a real ticker and invisible to English frequency.
+#
+# This set is bounded in a way the old one never was: it is domain jargon, which is
+# enumerable and slow-moving, not "English words that happen to be tickers", which is
+# unbounded and had 414 measured gaps. Add here only after checking the token IS a real
+# symbol — otherwise `known` already handles it and the entry is noise.
+DOMAIN_JARGON = frozenset({
+    "BETA",   # finance term; also a listed symbol. Was stored as a ticker in prod.
+    "HODL",   # r/wallstreetbets vernacular; also a listed symbol.
+})
+
+_TICKER_WORDS = COMMON_WORDS | DOMAIN_JARGON
+
+_COMMON_WORDS = _TICKER_WORDS       # legacy name, still referenced by tests
+_TICKER_STOPWORDS = _TICKER_WORDS   # older name kept so nothing else breaks
 
 
 def _extract_tickers(text: str, known: set[str]) -> list[str]:
@@ -191,13 +202,18 @@ def _extract_tickers(text: str, known: set[str]) -> list[str]:
     for t in TICKER_RE.findall(up):
         if t in known and t not in found:
             found.append(t)
-    # 2) Bare 4–5 char tracked symbols that aren't common all-caps words.
+    # 2) Bare 4–5 char tracked symbols — accepted only if NOT ordinary prose.
+    #    A cashtagged one already got in above, so a common word is only rejected
+    #    here when the writer gave no `$` to disambiguate it.
     for t in BARE_TICKER_RE.findall(up):
-        if t in known and t not in _COMMON_WORDS and t not in found:
+        if t in known and t not in _TICKER_WORDS and t not in found:
             found.append(t)
-    # 3) A small curated set of famous 3-char meme tickers, bare.
+    # 3) A small curated set of famous 3-char meme tickers, bare. Still curated
+    #    rather than frequency-gated: 3-char tokens are dense with initialisms
+    #    (CEO/ETF/FDA) that are not words, so frequency alone would not save them.
     for t in _CURATED_3CHAR:
-        if t in known and re.search(rf"\b{t}\b", up) and t not in found:
+        if t in known and t not in _TICKER_WORDS and re.search(rf"\b{t}\b", up) \
+                and t not in found:
             found.append(t)
     return found
 
