@@ -328,7 +328,7 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m001_severity_downgrade')")
         conn.commit()
 
-    # m002: purge RULE_10 records that don't satisfy the 4+ eligible-rule rule.
+    # m002: purge RULE_10 records that don't satisfy the gate (now 3+ INSTRUMENTS in 14d; rule10_is_valid is the authority).
     if not conn.execute(
         "SELECT 1 FROM scope_migrations WHERE name='m002_purge_invalid_rule10'"
     ).fetchone():

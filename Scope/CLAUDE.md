@@ -105,7 +105,7 @@ Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged,
 
 Non-rule scheduled jobs: `scripts/enrich_scores.py` (10 min, scoring backfill),
 `scripts/telegram_bot.py` (60 min, push), `scripts/decay_alerts.py` (cron 01:00),
-`generate_brief.py` (cron 06:30), `scripts/ingest_lobbying.py` (cron Mon 04:45),
+`scripts/morning_brief.py` (cron 06:30, the deterministic brief — the old `generate_brief.py` cron entry was deleted 2026-07-27 as a 100%-failing duplicate of this slot; it remains reachable on demand via `api/routers/brief.py`), `scripts/ingest_lobbying.py` (cron Mon 04:45),
 `scripts/run_backtest.py` (cron Sun 02:00),
 `scripts/label_outcomes.py` (cron daily 02:00, forward-return labeling),
 `scripts/roster_check.py` (cron monthly 1st 04:00, recurring-unmatched-filer guard),

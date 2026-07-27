@@ -81,7 +81,7 @@
   fetch('/api/themes').then(r=>r.json()).then(rows => {
     const el = document.getElementById('list');
     if (!Array.isArray(rows) || !rows.length) {
-      el.innerHTML = `<div class="empty">No active theses yet.<br>Theses open automatically when 4+ independent rules converge on the same ticker (RULE_10).</div>`;
+      el.innerHTML = `<div class="empty">No active theses yet.<br>Theses open automatically when 3+ independent instruments converge on the same ticker (RULE_10).</div>`;
       return;
     }
     el.innerHTML = rows.map(t => `

@@ -70,7 +70,10 @@ def test_noise_rules_stay_excluded(rule):
 def test_live_rules_stay_eligible_for_both(rule):
     assert rule not in RULE_10_EXCLUDED
     assert rule not in r10.EXCLUDED_FROM_CORROBORATION
-    assert jpt_common.rule10_instruments([rule]), f"{rule} lost its instrument"
+    # NOT `rule10_instruments([rule])` — that resolves .get(rule, rule) and is therefore
+    # non-empty for ANY non-excluded rule, so it can never fail. Assert the MAPPING.
+    assert jpt_common.RULE_10_INSTRUMENTS.get(rule), \
+        f"{rule} lost its instrument mapping and would become a phantom instrument"
 
 
 def test_rule10_threshold_window_and_dedup_are_untouched():

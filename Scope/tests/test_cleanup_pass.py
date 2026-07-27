@@ -48,10 +48,22 @@ def _accepts_emit_alerts(script: str) -> bool:
 
     A script is safe if it declares the flag, or if it never parses strictly.
     """
+    import ast
     src = open(os.path.join(REPO, script), encoding="utf-8").read()
-    if "--emit-alerts" in src:
-        return True
-    return "parse_args()" not in src.replace(" ", "")
+    tree = ast.parse(src)
+    declared, strict = False, False
+    for node in ast.walk(tree):
+        # a REAL add_argument("--emit-alerts", ...) — a docstring mention is not enough.
+        # (Demonstrated: deleting the add_argument while leaving the docstring kept a
+        # substring check green on a script that exits 2 on every scheduled run.)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            if node.func.attr == "add_argument" and any(
+                    isinstance(a, ast.Constant) and a.value == "--emit-alerts"
+                    for a in node.args):
+                declared = True
+            if node.func.attr == "parse_args":
+                strict = True
+    return declared or not strict
 
 
 def test_every_scheduled_script_accepts_the_flag_the_scheduler_passes():
@@ -128,6 +140,40 @@ def test_gate_text_matches_the_current_gate():
     txt = _WHY["RULE_10"]
     assert "14 day" in txt.lower() and "instrument" in txt.lower()
     assert "24h" not in txt and "Four or more" not in txt
+
+
+def test_no_stale_gate_wording_survives_in_user_facing_pages():
+    """My own grep was too narrow and missed four live strings.
+
+    I searched for the literal phrasing I had already fixed; the survivors were
+    spelled-out variants — "four or more independent rules", "4+ independent rules",
+    "4 independent signals in 24h" — on the landing page, the themes empty state and
+    the API docs. This asserts the CLASS across every user-facing page plus code
+    comments, not the one phrasing I happened to know about.
+    """
+    import glob
+    import re as _re
+    pat = _re.compile(r"(4\+|four|4 or more)[^.]{0,40}(distinct |independent )?"
+                      r"(eligible )?rule|within 24 ?h", _re.I)
+    offenders = []
+    for path in glob.glob(os.path.join(REPO, "api", "static", "*.html")) + \
+                glob.glob(os.path.join(REPO, "api", "routers", "*.py")) + \
+                glob.glob(os.path.join(REPO, "scripts", "*.py")) + \
+                [os.path.join(REPO, "jpt_common.py")]:
+        for i, line in enumerate(open(path, encoding="utf-8"), 1):
+            if pat.search(line):
+                offenders.append(f"{os.path.relpath(path, REPO)}:{i}")
+    assert not offenders, f"stale 4-rules/24h gate wording still live: {offenders}"
+
+
+def test_claude_md_lists_the_job_that_actually_owns_0630():
+    md = open(os.path.join(REPO, "CLAUDE.md"), encoding="utf-8").read()
+    non_rule = [l for l in md.splitlines() if l.startswith("Non-rule scheduled jobs")]
+    block = md[md.index("Non-rule scheduled jobs"):][:600]
+    assert "scripts/morning_brief.py" in block, "the real 06:30 brief job is undocumented"
+    import api.main as m
+    for name in ("generate_brief.py",):
+        assert not [s for s in [*m._RULE_SCHEDULE, *m._CRON_SCHEDULE] if name in s]
 
 
 def test_claude_md_describes_label_outcomes_accurately():
