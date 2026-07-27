@@ -213,6 +213,9 @@ def _has_political(text: str) -> bool:
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
     conn = db_connection()
+    # Additive; discovery owns the schema, RULE_REDDIT just feeds it.
+    from scripts.rule_reddit_discovery import ensure_tables as _ensure_discovery
+    _ensure_discovery(conn)
 
     known_tickers: set[str] = {
         r[0].upper()
@@ -277,6 +280,18 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                        VALUES (?,?,?,?,?,?)""",
                     (post_id, subreddit, title, ticker, score, url),
                 )
+                # EVERY ticker, not just tickers[0]. `reddit_posts.post_id` is UNIQUE
+                # and stores ONE ticker, so a post naming three recorded one — mention
+                # counts were structurally lossy, and a ticker that tends to be
+                # mentioned second could never accumulate a baseline at all. Discovery
+                # needs a per-(post, ticker) grain, so it gets its own additive table.
+                # Forward-only: nothing rewrites the existing lossy rows.
+                for _t in tickers:
+                    conn.execute(
+                        """INSERT OR IGNORE INTO reddit_mentions
+                           (post_id, ticker, subreddit) VALUES (?,?,?)""",
+                        (post_id, _t, subreddit),
+                    )
                 ingested_posts.add(post_id)
                 stored += 1
             except Exception as exc:

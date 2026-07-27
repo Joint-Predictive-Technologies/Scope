@@ -33,7 +33,7 @@ from api.routers import (
     annotations as annotations_router,
     warroom as warroom_router,
     forming as forming_router,
-)
+ discovery,)
 
 STATIC_DIR = Path(__file__).parent / "static"
 CODE_DIR   = Path(__file__).resolve().parent.parent
@@ -318,6 +318,9 @@ app.include_router(filter_router.router, prefix="/filter",   tags=["Filter"])
 app.include_router(social.router,        prefix="/social",    tags=["Social"])
 app.include_router(backtest.router,      prefix="/backtest",  tags=["Backtest"])
 app.include_router(sectors.router,       prefix="/sectors",   tags=["Sectors"])
+# Discovery watch pool — READ-ONLY, no prefix (the router declares /api/discovery).
+# A review surface, never a gate leg: it adds no RULE_10 instrument.
+app.include_router(discovery.router,                          tags=["Discovery"])
 @app.get("/digest", include_in_schema=False)
 def digest_entry(request: Request):
     """Content-negotiated entry (registered BEFORE the digest router so the JSON
