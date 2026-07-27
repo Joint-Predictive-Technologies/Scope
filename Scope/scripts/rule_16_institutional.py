@@ -350,11 +350,30 @@ def cins_fallback(conn, cusip: str, issuer: str) -> dict | None:
     # REQUIRE AN EXACT normalised match. Stricter than the cutoff, not looser.
     exact_only = len(target) < 5
     pairs = _ticker_names(conn)
-    best, best_score = None, 0.0
+    scored: list[tuple[float, str, str]] = []
     for sym, nm in pairs:
         score = difflib.SequenceMatcher(None, target, _norm(nm)).ratio()
-        if score > best_score:
-            best, best_score = (sym, nm), score
+        if score > 0:
+            scored.append((score, sym, nm))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: -x[0])
+    best_score, sym0, nm0 = scored[0]
+    best = (sym0, nm0)
+
+    # FENCE 5 — ambiguity is a DROP, never a coin flip.
+    #
+    # Baupost holds G61188127 "LIBERTY GLOBAL LTD", class "COM CL C" = LBTYK. Three
+    # share classes (LBTYA/LBTYB/LBTYK) share one issuer name, so all three score
+    # 0.933 and the old `score > best_score` tie-break returned whichever row SQLite
+    # yielded first — LBTYA. That is a WRONG TICKER above the cutoff: exactly what
+    # the CUSIP disambiguates and the name cannot. 34 short normalised names in
+    # `tickers` map to more than one symbol ("UBS" covers 20).
+    #
+    # A name that does not identify a unique security is not a match. Drop it.
+    tied = {sym for sc, sym, _ in scored if abs(sc - best_score) < 1e-9}
+    if len(tied) > 1:
+        return None
     floor = 1.0 if exact_only else CINS_FALLBACK_CUTOFF
     if not best or best_score < floor:                 # fence 3: drop below cutoff
         return None

@@ -397,7 +397,7 @@ def test_fallback_resolves_the_known_cins_names():
     """The whole point: Chubb, Aon, Accenture, WTW are top holdings OpenFIGI can't map."""
     conn = _seed_tickers([("CB", "Chubb Limited"), ("AON", "Aon plc"),
                           ("ACN", "Accenture plc"), ("WTW", "Willis Towers Watson Public Limited Co")])
-    cases = [("H1467J104", "CHUBB LTD", "CB"), ("G0403H108", "AON PLC", "AON"),
+    cases = [("G0403H108", "AON PLC", "AON"),
              ("G1151C101", "ACCENTURE PLC IRELAND", "ACN"),
              ("G96629103", "WILLIS TOWERS WATSON PLC", "WTW")]
     for cusip, issuer, want in cases:
@@ -493,4 +493,28 @@ def test_short_cins_names_require_an_exact_match_not_a_fuzzy_one():
     assert r16.cins_fallback(conn, "G0403H108", "AON PLC")["ticker"] == "AON"
     # a near-miss short name must NOT slide through on ratio alone
     assert r16.cins_fallback(conn, "G0403H109", "AONX PLC") is None
+    conn.close()
+
+
+def test_fence5_a_share_class_collision_is_dropped_not_coin_flipped():
+    """Found by the verifier on a REAL Baupost holding, and it was a wrong ticker.
+
+    G61188127 is "LIBERTY GLOBAL LTD" class "COM CL C" = LBTYK. Three share classes
+    share the issuer name, all scoring 0.933, and the old tie-break returned whichever
+    row came first — LBTYA. The CUSIP is what distinguishes them and the fallback
+    discards it, so a name that doesn't identify a UNIQUE security must be dropped.
+    """
+    conn = _seed_tickers([("LBTYA", "Liberty Global Ltd."), ("LBTYB", "Liberty Global Ltd."),
+                          ("LBTYK", "Liberty Global Ltd.")])
+    assert r16.cins_fallback(conn, "G61188127", "LIBERTY GLOBAL LTD") is None
+    conn.close()
+
+
+def test_chubb_uses_the_string_that_actually_appears_in_filings():
+    """My original test asserted on "CHUBB LTD", which appears in NO 13F in the
+    universe — a fixture written to the answer I wanted. Real filings say
+    "CHUBB LTD SWITZ", which scores 0.625 and is correctly DROPPED. Recording the
+    real behaviour rather than the flattering one."""
+    conn = _seed_tickers([("CB", "Chubb Ltd")])
+    assert r16.cins_fallback(conn, "H1467J104", "CHUBB LTD SWITZ") is None
     conn.close()
