@@ -132,16 +132,39 @@ def _fetch_subreddit(subreddit: str) -> list[dict]:
 # treated as tickers (they'd be constant false positives).
 BARE_TICKER_RE = re.compile(r"\b([A-Z]{4,5})\b")
 _CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
-# 4–5 char all-caps words that are also valid tickers — exclude unless $-prefixed.
-_TICKER_STOPWORDS = {
-    "YOLO", "CALL", "PUTS", "HIGH", "HOLD", "MOON", "BULL", "BEAR", "LONG",
-    "GAIN", "LOSS", "FOMO", "HODL", "TLDR", "THETA", "GAMMA", "DELTA", "ELON",
-    "MUSK", "GUYS", "GONNA", "WANNA", "THIS", "THAT", "WITH", "FROM", "HAVE",
-    "WILL", "WHAT", "WHEN", "SOON", "OVER", "INTO", "JUST", "LIKE", "ALSO",
-    "BEEN", "GOOD", "BEST", "HUGE", "NEXT", "MORE", "MOST", "SAME", "SOME",
-    "THAN", "THEN", "THEY", "WEEK", "YEAR", "TODAY", "CEO", "CFO", "IPO", "ETF",
-    "USA", "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP",
+# COMMON ENGLISH WORDS REQUIRE A CASHTAG.
+#
+# The universe check (`t in known`) was never the problem — it PASSES these, because
+# they are genuine listed symbols that happen to spell English words:
+#     BACK -> IMAC Holdings   HERE -> Here Group   POST -> Post Holdings
+#     MOVE, BETA, BEAT, FIVE, OPEN, LOVE, CASH, REAL, FAST, WELL, HOPE, SAFE, ...
+# So RULE_REDDIT stored "HERE"/"BEAT"/"MOVE" as tickers out of ordinary sentences.
+#
+# A blocklist of non-tickers can never win this: the collisions ARE tickers, and the
+# list grows forever. The rule inverts instead — a bare token that is a common English
+# word needs an explicit `$` cashtag to count, however real the symbol is.
+# "$POST beat earnings" counts; "I saw this post" does not.
+#
+# Cost, stated honestly: a genuine bare mention of POST is missed. That is the right
+# trade — RULE_REDDIT is a DISCOVERY feed whose value is surfacing small tickers
+# nothing else sees, so a false ticker poisons the pool it feeds while a missed
+# mention costs one candidate.
+_COMMON_WORDS = {
+    "THIS", "THAT", "THEY", "THEM", "THEN", "THAN", "WITH", "FROM", "INTO", "OVER",
+    "ONLY", "SUCH", "BOTH", "EACH", "SOME", "MOST", "MORE", "MANY", "MUCH", "SAME",
+    "OTHER", "THERE", "THESE", "THOSE", "WHICH", "WHILE", "ABOUT", "AFTER",
+    "BACK", "HERE", "DOWN", "AWAY", "ONCE", "EVER", "ALSO", "JUST", "LIKE",
+    "POST", "MOVE", "BEAT", "OPEN", "LOVE", "CASH", "REAL", "FAST", "WELL", "HOPE",
+    "SAFE", "MAIN", "LIFE", "PLAY", "STEP", "PLAN", "CARE", "GROW", "RISE", "FALL",
+    "HOLD", "SELL", "GAIN", "LOSS", "RISK", "COST", "FUND", "RATE", "TERM", "PART",
+    "WORK", "TIME", "YEAR", "WEEK", "DATE", "NEWS", "DATA", "FACT", "IDEA", "CASE",
+    "SIZE", "RANK", "PICK", "BULL", "BEAR", "LONG", "PUTS", "CALL", "MOON", "GOOD",
+    "BEST", "HUGE", "NEXT", "SOON", "BEEN", "HAVE", "WILL", "WHAT", "WHEN", "GUYS",
+    "FIVE", "NINE", "BETA", "GAMMA", "DELTA", "THETA", "ALPHA",
+    "YOLO", "FOMO", "HODL", "TLDR", "ELON", "MUSK", "GONNA", "WANNA", "TODAY",
+    "CEO", "CFO", "IPO", "ETF", "USA", "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP",
 }
+_TICKER_STOPWORDS = _COMMON_WORDS   # old name kept so nothing else breaks
 
 
 def _extract_tickers(text: str, known: set[str]) -> list[str]:
@@ -153,7 +176,7 @@ def _extract_tickers(text: str, known: set[str]) -> list[str]:
             found.append(t)
     # 2) Bare 4–5 char tracked symbols that aren't common all-caps words.
     for t in BARE_TICKER_RE.findall(up):
-        if t in known and t not in _TICKER_STOPWORDS and t not in found:
+        if t in known and t not in _COMMON_WORDS and t not in found:
             found.append(t)
     # 3) A small curated set of famous 3-char meme tickers, bare.
     for t in _CURATED_3CHAR:
