@@ -103,6 +103,7 @@ WHY_MATTERS: dict[str, str] = {
     "RULE_09":      "Lobbying spend spikes indicate companies anticipating specific regulatory action affecting their business model or revenue.",
     "RULE_10":      "Multiple independent data sources converging on a single ticker within 48 hours is the strongest pattern in Scope — historically the most reliable precursor to a sustained move.",
     "RULE_11":      "Government contracts provide multi-year revenue visibility and validate a company's federal relationships, often preceding additional awards.",
+    "RULE_16":      "A concentrated institution disclosing a new or materially increased stake is an independent read on a ticker other instruments may also be touching — note this is a DISCLOSURE of a position held as of quarter-end, not evidence of buying today.",
     "RULE_12":      "Foreign lobbying spend surges indicate governments anticipating policy decisions that affect their strategic interests — historically precedes regulatory action in mapped sectors.",
     "RULE_13":      "Large PAC contributions from industry-specific groups often precede favorable committee votes or policy positions benefiting those sectors within 90 days.",
     "RULE_14":      "Patent filing clusters signal concentrated R&D investment that often precedes product launches, regulatory approvals, or government contract awards in that vertical.",
@@ -670,6 +671,13 @@ RULE_10_INSTRUMENTS: dict[str, str] = {
     # for review; collapsing is the conservative reading of D1.
     "RULE_09":             "senate-lda",      # rule_09_lobbying.py:24
     "RULE_12":             "senate-lda",      # scripts/rule_12_fara.py:27
+    # 13F institutional holdings — genuinely independent of `insider`: Form 4 is an
+    # officer's own trade in their own company filed within 2 business days; a 13F is
+    # an EXTERNAL manager's quarterly position report filed 45 days after quarter end.
+    # Different filer, different document, different phenomenon — so it must NOT
+    # collapse into `insider` even though both are EDGAR-hosted (the "same document
+    # population" test, same reasoning that keeps RULE_06 and RULE_15 separate).
+    "RULE_16":             "institutional",   # scripts/rule_16_institutional.py  13F-HR
     "RULE_08":             "fed-register",    # rule_08_federal_register.py:22
     "RULE_11":             "contracts",       # scripts/rule_11_contracts.py:24  usaspending
     "RULE_13":             "fec",             # scripts/rule_13_fec.py  api.open.fec.gov
@@ -797,6 +805,7 @@ RULE_TIME_HORIZONS: dict[str, str] = {
     "RULE_05": "IMMEDIATE", "RULE_06": "MEDIUM", "RULE_07": "IMMEDIATE",
     "RULE_08": "MEDIUM", "RULE_09": "MEDIUM", "RULE_10": "SHORT", "RULE_11": "SHORT",
     "RULE_12": "LONG", "RULE_13": "SHORT", "RULE_14": "LONG", "RULE_15": "SHORT",
+    "RULE_16": "MEDIUM",
     "RULE_OSINT": "IMMEDIATE", "RULE_REDDIT": "IMMEDIATE", "RULE_ANOMALY": "SHORT",
     "RULE_CLUSTER": "IMMEDIATE", "RULE_ADSB": "IMMEDIATE",
 }
@@ -805,7 +814,7 @@ RULE_SOURCE_QUALITY: dict[str, str] = {
     "RULE_01B": "Primary", "RULE_02": "Primary", "RULE_06": "Primary",
     "RULE_08": "Primary", "RULE_09": "Primary", "RULE_11": "Primary",
     "RULE_12": "Primary", "RULE_13": "Primary", "RULE_14": "Primary",
-    "RULE_CLUSTER": "Primary",
+    "RULE_CLUSTER": "Primary", "RULE_16": "Primary",
     "RULE_15": "Secondary", "RULE_07": "Secondary", "RULE_OSINT": "Secondary",
     "RULE_REDDIT": "Derived", "RULE_ANOMALY": "Derived", "RULE_10": "Derived",
 }
@@ -1459,6 +1468,23 @@ _HEAT_RULE_MULTIPLIERS: dict[str, float] = {
     "RULE_13": 1.4,
     "RULE_14": 1.2,
     "RULE_15": 1.2,
+    # RULE_16 = 1.4 — SIGNED OFF BY THE HUMAN 2026-07-27. This is a SCORING change, which
+    # CLAUDE.md human-gates; it was surfaced with the peer comparison below and approved
+    # explicitly rather than carried in on the back of the gate map entry.
+    # Peer comparison as presented for that decision:
+    #     RULE_10 2.0 (Derived) | RULE_06 1.5 | RULE_12 1.4 | RULE_13 1.4
+    #     RULE_09 1.3 | RULE_14 1.2 | RULE_15 1.2 (Secondary)
+    # Primary-source peers are [1.2, 1.3, 1.4, 1.4, 1.5], median 1.4.
+    # Caveat recorded at sign-off: five Primary rules (RULE_01B, RULE_02, RULE_08,
+    # RULE_11, RULE_CLUSTER) have no entry here and run at an effective 1.0, so "peers"
+    # is a post-hoc set — counting them the median would be 1.1, not 1.4.
+    # RATIONALE (accepted): keep 1.4 — it is the Primary median, it sits below RULE_06 (1.5,
+    # an insider's own trade, a stronger signal than an external manager's quarterly
+    # report), and above RULE_14/15 (1.2). A defensible fallback if you disagree is 1.3,
+    # matching RULE_09, since both are periodic institutional disclosures.
+    # `RULE_SOURCE_QUALITY["RULE_16"] = "Primary"` is also a scoring input and is
+    # justified: a 13F-HR is an authoritative SEC filing, same class as Form 4.
+    "RULE_16": 1.4,
 }
 
 
