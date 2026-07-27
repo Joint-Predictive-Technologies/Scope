@@ -376,3 +376,121 @@ def test_unmapped_cins_is_named_in_the_activity_notes(monkeypatch):
                          "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
     conn.close()
     assert "DROPPED" in notes and "ACCENTURE" in notes
+
+
+# ---------------------------------------------------------------------------
+# The fenced CINS fallback — name matching is the RULE_15 failure technique, so
+# every fence gets its own test, and the last one tries to slip a name-matched
+# ticker through disguised as a lookup.
+# ---------------------------------------------------------------------------
+
+def _seed_tickers(rows):
+    conn = db_connection()
+    conn.execute("CREATE TABLE IF NOT EXISTS tickers (symbol TEXT PRIMARY KEY, company_name TEXT)")
+    conn.executemany("INSERT OR REPLACE INTO tickers(symbol, company_name) VALUES (?,?)", rows)
+    conn.commit()
+    r16._TICKER_NAMES_CACHE = None       # the cache is per-process
+    return conn
+
+
+def test_fallback_resolves_the_known_cins_names():
+    """The whole point: Chubb, Aon, Accenture, WTW are top holdings OpenFIGI can't map."""
+    conn = _seed_tickers([("CB", "Chubb Limited"), ("AON", "Aon plc"),
+                          ("ACN", "Accenture plc"), ("WTW", "Willis Towers Watson Public Limited Co")])
+    cases = [("H1467J104", "CHUBB LTD", "CB"), ("G0403H108", "AON PLC", "AON"),
+             ("G1151C101", "ACCENTURE PLC IRELAND", "ACN"),
+             ("G96629103", "WILLIS TOWERS WATSON PLC", "WTW")]
+    for cusip, issuer, want in cases:
+        got = r16.cins_fallback(conn, cusip, issuer)
+        assert got and got["ticker"] == want, f"{issuer} -> {got} (wanted {want})"
+        assert got["confidence"] == r16.CONF_NAME
+        assert got["match_score"] >= r16.CINS_FALLBACK_CUTOFF
+    conn.close()
+
+
+def test_fence1_fallback_never_runs_for_a_digit_cusip():
+    """OpenFIGI resolves digit CUSIPs at 98%; name matching must not touch them."""
+    conn = _seed_tickers([("ADBE", "Adobe Inc")])
+    assert r16.cins_fallback(conn, "00724F101", "ADOBE INC") is None
+    conn.close()
+
+
+def test_fence3_a_weak_cins_match_is_dropped_not_guessed():
+    """Below the 0.90 cutoff the answer is None — never a plausible-looking guess."""
+    conn = _seed_tickers([("NBTB", "NBT Bancorp Inc"), ("DCOM", "Dime Community Bancshares")])
+    # the RULE_09 failure case, as a CINS: nothing here is a 0.90 match
+    assert r16.cins_fallback(conn, "G1234H567", "FB BANCORP INC") is None
+    assert r16.cins_fallback(conn, "G9999X999", "TOTALLY UNRELATED HOLDINGS") is None
+    conn.close()
+
+
+def test_cutoff_is_far_above_the_rule09_value_that_misfired():
+    assert r16.CINS_FALLBACK_CUTOFF >= 0.90
+
+
+def test_fallback_alert_is_labelled_distinctly_from_a_lookup(monkeypatch):
+    """The load-bearing fence: a name-matched ticker must never read as a lookup."""
+    _seed_tickers([("ACN", "Accenture plc")]).close()
+    filings = {"0000000007": [{"accession": "0007-26-000001", "filing_date": ISO,
+                               "report_date": "2026-03-31", "filer_name": "Book A"}]}
+    q1 = {"0007-26-000001": {"ZZZ111111": {"issuer": "SEED CO", "class": "COM",
+                                           "value": 9_000_000.0, "shares": 100.0}}}
+    seed_figi = {"ZZZ111111": {"ticker": "SEED", "name": "SEED CO",
+                               "security_type": "Common Stock"}}
+    _fake_sources(monkeypatch, filings, q1, seed_figi)
+    r16.run(emit=True, whales={"0000000007": "Book A"})          # baseline
+
+    q2 = {"0000000007": [{"accession": "0007-26-000002", "filing_date": ISO,
+                          "report_date": "2026-06-30", "filer_name": "Book A"}]}
+    t2 = {"0007-26-000002": {
+        "ZZZ111111": {"issuer": "SEED CO", "class": "COM", "value": 30_000_000.0, "shares": 900.0},
+        "G1151C101": {"issuer": "ACCENTURE PLC IRELAND", "class": "SHS CLASS A",
+                      "value": 80_000_000.0, "shares": 50_000.0},
+    }}
+    _fake_sources(monkeypatch, q2, t2, seed_figi)   # ACN absent -> CINS fallback fires
+    r = r16.run(emit=True, whales={"0000000007": "Book A"})
+    assert r["name_matched"] == 1
+
+    conn = db_connection()
+    rows = conn.execute("SELECT ticker, headline, detail, tags FROM alerts "
+                        "WHERE rule='RULE_16' ORDER BY id").fetchall()
+    conn.close()
+    by = {x["ticker"]: x for x in rows}
+    assert {"SEED", "ACN"} <= set(by), f"expected both paths, got {list(by)}"
+
+    lookup, fallback = by["SEED"], by["ACN"]
+    lt, ft = json.loads(lookup["tags"]), json.loads(fallback["tags"])
+
+    # the two paths must be distinguishable in the payload...
+    assert lt["ticker_confidence"] == r16.CONF_LOOKUP
+    assert ft["ticker_confidence"] == r16.CONF_NAME
+    assert lt["ticker_confidence"] != ft["ticker_confidence"]
+    assert "lookup" in lt["mapping"].lower() and "fallback" in ft["mapping"].lower()
+    # ...and in what a human actually reads
+    assert "name-matched" in fallback["headline"] and "unverified" in fallback["headline"]
+    assert "name-matched" not in lookup["headline"]
+    assert "TICKER CONFIDENCE" in fallback["detail"]
+    assert "TICKER CONFIDENCE" not in lookup["detail"]
+
+
+def test_no_alert_can_claim_lookup_confidence_without_a_cusip_resolution(monkeypatch):
+    """Adversarial: try to slip a name-matched ticker through as a lookup."""
+    _seed_tickers([("ACN", "Accenture plc")]).close()
+    conn = db_connection()
+    fb = r16.cins_fallback(conn, "G1151C101", "ACCENTURE PLC IRELAND")
+    conn.close()
+    assert fb["confidence"] == r16.CONF_NAME
+    # the emission path reads m.get("confidence", CONF_LOOKUP); a fallback dict must
+    # therefore always carry an explicit non-lookup confidence, or it would default
+    # to looking like a verified lookup.
+    assert "confidence" in fb and fb["confidence"] != r16.CONF_LOOKUP
+
+
+def test_short_cins_names_require_an_exact_match_not_a_fuzzy_one():
+    """"AON" is 3 chars; a 0.90 ratio there is nearly meaningless, so short names
+    demand exact normalised equality — stricter than the cutoff, not looser."""
+    conn = _seed_tickers([("AON", "Aon plc"), ("AONC", "American Oncology Network")])
+    assert r16.cins_fallback(conn, "G0403H108", "AON PLC")["ticker"] == "AON"
+    # a near-miss short name must NOT slide through on ratio alone
+    assert r16.cins_fallback(conn, "G0403H109", "AONX PLC") is None
+    conn.close()

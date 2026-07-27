@@ -1468,6 +1468,18 @@ _HEAT_RULE_MULTIPLIERS: dict[str, float] = {
     "RULE_13": 1.4,
     "RULE_14": 1.2,
     "RULE_15": 1.2,
+    # ⚠️ RULE_16 = 1.4 NEEDS EXPLICIT HUMAN SIGN-OFF — this is a SCORING change, which
+    # CLAUDE.md human-gates, and it was added alongside the gate map entry rather than
+    # reviewed on its own. Peer comparison at the time of writing:
+    #     RULE_10 2.0 (Derived) | RULE_06 1.5 | RULE_12 1.4 | RULE_13 1.4
+    #     RULE_09 1.3 | RULE_14 1.2 | RULE_15 1.2 (Secondary)
+    # Primary-source peers are [1.2, 1.3, 1.4, 1.4, 1.5], median 1.4.
+    # RECOMMENDATION: keep 1.4 — it is the Primary median, it sits below RULE_06 (1.5,
+    # an insider's own trade, a stronger signal than an external manager's quarterly
+    # report), and above RULE_14/15 (1.2). A defensible fallback if you disagree is 1.3,
+    # matching RULE_09, since both are periodic institutional disclosures.
+    # `RULE_SOURCE_QUALITY["RULE_16"] = "Primary"` is also a scoring input and is
+    # justified: a 13F-HR is an authoritative SEC filing, same class as Form 4.
     "RULE_16": 1.4,
 }
 

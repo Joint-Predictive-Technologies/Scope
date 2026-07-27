@@ -74,27 +74,80 @@ MIN_POSITION_USD = 5_000_000 # materiality floor; a rounding-error stake is not 
 INCREASE_PCT = 50.0          # "significant increase" threshold vs the prior quarter
 LOOKBACK_DAYS = 120          # only consider filings this recent (13F is quarterly)
 
-# Concentrated, conviction-driven managers. Deliberately NOT "every 13F filer":
-# ~10,000 institutions file, and most are index-like. Tunable.
+# Concentrated, conviction-driven managers. TUNABLE PRODUCT CHOICE, not physics.
+#
+# Every CIK below was resolved from EDGAR's own company search filtered to 13F-HR
+# filers, then confirmed by parsing that filer's latest information table and
+# counting DISTINCT CUSIPs (never rows — Coatue files 198 rows for 62 holdings, so a
+# row-based guard would wrongly drop it). Comment shows the confirmed count.
+#
+# Correctly excluded by MAX_HOLDINGS: Maverick Capital (239), Polen Capital (221),
+# First Eagle (424) — index-like books, not conviction.
+#
+# FLAGGED FOR THE HUMAN, deliberately not guessed:
+#   * Baupost — EDGAR search returns CIK 0001054420 ("BAUPOST GROUP LLC /ADV"), which
+#     has no parseable 13F. 0001061768 is the entity that actually files and is used
+#     here; confirm that is the intended one.
+#   * Trian Fund Management (0001345472) — no parseable 13F found. OMITTED.
+#   * Eminence Capital and Ruane Cunniff resolve to 13Fs with ONE holding, which is
+#     almost certainly a partial or amended filing rather than the real book. OMITTED
+#     rather than included on a number I do not believe.
+#   * Abrams Capital and Jana Partners matched multiple CIKs; the largest-filer match
+#     is used. Confirm.
 WHALES: dict[str, str] = {
-    "0001067983": "Berkshire Hathaway",
-    "0001061768": "Baupost Group",
-    "0001336528": "Pershing Square",
-    "0001040273": "Third Point",
-    "0001656456": "Appaloosa Management",
-    "0001536411": "Duquesne Family Office",
-    "0001791786": "Scion Asset Management",
-    "0001709323": "ValueAct Holdings",
-    "0001079114": "Greenlight Capital",
-    "0000921669": "Icahn Enterprises",
-    "0001167483": "Tiger Global Management",
-    "0001709323b": "",  # placeholder key ignored (see _whales())
+    "0001096343": "MARKEL GROUP INC.",                        # 129 holdings
+    "0001103804": "VIKING GLOBAL INVESTORS LP",               #  77 holdings
+    "0001536411": "Duquesne Family Office LLC",               #  68 holdings
+    "0001135730": "COATUE MANAGEMENT LLC",                    #  62 holdings
+    "0001167483": "TIGER GLOBAL MANAGEMENT LLC",              #  54 holdings
+    "0000807985": "SOUTHEASTERN ASSET MANAGEMENT INC/TN/",    #  49 holdings
+    "0001138995": "GLENVIEW CAPITAL MANAGEMENT, LLC",         #  43 holdings
+    "0001079114": "GREENLIGHT CAPITAL INC",                   #  40 holdings
+    "0001762304": "HHLR ADVISORS, LTD.",                      #  38 holdings
+    "0001061165": "LONE PINE CAPITAL LLC",                    #  36 holdings
+    "0001040273": "Third Point LLC",                          #  33 holdings
+    "0001791786": "Elliott Investment Management L.P.",       #  32 holdings
+    "0001656456": "Appaloosa LP",                             #  31 holdings
+    "0001061768": "Baupost Group LLC",                        #  22 holdings
+    "0001067983": "BERKSHIRE HATHAWAY INC",                   #  29 holdings
+    "0001517857": "Soroban Capital Partners LP",              #  27 holdings
+    "0001517137": "Starboard Value LP",                       #  25 holdings
+    "0001112520": "AKRE CAPITAL MANAGEMENT LLC",              #  19 holdings
+    "0001582090": "Sachem Head Capital Management LP",        #  19 holdings
+    "0001418814": "ValueAct Holdings, L.P.",                  #  18 holdings
+    "0001709323": "Himalaya Capital Management LLC",          #  14 holdings
+    "0001541617": "Altimeter Capital Management, LP",         #  13 holdings
+    "0000921669": "ICAHN CARL C",                             #  12 holdings
+    "0001336528": "Pershing Square Capital Management, L.",   #  11 holdings
+    "0001358706": "ABRAMS CAPITAL MANAGEMENT, L.P.",          #  11 holdings  # AMBIGUOUS: also matched 0001426355,0001165407
+    "0001056831": "FAIRHOLME CAPITAL MANAGEMENT LLC",         #  10 holdings
+    "0001159159": "JANA PARTNERS LLC",                        #   9 holdings  # AMBIGUOUS: also matched 0001998597
+    "0001649339": "Scion Asset Management, LLC",              #   8 holdings
 }
 
 # Only these OpenFIGI security types become a leg. Funds/ETFs are excluded on
 # purpose: a basket is not a conviction signal and drags the generic-ticker
 # concentration problem into the gate.
 ALLOWED_SECURITY_TYPES = {"Common Stock", "REIT"}
+
+# --- the fenced CINS fallback -----------------------------------------------
+# OpenFIGI resolves 0 of 316 CINS (letter-prefixed) CUSIPs — verified by census and
+# again live on Chubb, Aon, Accenture, Willis Towers Watson. Those are top-ten
+# positions in real conviction books, so the blind spot is material.
+#
+# The fallback is name matching, which is EXACTLY the technique that mapped Boeing's
+# political score onto Bank of America filings in RULE_15 and Intellectual Ventures
+# onto Intel in RULE_14. It is therefore FENCED on four sides:
+#   1. CINS only        — never runs for a digit CUSIP, which OpenFIGI resolves at 98%
+#   2. only on failure  — never runs when the CUSIP lookup succeeded
+#   3. high cutoff 0.90 — well above RULE_09's 0.70, which produced real mis-maps
+#   4. flagged forever  — the alert carries ticker_confidence="name-matched", and a
+#                         test asserts a fallback ticker can never be presented as a lookup
+# Below the cutoff it DROPS LOUDLY. A guessed ticker is never emitted.
+CINS_PREFIX = re.compile(r"^[A-Z]")
+CINS_FALLBACK_CUTOFF = 0.90
+CONF_LOOKUP = "cusip-lookup"      # OpenFIGI, false-match ~0
+CONF_NAME = "name-matched"        # CINS fallback, lower confidence, always flagged
 
 DERIVATIVE_CLASS = re.compile(r"\b(PUT|CALL|WARRANT|NOTE|BOND|DBCV|CONV)\b", re.I)
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,5}$")
@@ -252,6 +305,66 @@ def map_cusips(cusips: list[str], budget_deadline: float | None = None) -> dict[
 # Storage
 # ---------------------------------------------------------------------------
 
+_TICKER_NAMES_CACHE: list[tuple[str, str]] | None = None
+
+
+def _ticker_names(conn) -> list[tuple[str, str]]:
+    """(symbol, UPPER company_name) from the local `tickers` table."""
+    global _TICKER_NAMES_CACHE
+    if _TICKER_NAMES_CACHE is None:
+        _TICKER_NAMES_CACHE = [
+            (r[0], (r[1] or "").upper())
+            for r in conn.execute("SELECT symbol, company_name FROM tickers "
+                                  "WHERE company_name IS NOT NULL AND company_name != ''")]
+    return _TICKER_NAMES_CACHE
+
+
+_NAME_NOISE = re.compile(
+    # PUBLIC is here because "Public Limited Co" is the written-out form of "plc",
+    # which is already stripped — without it "Willis Towers Watson Public Limited Co"
+    # scores 0.851 against "Willis Towers Watson PLC" and is correctly DROPPED. The
+    # fix is to normalise a known legal-form token, never to lower the 0.90 fence.
+    r"\b(INC|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|PLC|PUBLIC|THE|CLASS|COM|SHS|ORD|"
+    r"HLDGS|HOLDINGS|GROUP|SA|NV|AG|LP|TR|TRUST|IRELAND|NEW)\b", re.I)
+
+
+def _norm(name: str) -> str:
+    return " ".join(_NAME_NOISE.sub(" ", (name or "").upper()).replace(",", " ").split())
+
+
+def cins_fallback(conn, cusip: str, issuer: str) -> dict | None:
+    """Resolve a CINS issuer NAME to a ticker — fenced, high-cutoff, always flagged.
+
+    Returns None (caller drops loudly) unless the match clears CINS_FALLBACK_CUTOFF.
+    Never called for a digit CUSIP and never called when OpenFIGI succeeded.
+    """
+    import difflib
+    if not CINS_PREFIX.match(cusip or ""):
+        return None                                   # fence 1: CINS only
+    target = _norm(issuer)
+    if not target:
+        return None
+    # A very short normalised name ("AON") is the riskiest thing to fuzzy-match:
+    # at 3 characters a 0.90 ratio is nearly meaningless. Rather than drop those
+    # (which would lose Aon, a real top holding) or loosen the fence, SHORT NAMES
+    # REQUIRE AN EXACT normalised match. Stricter than the cutoff, not looser.
+    exact_only = len(target) < 5
+    pairs = _ticker_names(conn)
+    best, best_score = None, 0.0
+    for sym, nm in pairs:
+        score = difflib.SequenceMatcher(None, target, _norm(nm)).ratio()
+        if score > best_score:
+            best, best_score = (sym, nm), score
+    floor = 1.0 if exact_only else CINS_FALLBACK_CUTOFF
+    if not best or best_score < floor:                 # fence 3: drop below cutoff
+        return None
+    if not TICKER_RE.match(best[0].upper()):
+        return None
+    return {"ticker": best[0].upper(), "name": best[1],
+            "security_type": "CINS/name-matched", "confidence": CONF_NAME,
+            "match_score": round(best_score, 3)}
+
+
 def ensure_tables(conn) -> None:
     """Additive only — a new table, no change to any existing one."""
     conn.execute("""CREATE TABLE IF NOT EXISTS institutional_holdings (
@@ -330,6 +443,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
     scanned = stored = emitted = 0
     skipped_quant = dropped_unmapped = baselined = 0
     unmapped_detail: list[str] = []
+    name_matched = 0
     partial = False        # ran out of time budget -> resumable
     crashed = False        # died on an exception -> distinct, and must read differently
     failures: list[str] = []
@@ -382,6 +496,17 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
             # Watson, i.e. top-ten positions, not obscure micro-caps. Dropping is
             # still the right call (never guess a ticker), but dropping QUIETLY
             # would hide a known functional gap behind a healthy-looking run.
+            # fence 2: the fallback runs ONLY where the CUSIP lookup failed
+            for c, h in material.items():
+                if c in mapped:
+                    continue
+                fb = cins_fallback(conn, c, h["issuer"])
+                if fb:
+                    mapped[c] = fb
+                    name_matched += 1
+                    print(f"[{RULE}] CINS fallback: {h['issuer'][:34]} {c} -> "
+                          f"{fb['ticker']} (score {fb['match_score']}, FLAGGED low-confidence)")
+
             missing = [(c, h["issuer"], h["value"]) for c, h in material.items()
                        if c not in mapped]
             dropped_unmapped += len(missing)
@@ -416,15 +541,22 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                 pct = ((h["shares"] - prior) / prior * 100) if prior > 0 else None
                 what = ("a NEW position" if kind == "NEW"
                         else f"a {pct:.0f}% increase")
+                low_conf = m.get("confidence", CONF_LOOKUP) != CONF_LOOKUP
                 headline = (f"Whale disclosure — {f['filer_name'] or label} disclosed "
-                            f"{what} in {ticker} (${h['value']/1e6:,.0f}M)")
+                            f"{what} in {ticker} (${h['value']/1e6:,.0f}M)"
+                            + (" [ticker name-matched, unverified]" if low_conf else ""))
                 detail = (
                     f"{f['filer_name'] or label} reported {h['shares']:,.0f} shares of "
                     f"{h['issuer']} (${h['value']:,.0f}) for the quarter ended "
                     f"{f['report_date']}, filed {f['filing_date']}. "
                     f"Prior quarter: {prior:,.0f} shares. "
                     f"This is a DISCLOSURE of a position held as of {f['report_date']} — "
-                    f"not evidence of buying today.")
+                    f"not evidence of buying today."
+                    + ("" if not low_conf else
+                       f" ⚠ TICKER CONFIDENCE: name-matched, not a CUSIP lookup. "
+                       f"CUSIP {cusip} is a CINS (foreign-domiciled) which OpenFIGI cannot "
+                       f"resolve; {ticker} was matched from the issuer name at score "
+                       f"{m.get('match_score')}. Treat the symbol as unverified."))
                 insert_alert(
                     conn, RULE, ticker, severity, headline,
                     why_matters=("A concentrated institution disclosing a new or materially "
@@ -434,7 +566,13 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                           "kind": kind, "shares": h["shares"], "prior_shares": prior,
                           "value_usd": h["value"], "report_date": f["report_date"],
                           "filing_date": f["filing_date"], "security_type": m["security_type"],
-                          "source": "SEC 13F-HR", "mapping": "OpenFIGI CUSIP"},
+                          "source": "SEC 13F-HR",
+                          # A name-matched ticker must NEVER read as a lookup.
+                          "ticker_confidence": m.get("confidence", CONF_LOOKUP),
+                          "match_score": m.get("match_score"),
+                          "mapping": ("OpenFIGI CUSIP lookup"
+                                      if m.get("confidence", CONF_LOOKUP) == CONF_LOOKUP
+                                      else "CINS issuer-name fallback (LOW CONFIDENCE)")},
                     source_url=f"https://www.sec.gov/Archives/edgar/data/"
                                f"{int(cik)}/{f['accession'].replace('-','')}/",
                     detail=detail,
@@ -450,7 +588,8 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
     finally:
         notes = (f"filers={len(targets)} scanned={scanned} stored={stored} "
                  f"emitted={emitted} quant_skipped={skipped_quant} "
-                 f"unmapped_dropped={dropped_unmapped} baselined={baselined}"
+                 f"unmapped_dropped={dropped_unmapped} name_matched={name_matched} "
+                 f"baselined={baselined}"
                  + (f" | DROPPED: {'; '.join(unmapped_detail[:6])}" if unmapped_detail else "")
                  + (" PARTIAL(time budget, resumable)" if partial else "")
                  + (" ABORTED(exception)" if crashed else ""))
@@ -470,7 +609,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
     return {"scanned": scanned, "stored": stored, "emitted": emitted,
             "partial": partial, "failures": failures, "baselined": baselined,
             "skipped_quant": skipped_quant, "dropped_unmapped": dropped_unmapped,
-            "unmapped_detail": unmapped_detail}
+            "unmapped_detail": unmapped_detail, "name_matched": name_matched}
 
 
 def build_parser() -> argparse.ArgumentParser:
