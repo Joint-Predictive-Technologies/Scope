@@ -564,7 +564,7 @@
     RULE_ANOMALY:{n:'Attention Spike',s:'Internal',d:'A ticker receives 2.5x its normal signal rate in 30 days.'},
     RULE_REDDIT:{n:'Reddit Signal',s:'Reddit',d:'High-upvote posts pairing tracked tickers with political keywords.'},
     RULE_OSINT:{n:'Geopolitical OSINT',s:'GDELT',d:'Conflict events mapped to market exposure via region-sector-ticker logic.'},
-    RULE_10:{n:'Corroboration Engine',s:'Cross-source synthesis',d:'Fires when 4+ distinct eligible rules converge on the same ticker within 24h. Polymarket, OSINT, Reddit and anomaly are excluded. Generates an LLM analyst narrative.'},
+    RULE_10:{n:'Corroboration Engine',s:'Cross-source synthesis',d:'Fires when 3+ distinct INSTRUMENTS converge on the same ticker within 14 days. Polymarket, OSINT, Reddit and anomaly are excluded. Generates an LLM analyst narrative.'},
   };
   const RAIL_ORDER = ['RULE_01B','RULE_02','RULE_06','RULE_07','RULE_08','RULE_09','RULE_11','RULE_12','RULE_13','RULE_14','RULE_15','RULE_ANOMALY','RULE_REDDIT','RULE_OSINT'];
   let _railStats = {}, _railLocked = null;
@@ -668,12 +668,12 @@
       <div class="how-num">01</div>
       <div class="how-title">Raw data ingested</div>
       <div class="how-desc">Scope continuously monitors political, regulatory, corporate, market, and geopolitical sources — congressional disclosures, SEC Form 4 filings, the Federal Register, Senate lobbying records, foreign-lobbying filings, FEC campaign finance, USPTO patents, USASpending.gov contracts, Polymarket odds, Reddit, geopolitical OSINT, and corporate earnings calls — on source-specific schedules from 15 minutes to daily.</div>
-      <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> RULE_08 + RULE_09 fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> 4 rules converge → RULE_10 queued</div>
+      <div class="how-example"><span class="ok">✓</span> RULE_01B fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> RULE_06 fired — <span class="hi">$RKLB</span> insider sell<br><span class="ok">✓</span> RULE_08 + RULE_09 fired — <span class="hi">$RKLB</span><br><span class="ok">✓</span> 3 instruments converge (congressional + insider + fed-register) → RULE_10 queued</div>
     </div>
     <div class="how-step">
       <div class="how-num">02</div>
       <div class="how-title">Rules score every signal</div>
-      <div class="how-desc">14 detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When four or more independent rules fire on the same ticker within 24 hours, RULE_10 generates an AI-written analyst narrative.</div>
+      <div class="how-desc">14 detection rules analyze each data source for significant patterns. Signals are scored by severity, recency, and rule weight. When three or more independent instruments fire on the same ticker within 14 days, RULE_10 generates an AI-written analyst narrative.</div>
       <div class="how-example">Signal score = sev × 0.5^(h/48)<br>× rule_multiplier<br><span class="hi">RULE_10</span> multiplier: <span class="ok">2.0×</span><br><span class="hi">RULE_06</span> multiplier: <span class="ok">1.5×</span></div>
     </div>
     <div class="how-step">
@@ -863,7 +863,7 @@
     const el = document.getElementById('corr-hero-cards');
     if (!el) return;
     if (!Array.isArray(data) || !data.length) {
-      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 4+ distinct eligible rules converge on the same ticker within 24h.</div>';
+      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 3+ distinct instruments converge on the same ticker within 14 days.</div>';
       return;
     }
     el.innerHTML = data.map(a => {

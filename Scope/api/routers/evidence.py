@@ -38,7 +38,7 @@ _WHY = {
     "RULE_07":  "A politically-linked prediction market moved sharply on volume.",
     "RULE_08":  "A proposed federal regulation references this sector.",
     "RULE_09":  "Quarterly lobbying spend spiked year-over-year.",
-    "RULE_10":  "Four or more distinct eligible rules converged on this ticker within 24h.",
+    "RULE_10":  "Three or more distinct INSTRUMENTS converged on this ticker within 14 days.",
     "RULE_11":  "A federal contract was awarded to this company (or its public parent).",
     "RULE_12":  "A foreign entity is disclosed lobbying in this sector.",
     "RULE_13":  "A large industry PAC contribution was recorded.",

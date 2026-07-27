@@ -49,8 +49,8 @@ from collections import defaultdict
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import (RULE_10_MIN_INSTRUMENTS, db_connection, insert_alert,
-                        rule10_instruments, score_alert_fields)
+from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, db_connection,
+                        insert_alert, rule10_instruments, score_alert_fields)
 
 
 def theme_instrument_count(supporting_rules_json: str) -> int:
@@ -121,15 +121,25 @@ def upsert_theme(conn, ticker, distinct_rules, scores) -> int:
 
 RULE = "RULE_10"
 
-# These rules are too noisy / too volume-heavy to count as corroboration sources.
-# Polymarket has 578+ alerts, OSINT has hundreds — they'd pair with everything.
-EXCLUDED_FROM_CORROBORATION = {
-    "RULE_07",       # Polymarket — noise
-    "RULE_OSINT",    # GDELT geopolitics — noise
-    "RULE_REDDIT",   # Reddit sentiment — noise
-    "RULE_10",       # self-referential
-    "RULE_ANOMALY",  # ML anomaly — not a fundamental signal
-}
+# Rules that may not act as a corroboration source: too noisy / too volume-heavy
+# (Polymarket has 578+ alerts, OSINT hundreds — they would pair with everything),
+# self-referential (RULE_10), or RETIRED (RULE_12/13/14).
+#
+# DERIVED from jpt_common.RULE_10_EXCLUDED — ONE source of truth, deliberately.
+#
+# This was a second, hand-maintained set, and it had silently DIVERGED: RULE_12/13/14
+# were retired into RULE_10_EXCLUDED, which stopped them counting as instruments, but
+# this set still admitted them as SQL candidates. So a retired rule could not OPEN a
+# corroboration yet still landed in `theme_signals` and inflated the corroboration's
+# evidence_confidence, because :311 passes distinct_rule_count = rule *names*.
+# Measured on identical 3-instrument fires: 6.0 with live rules only, 81.0 once
+# RULE_12/13/14 were present — a 13x inflation from rules that are supposedly retired.
+#
+# The two sets serve different mechanisms (this one is the SQL candidate filter,
+# RULE_10_EXCLUDED drives rule10_eligible_rules/rule10_instruments) but they answer the
+# same question: "may this rule participate in corroboration at all?" One answer.
+# tests/test_exclusion_single_source.py fails if they are ever made to disagree.
+EXCLUDED_FROM_CORROBORATION = set(RULE_10_EXCLUDED)
 
 DEDUP_WINDOW_DAYS = 7
 

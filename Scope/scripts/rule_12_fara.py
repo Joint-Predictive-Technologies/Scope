@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """
-RULE_12 — Foreign Lobbying (FARA)
-Source: DOJ FARA database — fara.justice.gov
-Free, no key required. Bulk CSV updated daily.
+RULE_12 — Foreign Lobbying  ** RETIRED 2026-07-27 — DO NOT RESCHEDULE **
+
+The old docstring claimed "DOJ FARA — fara.justice.gov". THAT WAS FALSE: the code reads
+LDA_API_URL = https://lda.senate.gov/api/v1/filings/ (below), the byte-identical endpoint
+rule_09_lobbying.py uses, filtered to filings with a non-empty foreign_entities list. It
+was never an independent source, and it never emitted a single alert.
+
+Rewiring it to the real DOJ FARA source was investigated and returned NO-GO: the FARA API
+carries no subject field, and its only ticker path funnels 49 countries into 4 symbols,
+half of them ETFs. Retired via RULE_10_EXCLUDED and unscheduled.
 
 Run hourly via cron:
   0 * * * * cd /path/to/Scope && python scripts/rule_12_fara.py
