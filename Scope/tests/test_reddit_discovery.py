@@ -35,6 +35,25 @@ _c = TestClient(app)
 _REAL_DB = os.path.join(os.path.dirname(__file__), "..", "data", "jpt.db")
 
 
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """No test may touch the network, and none may LEAN ON a failed lookup.
+
+    `test_insufficient_history_emits_NOTHING` passed with the MIN_HISTORY_DAYS guard
+    DELETED — because `market_cap` made a real SEC/Yahoo call for the fake ticker,
+    got None, and failed closed. The guard was never what stopped the fire, so the
+    single thing that makes shipping untuned parameters safe was untested. A verifier
+    found it by mutation.
+
+    Default: caps resolve as a small-cap, so anything that does NOT fire is not firing
+    for a real reason. Tests that care about the cap override this explicitly.
+    """
+    monkeypatch.setattr(disc, "market_cap", lambda conn, sym: 500_000_000)
+    for fn in ("_cik_for", "_shares_outstanding", "_last_close"):
+        monkeypatch.setattr(disc, fn, lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError(f"{fn} hit the network during a test")))
+
+
 @pytest.fixture
 def past_epoch(monkeypatch):
     """Let fixtures seed HISTORY.
@@ -125,12 +144,37 @@ def test_zero_filling_means_a_quiet_ticker_has_a_low_baseline(past_epoch):
 # ── guards ───────────────────────────────────────────────────────────────────
 
 def test_insufficient_history_emits_NOTHING():
-    """The structural guard. With 12 hours of real data this is the live state."""
+    """THE guard that makes shipping untuned parameters safe. With 12 hours of real
+    data this is the live state, so it is the only thing standing between a declared
+    guess and a written candidate.
+
+    The cap now resolves small (autouse `no_network`), so history is the ONLY thing
+    that can stop this — the previous version passed with the guard deleted because a
+    failed network lookup was quietly doing the work.
+    """
     conn = db_connection()
     disc.ensure_tables(conn)
     _seed(conn, "NEWBUZZ", [0] * 30)      # 30 mentions today, 1 day of history
     assert disc.history_days(conn) < disc.MIN_HISTORY_DAYS
+    assert disc.evaluate(30, [0] * 14)[0], "fixture must otherwise FIRE, or this is vacuous"
+    assert disc.find_candidates(conn) == [], "the history guard did not hold"
+    conn.close()
+
+
+def test_the_history_guard_boundary(past_epoch):
+    """Off-by-one: MIN_HISTORY_DAYS-1 must block, MIN_HISTORY_DAYS must allow."""
+    conn = db_connection()
+    disc.ensure_tables(conn)
+    # one day short — must block
+    _history(conn, days=disc.MIN_HISTORY_DAYS - 2)   # + today = MIN-1 distinct days
+    _seed(conn, "BOUNDARY", [0] * 30)
+    assert disc.history_days(conn) == disc.MIN_HISTORY_DAYS - 1
     assert disc.find_candidates(conn) == []
+    # one more day — must now allow
+    _history(conn, days=disc.MIN_HISTORY_DAYS)
+    assert disc.history_days(conn) >= disc.MIN_HISTORY_DAYS
+    assert [c for c in disc.find_candidates(conn) if c["ticker"] == "BOUNDARY"], \
+        "the guard blocked even with sufficient history"
     conn.close()
 
 
