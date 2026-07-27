@@ -172,6 +172,21 @@ detected before 2026-07-27 keep their pre-rescale values (a 3-instrument fire si
 new ones for reasons that are not about evidence.** This resolves as the backlog ages
 out; do NOT "fix" it by re-enriching, which would destroy detection-time values.
 
+⚠️ **Known, not fixed — the top tier saturates at 5.** Because the tiers are
+`>=3/>=4/>=5`, a 5-, 6- or 9-instrument convergence all take base 75 and persist the
+**same** score (81.0 at the emitter's weight). Pre-rescale the top tier was `>=6`, so 5
+and 6 were 15 points apart — the rescale did not create this, it moved it **down** to a
+more reachable convergence size. Two consequences: `mode=overwatch` ties them and falls
+through to `created_at DESC`, so a **newer 5-instrument corroboration can outrank an
+older 6-instrument one**; and at the *theme* level (`score_alert_fields` uses per-rule
+weights, not RULE_10's flat `Derived` 0.3) the quality average becomes the only
+discriminator above the top tier, so **adding a lower-quality sixth leg lowers the
+score** — 5 all-Primary = 95.0 beats 6-with-a-Secondary = 93.7. Themes are ordered by
+`opportunity_score` (`api/routers/themes.py:40`), so that half is display-only. Fixing
+it means a **fourth tier**, a formula-shape change needing sign-off; pinned in
+`tests/test_evidence_tier_ordering.py::test_the_top_tier_saturates_at_five_and_that_is_a_known_limitation`.
+**How often n>=5 actually occurs is `UNVERIFIED — needs prod`** (0 RULE_10 rows locally).
+
 ⚠️ **Known, not fixed:** `api/routers/evidence.py::_confidence_breakdown` computes its
 own drawer number on a different scale (instruments x10 capped at 60, plus severity /
 freshness / insider / contract points). It is not `evidence_confidence` and does not
