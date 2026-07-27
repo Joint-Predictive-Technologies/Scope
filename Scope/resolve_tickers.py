@@ -5,13 +5,14 @@ from __future__ import annotations
 import difflib
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from typing import Any
 
 from dotenv import load_dotenv
 
-from jpt_common import db_connection
+from jpt_common import db_connection, record_activity
 
 
 SEC_TICKER_URL = "https://www.sec.gov/files/company_tickers.json"
@@ -31,6 +32,20 @@ def ensure_tables(conn) -> None:
         );
         """
     )
+    # `CREATE TABLE IF NOT EXISTS` is a NO-OP if the table already exists — and
+    # jpt_common's own schema init creates `tickers` WITHOUT `updated_at`. So on any
+    # database where db_connection() ran before this module ever did (a fresh deploy, a
+    # restore from backup, the test suite), the column is absent and every upsert here
+    # dies with "table tickers has no column named updated_at". Prod happens to have it
+    # because resolve_tickers got there first — which is luck, not design, and this job
+    # is now SCHEDULED, so it has to hold everywhere.
+    #
+    # Additive and guarded by PRAGMA table_info, per the project's migration rule. No
+    # DEFAULT expression: SQLite rejects non-constant defaults in ADD COLUMN, and the
+    # upsert sets the value anyway.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tickers)").fetchall()}
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE tickers ADD COLUMN updated_at TEXT")
     conn.commit()
 
 
@@ -256,16 +271,48 @@ def resolve_transactions(conn) -> tuple[int, int]:
     return resolved, unresolved
 
 
-def main() -> None:
-    load_dotenv()
+def refresh_tickers_only() -> int:
+    """THE SAFE HALF, and the only half that is scheduled.
 
+    Downloads the SEC company_tickers feed and upserts `tickers`. That table is
+    reference data with `symbol` as the conflict key — this rewrites nothing else and
+    touches no alert, transaction or score.
+
+    It exists as its own entry point because `main()` also runs `resolve_transactions`,
+    which UPDATEs congressional `transactions` rows and must NOT run unattended. The
+    split is structural, not a flag: nothing on this call path can reach that function,
+    which is asserted by an AST walk in tests/test_ticker_refresh_job.py.
+
+    Why it is scheduled at all: `tickers` had exactly one writer and no schedule, so it
+    was populated once and left. RULE_16's CINS fallback resolves institutional holdings
+    against it, so a stale table quietly costs coverage — a slow rot with no error.
+    """
+    load_dotenv()
+    t0 = time.time()
     with db_connection() as conn:
         ensure_tables(conn)
-
         data = download_sec_tickers()
-        ticker_count = upsert_sec_tickers(conn, data)
-        print(f"Upserted {ticker_count} SEC tickers.")
+        count = upsert_sec_tickers(conn, data)
+        total = conn.execute("SELECT COUNT(*) FROM tickers").fetchone()[0]
 
+    notes = f"upserted={count}, table_total={total}"
+    record_activity("REFRESH_TICKERS", scanned=count, flagged=0, emitted=count,
+                    duration_seconds=round(time.time() - t0, 2), notes=notes)
+    print(f"[REFRESH_TICKERS] {notes}")
+    return count
+
+
+def main() -> None:
+    """BOTH halves — manual, human-gated. Never scheduled.
+
+    `resolve_transactions` rewrites `transactions.ticker_id` on congressional trade
+    data. That is the dataset RULE_01B/RULE_02/RULE_CLUSTER read, so an unattended
+    mis-resolution would silently reshape the congressional instrument. Run this by
+    hand, having looked at what it is about to change.
+    """
+    refresh_tickers_only()
+
+    with db_connection() as conn:
         resolved, unresolved = resolve_transactions(conn)
         print(f"Done. {resolved} resolved, {unresolved} unresolved.")
 
