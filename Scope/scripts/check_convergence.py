@@ -13,16 +13,28 @@ TWO MODES, and the difference matters — an earlier version conflated them and 
                           reachable at all.
   --mode live             the gate's OWN trailing window ending now — what RULE_10 would
                           actually see on this run. Answers "is the pool filling?"
+                          Applies the gate's 7-day DEDUP: a ticker already corroborated
+                          inside that window is shown as `dedup-suppressed`, not FIRE,
+                          because the gate would emit nothing for it.
 
 `best` will always be >= `live`. A ticker can show as a best-window near miss whose legs
 are months old and long outside the live window.
 
-COUPLED TO THE GATE BY IMPORT, never a copy. It imports `rule10_instruments`,
-`RULE_10_EXCLUDED`, `RULE_10_MIN_INSTRUMENTS` and `CONVERGENCE_WINDOW_DAYS` directly,
-so if the gate's instrument map, eligibility, threshold or window change, this
-script's output changes with them. A local copy would drift silently — that is the
-RULE_01 lesson, where an eligible-but-unmapped rule became its own phantom instrument
-because two places disagreed about the same question.
+COUPLED TO THE GATE BY IMPORT for every decision it makes: `rule10_instruments`
+(collapsing), `RULE_10_EXCLUDED` (eligibility), `RULE_10_MIN_INSTRUMENTS` (threshold),
+`CONVERGENCE_WINDOW_DAYS` (window) and `_already_corroborated`/`DEDUP_WINDOW_DAYS`
+(dedup). Change any of those in the gate and this script's output changes with them.
+A local copy would drift silently — that is the RULE_01 lesson, where an
+eligible-but-unmapped rule became its own phantom instrument because two places
+disagreed about the same question.
+
+⚠️ ONE THING IS STILL RESTATED, NOT IMPORTED: the candidate SELECT below. The gate's
+`_candidate_alerts` bakes its own trailing-window filter into SQL, which `--mode best`
+must not have (it scans all history), so the predicates — non-empty ticker, severity
+in HIGH/CRITICAL — are written out here. **That is a real drift risk**: if the gate
+ever changes which alerts are candidates, this file must change too. It is not the
+"never a copy" this comment previously claimed. Pinned by
+`tests/test_check_convergence.py`, which fails if the two predicate sets diverge.
 
 SELECT-only. It never writes: the DB is opened `mode=ro`, so the driver itself
 refuses, and the one query is a literal SELECT.
@@ -44,6 +56,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # THE COUPLING — the gate's own logic and constants, imported rather than restated.
+from scripts.rule_10_corroboration import _already_corroborated, DEDUP_WINDOW_DAYS
 from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, _get_db_path,
                         rule10_instruments)
 from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
@@ -58,7 +71,7 @@ CANDIDATES = """
 
 
 def scan(conn, window_days: int, live_only: bool = False
-         ) -> list[tuple[str, int, list[str], str]]:
+         ) -> list[tuple[str, int, list[str], str, bool]]:
     """Instrument count per ticker. Pure read.
 
     live_only=False -> best window anywhere in history.
@@ -82,8 +95,14 @@ def scan(conn, window_days: int, live_only: bool = False
             # The gate's real shape: one trailing window ending now.
             rules = [r for (ts, r) in events if ts >= cutoff]
             insts = rule10_instruments(rules)
+            # ...and the gate's real SUPPRESSION. Counting instruments is only half of
+            # what RULE_10 does; a ticker corroborated inside DEDUP_WINDOW_DAYS emits
+            # nothing. Without this the script prints "*** FIRE" for tickers the gate
+            # is correctly silent on, which reads as the gate being broken.
+            suppressed = (len(insts) >= RULE_10_MIN_INSTRUMENTS
+                          and _already_corroborated(conn, ticker))
             out.append((ticker, len(insts), insts,
-                        str(max((ts for ts, _ in events), default="-"))[:10]))
+                        str(max((ts for ts, _ in events), default="-"))[:10], suppressed))
             continue
         best, best_at = [], None
         for start, _ in events:
@@ -93,7 +112,8 @@ def scan(conn, window_days: int, live_only: bool = False
             insts = rule10_instruments(rules)
             if len(insts) > len(best):
                 best, best_at = insts, start
-        out.append((ticker, len(best), best, str(best_at)[:10] if best_at else "-"))
+        # dedup is meaningless across historical windows — never suppressed in best mode
+        out.append((ticker, len(best), best, str(best_at)[:10] if best_at else "-", False))
     return sorted(out, key=lambda r: (-r[1], r[0]))
 
 
@@ -116,7 +136,8 @@ def main() -> None:
     finally:
         conn.close()
 
-    fires = [r for r in rows if r[1] >= RULE_10_MIN_INSTRUMENTS]
+    fires = [r for r in rows if r[1] >= RULE_10_MIN_INSTRUMENTS and not r[4]]
+    dedup = [r for r in rows if r[1] >= RULE_10_MIN_INSTRUMENTS and r[4]]
     near = [r for r in rows if r[1] == RULE_10_MIN_INSTRUMENTS - 1]
 
     label = ("BEST window anywhere in history" if args.mode == "best"
@@ -128,17 +149,22 @@ def main() -> None:
           f"{', '.join(sorted(RULE_10_EXCLUDED))})\n")
 
     shown = 0
-    for ticker, n, insts, when in rows:
+    for ticker, n, insts, when, suppressed in rows:
         if n < args.min:
             continue
         shown += 1
-        flag = ("  *** FIRE" if n >= RULE_10_MIN_INSTRUMENTS
+        flag = (f"  dedup-suppressed (corroborated within {DEDUP_WINDOW_DAYS}d)" if suppressed
+                else "  *** FIRE" if n >= RULE_10_MIN_INSTRUMENTS
                 else "  <- near miss" if n == RULE_10_MIN_INSTRUMENTS - 1 else "")
         print(f"  {ticker:<8} {n} instrument(s)  {', '.join(insts):<46} from {when}{flag}")
     if not shown:
         print(f"  (no ticker reached {args.min}+ instruments in the window)")
 
     print(f"\n  FIRES ({RULE_10_MIN_INSTRUMENTS}+)      : {[r[0] for r in fires] or 'none'}")
+    if args.mode == "live":
+        print(f"  DEDUP-SUPPRESSED : {[r[0] for r in dedup] or 'none'}"
+              f"   (at threshold, but corroborated within {DEDUP_WINDOW_DAYS}d — "
+              f"the gate emits nothing)")
     print(f"  NEAR MISSES ({RULE_10_MIN_INSTRUMENTS - 1}) : {[r[0] for r in near] or 'none'}")
     print(f"  tickers scanned : {len(rows)}   (read-only; nothing was written)")
 
