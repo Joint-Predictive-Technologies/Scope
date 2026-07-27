@@ -90,11 +90,11 @@ _CRON_SCHEDULE: dict[str, dict] = {
     # LDA lobbying filings are quarterly — daily scan at 3am is enough
     "rule_09_lobbying.py":              {"hour": 3,  "minute": 0},
     # Daily brief after overnight data collection
-    # PATH FIX: this was "generate_brief.py", which does not exist at CODE_DIR (the
-    # file is scripts/generate_brief.py), so _run_rule's subprocess raised
-    # FileNotFoundError every day at 06:30 and the LLM brief has never generated from
-    # the scheduler. Audited all 34 scheduled entries: this was the only broken path.
-    "scripts/generate_brief.py":        {"hour": 6,  "minute": 30},
+    # generate_brief.py: cron entry DELETED 2026-07-27, not re-pointed.
+    # It was a redundant dead job — scripts/morning_brief.py already occupies this
+    # 06:30 slot — and it failed 100% of runs. d3687eb (fix/remove-dead-generate-brief-job)
+    # is the human-approved decision to delete it; an earlier pass of this branch
+    # re-pointed its path instead, which silently reversed that decision. Deleted now.
     # Deterministic morning brief (source DAILY_BRIEF) — generates + caches at 06:30.
     "scripts/morning_brief.py":         {"hour": 6,  "minute": 30},
     # RULE_12 RETIRED — its docstring claimed DOJ FARA but it read lda.senate.gov, the

@@ -52,7 +52,7 @@ def _gather_data(conn, days: float = 2) -> dict:
         (window,),
     ).fetchall()
 
-    # Group by rule; only VALID RULE_10 (4+ distinct eligible rules) may be
+    # Group by rule; only VALID RULE_10 (3+ distinct INSTRUMENTS in 14 days) may be
     # grouped as a corroboration — this is what the brief is allowed to cite.
     by_rule: dict = {}
     for r in signals:

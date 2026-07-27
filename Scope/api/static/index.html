@@ -564,7 +564,7 @@
     RULE_ANOMALY:{n:'Attention Spike',s:'Internal',d:'A ticker receives 2.5x its normal signal rate in 30 days.'},
     RULE_REDDIT:{n:'Reddit Signal',s:'Reddit',d:'High-upvote posts pairing tracked tickers with political keywords.'},
     RULE_OSINT:{n:'Geopolitical OSINT',s:'GDELT',d:'Conflict events mapped to market exposure via region-sector-ticker logic.'},
-    RULE_10:{n:'Corroboration Engine',s:'Cross-source synthesis',d:'Fires when 4+ distinct eligible rules converge on the same ticker within 24h. Polymarket, OSINT, Reddit and anomaly are excluded. Generates an LLM analyst narrative.'},
+    RULE_10:{n:'Corroboration Engine',s:'Cross-source synthesis',d:'Fires when 3+ distinct INSTRUMENTS converge on the same ticker within 14 days. Polymarket, OSINT, Reddit and anomaly are excluded. Generates an LLM analyst narrative.'},
   };
   const RAIL_ORDER = ['RULE_01B','RULE_02','RULE_06','RULE_07','RULE_08','RULE_09','RULE_11','RULE_12','RULE_13','RULE_14','RULE_15','RULE_ANOMALY','RULE_REDDIT','RULE_OSINT'];
   let _railStats = {}, _railLocked = null;
@@ -863,7 +863,7 @@
     const el = document.getElementById('corr-hero-cards');
     if (!el) return;
     if (!Array.isArray(data) || !data.length) {
-      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 4+ distinct eligible rules converge on the same ticker within 24h.</div>';
+      el.innerHTML = '<div class="corr-empty">No corroborations in the last 30 days.<br>Corroborations fire when 3+ distinct instruments converge on the same ticker within 14 days.</div>';
       return;
     }
     el.innerHTML = data.map(a => {

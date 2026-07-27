@@ -92,10 +92,9 @@ Every rule `run()`/`main()` ends with `record_activity(source, scanned, flagged,
 | RULE_09 | `rule_09_lobbying.py` | cron daily 03:00 |
 | RULE_10 | `scripts/rule_10_corroboration.py` | 60 min |
 | RULE_11 | `scripts/rule_11_contracts.py` | 360 min |
-| RULE_12 | `scripts/rule_12_fara.py` | cron Mon 04:00 |
-| RULE_13 | `scripts/rule_13_fec.py` | cron daily 05:00 |
-| RULE_14 | `scripts/rule_14_patents.py` | cron Tue/Fri 04:30 |
 | RULE_15 | `scripts/rule_15_earnings_nlp.py` | 360 min |
+| RULE_16 | `scripts/rule_16_institutional.py` | cron daily 06:15 |
+| ~~RULE_12/13/14~~ | **RETIRED 2026-07-27** — unscheduled and in `RULE_10_EXCLUDED`. RULE_12 read RULE_09's own LDA endpoint; RULE_13's FEC requests 422 and it cannot finish in 300s; RULE_14's host is NXDOMAIN. | — |
 | RULE_OSINT | `scripts/rule_osint.py` | 15 min |
 | RULE_REDDIT | `scripts/rule_reddit.py` | 30 min |
 | RULE_ANOMALY | `scripts/rule_anomaly.py` | 180 min |
@@ -117,7 +116,7 @@ per alert) records forward returns once an alert's +20-trading-day horizon has
 elapsed — `price_at_detection`, `price_/return_{1d,5d,20d}` (returns are decimals),
 SPY `benchmark_return_{1d,5d,20d}` for alpha, and `status`
 (`complete`/`unavailable`/`pending`). Written only by `scripts/label_outcomes.py`;
-never entangle rules or scoring with it. `_is_equity_ticker` (`scripts/label_outcomes.py:104`) excludes only
+never entangle rules or scoring with it. `_is_equity_ticker` (`scripts/label_outcomes.py:106`) excludes only
 **empty tickers and tickers containing a space** (multi-symbol baskets). Single-symbol
 ETFs are NOT excluded — SPY has 135 `complete` outcome rows. Tickers that cannot be
 priced get `status='unavailable'` via the price lookup, not via a basket-name rule. This is the raw material for the future calibration report —
@@ -125,8 +124,12 @@ do not interpret small per-rule samples early.
 
 **RULE_10 is the corroboration engine:** fires when **3+ distinct INSTRUMENTS**
 converge on the same ticker within **14 days** (ingestion time, `created_at`).
-Excluded from the eligible set: RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY
-(and RULE_10 itself). It also creates/evolves a `themes` row (Market Thesis) and
+Excluded from the eligible set: RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY (and
+RULE_10 itself) as **noise**, plus **RULE_12, RULE_13, RULE_14** as **retired**. That set
+is the single source of truth: `scripts/rule_10_corroboration.py`'s
+`EXCLUDED_FROM_CORROBORATION` is **derived from it**, so a retired rule is excluded from
+both instrument-counting and corroboration-candidacy. They had silently diverged, letting
+retired rules inflate a corroboration's `evidence_confidence` 6.0 -> 81.0. It also creates/evolves a `themes` row (Market Thesis) and
 links evidence in `theme_signals`.
 
 **Instruments, not rule names** (`jpt_common.RULE_10_INSTRUMENTS`). Rules that read
@@ -165,8 +168,9 @@ and picking the strongest window per ticker (most members; ties → most recent)
 ## External sources (status per last diagnostic)
 GDELT (`data.gdeltproject.org`), Arctic Shift (Reddit), Polymarket Gamma+CLOB,
 FEC (`api.open.fec.gov/v1`), OpenSky, USASpending, Federal Register, Senate LDA,
-SEC (needs a contact `User-Agent`), PatentsView (`search.patentsview.org` — DNS
-blocked in some sandboxes, fine in prod). **Not used:** ReliefWeb, FRED.
+SEC (needs a contact `User-Agent`), ~~PatentsView~~ (**`search.patentsview.org` is authoritative NXDOMAIN** — `aa` flag from
+the zone's own nameservers; PatentsView migrated to the USPTO Open Data Portal and the
+successor API needs an ODP key. RULE_14 retired.). **Not used:** ReliefWeb, FRED.
 
 ## Known issues (tracked, not yet fixed)
 - **Unmatched House filers — resolved.** `match_member_id` now does deterministic

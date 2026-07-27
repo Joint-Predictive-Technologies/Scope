@@ -29,10 +29,12 @@ def test_every_scheduled_script_path_resolves():
     assert not missing, f"scheduled scripts with unresolvable paths: {missing}"
 
 
-def test_the_brief_is_scheduled_at_its_real_location():
+def test_the_dead_brief_job_is_deleted_not_repointed():
+    """It failed 100% of runs and morning_brief.py already owns 06:30."""
     import api.main as m
-    assert "scripts/generate_brief.py" in m._CRON_SCHEDULE
-    assert "generate_brief.py" not in m._CRON_SCHEDULE
+    sched = [*m._RULE_SCHEDULE, *m._CRON_SCHEDULE]
+    assert not [s for s in sched if "generate_brief" in s], "the dead job is back"
+    assert "scripts/morning_brief.py" in m._CRON_SCHEDULE, "the real brief job vanished"
 
 
 def _accepts_emit_alerts(script: str) -> bool:
@@ -64,22 +66,13 @@ def test_every_scheduled_script_accepts_the_flag_the_scheduler_passes():
     import api.main as m
     broken = [s for s in [*m._RULE_SCHEDULE, *m._CRON_SCHEDULE]
               if os.path.exists(os.path.join(REPO, s)) and not _accepts_emit_alerts(s)]
-    assert broken == ["scripts/generate_brief.py"], (
-        f"the set of scheduled scripts rejecting --emit-alerts changed: {broken}")
+    assert broken == [], (
+        f"scheduled scripts that would exit 2 on --emit-alerts: {broken}")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "KNOWN BROKEN — HUMAN DECISION REQUIRED. scripts/generate_brief.py exits 2 on the "
-    "scheduler's mandatory --emit-alerts, so the 06:30 LLM brief has never generated. "
-    "Two mutually exclusive fixes and the choice is NOT the assistant's: (a) declare the "
-    "flag as scripts/morning_brief.py:757 does with argparse.SUPPRESS, or (b) DELETE the "
-    "cron entry — commit d3687eb on the unmerged fix/remove-dead-generate-brief-job is a "
-    "human-approved decision to do exactly that, since scripts/morning_brief.py already "
-    "occupies the same 06:30 slot. This cleanup branch re-pointed the path and thereby "
-    "silently reversed that decision. strict=True so this flips to a FAILURE the moment "
-    "someone fixes it without removing the marker."))
-def test_the_brief_actually_runs_under_the_scheduler_contract():
-    assert _accepts_emit_alerts("scripts/generate_brief.py")
+# The brief's xfail is gone because the JOB is gone: the generate_brief.py cron entry
+# was DELETED (not re-pointed) per the human-approved d3687eb — scripts/morning_brief.py
+# already occupies the 06:30 slot. A deleted job cannot fail.
 
 
 # --- Stage 2: phantom-safe retirement ------------------------------------
