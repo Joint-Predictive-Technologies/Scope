@@ -131,6 +131,16 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "scripts/db_backup.py":             {"minute": 5},
     # (interval job for scoring is registered in _RULE_SCHEDULE)
     # Backtest rebuild — weekly Sunday 2am (Yahoo Finance price lookups)
+    # SEC company->ticker reference refresh — weekly, Sunday 03:30.
+    # THE SAFE HALF ONLY. This is scripts/refresh_tickers.py, which calls
+    # resolve_tickers.refresh_tickers_only(). It is NOT resolve_tickers.py: that
+    # module's main() also runs resolve_transactions(), which UPDATEs congressional
+    # `transactions.ticker_id` — the dataset RULE_01B/RULE_02/RULE_CLUSTER read — and
+    # must stay human-gated and unscheduled. Never point this entry at resolve_tickers.py.
+    # Weekly because company->ticker mappings move with IPOs/delistings/renames, not
+    # daily news; the rot this fixes had run seven weeks. 03:30 Sunday is clear of
+    # run_backtest (02:00) and the daily 02:00/03:00 jobs.
+    "scripts/refresh_tickers.py":       {"day_of_week": "sun", "hour": 3, "minute": 30},
     "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},
     # Roster freshness — monthly (1st, 4am): flag recurring unmatched House filers.
     "scripts/roster_check.py":          {"day": 1, "hour": 4, "minute": 0},
