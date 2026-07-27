@@ -580,3 +580,103 @@ def test_dry_run_does_not_crash_on_a_legacy_schema(capsys):
     out = coll.run(dry_run=True)                   # must not raise
     assert out["dry_run"] is True and out["collected"] == 0
     assert "schema not ready" in capsys.readouterr().out
+
+
+# ── the window fix: times_seen must count SIGHTINGS, not collector runs ──────
+
+def test_rerunning_with_no_new_posts_does_not_bump_times_seen():
+    """Every ticker was re-upserted on every run, so `times_seen` counted RUNS and all
+    `last_seen_at` converged to now — making the API's recency ordering a tie broken by
+    nothing, and the oldest names carry the highest counts (a de facto age ranking)."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    _mention(conn, "STEADY")
+    coll.collect(conn); conn.commit()
+    first = conn.execute("SELECT times_seen, last_seen_at FROM ticker_universe "
+                         "WHERE ticker='STEADY'").fetchone()
+    assert first["times_seen"] == 1
+
+    for _ in range(5):                       # five more runs, no new posts
+        coll.collect(conn); conn.commit()
+    after = conn.execute("SELECT times_seen, last_seen_at FROM ticker_universe "
+                         "WHERE ticker='STEADY'").fetchone()
+    conn.close()
+    assert after["times_seen"] == 1, (
+        f"five idle runs bumped times_seen to {after['times_seen']} — it is counting "
+        "collector runs, not sightings")
+    assert after["last_seen_at"] == first["last_seen_at"], "an idle run moved last_seen_at"
+
+
+def test_a_genuinely_new_sighting_DOES_bump_it():
+    """The control — without it, `times_seen` could simply be frozen."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    _mention(conn, "AGAIN", post="p1")
+    coll.collect(conn); conn.commit()
+    _mention(conn, "AGAIN", post="p2")       # a genuinely new post
+    coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT times_seen FROM ticker_universe "
+                       "WHERE ticker='AGAIN'").fetchone()
+    conn.close()
+    assert row["times_seen"] == 2, f"a new sighting did not register ({row['times_seen']})"
+
+
+def test_evaluated_mentions_are_marked_including_rejected_ones():
+    """Rejections must be marked too, or every run re-tests them and re-hits the cap API.
+    Engagement is fixed at ingest and never improves."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    _mention(conn, "DEAD2", score=0, num_comments=0)
+    coll.collect(conn); conn.commit()
+    unmarked = conn.execute(
+        "SELECT COUNT(*) FROM reddit_mentions WHERE collected_at IS NULL "
+        "AND cashtagged = 1").fetchone()[0]
+    conn.close()
+    assert unmarked == 0, "a rejected mention was left pending and will be re-evaluated"
+
+
+def test_last_seen_at_is_the_mention_time_not_the_run_time(monkeypatch):
+    """It means "when was this name last mentioned". Stamping the run time made it mean
+    "when did the collector last execute" — identical for every row, which is what made
+    the API's recency ordering meaningless.
+
+    The epoch is moved back for this fixture only: a mention old enough to distinguish
+    the two timestamps necessarily predates the real COLLECTION_EPOCH, which correctly
+    rejects it (that guard has its own test).
+    """
+    monkeypatch.setattr(coll, "COLLECTION_EPOCH", "2000-01-01 00:00:00")
+    conn = db_connection(); coll.ensure_tables(conn)
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker, cashtagged, score, "
+                 "num_comments, mentioned_at) VALUES "
+                 "('old_m','OLDSEEN',1,20,5,'2026-07-01 09:30:00')")
+    conn.commit()
+    coll.collect(conn); conn.commit()
+    row = conn.execute("SELECT last_seen_at FROM ticker_universe "
+                       "WHERE ticker='OLDSEEN'").fetchone()
+    conn.close()
+    assert row is not None, "the fixture was not collected"
+    assert row["last_seen_at"] == "2026-07-01 09:30:00", (
+        f"last_seen_at is {row['last_seen_at']!r} — it took the RUN time, not the "
+        "mention's, so every row would carry the same value")
+
+
+# ── normalization ───────────────────────────────────────────────────────────
+
+def test_the_universe_is_normalized_like_every_other_ticker_table():
+    from jpt_common import normalize_ticker
+    conn = db_connection(); coll.ensure_tables(conn)
+    for raw in ("  mobx  ", "mobx", "MOBX"):
+        coll.upsert_universe(conn, raw, "small", 400_000_000)
+    conn.commit()
+    rows = [r[0] for r in conn.execute(
+        "SELECT ticker FROM ticker_universe WHERE ticker LIKE '%MOBX%'")]
+    conn.close()
+    assert rows == [normalize_ticker("MOBX")] == ["MOBX"], (
+        f"case/whitespace variants created separate rows: {rows}")
+
+
+def test_the_scheduled_entry_exists_and_points_at_a_real_file():
+    from api.main import _CRON_SCHEDULE, _RULE_SCHEDULE
+    key = "scripts/rule_reddit_collector.py"
+    assert key in _CRON_SCHEDULE, "the collector is scheduled nowhere — it never accumulates"
+    assert key not in _RULE_SCHEDULE
+    assert os.path.exists(os.path.join(os.path.dirname(__file__), "..", key))
+    # coverage is not news: it must not be scheduled so often it looks like a feed
+    assert _CRON_SCHEDULE[key].get("hour"), "no hour set — this would run every minute"

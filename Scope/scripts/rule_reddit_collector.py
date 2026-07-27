@@ -48,7 +48,7 @@ import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection, record_activity  # noqa: E402
+from jpt_common import db_connection, normalize_ticker, record_activity  # noqa: E402
 
 RULE = "RULE_COLLECTOR"
 
@@ -74,7 +74,7 @@ _SEC_HEADERS = {"User-Agent": "Scope research sloppysecondstbb@gmail.com"}
 _YF_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 
-_REQUIRED_MENTION_COLS = {"cashtagged", "score", "num_comments"}
+_REQUIRED_MENTION_COLS = {"cashtagged", "score", "num_comments", "collected_at"}
 
 
 def _tables_exist(conn) -> bool:
@@ -107,6 +107,7 @@ def ensure_tables(conn) -> None:
             cashtagged   INTEGER DEFAULT 0,
             score        INTEGER DEFAULT 0,
             num_comments INTEGER DEFAULT 0,
+            collected_at TEXT,
             UNIQUE(post_id, ticker)
         )""")
     # Guarded adds, for databases created before these columns existed — the
@@ -115,7 +116,11 @@ def ensure_tables(conn) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(reddit_mentions)").fetchall()}
     for col, decl in (("cashtagged", "INTEGER DEFAULT 0"),
                       ("score", "INTEGER DEFAULT 0"),
-                      ("num_comments", "INTEGER DEFAULT 0")):
+                      ("num_comments", "INTEGER DEFAULT 0"),
+                      # NULL = not yet evaluated. A marker, not a time window: a window
+                      # still re-counts the same mention on every run inside it, and the
+                      # question "have I already seen this row" has an exact answer.
+                      ("collected_at", "TEXT")):
         if col not in cols:
             conn.execute(f"ALTER TABLE reddit_mentions ADD COLUMN {col} {decl}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_mentions_ticker_at "
@@ -286,12 +291,23 @@ def collectable(conn, ticker: str, cashtagged: int, score: int, num_comments: in
 # ── collection ──────────────────────────────────────────────────────────────
 
 def pending_mentions(conn) -> list[dict]:
-    """Cashtagged, post-epoch mentions. No window, no baseline — coverage accrues."""
+    """Cashtagged, post-epoch mentions NOT YET EVALUATED.
+
+    `collected_at IS NULL` is the whole fix. Without it this returned every mention ever
+    stored, so each run re-upserted every ticker: `last_seen_at` converged to "now" for
+    all of them and `times_seen` counted COLLECTOR RUNS, not sightings. The API's
+    "ordered by recency" was then a tie broken by nothing, and the oldest names carried
+    the highest counts — a de facto age ranking in a list that must not rank at all.
+
+    A marker rather than a time window, because a window still re-counts the same
+    mention on every run that falls inside it. "Have I already evaluated this row" has
+    an exact answer; approximating it with time would only shrink the error.
+    """
     rows = conn.execute(
         """SELECT ticker, subreddit, MAX(score) score, MAX(num_comments) num_comments,
                   MAX(cashtagged) cashtagged, MAX(mentioned_at) last_mention
            FROM reddit_mentions
-           WHERE cashtagged = 1 AND mentioned_at >= ?
+           WHERE cashtagged = 1 AND mentioned_at >= ? AND collected_at IS NULL
            GROUP BY ticker""", (COLLECTION_EPOCH,)).fetchall()
     return [{"ticker": r["ticker"], "subreddit": r["subreddit"],
              "score": r["score"] or 0, "num_comments": r["num_comments"] or 0,
@@ -305,17 +321,28 @@ def pending_mentions(conn) -> list[dict]:
 
 
 def upsert_universe(conn, ticker: str, cap_status: str, cap: int | None,
-                    source: str = "reddit") -> None:
+                    source: str = "reddit", last_seen: str | None = None) -> None:
     """Re-collection UPDATES. One row per ticker, never a duplicate.
 
     `times_seen` is a COUNT, not a score. Nothing ranks on it and nothing should — a
     name mentioned often is not a better name, it is a more-mentioned name.
     """
+    # NORMALIZED, like every other ticker table in Scope. This was the only one that
+    # was not — unreachable today because extraction upper-cases, but "unreachable via
+    # the current caller" is exactly how the phantom-instrument and lossy-grain bugs
+    # both started.
+    ticker = normalize_ticker(ticker)
+    if not ticker:
+        return
     conn.execute(
         """INSERT INTO ticker_universe
-             (ticker, market_cap, cap_status, source) VALUES (?,?,?,?)
+             (ticker, market_cap, cap_status, source, first_collected_at, last_seen_at)
+           VALUES (?,?,?,?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
            ON CONFLICT(ticker) DO UPDATE SET
-             last_seen_at = datetime('now'),
+             -- the MENTION's timestamp, not "now": last_seen_at means "when was this
+             -- name last mentioned", and stamping the run time made it mean "when did
+             -- the collector last execute", which is the same for every row.
+             last_seen_at = COALESCE(excluded.last_seen_at, datetime('now')),
              times_seen   = ticker_universe.times_seen + 1,
              -- Both COALESCEd together, or they disagree: market_cap was COALESCEd
              -- while cap_status was overwritten, so an unknown re-sighting produced
@@ -325,7 +352,7 @@ def upsert_universe(conn, ticker: str, cap_status: str, cap: int | None,
              cap_status   = CASE WHEN excluded.market_cap IS NULL
                                  THEN ticker_universe.cap_status
                                  ELSE excluded.cap_status END""",
-        (ticker, cap, cap_status, source))
+        (ticker, cap, cap_status, source, last_seen, last_seen))
 
 
 def repair_unknown_caps(conn, cache_caps: bool = True) -> dict:
@@ -362,17 +389,31 @@ def collect(conn, cache_caps: bool = True) -> dict:
     counts = {"collected": 0, "flagged_unknown": 0, "excluded_large": 0,
               "below_engagement": 0}
     counts.update(repair_unknown_caps(conn, cache_caps=cache_caps))
+    evaluated: list[str] = []
     for m in pending_mentions(conn):
+        evaluated.append(m["ticker"])
         ok, status, cap = collectable(conn, m["ticker"], m["cashtagged"], m["score"],
                                       m["num_comments"], cache=cache_caps)
         if not ok:
             counts["below_engagement" if status == "below_engagement"
                    else "excluded_large"] += 1
             continue
-        upsert_universe(conn, m["ticker"], status, cap)
+        upsert_universe(conn, m["ticker"], status, cap, last_seen=m["last_mention"])
         counts["collected"] += 1
         if status == "unknown":
             counts["flagged_unknown"] += 1
+
+    # Mark EVERY evaluated mention, including the rejected ones. Engagement is fixed at
+    # ingest and never improves, so re-testing a rejected row each run is pure re-work
+    # that would also re-hit the cap API. Cap changes are handled by
+    # repair_unknown_caps, which works from the universe rather than from mentions.
+    if evaluated:
+        qs = ",".join("?" * len(evaluated))
+        conn.execute(
+            f"""UPDATE reddit_mentions SET collected_at = datetime('now')
+                WHERE collected_at IS NULL AND cashtagged = 1
+                  AND mentioned_at >= ? AND ticker IN ({qs})""",
+            (COLLECTION_EPOCH, *evaluated))
     return counts
 
 

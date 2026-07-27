@@ -140,6 +140,24 @@ _CRON_SCHEDULE: dict[str, dict] = {
     # Weekly because company->ticker mappings move with IPOs/delistings/renames, not
     # daily news; the rot this fixes had run seven weeks. 03:30 Sunday is clear of
     # run_backtest (02:00) and the daily 02:00/03:00 jobs.
+    # ── Reddit COVERAGE collector — 4x daily, offset from the rule jobs ──
+    # ⚠️ CADENCE FLAGGED FOR CONFIRMATION. This is the "turn it on" decision: until now
+    # RULE_COLLECTOR was scheduled nowhere and the universe never accumulated, which is
+    # the whole point of coverage.
+    #
+    # Why 4x/day and not more: it does NOT fetch reddit (RULE_REDDIT already ingests
+    # every 30 min into `reddit_mentions`) — it evaluates the UNPROCESSED backlog and
+    # does at most one SEC + one Yahoo lookup per NEW ticker, cached 30 days. Because
+    # mentions are marked `collected_at` once evaluated, running more often does not
+    # collect more names, it just wakes up more. Running less often only delays a name
+    # entering the universe; nothing is lost, since the backlog waits.
+    #
+    # 02:15/08:15/14:15/20:15 — :15 keeps it clear of the on-the-hour rule jobs, the
+    # :05 hourly backup and the 02:00 daily jobs.
+    #
+    # It emits NOTHING to the gate: RULE_COLLECTOR is in RULE_10_EXCLUDED and the script
+    # writes no alerts. Failure is loud via the scheduler's SCHEDULER_JOB_FAILURE net.
+    "scripts/rule_reddit_collector.py": {"hour": "2,8,14,20", "minute": 15},
     "scripts/refresh_tickers.py":       {"day_of_week": "sun", "hour": 3, "minute": 30},
     "scripts/run_backtest.py":          {"day_of_week": "sun", "hour": 2, "minute": 0},
     # Roster freshness — monthly (1st, 4am): flag recurring unmatched House filers.
