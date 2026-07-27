@@ -65,3 +65,32 @@ def test_forward_only_no_history_rewrite():
     code = "\n".join(l.split("#")[0] for l in src.splitlines())
     for stmt in ("UPDATE ", "DELETE "):
         assert stmt not in code.upper(), f"rule_reddit rewrites history via {stmt.strip()}"
+
+
+def test_the_blocklist_never_silently_shrinks():
+    """A rewrite dropped HIGH from the list without anyone noticing.
+
+    Harmless only because HIGH is not currently in `tickers` — the day it lists,
+    "my cost basis is too HIGH" becomes a ticker. This pins the words the ORIGINAL
+    list protected, so the next rewrite cannot quietly lose one.
+    """
+    ORIGINAL = {"YOLO", "CALL", "PUTS", "HIGH", "HOLD", "MOON", "BULL", "BEAR", "LONG",
+                "GAIN", "LOSS", "FOMO", "HODL", "TLDR", "THETA", "GAMMA", "DELTA",
+                "ELON", "MUSK", "GUYS", "THIS", "THAT", "WITH", "FROM", "HAVE", "WILL",
+                "WHAT", "WHEN", "SOON", "OVER", "INTO", "JUST", "LIKE", "ALSO", "BEEN",
+                "GOOD", "BEST", "HUGE", "NEXT", "MORE", "MOST", "SAME", "THAN", "THEN",
+                "THEY", "WEEK", "YEAR", "TODAY", "CEO", "CFO", "IPO", "ETF", "USA",
+                "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP"}
+    missing = sorted(ORIGINAL - _COMMON_WORDS)
+    assert not missing, f"the blocklist silently lost: {missing}"
+
+
+def test_the_known_limitation_is_documented_not_hidden():
+    """This is a bigger blocklist, NOT a new mechanism. ~414 English words that are
+    real tickers remain uncovered. The module must say so, so nobody reads the fix as
+    solving the class."""
+    src = open(os.path.join(os.path.dirname(__file__), "..", "scripts",
+                            "rule_reddit.py"), encoding="utf-8").read()
+    assert "KNOWN LIMITATION" in src
+    assert "414" in src, "the measured gap count should be stated, not vague"
+    assert "hand-maintained" in src

@@ -140,10 +140,24 @@ _CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
 #     MOVE, BETA, BEAT, FIVE, OPEN, LOVE, CASH, REAL, FAST, WELL, HOPE, SAFE, ...
 # So RULE_REDDIT stored "HERE"/"BEAT"/"MOVE" as tickers out of ordinary sentences.
 #
-# A blocklist of non-tickers can never win this: the collisions ARE tickers, and the
-# list grows forever. The rule inverts instead — a bare token that is a common English
-# word needs an explicit `$` cashtag to count, however real the symbol is.
-# "$POST beat earnings" counts; "I saw this post" does not.
+# WHAT THIS IS, HONESTLY: a LARGER hand-maintained blocklist, not a new mechanism.
+# An earlier version of this comment claimed the rule "inverts" the blocklist approach.
+# It does not — it replaced a 63-word list with a ~125-word one. A bare token that is a
+# common English word needs an explicit `$` cashtag to count, however real the symbol is
+# ("$POST beat earnings" counts; "I saw this post" does not) — but the set of such words
+# is still enumerated by hand.
+#
+# KNOWN LIMITATION, measured not guessed: intersecting the real 10,619-symbol universe
+# with a system dictionary (4-5 chars, i.e. reachable by BARE_TICKER_RE) leaves **414**
+# English words that are genuine listed symbols and are NOT covered here — ELSE, ONTO,
+# LIVE, HELP, TEAM, GIVE, ROCK, LINK, SITE, EARN, NICE, WASH, PUMP, ROAD, TECH, SHOT...
+# 13 of 15 ordinary test sentences still yield a false ticker. This covers every failure
+# actually observed in prod; it does not solve the class.
+#
+# THE REAL FIX, deliberately not attempted here: gate bare 4-5 char tokens on a
+# dictionary lookup (reject anything that IS an English word unless cashtagged), or
+# require a cashtag for everything outside a curated high-confidence list. Either is a
+# behavioural change to a live rule and belongs in its own session.
 #
 # Cost, stated honestly: a genuine bare mention of POST is missed. That is the right
 # trade — RULE_REDDIT is a DISCOVERY feed whose value is surfacing small tickers
@@ -161,6 +175,9 @@ _COMMON_WORDS = {
     "SIZE", "RANK", "PICK", "BULL", "BEAR", "LONG", "PUTS", "CALL", "MOON", "GOOD",
     "BEST", "HUGE", "NEXT", "SOON", "BEEN", "HAVE", "WILL", "WHAT", "WHEN", "GUYS",
     "FIVE", "NINE", "BETA", "GAMMA", "DELTA", "THETA", "ALPHA",
+    "HIGH",  # regression guard: HIGH was in the ORIGINAL list and this rewrite dropped
+             # it. Not in `tickers` today, so it was harmless — but "my cost basis is
+             # too HIGH" becomes a ticker the day it lists. See the superset test.
     "YOLO", "FOMO", "HODL", "TLDR", "ELON", "MUSK", "GONNA", "WANNA", "TODAY",
     "CEO", "CFO", "IPO", "ETF", "USA", "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP",
 }

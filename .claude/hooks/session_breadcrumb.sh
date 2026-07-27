@@ -15,7 +15,11 @@ LOG="$REPO/vault/Scope/02_Sessions/_session-log.md"
 [ -f "$LOG" ] || exit 0
 
 TS="$(date -u '+%Y-%m-%d %H:%M UTC')"
-BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+# 2>/dev/null AND the empty-guard both matter: in a repo with ZERO commits,
+# `rev-parse --abbrev-ref HEAD` prints "HEAD" to stdout *and* exits 128, so a bare
+# `|| echo '?'` yields BOTH and the markdown header breaks across two lines.
+BRANCH="$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null | head -1 || true)"
+[ -n "$BRANCH" ] || BRANCH='?'
 COMMITS="$(git -C "$REPO" log --since='6 hours ago' --oneline 2>/dev/null | head -12)"
 N="$(printf '%s' "$COMMITS" | grep -c . || true)"
 

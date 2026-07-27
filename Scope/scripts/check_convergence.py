@@ -2,9 +2,20 @@
 """
 check_convergence.py — READ-ONLY convergence watch.
 
-Reports, per ticker over the gate's own window, how many DISTINCT INSTRUMENTS have
-fired: 3+ is a fire, 2 is a near-miss worth watching. Run it every few days to see
-whether the pool is filling.
+Reports, per ticker, how many DISTINCT INSTRUMENTS have fired: 3+ is a fire, 2 is a
+near-miss worth watching.
+
+TWO MODES, and the difference matters — an earlier version conflated them and reported
+"6 near misses" when the gate's live window held ZERO:
+
+  --mode best  (default)  the best window ANYWHERE IN HISTORY. Answers "has this ticker
+                          ever come close?" Useful for judging whether the gate is
+                          reachable at all.
+  --mode live             the gate's OWN trailing window ending now — what RULE_10 would
+                          actually see on this run. Answers "is the pool filling?"
+
+`best` will always be >= `live`. A ticker can show as a best-window near miss whose legs
+are months old and long outside the live window.
 
 COUPLED TO THE GATE BY IMPORT, never a copy. It imports `rule10_instruments`,
 `RULE_10_EXCLUDED`, `RULE_10_MIN_INSTRUMENTS` and `CONVERGENCE_WINDOW_DAYS` directly,
@@ -46,8 +57,13 @@ CANDIDATES = """
 """
 
 
-def scan(conn, window_days: int) -> list[tuple[str, int, list[str], str]]:
-    """Best instrument count per ticker across any `window_days` window. Pure read."""
+def scan(conn, window_days: int, live_only: bool = False
+         ) -> list[tuple[str, int, list[str], str]]:
+    """Instrument count per ticker. Pure read.
+
+    live_only=False -> best window anywhere in history.
+    live_only=True  -> the gate's trailing window ending now, i.e. what RULE_10 sees.
+    """
     by_ticker: dict[str, list] = defaultdict(list)
     for row in conn.execute(CANDIDATES):
         rule = row["rule"]
@@ -60,7 +76,15 @@ def scan(conn, window_days: int) -> list[tuple[str, int, list[str], str]]:
         by_ticker[row["ticker"]].append((ts, rule))
 
     out = []
+    cutoff = datetime.now() - timedelta(days=window_days)
     for ticker, events in by_ticker.items():
+        if live_only:
+            # The gate's real shape: one trailing window ending now.
+            rules = [r for (ts, r) in events if ts >= cutoff]
+            insts = rule10_instruments(rules)
+            out.append((ticker, len(insts), insts,
+                        str(max((ts for ts, _ in events), default="-"))[:10]))
+            continue
         best, best_at = [], None
         for start, _ in events:
             rules = [r for (ts, r) in events
@@ -79,21 +103,27 @@ def main() -> None:
                    help=f"window in days (default {CONVERGENCE_WINDOW_DAYS} — the gate's own)")
     p.add_argument("--min", type=int, default=2,
                    help="only show tickers at or above this instrument count")
+    p.add_argument("--mode", choices=("best", "live"), default="best",
+                   help="best = best window ever (default); live = the gate's trailing "
+                        "window ending now, i.e. what RULE_10 would see this run")
     args = p.parse_args()
 
     path = str(_get_db_path(None))
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)   # driver-level read-only
     conn.row_factory = sqlite3.Row
     try:
-        rows = scan(conn, args.days)
+        rows = scan(conn, args.days, live_only=(args.mode == "live"))
     finally:
         conn.close()
 
     fires = [r for r in rows if r[1] >= RULE_10_MIN_INSTRUMENTS]
     near = [r for r in rows if r[1] == RULE_10_MIN_INSTRUMENTS - 1]
 
+    label = ("BEST window anywhere in history" if args.mode == "best"
+             else "LIVE trailing window — what the gate sees now")
     print(f"Convergence watch — {args.days}-day window, threshold "
           f"{RULE_10_MIN_INSTRUMENTS} instruments")
+    print(f"MODE: {label}")
     print(f"(eligibility and collapsing come from the gate itself; excluded: "
           f"{', '.join(sorted(RULE_10_EXCLUDED))})\n")
 
