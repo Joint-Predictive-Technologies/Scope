@@ -156,13 +156,27 @@ by the emitter. **Never reimplement the map client-side.**
 it has. Member count still drives severity and the headline — it is not corroboration
 *breadth*.
 
-⚠️ **Open, human-gated: the tiers are in the wrong units.**
-`calculate_evidence_confidence` steps at 4/5/6, from when the gate needed 4+ distinct
-RULES. The gate now fires at **3 instruments** — below the first tier — so a minimum
-corroboration persists **6.0** while a lone `RULE_06` scores 20.0, and `mode=overwatch`
-orders on this column. Rescaling to the gate's units (>=3 -> 40, >=4 -> 60, >=5 -> 75) is
-a formula-shape change; `tests/test_phase2_intel.py::test_rule10_evidence_exceeds_single_rule`
-is a strict xfail holding the seat. See `05_Decisions/2026-07-25-gate-redesign.md`.
+**The tiers are in the GATE's units** (rescaled 2026-07-27, human-signed-off).
+`calculate_evidence_confidence` steps at **>=3 -> 40, >=4 -> 60, >=5 -> 75**. The first
+tier IS `RULE_10_MIN_INSTRUMENTS` — **if that threshold ever moves, move the first tier
+with it.** They had drifted apart: the tiers still stepped at 4/5/6 in rule-name units
+while the gate fired at 3 instruments, so every minimum corroboration fell below the
+first tier and persisted **6.0 against a lone `RULE_06`'s 20.0** — a corroboration
+ranking at one third of its own constituent signals, in a column `mode=overwatch`
+sorts by. A minimum fire now persists **46.0**. The coupling is asserted in
+`tests/test_evidence_confidence_instruments.py::test_the_tiers_are_in_the_gates_units`.
+
+⚠️ **Scores are forward-only, so the rescale does NOT touch history.** Corroborations
+detected before 2026-07-27 keep their pre-rescale values (a 3-instrument fire sits at
+6.0), and `mode=overwatch` sorts old and new together — **old corroborations rank below
+new ones for reasons that are not about evidence.** This resolves as the backlog ages
+out; do NOT "fix" it by re-enriching, which would destroy detection-time values.
+
+⚠️ **Known, not fixed:** `api/routers/evidence.py::_confidence_breakdown` computes its
+own drawer number on a different scale (instruments x10 capped at 60, plus severity /
+freshness / insider / contract points). It is not `evidence_confidence` and does not
+track it — the drawer can read 80 where the stored score is 46. Pre-existing, flagged
+rather than silently unified. See `05_Decisions/2026-07-25-gate-redesign.md`.
 
 **RULE_CLUSTER (`scripts/rule_cluster.py`, path a):** fires when 3+ DISTINCT
 members trade the same normalized ticker inside a rolling 72h window by

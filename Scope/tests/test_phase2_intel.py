@@ -30,9 +30,11 @@ _r.loader.exec_module(reddit)
 
 # ── Scoring engine (spec §7) ─────────────────────────────────────────────────
 def test_evidence_confidence_thresholds():
-    assert calculate_evidence_confidence(3, [1.0]) < 40      # below 4 rules
-    assert calculate_evidence_confidence(4, [1.0]) == 60.0   # 40 + 20 quality
-    assert calculate_evidence_confidence(6, [1.0]) == 95.0
+    # Tiers are in the GATE's units: 3 distinct INSTRUMENTS is a fire, and a fire
+    # must clear the first tier. Rescaled from 4/5/6 on 2026-07-27.
+    assert calculate_evidence_confidence(2, [1.0]) < 40      # below the gate
+    assert calculate_evidence_confidence(3, [1.0]) == 60.0   # 40 + 20 quality
+    assert calculate_evidence_confidence(5, [1.0]) == 95.0
     # conflicting evidence penalizes
     assert calculate_evidence_confidence(4, [1.0], True) < calculate_evidence_confidence(4, [1.0])
 
@@ -148,29 +150,9 @@ def test_scores_are_not_all_defaults():
     assert default_ev == 0           # nothing left at (0,0)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "GENUINELY BROKEN — HUMAN SCORING DECISION REQUIRED. DO NOT 'FIX' BY EDITING THIS TEST.\n"
-    "The invariant is right: a corroboration must be worth more than one lone alert.\n"
-    "Making evidence_confidence count INSTRUMENTS (correct — the congressional trio is "
-    "one source, not three) exposed that calculate_evidence_confidence's tiers are 4/5/6, "
-    "denominated in the OLD gate's units when it needed 4+ distinct RULES. The gate now "
-    "fires at 3 INSTRUMENTS — BELOW the first tier — so base=0.\n"
-    "HOW BAD, measured end-to-end on a seeded DB, NOT just this fixture:\n"
-    "  a minimum RULE_10 fire PERSISTS 6.0 (3 instruments x RULE_10's own 0.3 'Derived' "
-    "weight), while a lone RULE_06 scores 20.0 — a corroboration ranks at ONE THIRD of "
-    "its own constituent signals. This fixture's score_alert_fields path shows 20.0 vs "
-    "20.0; the emitted alert row is the worse 6.0 vs 20.0.\n"
-    "  RULE_CLUSTER falls the same way and has NO xfail of its own: 4-member 60->20, "
-    "5-member 80->20, 5-member mixed 56->14.\n"
-    "  There is no HIGH/actionable BAND keyed on this column anywhere, so nothing is "
-    "misclassified — the harm is ORDERING: api/routers/alerts.py mode=overwatch sorts "
-    "ORDER BY evidence_confidence DESC, so the moat's flagship output now sorts at or "
-    "below ordinary single alerts in the one view built to rank by support.\n"
-    "THE FIX is to rescale the tiers into the gate's units (>=3 -> 40, >=4 -> 60, "
-    ">=5 -> 75). That is a formula-SHAPE change, explicitly out of scope for the "
-    "count-only work order, and a scoring-policy call for the human. Verified live: with "
-    "those tiers this test XPASSes, so strict=True makes the marker self-clearing — "
-    "remove it when they land."))
+# Was a strict xfail from 2026-07-27: the tiers were 4/5/6 while the gate fired at 3
+# instruments, so this invariant was genuinely broken and the marker held the seat until
+# a human decided the rescale. They did; the tiers are 3/4/5; the marker cleared itself.
 def test_rule10_evidence_exceeds_single_rule():
     from jpt_common import score_alert_fields
     import json as _j
