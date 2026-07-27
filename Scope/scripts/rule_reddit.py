@@ -184,6 +184,25 @@ _COMMON_WORDS = {
 _TICKER_STOPWORDS = _COMMON_WORDS   # old name kept so nothing else breaks
 
 
+def extract_cashtagged(text: str, known: set[str]) -> list[str]:
+    """ONLY the `$`-prefixed symbols. Collection requires an explicit cashtag.
+
+    `_extract_tickers` merges three passes — cashtag, bare 4-5 char, curated 3-char —
+    and returns one flat list, so a caller cannot tell WHICH tokens carried a `$`. The
+    universe collector needs that distinction: a bare mention is ambiguous prose that
+    happens to match a symbol, and collecting on it would fill the coverage list with
+    the same English words the extraction fix spent a session removing.
+
+    Same regex the alert path uses, so the two cannot drift.
+    """
+    up = text.upper()
+    out: list[str] = []
+    for t in TICKER_RE.findall(up):
+        if t in known and t not in out:
+            out.append(t)
+    return out
+
+
 def _extract_tickers(text: str, known: set[str]) -> list[str]:
     up = text.upper()
     found: list[str] = []
@@ -213,9 +232,9 @@ def _has_political(text: str) -> bool:
 
 def run(emit: bool = False, dry_run: bool = False) -> None:
     conn = db_connection()
-    # Additive; discovery owns the schema, RULE_REDDIT just feeds it.
-    from scripts.rule_reddit_discovery import ensure_tables as _ensure_discovery
-    _ensure_discovery(conn)
+    # Additive; the collector owns the schema, RULE_REDDIT just feeds it.
+    from scripts.rule_reddit_collector import ensure_tables as _ensure_collector
+    _ensure_collector(conn)
 
     known_tickers: set[str] = {
         r[0].upper()
@@ -299,11 +318,14 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             # scanned=4 flagged=0 emitted=0 — indistinguishable from a quiet day. Mention
             # capture is a nice-to-have for discovery; it must never take the rule down.
             try:
+                cashtagged = set(extract_cashtagged(full_text, known_tickers))
                 for _t in tickers:
                     conn.execute(
                         """INSERT OR IGNORE INTO reddit_mentions
-                           (post_id, ticker, subreddit) VALUES (?,?,?)""",
-                        (post_id, _t, subreddit),
+                           (post_id, ticker, subreddit, cashtagged, score, num_comments)
+                           VALUES (?,?,?,?,?,?)""",
+                        (post_id, _t, subreddit, 1 if _t in cashtagged else 0,
+                         score, post.get("num_comments", 0) or 0),
                     )
             except Exception as exc:
                 print(f"[RULE_REDDIT] mention capture skipped for {post_id}: {exc}")

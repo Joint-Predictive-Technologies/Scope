@@ -230,7 +230,11 @@ def test_excluded_rules_are_still_excluded():
       retired                 RULE_12/13/14 — dead sources, excluded rather than merely
                               unmapped so they cannot become phantom instruments via
                               `.get(rule, rule)`. See tests/test_cleanup_pass.py.
-      candidate generator     RULE_DISCOVERY — it is a REVIEW SURFACE, not a source.
+      coverage collector      RULE_COLLECTOR — it gathers ticker NAMES for the real
+                              instruments to cross-reference against. A collected name
+                              is not "watch this", it is "this name exists", so it must
+                              never open a corroboration. RULE_DISCOVERY is its retired
+                              predecessor, kept excluded rather than deleted.
                               Social buzz must never be able to open a corroboration;
                               that is the whole reason the moat is worth anything. It
                               emits no alerts today, so this is a future-proof against
@@ -240,7 +244,7 @@ def test_excluded_rules_are_still_excluded():
     noisy_or_self_referential = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY",
                                  "RULE_REDDIT", "RULE_10"}
     retired = {"RULE_12", "RULE_13", "RULE_14"}
-    candidate_generators = {"RULE_DISCOVERY"}
+    candidate_generators = {"RULE_DISCOVERY", "RULE_COLLECTOR"}
     assert RULE_10_EXCLUDED == (noisy_or_self_referential | retired
                                 | candidate_generators)
 
