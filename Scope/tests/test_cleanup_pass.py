@@ -35,6 +35,53 @@ def test_the_brief_is_scheduled_at_its_real_location():
     assert "generate_brief.py" not in m._CRON_SCHEDULE
 
 
+def _accepts_emit_alerts(script: str) -> bool:
+    """Would the script survive the flag the scheduler ALWAYS passes?
+
+    STATIC, deliberately: actually executing every scheduled rule would hit live APIs
+    and the DB. And a `--help` probe does NOT work — argparse handles -h and exits
+    before it ever reports unrecognized arguments, so such a probe reports success for
+    a script that fails in production (my first version of this test did exactly that
+    and returned an empty broken-list).
+
+    A script is safe if it declares the flag, or if it never parses strictly.
+    """
+    src = open(os.path.join(REPO, script), encoding="utf-8").read()
+    if "--emit-alerts" in src:
+        return True
+    return "parse_args()" not in src.replace(" ", "")
+
+
+def test_every_scheduled_script_accepts_the_flag_the_scheduler_passes():
+    """PATH EXISTENCE IS NOT ENOUGH — the lesson of this whole item.
+
+    `_run_rule` always invokes [python, script, "--emit-alerts"]. A script that parses
+    strictly and does not declare the flag exits 2 on every scheduled run, exactly like
+    a missing file. Fixing the brief's PATH only changed the error from "can't open
+    file" to "unrecognized arguments"; the test that asserted os.path.exists stayed
+    green throughout and certified a job that never runs.
+    """
+    import api.main as m
+    broken = [s for s in [*m._RULE_SCHEDULE, *m._CRON_SCHEDULE]
+              if os.path.exists(os.path.join(REPO, s)) and not _accepts_emit_alerts(s)]
+    assert broken == ["scripts/generate_brief.py"], (
+        f"the set of scheduled scripts rejecting --emit-alerts changed: {broken}")
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "KNOWN BROKEN — HUMAN DECISION REQUIRED. scripts/generate_brief.py exits 2 on the "
+    "scheduler's mandatory --emit-alerts, so the 06:30 LLM brief has never generated. "
+    "Two mutually exclusive fixes and the choice is NOT the assistant's: (a) declare the "
+    "flag as scripts/morning_brief.py:757 does with argparse.SUPPRESS, or (b) DELETE the "
+    "cron entry — commit d3687eb on the unmerged fix/remove-dead-generate-brief-job is a "
+    "human-approved decision to do exactly that, since scripts/morning_brief.py already "
+    "occupies the same 06:30 slot. This cleanup branch re-pointed the path and thereby "
+    "silently reversed that decision. strict=True so this flips to a FAILURE the moment "
+    "someone fixes it without removing the marker."))
+def test_the_brief_actually_runs_under_the_scheduler_contract():
+    assert _accepts_emit_alerts("scripts/generate_brief.py")
+
+
 # --- Stage 2: phantom-safe retirement ------------------------------------
 
 @pytest.mark.parametrize("rule", RETIRED)
