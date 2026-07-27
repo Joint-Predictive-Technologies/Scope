@@ -262,7 +262,12 @@ def run(dry_run: bool = False) -> dict:
             conn, rule=RULE, ticker=ticker, severity=severity, headline=headline,
             why_matters=why, tags=tags, detail=detail, source_url=HOUSE_DISCLOSURE_HUB,
             verify_url=(members[member_ids[0]]["filing_url"] or HOUSE_DISCLOSURE_HUB),
-            distinct_rule_count=n, has_conflict=has_conflict, novelty_key=fp,
+            # 1, not `n`. `n` is the number of MEMBERS in the cluster, and passing it
+            # as distinct_rule_count told the evidence formula that a 5-member cluster
+            # had 5 independent corroborators (ec = 80.0). RULE_CLUSTER is ONE
+            # instrument — `congressional`. Member count is real signal and stays in
+            # the headline, tags and severity; it is not corroboration BREADTH.
+            distinct_rule_count=1, has_conflict=has_conflict, novelty_key=fp,
         )
         for p in superseded:
             conn.execute(

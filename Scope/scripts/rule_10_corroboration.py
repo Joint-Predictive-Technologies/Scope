@@ -318,7 +318,10 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
         alert_id = insert_alert(
             conn, rule=RULE, ticker=ticker, severity=severity,
             headline=headline, detail=narrative, tags=tags,
-            distinct_rule_count=rule_count,
+            # INSTRUMENTS, not rule names. `rule_count` is still recorded in tags for
+            # provenance, but confidence must reflect how many INDEPENDENT things
+            # corroborate — the same question the gate answers when it fires.
+            distinct_rule_count=instrument_count,
         )
         conn.execute(
             """UPDATE alerts SET lifecycle_stage = 'corroborated'

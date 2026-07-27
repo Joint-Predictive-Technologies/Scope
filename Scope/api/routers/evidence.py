@@ -12,7 +12,8 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from jpt_common import db_connection, rule10_rules_from_tags, rule10_eligible_rules
+from jpt_common import (db_connection, rule10_rules_from_tags,
+                        rule10_eligible_rules, rule10_instruments)
 
 router = APIRouter()
 
@@ -67,7 +68,11 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
 
     if rule == "RULE_10":
         rules = rule10_eligible_rules(rule10_rules_from_tags(alert.get("tags") or ""))
-        rule_pts = min(len(rules) * 10, 60)
+        # INSTRUMENTS, not rule names — same correction as jpt_common._distinct_rule_count.
+        # This drawer had its own parallel confidence breakdown that also counted names,
+        # so it showed a user a higher number than the corroboration deserved.
+        instruments = rule10_instruments(rules)
+        rule_pts = min(len(instruments) * 10, 60)
         sev_pts = 20 if sev == "CRITICAL" else 10
         insider = 15 if "RULE_06" in rules else 0
         contract = 10 if "RULE_11" in rules else 0
@@ -76,7 +81,7 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
         return {
             "total": total,
             "components": {
-                "Eligible rule count": rule_pts,
+                "Distinct instrument count": rule_pts,
                 "Severity": sev_pts,
                 "Freshness": freshness,
                 "Insider significance": insider,
