@@ -202,6 +202,18 @@ def recent_13f(cik: str, limit: int = 2) -> list[dict]:
     rec = d.get("filings", {}).get("recent", {})
     out = []
     for i, form in enumerate(rec.get("form", [])):
+        # EXACT match, deliberately — do NOT widen this to startswith("13F-HR") or to
+        # include "13F-HR/A". An amendment is usually a PARTIAL restatement: JANA filed a
+        # 13F-HR/A on 2026-06-30 totalling $61,537,156 in real dollars. That is under the
+        # $100M statutory AUM floor, so detect_value_scale() would read it as THOUSANDS
+        # and store $61.5B for a $61.5M position — clearing the materiality floor and
+        # firing a HIGH alert with every dollar figure 1000x wrong. classify() keys on
+        # SHARES, so NEW/ADD detection would still look correct while the money was
+        # nonsense. Widening this filter looks like an obvious improvement and would
+        # MANUFACTURE a signal rather than lose one — strictly worse than the silent-zero
+        # bug this rule already had. Pershing Square 2025-04-16 and JANA 2023-11-16 sit in
+        # the same trap. If amendments are ever wanted, gate them on a price-per-share
+        # sanity check, not on the AUM heuristic alone.
         if form != "13F-HR":
             continue
         out.append({
@@ -574,11 +586,25 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
             missing = [(c, h["issuer"], h["value"]) for c, h in material.items()
                        if c not in mapped]
             dropped_unmapped += len(missing)
-            for c, iss, val in sorted(missing, key=lambda m: -m[2])[:10]:
+            for c, iss, val in sorted(missing, key=lambda m: -m[2]):
                 kind = "CINS/foreign" if c[:1].isalpha() else "unresolved"
-                unmapped_detail.append(f"{iss[:28]}({c},{kind},${val/1e6:.0f}M)")
                 print(f"[{RULE}] DROPPED {kind}: {iss[:40]} {c} ${val/1e6:,.0f}M "
                       f"— no ticker, not guessed")
+            # ONE entry PER FILER, not a shared list of individual holdings.
+            #
+            # This used to append up to 10 holdings per filer into a flat list that the
+            # activity_log then truncated to [:6]. Markel is filer #1 and filled all six
+            # slots by itself, so 26 of 27 filers' drops NEVER reached the log — Chubb
+            # among them. A bigger arbitrary cap would not fix it; one filer could still
+            # monopolise the budget. A per-filer summary means every filer that dropped
+            # anything is represented, and the notes length scales with filers, not with
+            # holdings.
+            if missing:
+                top_iss, top_val = max(((i, v) for _, i, v in missing), key=lambda m: m[1])
+                n_cins = sum(1 for c, _, _ in missing if c[:1].isalpha())
+                unmapped_detail.append(
+                    f"{label[:20]}: {len(missing)} dropped ({n_cins} CINS), "
+                    f"largest {top_iss[:24]} ${top_val/1e6:.0f}M")
 
             for cusip, h in material.items():
                 m = mapped.get(cusip)
@@ -655,7 +681,8 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                  f"unmapped_dropped={dropped_unmapped} name_matched={name_matched} "
                  f"baselined={baselined}"
                  + (f" | FLOOR: {'; '.join(floor_notes[:4])}" if floor_notes else "")
-                 + (f" | DROPPED: {'; '.join(unmapped_detail[:6])}" if unmapped_detail else "")
+                 + (f" | DROPPED[{len(unmapped_detail)} filers]: "
+                    + " ; ".join(unmapped_detail) if unmapped_detail else "")
                  + (" PARTIAL(time budget, resumable)" if partial else "")
                  + (" ABORTED(exception)" if crashed else ""))
         if failures or crashed:

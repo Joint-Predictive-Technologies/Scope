@@ -631,3 +631,74 @@ def test_whale_list_has_no_known_dead_or_nt_only_ciks():
     assert "0001345471" in w, "live Trian entity missing"
     assert "0001079114" not in w and "0001649339" not in w, \
         "Greenlight/Scion are stale (no 13F-HR inside LOOKBACK_DAYS)"
+
+
+# ---------------------------------------------------------------------------
+# The log cap — EVERY filer's drops must reach the activity_log.
+#
+# The old test used ONE filer with ONE holding, so the [:6] truncation could never
+# bite. On a real 27-filer run Markel (filer #1) filled all six slots by itself and
+# 26 of 27 filers' drops never reached the log. These tests are multi-filer on
+# purpose, and one of them tries to let a single filer monopolise the budget again.
+# ---------------------------------------------------------------------------
+
+def _multi_filer_sources(monkeypatch, spec):
+    """spec: {cik: (label, n_dropped_holdings)} -> all unmappable, all above the floor."""
+    filings, tables = {}, {}
+    for cik, (label, n) in spec.items():
+        acc = f"{cik[-4:]}-26-000001"
+        filings[cik] = [{"accession": acc, "filing_date": ISO,
+                         "report_date": "2026-03-31", "filer_name": label}]
+        tables[acc] = {f"G{cik[-3:]}{i:05d}": {"issuer": f"{label} HOLDING {i}",
+                                               "class": "COM", "value": 150_000_000.0 * (i + 1),
+                                               "shares": 1000.0}
+                       for i in range(n)}
+    _fake_sources(monkeypatch, filings, tables, {})     # nothing resolves -> all dropped
+    return {c: v[0] for c, v in spec.items()}
+
+
+def test_every_filer_appears_in_the_drop_log_not_just_the_first(monkeypatch):
+    spec = {"0000000101": ("AlphaBook", 2), "0000000102": ("BetaBook", 3),
+            "0000000103": ("GammaBook", 1), "0000000104": ("DeltaBook", 4)}
+    whales = _multi_filer_sources(monkeypatch, spec)
+    r = r16.run(emit=True, whales=whales)
+    assert r["dropped_unmapped"] == 10
+    assert len(r["unmapped_detail"]) == 4, \
+        f"expected one entry per filer, got {r['unmapped_detail']}"
+
+    conn = db_connection()
+    notes = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                         "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
+    conn.close()
+    for label in ("AlphaBook", "BetaBook", "GammaBook", "DeltaBook"):
+        assert label in notes, f"{label}'s drops never reached activity_log: {notes}"
+
+
+def test_one_huge_filer_cannot_monopolise_the_drop_log(monkeypatch):
+    """The exact failure mode: filer #1 with far more drops than everyone else."""
+    spec = {"0000000201": ("HogBook", 40),          # first, and enormous
+            "0000000202": ("SmallA", 1), "0000000203": ("SmallB", 1),
+            "0000000204": ("SmallC", 1), "0000000205": ("SmallD", 1),
+            "0000000206": ("SmallE", 1), "0000000207": ("SmallF", 1)}
+    whales = _multi_filer_sources(monkeypatch, spec)
+    r = r16.run(emit=True, whales=whales)
+    conn = db_connection()
+    notes = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                         "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
+    conn.close()
+    # every small filer must still be visible despite the hog going first
+    for label in ("SmallA", "SmallB", "SmallC", "SmallD", "SmallE", "SmallF"):
+        assert label in notes, f"{label} squeezed out by HogBook: {notes}"
+    assert "HogBook: 40 dropped" in notes
+    # count the per-filer summaries specifically — the aggregate `unmapped_dropped=`
+    # field also contains the word "dropped"
+    assert notes.count(" dropped (") == 7, "expected one summary per filer"
+
+
+def test_drop_summary_names_the_largest_position_and_counts_cins(monkeypatch):
+    spec = {"0000000301": ("SoloBook", 3)}
+    whales = _multi_filer_sources(monkeypatch, spec)
+    r = r16.run(emit=True, whales=whales)
+    entry = r["unmapped_detail"][0]
+    assert "SoloBook: 3 dropped" in entry and "CINS" in entry
+    assert "$450M" in entry, f"largest position not named: {entry}"
