@@ -67,32 +67,19 @@ def test_only_rule10_writes_corroborated_repo_wide():
                 continue
             path = os.path.join(root, f)
             code = _code(path)
-            if re.search(r"lifecycle_stage\s*=\s*'corroborated'", code):
+            # BOTH quote styles — the single-quote-only pattern let a double-quoted
+            # second corroboration authority sit in the repo undetected.
+            if re.search(r"""lifecycle_stage\s*=\s*['"]corroborated['"]""", code):
                 writers.append(os.path.relpath(path, REPO))
     assert writers, "the walk found no writers at all — the scan is broken, not clean"
     assert sorted(writers) == ["scripts/rule_10_corroboration.py"], \
         f"expected RULE_10 to be the only corroboration writer, got {writers}"
 
 
-def test_rule15_emitting_does_not_corroborate_other_rules_alerts():
-    """End-to-end D1 proof: seed the exact RULE_08+09+15 trio the shadow gate keyed on
-    and confirm nothing is marked corroborated."""
-    conn = db_connection()
-    for rule in ("RULE_08", "RULE_09", "RULE_15"):
-        conn.execute(
-            "INSERT INTO alerts (rule, ticker, headline, severity, lifecycle_stage) "
-            "VALUES (?,?,?,?,'created')",
-            (rule, "TESTCO", f"{rule} on TESTCO", "HIGH"))
-    conn.commit()
-
-    from scripts import rule_15_earnings_nlp as r15
-    r15.run(emit=True)          # no network fixtures -> fetch fails, but the shadow
-                                # path (if present) ran off the DB, not the network
-
-    rows = conn.execute(
-        "SELECT rule, lifecycle_stage FROM alerts WHERE ticker='TESTCO'").fetchall()
-    conn.close()
-    assert rows, "seed rows vanished"
-    for r in rows:
-        assert r["lifecycle_stage"] != "corroborated", \
-            f"{r['rule']} was corroborated by RULE_15 — the shadow gate is back"
+# The end-to-end D1 test that used to live here was VACUOUS: it ran RULE_15 with no
+# `tickers` rows, so after the CIK fix every ticker was skipped, the emit path was
+# unreachable, and it passed even with the shadow gate FULLY RE-INSERTED (proven by
+# mutation). Replaced by
+# tests/test_rule15_payoff.py::test_rule15_emitting_corroborates_nothing_outside_rule10,
+# which seeds `tickers` + `earnings_sentiment`, ASSERTS the rule emitted, and only then
+# asserts nothing is corroborated — so it cannot pass for free.

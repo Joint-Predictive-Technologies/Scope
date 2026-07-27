@@ -86,6 +86,11 @@ def _fetch_filing_text(url: str) -> str:
 
 
 EARNINGS_ITEM = "2.02"          # 8-K Item 2.02 = Results of Operations
+
+# Rows ingested before this instant were produced by the pre-repair code: wrong-CIK
+# attribution, no Item-2.02 filter, and a raw-.split() denominator. They are kept
+# (forward-only, nothing rewritten) but may never take part in a comparison.
+REPAIR_EPOCH = "2026-07-27 00:00:00"
 _TAG = re.compile(r"<[^>]+>")
 _B64 = re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b")
 
@@ -237,13 +242,25 @@ def run(emit: bool = False) -> None:
         # emit as if it were news. Store it, emit nothing, and let the NEXT filing be the
         # signal. Without this the first live run would flood ~73 stored filings across
         # 4 months into the feed as fresh earnings alerts.
-        prior_alerts = conn.execute(
-            "SELECT 1 FROM alerts WHERE rule='RULE_15' AND ticker=? LIMIT 1",
-            (ticker,)).fetchone()
-        scored_rows = conn.execute(
-            "SELECT COUNT(*) c FROM earnings_sentiment WHERE ticker=? AND political_score>0",
-            (ticker,)).fetchone()["c"]
-        if not prior_alerts and scored_rows <= 1:
+        # QUARANTINE THE PRE-REPAIR ROWS. `scored_rows <= 1` was the wrong test: the 73
+        # rows already in earnings_sentiment carry 2-4 rows per ticker, so it suppressed
+        # exactly ONE ticker and the first live run would have emitted 4 alerts computed
+        # entirely from pre-repair data — led by "BA +109% HIGH", which is the fabricated
+        # Boeing signal built from BA Credit Card Trust filings that this repair exists to
+        # eliminate. PFE +92%, ABBV +68%, XOM +637% behind it.
+        #
+        # Those rows are unusable for three independent reasons: wrong-CIK attribution,
+        # no Item 2.02 restriction, and a raw-.split() denominator 2.4-3.1x larger than
+        # the visible-word one now used — so comparing a new row against a stored one
+        # manufactures a +143% to +212% "surge" from nothing but the units change.
+        #
+        # So emission requires BOTH sides of the comparison to be post-repair. Nothing is
+        # rewritten or deleted (forward-only); the old rows simply cannot participate.
+        usable = conn.execute(
+            "SELECT COUNT(*) c FROM earnings_sentiment "
+            "WHERE ticker=? AND political_score>0 AND ingested_at >= ?",
+            (ticker, REPAIR_EPOCH)).fetchone()["c"]
+        if usable < 2:
             baselined += 1
             continue
 
@@ -253,7 +270,7 @@ def run(emit: bool = False) -> None:
             FROM earnings_sentiment
             WHERE ticker = ? AND political_score > 0
             ORDER BY filing_date DESC
-            LIMIT 4
+            LIMIT 8
         """, (ticker,)).fetchall()
 
         if len(history) < 2:
