@@ -329,6 +329,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
 
     scanned = stored = emitted = 0
     skipped_quant = dropped_unmapped = baselined = 0
+    unmapped_detail: list[str] = []
     partial = False        # ran out of time budget -> resumable
     crashed = False        # died on an exception -> distinct, and must read differently
     failures: list[str] = []
@@ -373,7 +374,22 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                       f"holdings as BASELINE, emitting nothing")
             material = {c: h for c, h in held.items() if h["value"] >= MIN_POSITION_USD}
             mapped = map_cusips(list(material), budget_deadline=deadline)
-            dropped_unmapped += len(material) - len(mapped)
+
+            # A dropped holding must be VISIBLE, not silent. OpenFIGI resolves
+            # 0% of CINS (letter-prefixed) CUSIPs — verified across all 316 in a
+            # 4-filer universe and again on 6 real Berkshire names. On a conviction
+            # book that blind spot is Chubb, Aon, Accenture and Willis Towers
+            # Watson, i.e. top-ten positions, not obscure micro-caps. Dropping is
+            # still the right call (never guess a ticker), but dropping QUIETLY
+            # would hide a known functional gap behind a healthy-looking run.
+            missing = [(c, h["issuer"], h["value"]) for c, h in material.items()
+                       if c not in mapped]
+            dropped_unmapped += len(missing)
+            for c, iss, val in sorted(missing, key=lambda m: -m[2])[:10]:
+                kind = "CINS/foreign" if c[:1].isalpha() else "unresolved"
+                unmapped_detail.append(f"{iss[:28]}({c},{kind},${val/1e6:.0f}M)")
+                print(f"[{RULE}] DROPPED {kind}: {iss[:40]} {c} ${val/1e6:,.0f}M "
+                      f"— no ticker, not guessed")
 
             for cusip, h in material.items():
                 m = mapped.get(cusip)
@@ -435,6 +451,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
         notes = (f"filers={len(targets)} scanned={scanned} stored={stored} "
                  f"emitted={emitted} quant_skipped={skipped_quant} "
                  f"unmapped_dropped={dropped_unmapped} baselined={baselined}"
+                 + (f" | DROPPED: {'; '.join(unmapped_detail[:6])}" if unmapped_detail else "")
                  + (" PARTIAL(time budget, resumable)" if partial else "")
                  + (" ABORTED(exception)" if crashed else ""))
         if failures or crashed:
@@ -452,7 +469,8 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
 
     return {"scanned": scanned, "stored": stored, "emitted": emitted,
             "partial": partial, "failures": failures, "baselined": baselined,
-            "skipped_quant": skipped_quant, "dropped_unmapped": dropped_unmapped}
+            "skipped_quant": skipped_quant, "dropped_unmapped": dropped_unmapped,
+            "unmapped_detail": unmapped_detail}
 
 
 def build_parser() -> argparse.ArgumentParser:

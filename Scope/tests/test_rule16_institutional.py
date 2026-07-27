@@ -346,3 +346,33 @@ def test_real_change_emits_on_the_quarter_after_the_baseline(monkeypatch, whale)
              conn.execute("SELECT tags FROM alerts WHERE rule='RULE_16'")}
     conn.close()
     assert kinds == {"NEW", "ADD"}
+
+
+def test_dropped_holdings_are_visible_not_silent(whale_emitting):
+    """OpenFIGI resolves 0% of CINS CUSIPs — on a conviction book that is Chubb,
+    Aon and Accenture. Dropping is right; dropping SILENTLY hides a known gap."""
+    r = r16.run(emit=True, whales=whale_emitting)
+    # the Q2 fixture maps cleanly; re-run the cold-start book which has an unmapped CINS
+    conn = db_connection()
+    row = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                       "ORDER BY id DESC LIMIT 1").fetchone()
+    conn.close()
+    assert "unmapped_dropped=" in (row["notes"] or "")
+
+
+def test_unmapped_cins_is_named_in_the_activity_notes(monkeypatch):
+    filings = {"0000000009": [{"accession": "0009-26-000001", "filing_date": ISO,
+                               "report_date": "2026-03-31", "filer_name": "Cold Book"}]}
+    table = {"0009-26-000001": {
+        "G1151C101": {"issuer": "ACCENTURE PLC IRELAND", "class": "SHS CLASS A",
+                      "value": 900_000_000.0, "shares": 100_000.0}}}
+    _fake_sources(monkeypatch, filings, table, {})      # nothing resolves
+    r = r16.run(emit=True, whales={"0000000009": "Cold Book"})
+    assert r["dropped_unmapped"] == 1
+    assert any("ACCENTURE" in d and "CINS" in d for d in r["unmapped_detail"]), \
+        f"a dropped top-ten CINS position was not named: {r['unmapped_detail']}"
+    conn = db_connection()
+    notes = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                         "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
+    conn.close()
+    assert "DROPPED" in notes and "ACCENTURE" in notes
