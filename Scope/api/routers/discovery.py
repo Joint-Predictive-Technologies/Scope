@@ -32,8 +32,12 @@ _DISCLAIMER = ("Unusual reddit traction relative to this ticker's own baseline. 
 def discovery_pool(limit: int = Query(50, ge=1, le=200),
                    order: str = Query("recent", pattern="^(recent|deviation)$")):
     """The watch pool, ordered for review."""
+    # `deviation` is NULL for cold-start candidates — they have no baseline, so no
+    # multiple exists. Sorting them together with real multiples would rank a raw
+    # mention count against a ratio; NULLs go last and order among themselves by count.
     order_by = ("datetime(last_discovered) DESC" if order == "recent"
-                else "deviation DESC, datetime(last_discovered) DESC")
+                else "deviation IS NULL, deviation DESC, mention_count DESC, "
+                     "datetime(last_discovered) DESC")
     conn = db_connection()
     try:
         rows = conn.execute(
@@ -59,9 +63,14 @@ def discovery_pool(limit: int = Query(50, ge=1, le=200),
             "traction": {
                 "mentions_today": r["mention_count"],
                 "baseline_median": r["baseline"],
+                # null for cold starts — they have no baseline, so no multiple exists.
+                # It used to carry the raw mention count here, which made one field mean
+                # two different things depending on the branch.
                 "deviation_multiple": r["deviation"],
                 "trigger": r["trigger"],
-                "baseline_sample_days": r["sample_days"],
+                # days WITH DATA inside the baseline window, not a global count — an
+                # outage used to show "31 days" behind a baseline built from zero.
+                "baseline_days_with_data": r["sample_days"],
             },
             "market_cap": r["market_cap"],
             "subreddits": (r["subreddits"] or "").split(",") if r["subreddits"] else [],

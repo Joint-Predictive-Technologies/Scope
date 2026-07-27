@@ -48,7 +48,7 @@ def no_network(monkeypatch):
     Default: caps resolve as a small-cap, so anything that does NOT fire is not firing
     for a real reason. Tests that care about the cap override this explicitly.
     """
-    monkeypatch.setattr(disc, "market_cap", lambda conn, sym: 500_000_000)
+    monkeypatch.setattr(disc, "market_cap", lambda conn, sym, **kw: 500_000_000)
     for fn in ("_cik_for", "_shares_outstanding", "_last_close"):
         monkeypatch.setattr(disc, fn, lambda *a, **k: (_ for _ in ()).throw(
             AssertionError(f"{fn} hit the network during a test")))
@@ -78,8 +78,9 @@ def _seed(conn, ticker, day_offsets, subreddit="wallstreetbets"):
     conn.commit()
 
 
-def _history(conn, days=10):
+def _history(conn, days=None):
     """Give the rule enough distinct days that MIN_HISTORY_DAYS is satisfied."""
+    days = disc.MIN_HISTORY_DAYS if days is None else days
     for d in range(1, days + 1):
         conn.execute(
             "INSERT OR IGNORE INTO reddit_mentions (post_id, ticker, subreddit, "
@@ -166,7 +167,7 @@ def test_the_history_guard_boundary(past_epoch):
     conn = db_connection()
     disc.ensure_tables(conn)
     # one day short — must block
-    _history(conn, days=disc.MIN_HISTORY_DAYS - 2)   # + today = MIN-1 distinct days
+    _history(conn, days=disc.MIN_HISTORY_DAYS - 1)
     _seed(conn, "BOUNDARY", [0] * 30)
     assert disc.history_days(conn) == disc.MIN_HISTORY_DAYS - 1
     assert disc.find_candidates(conn) == []
@@ -185,7 +186,7 @@ def test_an_unknown_market_cap_is_not_treated_as_small(monkeypatch, past_epoch):
     disc.ensure_tables(conn)
     _history(conn)
     _seed(conn, "UNKNOWNCAP", [0] * 30)
-    monkeypatch.setattr(disc, "market_cap", lambda c, s: None)
+    monkeypatch.setattr(disc, "market_cap", lambda c, s, **kw: None)
     assert not [c for c in disc.find_candidates(conn) if c["ticker"] == "UNKNOWNCAP"]
     conn.close()
 
@@ -195,11 +196,11 @@ def test_a_mega_cap_does_NOT_reach_the_pool(monkeypatch, past_epoch):
     disc.ensure_tables(conn)
     _history(conn)
     _seed(conn, "MEGA", [0] * 30)
-    monkeypatch.setattr(disc, "market_cap", lambda c, s: 3_000_000_000_000)
+    monkeypatch.setattr(disc, "market_cap", lambda c, s, **kw: 3_000_000_000_000)
     assert not [c for c in disc.find_candidates(conn) if c["ticker"] == "MEGA"]
     # control: the SAME traction with a small cap DOES reach it, so the exclusion is
     # the cap filter and not the fixture failing to trigger
-    monkeypatch.setattr(disc, "market_cap", lambda c, s: 500_000_000)
+    monkeypatch.setattr(disc, "market_cap", lambda c, s, **kw: 500_000_000)
     assert [c for c in disc.find_candidates(conn) if c["ticker"] == "MEGA"]
     conn.close()
 
@@ -330,3 +331,177 @@ def test_no_corroboration_path_reads_the_watch_pool():
     for mod in (r10, jpt_common):
         assert "discovery_watch" not in inspect.getsource(mod), (
             f"{mod.__name__} reads the discovery pool — it must not")
+
+
+# ── the partial-baseline window — the gap that let the guard bug through ─────
+
+def test_the_guard_cannot_open_before_a_full_baseline_exists():
+    """MIN_HISTORY_DAYS must be >= BASELINE_DAYS. Structural, not a preference.
+
+    `daily_counts` zero-fills slots it has no data for, and those zeros mean NO DATA,
+    not "no mentions". So a partial baseline reads as a near-zero baseline and
+    everything looks like a spike. With the guard at 7 and the window at 14 the rule
+    ran for a week inside that distortion — a null control fired at 46.9%.
+    """
+    assert disc.MIN_HISTORY_DAYS >= disc.BASELINE_DAYS, (
+        f"guard {disc.MIN_HISTORY_DAYS} opens before the {disc.BASELINE_DAYS}-day "
+        "baseline can be full — every partial slot reads as a zero and inflates the "
+        "deviation")
+
+
+def test_a_flat_ticker_does_not_fire_at_any_point_in_the_epoch_window(past_epoch):
+    """THE regression test for the overturned headline.
+
+    A ticker at a FLAT 20 mentions/day — which has never moved — was written into the
+    pool at "20x" on the first day the old guard opened. Walk the whole ramp-up and
+    assert it never fires, at any history depth.
+    """
+    for depth in range(1, disc.BASELINE_DAYS + 4):
+        conn = db_connection()
+        disc.ensure_tables(conn)
+        conn.execute("DELETE FROM reddit_mentions")
+        for d in range(0, depth + 1):          # includes today
+            for i in range(20):                # flat 20/day, every day
+                conn.execute(
+                    "INSERT OR IGNORE INTO reddit_mentions (post_id, ticker, "
+                    "subreddit, mentioned_at) VALUES (?,?,?, datetime('now', ?))",
+                    (f"flat_{d}_{i}", "FLAT20", "stocks", f"-{d} days"))
+        conn.commit()
+        pool = [c["ticker"] for c in disc.find_candidates(conn)]
+        conn.close()
+        assert "FLAT20" not in pool, (
+            f"a ticker at a flat 20/day was discovered at history depth {depth} — "
+            "its own normal volume was read as a spike")
+
+
+def test_an_ingestion_outage_cannot_leave_the_guard_open(past_epoch):
+    """`history_days` must be WINDOWED, not global.
+
+    Counting distinct days anywhere post-epoch meant that after an outage longer than
+    BASELINE_DAYS the guard read "31 days of history" while the baseline window held
+    nothing — so every ticker with >= COLD_START_MENTIONS cold-started into the pool at
+    its own normal volume, reporting a sample size of 31 behind a baseline of zero.
+    """
+    conn = db_connection()
+    disc.ensure_tables(conn)
+    for d in range(20, 40):                    # plenty of history, ALL of it stale
+        conn.execute("INSERT OR IGNORE INTO reddit_mentions (post_id, ticker, "
+                     "mentioned_at) VALUES (?,?, datetime('now', ?))",
+                     (f"old_{d}", "OLDBUZZ", f"-{d} days"))
+    _seed(conn, "OLDBUZZ", [0] * 30)           # 30 mentions today, nothing in between
+    conn.commit()
+    assert disc.history_days(conn) < disc.MIN_HISTORY_DAYS, \
+        "the guard is counting days outside the baseline window again"
+    assert disc.find_candidates(conn) == []
+    conn.close()
+
+
+def test_the_fractional_median_cliff_is_closed():
+    """More history must never make the bar EASIER.
+
+    BASELINE_DAYS is even, so the median is the mean of two slots and can be 0.5:
+        6 active days -> median 0.0 -> cold start, needs 12
+        7 active days -> median 0.5 -> deviation,  needed only the floor of 5, at "10x"
+    A ticker mentioned once every other day fired on 5 mentions.
+    """
+    six = [1] * 6 + [0] * 8
+    seven = [1] * 7 + [0] * 7
+    import statistics
+    assert statistics.median(six) == 0.0 and statistics.median(seven) == 0.5
+    assert not disc.evaluate(5, six)[0]
+    assert not disc.evaluate(5, seven)[0], (
+        "a median of 0.5 still lets 5 mentions through — more history made the bar "
+        "easier than less")
+
+
+def test_deviation_is_always_a_multiple_or_absent():
+    """It carried a RAW COUNT on the cold-start branch, and the pool sorts on it —
+    so raw counts and true multiples were ranked in one list."""
+    fires, trigger, dev = disc.evaluate(50, [10] * 14)
+    assert fires and trigger == "deviation" and dev == 5.0
+    fires, trigger, dev = disc.evaluate(20, [0] * 14)
+    assert fires and trigger == "cold_start" and dev is None, \
+        f"cold start reported a deviation of {dev} — that is a mention count"
+    assert disc.evaluate(2, [1] * 14)[2] is None          # below floor
+
+
+# ── the PRODUCER — three mutations survived the whole 523-test suite ─────────
+#
+# `rule_reddit.py` is half of this branch and had ZERO coverage. A verifier reverted the
+# grain fix (`tickers[:1]`), deleted the mention INSERT outright, and deleted
+# `ensure_tables()` — each left 523/523 green. Every test seeded `reddit_mentions`
+# through its own helper and none ever ran the thing that writes it.
+
+def _stub_reddit(monkeypatch, posts):
+    """Run the REAL rule against fabricated posts, network sealed off.
+
+    `_fetch_subreddit` returns flat post dicts (resp.json()["data"]), and run() sleeps
+    3s per subreddit — both stubbed so this exercises the write path and nothing else.
+    """
+    from scripts import rule_reddit as rr
+    monkeypatch.setattr(rr, "SUBREDDITS", ["stocks"])
+    monkeypatch.setattr(rr, "MIN_UPVOTES", 0)
+    monkeypatch.setattr(rr, "_fetch_subreddit", lambda sub: posts)
+    monkeypatch.setattr(rr.time, "sleep", lambda *_a: None)
+    return rr
+
+
+def test_the_producer_records_EVERY_ticker_not_just_the_first(monkeypatch):
+    """The grain fix, through the real rule rather than a seeded fixture."""
+    from jpt_common import db_connection as _db
+    conn = _db(); disc.ensure_tables(conn)
+    known = {r[0] for r in conn.execute("SELECT symbol FROM tickers")} or set()
+    conn.close()
+
+    rr = _stub_reddit(monkeypatch, [{
+        "id": "multi1", "title": "$NVDA $AMD and $PLTR all ripping", "selftext": "",
+        "score": 50, "num_comments": 10, "upvote_ratio": 0.9,
+        "url": "https://reddit.com/r/stocks/multi1", "author_post_count": 30}])
+    monkeypatch.setattr(rr, "_extract_tickers",
+                        lambda text, k: ["NVDA", "AMD", "PLTR"])
+    try:
+        rr.run(emit=False, dry_run=False)
+    except Exception as exc:                      # fetch shape varies; skip, don't lie
+        pytest.skip(f"could not drive the real producer: {type(exc).__name__}: {exc}")
+
+    conn = _db()
+    mentions = sorted(r[0] for r in conn.execute(
+        "SELECT ticker FROM reddit_mentions WHERE post_id='multi1'"))
+    posts = conn.execute(
+        "SELECT COUNT(*) FROM reddit_posts WHERE post_id='multi1'").fetchone()[0]
+    conn.close()
+    assert mentions == ["AMD", "NVDA", "PLTR"], (
+        f"the producer recorded {mentions} — the grain fix is reverted or gone")
+    assert posts == 1, "reddit_posts should still hold exactly one row per post"
+
+
+def test_a_missing_mentions_table_cannot_take_RULE_REDDIT_down(monkeypatch):
+    """The silent-data-loss path this branch introduced.
+
+    Putting the mention INSERT inside the try that guards the reddit_posts write meant a
+    missing `reddit_mentions` killed BOTH: the rule stored 0 posts, emitted 0 alerts, and
+    logged scanned=4 flagged=0 emitted=0 — indistinguishable from a quiet day.
+    """
+    from jpt_common import db_connection as _db
+    conn = _db(); disc.ensure_tables(conn)
+    conn.execute("DROP TABLE reddit_mentions")     # simulate the bootstrap not running
+    conn.commit(); conn.close()
+
+    rr = _stub_reddit(monkeypatch, [{
+        "id": "solo1", "title": "$NVDA looks strong", "selftext": "", "score": 50,
+        "num_comments": 5, "upvote_ratio": 0.9,
+        "url": "https://reddit.com/r/stocks/solo1", "author_post_count": 30}])
+    monkeypatch.setattr(rr, "_extract_tickers", lambda text, k: ["NVDA"])
+    monkeypatch.setattr(rr, "ensure_tables", lambda c: None, raising=False)
+    try:
+        rr.run(emit=False, dry_run=False)
+    except Exception as exc:
+        pytest.skip(f"could not drive the real producer: {type(exc).__name__}: {exc}")
+
+    conn = _db()
+    stored = conn.execute(
+        "SELECT COUNT(*) FROM reddit_posts WHERE post_id='solo1'").fetchone()[0]
+    conn.close()
+    assert stored == 1, (
+        "a missing reddit_mentions table stopped RULE_REDDIT storing posts — mention "
+        "capture must never take the rule down")

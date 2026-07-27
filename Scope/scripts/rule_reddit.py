@@ -280,23 +280,33 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                        VALUES (?,?,?,?,?,?)""",
                     (post_id, subreddit, title, ticker, score, url),
                 )
-                # EVERY ticker, not just tickers[0]. `reddit_posts.post_id` is UNIQUE
-                # and stores ONE ticker, so a post naming three recorded one — mention
-                # counts were structurally lossy, and a ticker that tends to be
-                # mentioned second could never accumulate a baseline at all. Discovery
-                # needs a per-(post, ticker) grain, so it gets its own additive table.
-                # Forward-only: nothing rewrites the existing lossy rows.
+                ingested_posts.add(post_id)
+                stored += 1
+            except Exception as exc:
+                print(f"[RULE_REDDIT] Failed to store post {post_id}: {exc}")
+                continue
+
+            # EVERY ticker, not just tickers[0]. `reddit_posts.post_id` is UNIQUE and
+            # stores ONE ticker, so a post naming three recorded one — counts were
+            # structurally lossy and a ticker usually mentioned second could never build
+            # a baseline. Discovery needs a per-(post, ticker) grain.
+            #
+            # DELIBERATELY IN ITS OWN try, OUTSIDE the one above. That block guards the
+            # reddit_posts write, whose table comes from schema_sqlite.sql and cannot be
+            # missing. `reddit_mentions` is created imperatively, so putting it inside
+            # coupled a WORKING rule to a bootstrap: a verifier deleted ensure_tables()
+            # and RULE_REDDIT stopped storing posts AND emitting alerts entirely, logging
+            # scanned=4 flagged=0 emitted=0 — indistinguishable from a quiet day. Mention
+            # capture is a nice-to-have for discovery; it must never take the rule down.
+            try:
                 for _t in tickers:
                     conn.execute(
                         """INSERT OR IGNORE INTO reddit_mentions
                            (post_id, ticker, subreddit) VALUES (?,?,?)""",
                         (post_id, _t, subreddit),
                     )
-                ingested_posts.add(post_id)
-                stored += 1
             except Exception as exc:
-                print(f"[RULE_REDDIT] Failed to store post {post_id}: {exc}")
-                continue
+                print(f"[RULE_REDDIT] mention capture skipped for {post_id}: {exc}")
 
             # Emit an alert only when the post also carries a political angle.
             if url not in alerted_urls and _has_political(full_text):

@@ -33,11 +33,16 @@ history does not exist yet. Measured 2026-07-27:
     staleness          data ends 7 days ago
     grain              ONE ticker per post (93 rows = 93 post_ids) — a post naming
                        three tickers recorded one, so counts were lossy
-    contamination      46/93 rows (49%) are BACK/HERE/POST/RYAN/TECH — the English-word
-                       false positives the extraction fix removed
+    contamination      42/93 rows (45.2%) are English-word false positives across 15
+                       tickers (BACK, HERE, POST, MOVE, BEAT, FIVE, CASH, OPEN...).
+                       An earlier draft said "46/93 (49%) ... BACK/HERE/POST/RYAN/TECH";
+                       a verifier recomputed it against the actual blocklist — the five
+                       named account for 26 rows, and RYAN and TECH are not blocklisted
+                       at all (they are caught by the new frequency list, not the old
+                       one). Directionally right, arithmetically wrong.
 
 A rolling 14-day median cannot be computed, let alone tuned, from 12 hours of
-49%-contaminated data. Any K or floor stated as "measured" would be a guess wearing a
+45%-contaminated data. Any K or floor stated as "measured" would be a guess wearing a
 lab coat. So the numbers below are DECLARED GUESSES, and MIN_HISTORY_DAYS makes the rule
 structurally unable to fire until real history exists — the same shape as RULE_15's
 cold-start quarantine. Until then it correctly emits nothing and says so in activity_log.
@@ -64,7 +69,25 @@ RULE = "RULE_DISCOVERY"
 
 # ── Provisional parameters (see the module docstring) ────────────────────────
 BASELINE_DAYS = 14          # trailing window the median is taken over
-MIN_HISTORY_DAYS = 7        # STRUCTURAL GUARD — below this the rule cannot fire at all
+# STRUCTURAL GUARD. Must be >= BASELINE_DAYS, and a test enforces that.
+#
+# It was 7, and a verifier measured what that did. `daily_counts` zero-fills every slot
+# it has no data for, and those zeros mean "NO DATA", not "no mentions" — so a partial
+# baseline reads as a near-zero baseline and everything looks like a spike. With the
+# guard at 7 the rule opened exactly one week before 14 days of countable history could
+# exist. Null control, 4000 trials per row, `today` drawn from the ticker's OWN history
+# so every firing is by construction a false positive:
+#
+#     days since epoch     false-fire rate     median reported deviation
+#            7 (guard!)         38.3 %                23.0x
+#            8                  46.9 %                11.3x
+#            9                  36.2 %                 6.0x
+#           12                   5.8 %                 3.6x
+#           15+ (steady)         1.2 %                 3.3x
+#
+# The guard opened at the maximum of its own false-positive curve. A ticker sitting at
+# a flat 20 mentions/day — which has never moved — was written into the pool at "20x".
+MIN_HISTORY_DAYS = BASELINE_DAYS
 DEVIATION_K = 3.0           # today >= median * K
 MIN_MENTIONS = 5            # absolute floor, so 1 -> 3 cannot fire
 COLD_START_MENTIONS = 12    # no baseline at all -> needs a high absolute count
@@ -72,13 +95,19 @@ SMALL_CAP_MAX = 2_000_000_000   # $2B ceiling. Above this, discovery is pointles
                                 # a mega-cap's reddit buzz is not news to anyone.
 CAP_TTL_DAYS = 30           # market caps move slowly; do not re-fetch per run
 
-# Mentions recorded before the extraction fix are ~49% English-word false positives
+# Mentions recorded before the extraction fix are ~45% English-word false positives
 # (BACK, HERE, POST, RYAN...). Counting them would build baselines for words. Same
 # quarantine pattern as rule_15_earnings_nlp.REPAIR_EPOCH.
 DISCOVERY_EPOCH = "2026-07-27 00:00:00"
 
 _SEC_HEADERS = {"User-Agent": "Scope research sloppysecondstbb@gmail.com"}
 _YF_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+
+
+def _tables_exist(conn) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reddit_mentions'"
+    ).fetchone())
 
 
 def ensure_tables(conn) -> None:
@@ -167,7 +196,7 @@ def _last_close(symbol: str) -> float | None:
         return None
 
 
-def market_cap(conn, symbol: str) -> int | None:
+def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     """Cached market cap, or None if it cannot be determined.
 
     None is NOT treated as small — an unknown cap must not sneak a mega-cap into the
@@ -195,12 +224,13 @@ def market_cap(conn, symbol: str) -> int | None:
     if not shares or not price:
         return None
     cap = int(shares * price)
-    conn.execute(
-        "INSERT INTO ticker_meta (symbol, market_cap, cap_updated) VALUES (?,?,?) "
-        "ON CONFLICT(symbol) DO UPDATE SET market_cap=excluded.market_cap, "
-        "cap_updated=excluded.cap_updated",
-        (symbol, cap, datetime.now(timezone.utc).isoformat()))
-    conn.commit()
+    if cache:
+        conn.execute(
+            "INSERT INTO ticker_meta (symbol, market_cap, cap_updated) VALUES (?,?,?) "
+            "ON CONFLICT(symbol) DO UPDATE SET market_cap=excluded.market_cap, "
+            "cap_updated=excluded.cap_updated",
+            (symbol, cap, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
     return cap
 
 
@@ -234,13 +264,26 @@ def today_count(conn, ticker: str) -> int:
 
 
 def history_days(conn) -> int:
-    """Distinct days of USABLE (post-epoch) mention history."""
+    """Distinct days with ingestion data INSIDE the baseline window.
+
+    Windowed, not global. The global form counted days anywhere post-epoch, so after an
+    ingestion outage longer than BASELINE_DAYS the guard read "31 days of history" while
+    the actual baseline window held nothing — and every ticker with >= COLD_START_MENTIONS
+    cold-started into the pool on the first day back, at its own normal volume, reporting
+    a sample size of 31 for a baseline built from zero real days. Measured by a verifier.
+
+    Counting only days that fall in the window the median is actually taken over makes
+    the guard measure the thing it is guarding.
+    """
     return conn.execute(
-        "SELECT COUNT(DISTINCT date(mentioned_at)) FROM reddit_mentions "
-        "WHERE mentioned_at >= ?", (DISCOVERY_EPOCH,)).fetchone()[0]
+        """SELECT COUNT(DISTINCT date(mentioned_at)) FROM reddit_mentions
+           WHERE mentioned_at >= ?
+             AND date(mentioned_at) >= date('now', ?)
+             AND date(mentioned_at) <  date('now')""",
+        (DISCOVERY_EPOCH, f"-{BASELINE_DAYS} days")).fetchone()[0]
 
 
-def evaluate(counts_today: int, baseline_days: list[int]) -> tuple[bool, str, float]:
+def evaluate(counts_today: int, baseline_days: list[int]) -> tuple[bool, str, float | None]:
     """(fires, trigger, deviation). Pure — no DB, no network, so it is testable.
 
     Three ways to fail, in order:
@@ -251,15 +294,26 @@ def evaluate(counts_today: int, baseline_days: list[int]) -> tuple[bool, str, fl
       deviation   today >= median * K.
     """
     if counts_today < MIN_MENTIONS:
-        return False, "below_floor", 0.0
+        return False, "below_floor", None
 
     median = statistics.median(baseline_days) if baseline_days else 0.0
 
-    if median <= 0:
+    # BASELINE_DAYS is even, so the median is the mean of two slots and can be 0.5.
+    # That created a cliff where MORE history meant a STRICTLY EASIER bar:
+    #     6 active days  -> median 0.0 -> cold start, needs 12 mentions
+    #     7 active days  -> median 0.5 -> deviation,  needs only the floor of 5, and
+    #                                     reports it as "10x"
+    # A ticker mentioned once every other day fired on 5 mentions. Anything below one
+    # mention a day is not a baseline to deviate from, so it takes the cold-start path.
+    if median < 1.0:
         # No normal to deviate from — cold start.
+        # None, NOT the raw count. Returning the count here made `deviation` mean two
+        # different things on two branches, and the pool sorts on that column — so raw
+        # counts and true multiples were ranked against each other in one list, which is
+        # the rank-by-popularity failure this module exists to avoid.
         if counts_today >= COLD_START_MENTIONS:
-            return True, "cold_start", float(counts_today)
-        return False, "cold_start_below_bar", float(counts_today)
+            return True, "cold_start", None
+        return False, "cold_start_below_bar", None
 
     deviation = counts_today / median
     if deviation >= DEVIATION_K:
@@ -267,7 +321,7 @@ def evaluate(counts_today: int, baseline_days: list[int]) -> tuple[bool, str, fl
     return False, "within_normal", round(deviation, 2)
 
 
-def find_candidates(conn) -> list[dict]:
+def find_candidates(conn, cache_caps: bool = True) -> list[dict]:
     """Tickers whose traction today is unusual FOR THEM. Read-only except cap caching."""
     have = history_days(conn)
     if have < MIN_HISTORY_DAYS:
@@ -286,7 +340,7 @@ def find_candidates(conn) -> list[dict]:
         fires, trigger, deviation = evaluate(n, daily_counts(conn, t))
         if not fires:
             continue
-        cap = market_cap(conn, t)
+        cap = market_cap(conn, t, cache=cache_caps)
         # Unknown cap is NOT small — fail closed.
         if cap is None or cap > SMALL_CAP_MAX:
             continue
@@ -297,9 +351,20 @@ def find_candidates(conn) -> list[dict]:
             "ticker": t, "mention_count": n,
             "baseline": statistics.median(daily_counts(conn, t)),
             "deviation": deviation, "market_cap": cap, "trigger": trigger,
+            # `have` is days WITH DATA inside the baseline window — the number a
+            # reviewer needs to judge how much the baseline is worth. It used to be a
+            # GLOBAL count reported as though per-baseline, so an outage could show
+            # "31 days" behind a baseline built from zero.
             "subreddits": subs, "sample_days": have,
+            "baseline_window_days": BASELINE_DAYS,
         })
-    return sorted(out, key=lambda c: -c["deviation"])
+    # TWO SCALES, NEVER COMPARED. Deviation-triggered candidates rank by their multiple;
+    # cold starts have no multiple at all and rank among THEMSELVES by raw count, after.
+    # The previous sort put a raw mention count and a true multiple in one ordering,
+    # which is the rank-by-popularity failure this module exists to avoid.
+    return sorted(out, key=lambda c: (c["deviation"] is None,
+                                      -(c["deviation"] or 0.0),
+                                      -c["mention_count"]))
 
 
 def upsert_watch(conn, c: dict) -> None:
@@ -324,10 +389,24 @@ def upsert_watch(conn, c: dict) -> None:
 
 
 def run(dry_run: bool = False) -> dict:
+    """`--dry-run` writes NOTHING. Not the tables, not ticker_meta, not activity_log.
+
+    It used to write all three: `ensure_tables` created two tables, `market_cap` cached
+    to ticker_meta, and record_activity logged a row — against the working database,
+    while the run reported itself as dry. A dry run that mutates state is worse than no
+    dry run, because it is used precisely when someone is being careful.
+    """
     t0 = time.time()
     conn = db_connection()
-    ensure_tables(conn)
-    cands = find_candidates(conn)
+    if not dry_run:
+        ensure_tables(conn)
+    elif not _tables_exist(conn):
+        print(f"[{RULE}] [dry] tables do not exist yet — nothing to inspect, and a dry "
+              f"run will not create them.")
+        conn.close()
+        return {"candidates": 0, "dry_run": True}
+
+    cands = find_candidates(conn, cache_caps=not dry_run)
 
     if not dry_run:
         for c in cands:
@@ -339,11 +418,11 @@ def run(dry_run: bool = False) -> dict:
               f"{c['mention_count']} today vs baseline {c['baseline']} "
               f"({c['trigger']}, x{c['deviation']}), cap ${c['market_cap']:,}")
 
-    notes = (f"candidates={len(cands)}, history_days={history_days(conn)}, "
+    notes = (f"candidates={len(cands)}, baseline_days_with_data={history_days(conn)}, "
              f"dry_run={dry_run}")
-    record_activity(RULE, scanned=0, flagged=len(cands),
-                    emitted=0 if dry_run else len(cands),
-                    duration_seconds=round(time.time() - t0, 2), notes=notes)
+    if not dry_run:
+        record_activity(RULE, scanned=0, flagged=len(cands), emitted=len(cands),
+                        duration_seconds=round(time.time() - t0, 2), notes=notes)
     print(f"[{RULE}] {notes}")
     conn.close()
     return {"candidates": len(cands), "dry_run": dry_run}
