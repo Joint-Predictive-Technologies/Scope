@@ -32,6 +32,11 @@ from scripts import rule_reddit_collector as coll  # noqa: E402
 _c = TestClient(app)
 _REAL_DB = os.path.join(os.path.dirname(__file__), "..", "data", "jpt.db")
 
+# Captured at IMPORT, before the autouse stub replaces it. `monkeypatch.undo()` would
+# also undo conftest's DATABASE_PATH isolation — which the DB guard correctly refuses,
+# so the real function has to be held by reference instead.
+_REAL_MARKET_CAP = coll.market_cap
+
 
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
@@ -171,7 +176,10 @@ def test_a_missing_mentions_table_cannot_take_RULE_REDDIT_down(monkeypatch):
         "num_comments": 5, "upvote_ratio": 0.9,
         "url": "https://reddit.com/r/stocks/solo1", "author_post_count": 30}])
     monkeypatch.setattr(rr, "_extract_tickers", lambda text, k: ["NVDA"])
-    monkeypatch.setattr(rr, "ensure_tables", lambda c: None, raising=False)
+    # rule_reddit imports the bootstrap INSIDE run() as `_ensure_collector`, so
+    # `rr.ensure_tables` does not exist — patching it set an attribute nothing reads and
+    # the table was simply recreated before the INSERT. The scenario never occurred.
+    monkeypatch.setattr(coll, "ensure_tables", lambda c: None)
     try:
         rr.run(emit=False, dry_run=False)
     except Exception as exc:
@@ -315,10 +323,15 @@ def test_the_api_frames_this_as_coverage_and_carries_no_signal():
     assert body["kind"] == "ticker_coverage_list"
     got = [t for t in body["tickers"] if t["ticker"] == "COVERED"]
     assert got, "a collected ticker did not surface"
-    for banned in ("confidence", "score", "probability", "prediction", "target",
-                   "signal", "deviation", "conviction", "rank"):
-        assert banned not in str(got[0]).lower(), (
-            f"the payload carries {banned!r} — collection is coverage, not a signal")
+    # AN ALLOWLIST, not a blocklist. The blocklist form let `"strength": times_seen`
+    # through because the word simply was not on the list — a verifier added it and the
+    # suite stayed green. Enumerating what MAY appear cannot be outflanked by a synonym.
+    ALLOWED = {"ticker", "first_collected_at", "last_seen_at", "times_seen",
+               "market_cap", "cap_status", "source"}
+    extra = set(got[0]) - ALLOWED
+    assert not extra, (
+        f"the payload grew {extra} — collection is coverage, and any field beyond the "
+        "allowlist risks reading as a signal. Widen ALLOWED deliberately if intended.")
     blob = str(body).lower()
     assert "not a signal" in blob and "coverage" in blob
 
@@ -329,7 +342,11 @@ def test_collection_emits_no_alert_at_all():
     src = inspect.getsource(coll)
     body = "\n".join(l.split("#")[0] for l in src.splitlines())
     assert "insert_alert" not in body
-    assert "INTO alerts" not in body.upper()
+    # `body.upper()` can never contain a lowercase "alerts", so the old form of this
+    # assertion was ALWAYS TRUE — a verifier put a literal `INSERT INTO alerts` inside
+    # run() and all 524 tests stayed green.
+    assert "INTO ALERTS" not in body.upper()
+    assert "INSERT INTO ALERTS" not in body.upper()
 
     conn = db_connection(); coll.ensure_tables(conn)
     _mention(conn, "NOALERT")
@@ -386,3 +403,180 @@ def test_BOTH_cashtag_mechanisms_are_tested_separately():
     conn.close()
     assert "CASH2" in tickers, "the query dropped a cashtagged mention"
     assert "BARE2" not in tickers, "pending_mentions handed a bare mention downstream"
+
+
+# ── the producer's cashtag labelling — the untested single point of failure ──
+#
+# Both "layers" of the cashtag gate read ONE boolean column, written by ONE function.
+# That function had zero tests, so three mutations of it put a bare mention into
+# `ticker_universe` with 524/524 green. The layers cannot tell a mislabelled row from a
+# real one; this is where the gate actually lives.
+
+def test_extract_cashtagged_returns_only_dollar_prefixed_symbols():
+    from scripts.rule_reddit import extract_cashtagged
+    known = {"MOBX", "NVDA", "POST", "GME"}
+    assert extract_cashtagged("$MOBX and $NVDA are moving", known) == ["MOBX", "NVDA"]
+    assert extract_cashtagged("MOBX and NVDA are moving", known) == [], \
+        "a BARE token was returned as cashtagged — the collector's primary gate"
+    assert extract_cashtagged("I saw this post about GME", known) == [], \
+        "prose was returned as cashtagged"
+    assert extract_cashtagged("$POST beat earnings", known) == ["POST"], \
+        "a cashtagged common word must still count"
+    assert extract_cashtagged("$NOTREAL is fake", known) == [], "unknown symbol returned"
+
+
+def test_extract_cashtagged_shares_the_regex_with_the_alert_path():
+    """One definition, so the two cannot drift."""
+    import inspect
+    from scripts import rule_reddit as rr
+    src = inspect.getsource(rr.extract_cashtagged)
+    assert "TICKER_RE" in src, "the cashtag extractor rolled its own pattern"
+    assert "BARE_TICKER_RE" not in src, "the cashtag extractor is reading BARE tokens"
+
+
+def test_the_producer_labels_cashtagged_correctly_end_to_end(monkeypatch):
+    """The layer both gates depend on, through the real rule."""
+    from jpt_common import db_connection as _db
+    conn = _db(); coll.ensure_tables(conn); conn.close()
+    rr = _stub_reddit(monkeypatch, [{
+        "id": "mixed1", "title": "$MOBX is up and NVDA is too", "selftext": "",
+        "score": 50, "num_comments": 9, "upvote_ratio": 0.9,
+        "url": "https://reddit.com/r/stocks/mixed1", "author_post_count": 30}])
+    monkeypatch.setattr(rr, "_extract_tickers", lambda t, k: ["MOBX", "NVDA"])
+    monkeypatch.setattr(rr, "extract_cashtagged", lambda t, k: ["MOBX"])
+    try:
+        rr.run(emit=False, dry_run=False)
+    except Exception as exc:
+        pytest.skip(f"could not drive the real producer: {type(exc).__name__}: {exc}")
+
+    conn = _db()
+    flags = dict(conn.execute(
+        "SELECT ticker, cashtagged FROM reddit_mentions WHERE post_id='mixed1'"))
+    conn.close()
+    assert flags.get("MOBX") == 1, "the cashtagged ticker was not labelled"
+    assert flags.get("NVDA") == 0, (
+        "a BARE ticker was labelled cashtagged — this single column IS the gate, and "
+        "both checks downstream would happily collect it")
+
+
+def test_collect_passes_the_REAL_flag_not_a_literal():
+    """`collect()` used to pass a hardcoded 1, making the collectable() check dead code."""
+    import inspect
+    src = inspect.getsource(coll.collect)
+    assert 'm["cashtagged"]' in src, "collect() is not reading the stored flag"
+    assert "collectable(conn, m[\"ticker\"], 1," not in src
+
+
+# ── the market-cap machinery, which the autouse stub hid entirely ────────────
+
+def test_market_cap_fails_closed_in_every_failure_mode(monkeypatch):
+    """0% coverage before this: `no_network` stubs `coll.market_cap` in every test, so
+    the real SEC/Yahoo path was never executed and could have returned anything."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    cap = lambda t: _REAL_MARKET_CAP(conn, t, cache=False)   # noqa: E731
+    monkeypatch.setattr(coll, "_cik_for", lambda s: None)
+    assert cap("X") is None                                          # no CIK
+    monkeypatch.setattr(coll, "_cik_for", lambda s: "0000320193")
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: None)
+    monkeypatch.setattr(coll, "_last_close", lambda s: 100.0)
+    assert cap("X") is None                                          # SEC down
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 1e9)
+    monkeypatch.setattr(coll, "_last_close", lambda s: None)
+    assert cap("X") is None                                          # Yahoo down
+    monkeypatch.setattr(coll, "_last_close", lambda s: 0.0)
+    assert cap("X") is None                                          # zero price
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 0.0)
+    monkeypatch.setattr(coll, "_last_close", lambda s: 10.0)
+    assert cap("X") is None                                          # zero shares
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 2e9)
+    assert cap("X") == 20_000_000_000                                # healthy
+    conn.close()
+
+
+def test_an_outage_collected_megacap_is_EVICTED_when_the_cap_resolves(monkeypatch):
+    """No repair path existed: one outage seeded AAPL/NVDA/MSFT permanently, because
+    collect() skips anything it classifies as excluded and nothing ever deleted."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: None)   # outage
+    _mention(conn, "AAPL"); _mention(conn, "TINYCO")
+    coll.collect(conn); conn.commit()
+    assert {r[0] for r in conn.execute(
+        "SELECT ticker FROM ticker_universe")} == {"AAPL", "TINYCO"}
+
+    caps = {"AAPL": 4_900_000_000_000, "TINYCO": 300_000_000}
+    monkeypatch.setattr(coll, "market_cap", lambda c, s, **kw: caps.get(s))
+    out = coll.repair_unknown_caps(conn); conn.commit()
+    rows = {r[0]: r[1] for r in conn.execute(
+        "SELECT ticker, cap_status FROM ticker_universe")}
+    conn.close()
+    assert "AAPL" not in rows, "an outage-collected mega-cap was never evicted"
+    assert rows.get("TINYCO") == "small" and out["evicted"] == 1 and out["repaired"] == 1
+
+
+def test_an_unknown_resighting_does_not_downgrade_a_resolved_row():
+    """cap_status was overwritten while market_cap was COALESCEd, so a row could read
+    cap_status='unknown' sitting on a resolved market_cap."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    coll.upsert_universe(conn, "RESOLVED", "small", 750_000_000)
+    coll.upsert_universe(conn, "RESOLVED", "unknown", None)
+    conn.commit()
+    row = conn.execute("SELECT cap_status, market_cap FROM ticker_universe "
+                       "WHERE ticker='RESOLVED'").fetchone()
+    conn.close()
+    assert (row["cap_status"], row["market_cap"]) == ("small", 750_000_000)
+
+
+def test_the_collection_epoch_excludes_pre_extraction_fix_mentions():
+    """Untested before: mutating COLLECTION_EPOCH to 1970 survived the whole suite,
+    so the guard against ~45% English-word junk was decoration."""
+    conn = db_connection(); coll.ensure_tables(conn)
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker, cashtagged, score, "
+                 "num_comments, mentioned_at) VALUES "
+                 "('old1','HERE',1,99,99,'2026-07-19 10:00:00')")
+    conn.commit()
+    assert "HERE" not in {m["ticker"] for m in coll.pending_mentions(conn)}
+    coll.collect(conn); conn.commit()
+    n = conn.execute("SELECT COUNT(*) FROM ticker_universe "
+                     "WHERE ticker='HERE'").fetchone()[0]
+    conn.close()
+    assert n == 0, "a pre-extraction-fix mention was collected"
+
+
+def test_ensure_tables_repairs_a_legacy_reddit_mentions(monkeypatch):
+    """The PRAGMA-guarded ADD COLUMNs were correct and UNTESTED — deleting them left
+    the suite green. This is the `tickers.updated_at` failure class: CREATE TABLE IF NOT
+    EXISTS is a no-op on a table that already exists with fewer columns."""
+    conn = db_connection()
+    conn.execute("DROP TABLE IF EXISTS reddit_mentions")
+    conn.execute("""CREATE TABLE reddit_mentions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT NOT NULL,
+        ticker TEXT NOT NULL, subreddit TEXT,
+        mentioned_at TEXT DEFAULT (datetime('now')), UNIQUE(post_id, ticker))""")
+    conn.execute("INSERT INTO reddit_mentions (post_id, ticker) VALUES ('legacy','OLD')")
+    conn.commit()
+    assert not coll._tables_exist(conn), "a legacy schema must not read as ready"
+
+    coll.ensure_tables(conn)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reddit_mentions)").fetchall()}
+    row = conn.execute("SELECT cashtagged, score, num_comments FROM reddit_mentions "
+                       "WHERE post_id='legacy'").fetchone()
+    coll.ensure_tables(conn)                       # idempotent
+    conn.close()
+    assert {"cashtagged", "score", "num_comments"} <= cols, "the guarded adds are gone"
+    assert (row["cashtagged"], row["score"], row["num_comments"]) == (0, 0, 0), \
+        "legacy rows must default to NOT cashtagged — a second barrier against pre-fix junk"
+
+
+def test_dry_run_does_not_crash_on_a_legacy_schema(capsys):
+    """It exited rc=1 with `no such column: score`, because --dry-run deliberately skips
+    ensure_tables and _tables_exist only checked the table NAME."""
+    conn = db_connection()
+    conn.execute("DROP TABLE IF EXISTS reddit_mentions")
+    conn.execute("""CREATE TABLE reddit_mentions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, post_id TEXT, ticker TEXT,
+        subreddit TEXT, mentioned_at TEXT, UNIQUE(post_id, ticker))""")
+    conn.commit(); conn.close()
+
+    out = coll.run(dry_run=True)                   # must not raise
+    assert out["dry_run"] is True and out["collected"] == 0
+    assert "schema not ready" in capsys.readouterr().out

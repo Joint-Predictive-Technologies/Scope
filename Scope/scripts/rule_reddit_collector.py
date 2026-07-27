@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -75,10 +74,25 @@ _SEC_HEADERS = {"User-Agent": "Scope research sloppysecondstbb@gmail.com"}
 _YF_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 
+_REQUIRED_MENTION_COLS = {"cashtagged", "score", "num_comments"}
+
+
 def _tables_exist(conn) -> bool:
-    return bool(conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reddit_mentions'"
-    ).fetchone())
+    """Table AND the columns the collector reads.
+
+    Checking the NAME alone was not enough: the working DB carried a five-column
+    `reddit_mentions` from before the collector existed, so `--dry-run` — which
+    deliberately skips `ensure_tables` — walked straight into
+    `OperationalError: no such column: score` and exited 1. The one path that never
+    repairs the schema is the one that has to tolerate an unrepaired schema. Same class
+    as the `tickers.updated_at` bug, in the branch that fixed it.
+    """
+    if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='reddit_mentions'"
+    ).fetchone():
+        return False
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(reddit_mentions)").fetchall()}
+    return _REQUIRED_MENTION_COLS <= cols
 
 
 def ensure_tables(conn) -> None:
@@ -178,10 +192,18 @@ def _last_close(symbol: str) -> float | None:
 def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     """Cached market cap, or None if it cannot be determined.
 
-    None is NOT treated as small — an unknown cap must not sneak a mega-cap into the
-    pool, so callers reject it. Failing closed is the right direction here: the cost of
-    a missed candidate is one missed review, the cost of a false one is noise in the
-    only surface a human is asked to read.
+    ⚠️ THIS FUNCTION FAILS CLOSED (returns None); ITS CALLER FAILS OPEN. Read both.
+
+    An earlier version of this docstring claimed "callers reject it… failing closed is
+    the right direction", which was true of the watch pool that no longer exists and is
+    FALSE for the collector. `classify_cap` treats None as `unknown` and COLLECTS it,
+    because a missing name in a cross-reference universe is the expensive failure.
+
+    The consequence, which a verifier measured: during a SEC or Yahoo outage EVERY
+    lookup returns None at once, so gate 3 stops excluding anything and AAPL/NVDA/MSFT
+    all enter the universe. `repair_unknown_caps` exists to undo exactly that — without
+    it those rows were permanent, because `collect()` skips anything already excluded
+    and nothing ever deleted.
     """
     row = conn.execute(
         "SELECT market_cap, cap_updated FROM ticker_meta WHERE symbol = ?",
@@ -266,12 +288,19 @@ def collectable(conn, ticker: str, cashtagged: int, score: int, num_comments: in
 def pending_mentions(conn) -> list[dict]:
     """Cashtagged, post-epoch mentions. No window, no baseline — coverage accrues."""
     rows = conn.execute(
-        """SELECT ticker, subreddit, MAX(score) score, MAX(num_comments) num_comments
+        """SELECT ticker, subreddit, MAX(score) score, MAX(num_comments) num_comments,
+                  MAX(cashtagged) cashtagged, MAX(mentioned_at) last_mention
            FROM reddit_mentions
            WHERE cashtagged = 1 AND mentioned_at >= ?
            GROUP BY ticker""", (COLLECTION_EPOCH,)).fetchall()
     return [{"ticker": r["ticker"], "subreddit": r["subreddit"],
-             "score": r["score"] or 0, "num_comments": r["num_comments"] or 0}
+             "score": r["score"] or 0, "num_comments": r["num_comments"] or 0,
+             # CARRIED, not assumed. `collect()` used to pass a literal 1 here, which
+             # made the `collectable()` cashtag check unreachable in production — a unit
+             # test of a code path with no caller. Both checks now read the same value
+             # this query selected, so the second is a real guard rather than decoration.
+             "cashtagged": r["cashtagged"] or 0,
+             "last_mention": r["last_mention"]}
             for r in rows]
 
 
@@ -288,17 +317,53 @@ def upsert_universe(conn, ticker: str, cap_status: str, cap: int | None,
            ON CONFLICT(ticker) DO UPDATE SET
              last_seen_at = datetime('now'),
              times_seen   = ticker_universe.times_seen + 1,
+             -- Both COALESCEd together, or they disagree: market_cap was COALESCEd
+             -- while cap_status was overwritten, so an unknown re-sighting produced
+             -- cap_status='unknown' sitting on a resolved market_cap. A verifier built
+             -- that row. If the new reading is unknown, keep BOTH old values.
              market_cap   = COALESCE(excluded.market_cap, ticker_universe.market_cap),
-             cap_status   = excluded.cap_status""",
+             cap_status   = CASE WHEN excluded.market_cap IS NULL
+                                 THEN ticker_universe.cap_status
+                                 ELSE excluded.cap_status END""",
         (ticker, cap, cap_status, source))
+
+
+def repair_unknown_caps(conn, cache_caps: bool = True) -> dict:
+    """Re-resolve rows collected with an unknown cap, and evict any that were large.
+
+    Without this, one SEC/Yahoo outage permanently seeded the universe with mega-caps:
+    `collect()` re-upserts nothing it classifies as `excluded`, and nothing deleted, so
+    an AAPL row collected during a five-minute outage stayed forever. Measured by a
+    verifier — 4 mega-caps in, 0 out.
+
+    Eviction is the right call for a name that is now CONFIRMED large: it fails gate 3
+    on real data, so leaving it would mean the outage silently widened the universe's
+    definition. Rows that are still unpriceable are left alone, flagged, to be retried.
+    """
+    out = {"repaired": 0, "evicted": 0, "still_unknown": 0}
+    stale = [r[0] for r in conn.execute(
+        "SELECT ticker FROM ticker_universe WHERE cap_status = 'unknown'").fetchall()]
+    for t in stale:
+        status, cap = classify_cap(conn, t, cache=cache_caps)
+        if status == "unknown":
+            out["still_unknown"] += 1
+        elif status == "excluded":
+            conn.execute("DELETE FROM ticker_universe WHERE ticker = ?", (t,))
+            out["evicted"] += 1
+        else:
+            conn.execute("UPDATE ticker_universe SET cap_status = ?, market_cap = ? "
+                         "WHERE ticker = ?", (status, cap, t))
+            out["repaired"] += 1
+    return out
 
 
 def collect(conn, cache_caps: bool = True) -> dict:
     """Walk cashtagged mentions and upsert the ones that clear all three gates."""
     counts = {"collected": 0, "flagged_unknown": 0, "excluded_large": 0,
               "below_engagement": 0}
+    counts.update(repair_unknown_caps(conn, cache_caps=cache_caps))
     for m in pending_mentions(conn):
-        ok, status, cap = collectable(conn, m["ticker"], 1, m["score"],
+        ok, status, cap = collectable(conn, m["ticker"], m["cashtagged"], m["score"],
                                       m["num_comments"], cache=cache_caps)
         if not ok:
             counts["below_engagement" if status == "below_engagement"
@@ -323,8 +388,9 @@ def run(dry_run: bool = False) -> dict:
     if not dry_run:
         ensure_tables(conn)
     elif not _tables_exist(conn):
-        print(f"[{RULE}] [dry] tables do not exist yet — nothing to inspect, and a dry "
-              f"run will not create them.")
+        print(f"[{RULE}] [dry] schema not ready (table or the cashtagged/score/"
+              f"num_comments columns are missing) — nothing to inspect, and a dry run "
+              f"will not create or migrate anything. Run without --dry-run first.")
         conn.close()
         return {"collected": 0, "dry_run": True}
 
@@ -332,8 +398,8 @@ def run(dry_run: bool = False) -> dict:
         counts = {"collected": 0, "flagged_unknown": 0, "excluded_large": 0,
                   "below_engagement": 0}
         for m in pending_mentions(conn):
-            ok, status, _cap = collectable(conn, m["ticker"], 1, m["score"],
-                                           m["num_comments"], cache=False)
+            ok, status, _cap = collectable(conn, m["ticker"], m["cashtagged"],
+                                           m["score"], m["num_comments"], cache=False)
             key = ("collected" if ok else
                    "below_engagement" if status == "below_engagement" else
                    "excluded_large")
@@ -353,7 +419,11 @@ def run(dry_run: bool = False) -> dict:
              f"below_engagement={counts['below_engagement']}, universe={total}, "
              f"dry_run={dry_run}")
     if not dry_run:
-        record_activity(RULE, scanned=0, flagged=0, emitted=counts["collected"],
+        # emitted=0 ON PURPOSE. `alerts_emitted` is rendered as "N new" in amber on the
+        # homepage activity strip, and coverage is not news — filing collected names
+        # there would present a lookup-table write as though the system had found
+        # something. The real counts live in `notes`.
+        record_activity(RULE, scanned=0, flagged=counts["collected"], emitted=0,
                         duration_seconds=round(time.time() - t0, 2), notes=notes)
     print(f"[{RULE}] {notes}")
     conn.close()
@@ -368,7 +438,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--emit-alerts", action="store_true",
                    help="accepted for scheduler compatibility; collection emits NO alerts")
     p.add_argument("--dry-run", action="store_true",
-                   help="report candidates without writing to the watch pool")
+                   help="report what WOULD be collected, writing nothing at all")
     return p
 
 
