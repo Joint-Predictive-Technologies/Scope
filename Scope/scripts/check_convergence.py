@@ -22,19 +22,20 @@ are months old and long outside the live window.
 
 COUPLED TO THE GATE BY IMPORT for every decision it makes: `rule10_instruments`
 (collapsing), `RULE_10_EXCLUDED` (eligibility), `RULE_10_MIN_INSTRUMENTS` (threshold),
-`CONVERGENCE_WINDOW_DAYS` (window) and `_already_corroborated`/`DEDUP_WINDOW_DAYS`
-(dedup). Change any of those in the gate and this script's output changes with them.
+`CONVERGENCE_WINDOW_DAYS` (window), `_already_corroborated`/`DEDUP_WINDOW_DAYS`
+(dedup) and `_candidate_alerts` (which alerts count at all). Change any of those in
+the gate and this script's output changes with it.
 A local copy would drift silently — that is the RULE_01 lesson, where an
 eligible-but-unmapped rule became its own phantom instrument because two places
 disagreed about the same question.
 
-⚠️ ONE THING IS STILL RESTATED, NOT IMPORTED: the candidate SELECT below. The gate's
-`_candidate_alerts` bakes its own trailing-window filter into SQL, which `--mode best`
-must not have (it scans all history), so the predicates — non-empty ticker, severity
-in HIGH/CRITICAL — are written out here. **That is a real drift risk**: if the gate
-ever changes which alerts are candidates, this file must change too. It is not the
-"never a copy" this comment previously claimed. Pinned by
-`tests/test_check_convergence.py`, which fails if the two predicate sets diverge.
+NOTHING IS RESTATED. An earlier version copied the gate's candidate SELECT, and that
+copy was a real drift risk: if the gate changed which alerts are candidates, the watch
+tool would have gone on reporting the old ones. It now calls `_candidate_alerts`
+itself, passing the gate's trailing window for `--mode live` and an unbounded one for
+`--mode best`. Severity, ticker validity and rule eligibility are whatever the gate
+says they are. Pinned by `tests/test_check_convergence.py`, which mutates the GATE and
+asserts this script's output moves with it.
 
 SELECT-only. It never writes: the DB is opened `mode=ro`, so the driver itself
 refuses, and the one query is a literal SELECT.
@@ -56,18 +57,16 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # THE COUPLING — the gate's own logic and constants, imported rather than restated.
-from scripts.rule_10_corroboration import _already_corroborated, DEDUP_WINDOW_DAYS
+from scripts.rule_10_corroboration import (_already_corroborated, _candidate_alerts,
+                                           DEDUP_WINDOW_DAYS)
 from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, _get_db_path,
                         rule10_instruments)
 from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
 
-CANDIDATES = """
-    SELECT ticker, UPPER(TRIM(rule)) AS rule, created_at
-    FROM alerts
-    WHERE ticker IS NOT NULL AND TRIM(ticker) != ''
-      AND severity IN ('HIGH', 'CRITICAL')
-    ORDER BY created_at
-"""
+# `--mode best` scans all history, so it asks the gate's own selector for an
+# effectively unbounded window rather than restating its predicates. 1_000_000 hours is
+# ~114 years — comfortably "everything", while still going through the gate's SQL.
+ALL_HISTORY_HOURS = 1_000_000
 
 
 def scan(conn, window_days: int, live_only: bool = False
@@ -77,23 +76,24 @@ def scan(conn, window_days: int, live_only: bool = False
     live_only=False -> best window anywhere in history.
     live_only=True  -> the gate's trailing window ending now, i.e. what RULE_10 sees.
     """
+    # THE GATE'S OWN SELECTOR, called — not a query that resembles it. Severity,
+    # non-empty ticker and rule eligibility are therefore whatever the gate says they
+    # are today, and change with it. `--mode live` asks for the gate's real trailing
+    # window; `--mode best` asks for all of history and slides the window in Python.
+    hours = int(window_days * 24) if live_only else ALL_HISTORY_HOURS
     by_ticker: dict[str, list] = defaultdict(list)
-    for row in conn.execute(CANDIDATES):
-        rule = row["rule"]
-        if rule in RULE_10_EXCLUDED:          # the gate's own eligibility, imported
-            continue
+    for row in _candidate_alerts(conn, hours):
         try:
             ts = datetime.fromisoformat(row["created_at"])
         except (TypeError, ValueError):
             continue
-        by_ticker[row["ticker"]].append((ts, rule))
+        by_ticker[row["ticker"]].append((ts, row["rule"]))
 
     out = []
-    cutoff = datetime.now() - timedelta(days=window_days)
     for ticker, events in by_ticker.items():
         if live_only:
-            # The gate's real shape: one trailing window ending now.
-            rules = [r for (ts, r) in events if ts >= cutoff]
+            # The gate's SQL already bounded these rows to the trailing window.
+            rules = [r for (_ts, r) in events]
             insts = rule10_instruments(rules)
             # ...and the gate's real SUPPRESSION. Counting instruments is only half of
             # what RULE_10 does; a ticker corroborated inside DEDUP_WINDOW_DAYS emits

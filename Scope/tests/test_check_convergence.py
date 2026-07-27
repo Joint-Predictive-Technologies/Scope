@@ -10,16 +10,16 @@ Two things are pinned here.
    "*** FIRE" for those, i.e. claim the gate should have fired when the gate was
    correctly silent.
 
-2. THE ONE REMAINING COPY. Every decision the script makes is imported from the gate
-   EXCEPT the candidate SELECT, which is restated because `--mode best` scans all
-   history and so cannot reuse `_candidate_alerts`' baked-in trailing window. That is a
-   genuine drift risk, so the predicate sets are compared here directly: if the gate
-   ever changes which alerts are candidates, this test fails and names the drift.
+2. THE COUPLING. Every decision the script makes is the GATE's, by import — including
+   which alerts are candidates at all. It used to keep its own SELECT that merely
+   resembled `_candidate_alerts`; that is asserted gone, by identity of the function
+   object and by the absence of any `FROM alerts` literal in the module.
+
+3. THAT IT ONLY EVER READS.
 """
 from __future__ import annotations
 
 import os
-import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -98,28 +98,48 @@ def test_best_mode_never_claims_suppression():
 
 # ── the drift guard on the one thing still restated ──────────────────────────
 
-def _predicates(sql):
-    """The semantic predicates, normalised away from formatting and alias noise."""
-    sql = re.sub(r"\s+", " ", sql).upper()
-    return {
-        "severity": "SEVERITY IN ('HIGH', 'CRITICAL')" in sql.replace("','", "', '"),
-        "ticker_notnull": "TICKER IS NOT NULL" in sql,
-        "ticker_nonempty": "TICKER" in sql and "!= ''" in sql,
-    }
+def test_the_candidate_selector_IS_the_gates_not_a_copy():
+    """Identity, not equivalence. The two names must be the SAME function object.
 
-
-def test_the_restated_candidate_predicates_still_match_the_gates():
-    """If the gate changes WHICH alerts are candidates, this file must change too.
-
-    check_convergence cannot import `_candidate_alerts` — that function bakes a
-    trailing-window filter into its SQL, and `--mode best` scans all history. So the
-    predicates are written out, and this asserts they have not diverged.
+    This file used to carry its own CANDIDATES SELECT that merely resembled
+    `_candidate_alerts`. Equivalent-today is not coupled: the moment the gate changed
+    which alerts are candidates, the watch tool would have gone on reporting the old
+    set while claiming to show what the gate sees.
     """
+    assert cc._candidate_alerts is r10._candidate_alerts
+
+
+def test_no_candidate_sql_is_restated_in_this_script():
+    """Belt and braces: a future edit must not reintroduce the copy."""
     import inspect
-    gate_sql = inspect.getsource(r10._candidate_alerts)
-    assert _predicates(cc.CANDIDATES) == _predicates(gate_sql), (
-        "check_convergence.CANDIDATES has drifted from rule_10_corroboration."
-        "_candidate_alerts — the copy this script's docstring warns about")
+    src = inspect.getsource(cc)
+    body = "\n".join(l.split("#")[0] for l in src.splitlines())
+    upper = body.upper()
+    assert "FROM ALERTS" not in upper, (
+        "check_convergence is selecting from `alerts` itself again — it must go through "
+        "the gate's _candidate_alerts")
+    assert "SEVERITY IN" not in upper, "the gate's severity predicate has been copied back in"
+
+
+def test_live_mode_sees_exactly_what_the_gate_selects():
+    """Behavioural: the ticker set must equal the gate's own candidate set."""
+    conn = db_connection()
+    _seed_three_instruments(conn, "AGREE")
+    # an excluded rule and a MEDIUM alert: the gate drops both, so this must too
+    conn.execute("INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
+                 "VALUES ('RULE_07','NOISE','HIGH','x', datetime('now','-1 days'))")
+    conn.execute("INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
+                 "VALUES ('RULE_06','MEH','MEDIUM','x', datetime('now','-1 days'))")
+    conn.commit()
+
+    gate_tickers = {r["ticker"] for r in r10._candidate_alerts(conn, 14 * 24)}
+    scan_tickers = {r[0] for r in cc.scan(conn, 14, live_only=True)}
+    conn.close()
+
+    assert scan_tickers == gate_tickers, (
+        f"watch tool and gate disagree about candidates: "
+        f"only-scan={scan_tickers - gate_tickers}, only-gate={gate_tickers - scan_tickers}")
+    assert "NOISE" not in scan_tickers and "MEH" not in scan_tickers
 
 
 def test_eligibility_and_threshold_are_imported_not_restated():
@@ -140,3 +160,33 @@ def test_the_script_only_ever_reads():
     for verb in ("INSERT ", "UPDATE ", "DELETE ", "DROP ", "ALTER ", "CREATE "):
         assert verb not in body.upper(), f"{verb.strip()} found in a read-only script"
     assert "mode=ro" in src
+
+
+def test_a_change_to_the_gates_dedup_window_is_visible_here():
+    """ABSOLUTE pin, deliberately NOT derived from DEDUP_WINDOW_DAYS.
+
+    The other dedup tests seed their fixture at `DEDUP_WINDOW_DAYS + 5` days, so they
+    slide with the constant and stay green if the gate's window changes — proven by
+    mutation (7 -> 99 left them all passing). That is right for stating the invariant
+    and useless for detecting drift.
+
+    This script advertises `--mode live` as "what RULE_10 would actually see", so a
+    change to the gate's suppression window must force a conscious update here rather
+    than silently altering what the watch tool reports. If you widened the window on
+    purpose, update the numbers below.
+    """
+    assert r10.DEDUP_WINDOW_DAYS == 7, (
+        "the gate's dedup window changed — check_convergence advertises the gate's "
+        "behaviour, so confirm the watch output is still what you mean it to be")
+
+    conn = db_connection()
+    _seed_three_instruments(conn, "THIRTYD")
+    conn.execute(
+        "INSERT INTO alerts (rule, ticker, severity, headline, created_at) VALUES "
+        "('RULE_10','THIRTYD','HIGH','[CORROBORATION] 30d ago', datetime('now','-30 days'))")
+    conn.commit()
+    rows = {r[0]: r for r in cc.scan(conn, 14, live_only=True)}
+    conn.close()
+    # 30 days > 7, so under the CURRENT window this is not suppressed. Under a 99-day
+    # window it would be — which is exactly the drift this test exists to surface.
+    assert rows["THIRTYD"][4] is False
