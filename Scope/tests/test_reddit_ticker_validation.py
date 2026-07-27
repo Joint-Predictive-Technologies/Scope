@@ -40,7 +40,16 @@ def _real_universe() -> set[str]:
     so the suite cannot write to it.
     """
     if not os.path.exists(_REAL_DB):
-        pytest.skip("real tickers universe unavailable — cannot verify against a fixture")
+        # LOUD, not silent. `data/jpt.db` is gitignored, so on a clean clone or in CI
+        # this file's SEVEN real-universe tests used to vanish while the suite still
+        # reported success — the branch's entire headline evidence, conditional on an
+        # untracked working file. A verifier measured it: 512 passed with the DB, 505
+        # passed + 7 skipped without, both green.
+        pytest.skip("REAL TICKER UNIVERSE MISSING (data/jpt.db) — the real-universe "
+                    "assertions in this file did NOT run. This is the evidence the "
+                    "cashtag fix rests on; a green suite here proves less than it "
+                    "looks. Restore the DB or run against a prod copy.",
+                    allow_module_level=False)
     conn = sqlite3.connect(f"file:{_REAL_DB}?mode=ro", uri=True)
     try:
         return {r[0].strip().upper() for r in
@@ -204,8 +213,16 @@ _GENUINE_MENTIONS = [
 
 
 def test_ordinary_prose_yields_no_tickers_against_the_real_universe():
-    """Was 13 of 15 sentences producing a false ticker."""
+    """MEASURED, on these exact sentences: the old extractor yields a false ticker on
+    10 of 15 (EDIT, ELSE, FORM, GOLD, HELP, MATH, PUMP, PURE, RYAN, SHOP, TEAM, TECH).
+
+    An earlier write-up said "13 of 15". That figure came from a previous session's
+    different sentence set and was never true of THESE sentences — a number carried
+    across contexts without being re-measured, which is the habit this file exists to
+    break. Replay the old extractor against the real universe and you get 10.
+    """
     known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
     offenders = {s: _extract_tickers(s, known) for s in _ORDINARY_PROSE}
     offenders = {s: t for s, t in offenders.items() if t}
     assert not offenders, (
@@ -216,6 +233,7 @@ def test_ordinary_prose_yields_no_tickers_against_the_real_universe():
 def test_genuine_mentions_still_extract_including_cashtagged_common_words():
     """Precision must not have been bought by extracting nothing."""
     known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
     for text, expected in _GENUINE_MENTIONS:
         got = _extract_tickers(text, known)
         for e in expected:
@@ -225,6 +243,7 @@ def test_genuine_mentions_still_extract_including_cashtagged_common_words():
 def test_the_cashtag_is_what_flips_a_common_word():
     """The mechanism itself: same token, same universe, `$` is the only difference."""
     known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
     for word in ("POST", "BACK", "HERE", "LIVE", "TEAM"):
         if word not in known:
             continue
@@ -237,6 +256,7 @@ def test_the_cashtag_is_what_flips_a_common_word():
 def test_no_unambiguous_ticker_is_over_rejected():
     """The recall guard. A frequency list must not swallow real symbols."""
     known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
     for t in ("NVDA", "GME", "AMD", "PLTR", "TSLA", "AAPL", "MSFT", "LMT", "RTX",
               "XOM", "ABBV", "AMZN", "SPCX", "TCNNF", "CRWV"):
         if t not in known:
@@ -266,3 +286,45 @@ def test_the_bare_extractable_common_words_are_measured_not_assumed():
         "word list may have failed to load")
     # the honest residual: rare dictionary words remain extractable BY DESIGN
     assert still_bare, "sanity: not every symbol should require a cashtag"
+
+
+def test_the_vendored_word_list_matches_its_generator():
+    """M6: the generated file could be hand-edited and nothing would notice.
+
+    `_common_words.py` documents how it was produced but nothing pinned it, so deleting
+    entries (THIS, THAT, WITH, FROM...) left the whole suite green — the exact silent
+    shrink the blocklist test was written to catch, reintroduced one layer down.
+
+    Skips only if wordfreq is absent (it is a DEV dependency by design — the list is
+    vendored precisely so production never imports it).
+    """
+    wordfreq = pytest.importorskip(
+        "wordfreq", reason="dev-only dependency; the vendored list is what ships")
+    from scripts._common_words import COMMON_WORDS
+    regenerated = {w.upper() for w in wordfreq.top_n_list("en", 5000)
+                   if 2 <= len(w) <= 5 and w.isalpha()}
+    hand_added = sorted(COMMON_WORDS - regenerated)
+    hand_removed = sorted(regenerated - COMMON_WORDS)
+    assert not hand_added and not hand_removed, (
+        f"scripts/_common_words.py has drifted from top_n_list('en', 5000): "
+        f"added={hand_added[:10]} removed={hand_removed[:10]}. Regenerate it rather "
+        "than editing by hand.")
+
+
+def test_the_curated_three_char_set_is_case_sensitive():
+    """SPY must survive, and 'spy' must not become a ticker.
+
+    Frequency-gating the CURATED set killed SPY outright — the most-mentioned ETF on
+    these subreddits, with a real mention in the stored data. Reverting to the old
+    uppercased match would restore a pre-existing false positive, because this is a
+    POLITICAL feed where "spy agency" is ordinary prose. Case settles it.
+    """
+    known = _real_universe()
+    assert known and "SPY" in known
+    assert "SPY" in _extract_tickers("If SPY doesn't hit ATH by EOM", known)
+    for prose in ("the spy agency briefed the committee",
+                  "a spy plane was spotted over the region"):
+        assert "SPY" not in _extract_tickers(prose, known), f"'spy' became a ticker: {prose!r}"
+    # the rest of the curated set must not have been collateral damage
+    assert "GME" in _extract_tickers("Ryan Cohen & GME getting discussed", known)
+    assert "AMC" in _extract_tickers("AMC and GME are both moving today", known)

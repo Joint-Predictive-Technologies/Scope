@@ -145,6 +145,17 @@ _CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
 # converges — the missing information is not "is this a symbol" but "did the writer mean
 # the symbol".
 #
+# ⚠️ AND IT DOES NOT SOLVE THE CLASS EITHER — it reduces it, measurably. 305 dictionary
+# words that are real symbols remain bare-extractable. An earlier draft called those
+# "rare (AGIO, ALAR, ABSI)". True of 278 of them; FALSE of the 27 at zipf >= 4.0 — as
+# common as the word "earnings" — which include HOOD (Robinhood), COIN (Coinbase),
+# SNAP, RIOT, ALLY, PLUG, BEAM, ICON, BOOT, CORN, ECHO, DASH. Raising the cutoff to
+# 7,500-10,000 would catch them, at the cost of forcing a cashtag on HOOD and COIN
+# themselves — two of the most-mentioned tickers on these subreddits. There is no
+# dominating N; 5,000 keeps the head of the ticker distribution intact and accepts a
+# measured tail. Beyond that sit contractions (AREN), memes (TACO), and jargon (DYOR,
+# BRRR) that NO frequency cutoff can reach.
+#
 # The `$` answers exactly that, and it is the only thing that does:
 #     $POST beat earnings   -> the writer means the stock. Accept, common word or not.
 #     I saw this post       -> ordinary prose. Reject.
@@ -163,9 +174,18 @@ _CURATED_3CHAR = {"GME", "AMC", "AMD", "SPY", "QQQ", "TSM", "UAL", "DIS", "PLT"}
 # wolf 40% of the time is worse than one that misses an ambiguous bare mention, and
 # RULE_REDDIT is gate-excluded noise, so a miss costs no corroboration.
 #
-# What it does NOT cost: 1888 common words against a 10,619-symbol universe means only
-# ~277 symbols (2.8%) require a cashtag. Every unambiguous ticker — NVDA, GME, AMD,
-# PLTR, TSLA — is untouched, asserted in the tests.
+# WHAT IT COSTS, NAMED. 149 of the 7,750 bare-reachable symbols (1.9%) now need a `$`,
+# and an earlier version of this comment called that "no unambiguous ticker" — which was
+# a selection effect: it was true only of the 15 tickers the test happened to probe. A
+# verifier attached company names. Among the 149 are SNOW (Snowflake), SPOT (Spotify),
+# TEAM (Atlassian), SHOP (Shopify), OPEN (Opendoor), COST (Costco), FAST (Fastenal),
+# RACE (Ferrari), WELL (Welltower), BALL, KEYS, POOL, PATH, WOLF, TRIP, BILL, CASH,
+# CARS, BULL — six of them S&P 500 constituents, and several written bare on these
+# subreddits constantly. Bare "SNOW is ripping" is now a miss; "$SNOW is ripping" is not.
+#
+# That is the real trade, and it is still the right one for a gate-excluded discovery
+# feed — but it is a cost, not a free lunch, and pretending otherwise is how the last
+# two versions of this comment ended up false.
 from scripts._common_words import COMMON_WORDS
 
 # THE BOUNDED RESIDUE. General-English frequency cannot know finance/Reddit jargon, so
@@ -180,10 +200,17 @@ from scripts._common_words import COMMON_WORDS
 #     one of them. They were dead weight that made the list look load-bearing;
 #   * exactly two entries were both a real ticker and invisible to English frequency.
 #
-# This set is bounded in a way the old one never was: it is domain jargon, which is
-# enumerable and slow-moving, not "English words that happen to be tickers", which is
-# unbounded and had 414 measured gaps. Add here only after checking the token IS a real
-# symbol — otherwise `known` already handles it and the entry is noise.
+# ⚠️ "EXACTLY TWO" IS A PROPERTY OF THE AUDIT, NOT OF THE DOMAIN. Two is what you get
+# by checking the OLD BLOCKLIST's vocabulary against the universe. A verifier attacked
+# it immediately and found DYOR (Insight Digital Partners II) and BRRR (CoinShares
+# Bitcoin ETF) — real listed symbols, pure WSB vernacular, invisible to English
+# frequency, extracting bare today. ATOM (Atomera) and META-as-an-adjective are
+# adjacent. So this set is bounded by what someone thought to enumerate, which is the
+# same failure mode this rule claims to have escaped — smaller, but the same kind.
+# It is honest to call it two ENTRIES; it is not honest to call it two CASES.
+#
+# Add here only after checking the token IS a real symbol — otherwise `known` already
+# rejects it and the entry is decoration, which is what 15 of the old list's 125 were.
 DOMAIN_JARGON = frozenset({
     "BETA",   # finance term; also a listed symbol. Was stored as a ticker in prod.
     "HODL",   # r/wallstreetbets vernacular; also a listed symbol.
@@ -208,12 +235,21 @@ def _extract_tickers(text: str, known: set[str]) -> list[str]:
     for t in BARE_TICKER_RE.findall(up):
         if t in known and t not in _TICKER_WORDS and t not in found:
             found.append(t)
-    # 3) A small curated set of famous 3-char meme tickers, bare. Still curated
-    #    rather than frequency-gated: 3-char tokens are dense with initialisms
-    #    (CEO/ETF/FDA) that are not words, so frequency alone would not save them.
+    # 3) A small curated set of famous 3-char meme tickers, bare — matched
+    #    CASE-SENSITIVELY against the ORIGINAL text, not `up`.
+    #
+    #    This set is curated precisely BECAUSE frequency cannot judge it: 3-char tokens
+    #    are dense with initialisms (CEO/ETF/FDA) that are not words at all. An earlier
+    #    version of this commit frequency-gated it anyway, which silently killed SPY —
+    #    the most-mentioned ETF on these subreddits, with a genuine mention sitting in
+    #    the stored data ("If SPY doesn't hit ATH by EOM"). A verifier caught it.
+    #
+    #    But reverting to `up` restores a PRE-EXISTING false positive: this is a
+    #    POLITICAL feed, and matching the uppercased text made "the spy agency" and
+    #    "spy plane" yield SPY. Case is the disambiguator the cashtag is for everything
+    #    else — nobody writes the ETF as "spy", and nobody writes the noun as "SPY".
     for t in _CURATED_3CHAR:
-        if t in known and t not in _TICKER_WORDS and re.search(rf"\b{t}\b", up) \
-                and t not in found:
+        if t in known and re.search(rf"\b{t}\b", text) and t not in found:
             found.append(t)
     return found
 

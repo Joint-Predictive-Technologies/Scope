@@ -17,7 +17,16 @@ production dependency for a rule that runs every 30 minutes. And `/usr/share/dic
 have worked in dev and silently degraded in prod. This list is generated ONCE, here, and
 vendored: identical in dev and prod, reviewable in a diff, no runtime import.
 
-CUTOFF CHOSEN BY MEASUREMENT, not taste. Against the real universe:
+CUTOFF CHOSEN BY MEASUREMENT, not taste. The "prose words" probe is this exact set,
+named here so the table can be re-run rather than taken on trust:
+
+    BACK HERE POST LIVE TEAM ELSE ONTO HELP GIVE ROCK LINK EARN WASH PUMP
+    OPEN REAL GOOD NEXT HOLD FREE LOVE HIGH                        (22 words)
+
+and the "unambiguous tickers" probe is NVDA GME AMD PLTR TSLA AAPL MSFT LMT RTX XOM
+SPCX TCNNF ABBV AMZN. Both are small, hand-chosen probes — see the module docstring in
+rule_reddit.py for what a WIDER sweep found, which is less flattering. Against the real
+universe:
 
     top-N     prose words caught     unambiguous tickers lost     symbols needing $
      2000          19/22                     none                    158
@@ -25,8 +34,13 @@ CUTOFF CHOSEN BY MEASUREMENT, not taste. Against the real universe:
     10000          22/22                     none                    454
     20000          22/22                     AMD                     721
 
-5000 is the smallest N that catches every prose word in the failing set while costing
-no unambiguous ticker. AMD is swallowed at 20000, which is the over-rejection edge.
+5000 is the smallest N catching every word in that 22-word probe while costing nothing
+in that 14-ticker probe. ⚠️ READ THAT NARROWLY. It does NOT mean "no unambiguous ticker
+is lost" — a verifier attached company names to the 149 symbols that now need a cashtag
+and found SNOW, SPOT, TEAM, SHOP, OPEN, COST, FAST, RACE, WELL and ~30 more, six of them
+S&P 500. The probe was chosen before that sweep existed, and a claim resting on it is a
+selection effect. AMD first enters the list between N=12000 and N=15000, not at 20000 —
+the grid above is coarse, not wrong.
 
 REGENERATE WITH:
     from wordfreq import top_n_list
