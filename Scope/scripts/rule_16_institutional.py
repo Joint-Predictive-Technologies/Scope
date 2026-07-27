@@ -680,7 +680,12 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                  f"emitted={emitted} quant_skipped={skipped_quant} "
                  f"unmapped_dropped={dropped_unmapped} name_matched={name_matched} "
                  f"baselined={baselined}"
-                 + (f" | FLOOR: {'; '.join(floor_notes[:4])}" if floor_notes else "")
+                 # Same reason as DROPPED below: floor_notes is already ONE entry per
+                 # filer, so a [:4] cap silently discarded the 5th+ filer's "WHOLE BOOK
+                 # dropped" note before it was ever persisted. A generated note that
+                 # never reaches activity_log is no better than one never generated.
+                 + (f" | FLOOR[{len(floor_notes)} filers]: " + " ; ".join(floor_notes)
+                    if floor_notes else "")
                  + (f" | DROPPED[{len(unmapped_detail)} filers]: "
                     + " ; ".join(unmapped_detail) if unmapped_detail else "")
                  + (" PARTIAL(time budget, resumable)" if partial else "")

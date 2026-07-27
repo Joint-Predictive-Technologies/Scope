@@ -702,3 +702,30 @@ def test_drop_summary_names_the_largest_position_and_counts_cins(monkeypatch):
     entry = r["unmapped_detail"][0]
     assert "SoloBook: 3 dropped" in entry and "CINS" in entry
     assert "$450M" in entry, f"largest position not named: {entry}"
+
+
+def test_every_floor_zeroed_filer_reaches_the_log_not_just_the_first_four(monkeypatch):
+    """`floor_notes` was capped at [:4] — the same bug class as the unmapped_detail
+    cap, one line above it. A generated "WHOLE BOOK dropped" note that never reaches
+    activity_log is no better than one never generated."""
+    spec, filings, tables = {}, {}, {}
+    for i in range(6):
+        cik = f"00000004{i:02d}"
+        label = f"FloorFund{i}"
+        acc = f"{cik[-4:]}-26-000001"
+        filings[cik] = [{"accession": acc, "filing_date": ISO,
+                         "report_date": "2026-03-31", "filer_name": label}]
+        # 40 x $3M = $120M: above the AUM line (no rescale), every position under the floor
+        tables[acc] = {f"F{i}{j:07d}": {"issuer": f"TINY {i}-{j}", "class": "COM",
+                                        "value": 3_000_000.0, "shares": 10.0}
+                       for j in range(40)}
+        spec[cik] = label
+    _fake_sources(monkeypatch, filings, tables, {})
+    r = r16.run(emit=True, whales=spec)
+    assert len(r["floor_notes"]) == 6
+    conn = db_connection()
+    notes = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                         "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
+    conn.close()
+    for i in range(6):
+        assert f"FloorFund{i}" in notes, f"FloorFund{i}'s whole-book drop never persisted"
