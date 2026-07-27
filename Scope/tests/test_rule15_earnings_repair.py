@@ -117,3 +117,33 @@ def test_no_zero_placeholder_is_written_on_a_failed_fetch():
     code = "\n".join(ln.split("#")[0] for ln in body.splitlines())
     assert "INSERT" not in code.upper(), "a placeholder row is still written on fetch failure"
     assert "RETRY" in body.upper() or "retry" in body
+
+
+# --- successor CIKs (the XOM case) ---------------------------------------
+
+def test_xom_accepts_its_predecessor_cik():
+    """A reorganisation gives a new CIK; older filings stay under the predecessor.
+    SEC lists only the current one, so a strict match silently zeroed XOM."""
+    conn = _seed_tickers([("XOM", "ExxonMobil Holdings Corp", "2115436")])
+    ciks = r15.issuer_ciks(conn, "XOM")
+    conn.close()
+    assert "0002115436" in ciks, "current CIK missing"
+    assert "0000034088" in ciks, "predecessor Exxon Mobil Corp CIK missing"
+    assert r15.hit_matches_issuer(_hit(["0000034088"]), ciks) is True
+    assert r15.hit_matches_issuer(_hit(["0002115436"]), ciks) is True
+    # and an unrelated filer is still dropped
+    assert r15.hit_matches_issuer(_hit([BOFA_TRUST_CIK]), ciks) is False
+
+
+def test_aliases_do_not_loosen_other_tickers():
+    conn = _seed_tickers([("BA", "Boeing Co", "12927")])
+    ciks = r15.issuer_ciks(conn, "BA")
+    conn.close()
+    assert ciks == {BOEING_CIK}, f"BA gained an unexpected alias: {ciks}"
+    assert r15.hit_matches_issuer(_hit([BOFA_TRUST_CIK]), ciks) is False
+
+
+def test_hit_matches_issuer_still_accepts_a_plain_string():
+    assert r15.hit_matches_issuer(_hit([BOEING_CIK]), BOEING_CIK) is True
+    assert r15.hit_matches_issuer(_hit([BOEING_CIK]), "") is False
+    assert r15.hit_matches_issuer(_hit([BOEING_CIK]), set()) is False

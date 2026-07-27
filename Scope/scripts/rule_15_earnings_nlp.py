@@ -95,6 +95,30 @@ _TAG = re.compile(r"<[^>]+>")
 _B64 = re.compile(r"\b[A-Za-z0-9+/]{40,}={0,2}\b")
 
 
+# Corporate successors: a reorganisation gives the company a NEW CIK, but filings made
+# before it stay under the predecessor. SEC's company_tickers.json lists only the current
+# one, so a strict single-CIK match silently zeroes the ticker's coverage.
+# XOM is the live case: `tickers` maps it to 0002115436 (ExxonMobil Holdings Corp, which
+# matches SEC's current file), while its only Item 2.02 filing in the window is under
+# 0000034088 (Exxon Mobil Corp). Both are genuinely Exxon.
+# Keep this list SHORT and evidenced — each entry is a claim that two CIKs are the same
+# issuer, and a wrong entry would re-introduce exactly the mis-attribution this fixes.
+CIK_ALIASES: dict[str, set[str]] = {
+    "XOM": {"0000034088"},      # Exxon Mobil Corp, predecessor of ExxonMobil Holdings
+}
+
+
+def issuer_ciks(conn, ticker: str) -> set[str]:
+    """EVERY CIK that legitimately identifies this ticker's issuer.
+
+    A set, not a single value: see CIK_ALIASES. Empty means unresolvable, and the
+    caller SKIPS the ticker rather than guessing.
+    """
+    out = {c for c in (issuer_cik(conn, ticker),) if c}
+    out |= {c.strip().lstrip("0").zfill(10) for c in CIK_ALIASES.get(ticker, set())}
+    return out
+
+
 def issuer_cik(conn, ticker: str) -> str:
     """The ticker's own SEC CIK, zero-padded to 10. '' if unknown.
 
@@ -111,12 +135,17 @@ def issuer_cik(conn, ticker: str) -> str:
     return str(row["cik"]).strip().lstrip("0").zfill(10)
 
 
-def hit_matches_issuer(hit: dict, cik: str) -> bool:
-    """Keep a hit ONLY if the filing's own CIK list contains the ticker's issuer CIK."""
-    if not cik:
+def hit_matches_issuer(hit: dict, cik) -> bool:
+    """Keep a hit ONLY if the filing's CIK list contains one of the issuer's CIKs.
+
+    `cik` may be a single string or a set (successor + predecessor).
+    """
+    wanted = {cik} if isinstance(cik, str) else set(cik or ())
+    wanted = {w for w in wanted if w}
+    if not wanted:
         return False                       # unknown issuer -> drop, never guess
     ciks = (hit.get("_source", {}) or {}).get("ciks") or []
-    return any(str(c).strip().lstrip("0").zfill(10) == cik for c in ciks)
+    return any(str(c).strip().lstrip("0").zfill(10) in wanted for c in ciks)
 
 
 def is_earnings_8k(hit: dict) -> bool:
@@ -173,7 +202,7 @@ def run(emit: bool = False) -> None:
     wrong_cik = non_earnings = baselined = 0
 
     for ticker in TRACKED_TICKERS:
-        cik = issuer_cik(conn, ticker)
+        cik = issuer_ciks(conn, ticker)
         if not cik:
             unresolved_cik.append(ticker)
             print(f"[RULE_15] {ticker}: no issuer CIK in `tickers` — SKIPPED, not guessed")
