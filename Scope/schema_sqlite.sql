@@ -14,7 +14,14 @@ CREATE TABLE IF NOT EXISTS tickers (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol       TEXT NOT NULL UNIQUE,
     company_name TEXT,
-    cik          TEXT
+    cik          TEXT,
+    -- updated_at is what makes staleness detectable, and resolve_tickers' upsert
+    -- REQUIRES it. This file omitted it while resolve_tickers.ensure_tables declared
+    -- it, so on any DB where db_connection() ran first the CREATE ... IF NOT EXISTS
+    -- there became a no-op and every upsert died with "no column named updated_at".
+    -- Fixed at the source here; resolve_tickers keeps a PRAGMA-guarded ADD COLUMN for
+    -- databases created before this line existed.
+    updated_at   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS filings (

@@ -80,6 +80,9 @@ def test_a_corroboration_older_than_the_dedup_window_does_not_suppress():
 
     rows = {r[0]: r for r in cc.scan(conn, 14, live_only=True)}
     conn.close()
+    # Threshold guard: `suppressed` is False for ANY sub-threshold ticker regardless of
+    # the dedup logic, so without this the test passes on a degraded fixture.
+    assert rows["OLDCORR"][1] >= RULE_10_MIN_INSTRUMENTS, "fixture fell below threshold"
     assert not rows["OLDCORR"][4]
 
 
@@ -93,6 +96,8 @@ def test_best_mode_never_claims_suppression():
     conn.commit()
     rows = cc.scan(conn, 14, live_only=False)
     conn.close()
+    assert rows, "no rows scanned — `all()` over an empty list is vacuously True"
+    assert any(r[0] == "BESTMODE" for r in rows)
     assert all(r[4] is False for r in rows)
 
 
@@ -107,6 +112,40 @@ def test_the_candidate_selector_IS_the_gates_not_a_copy():
     set while claiming to show what the gate sees.
     """
     assert cc._candidate_alerts is r10._candidate_alerts
+
+
+def test_the_live_DECISION_is_the_gates_too_not_just_the_selector():
+    """The verifier's finding: importing the SELECTOR is not enough.
+
+    An earlier version counted instruments itself and called `_already_corroborated`
+    separately — re-deriving `find_corroborated_tickers`. Mutating the gate's decision
+    or its collapsing moved the gate and left this script reporting phantom fires with
+    every test green. Both are now the gate's own functions, by identity.
+    """
+    assert cc.find_corroborated_tickers is r10.find_corroborated_tickers
+    assert cc.instruments_for is r10.instruments_for
+    assert cc.MIN_DISTINCT_INSTRUMENTS == r10.MIN_DISTINCT_INSTRUMENTS
+
+
+def test_live_mode_fire_set_equals_the_gates_fire_set():
+    """Behavioural twin of the above: what we call FIRE, the gate must call FIRE."""
+    conn = db_connection()
+    _seed_three_instruments(conn, "WILLFIRE")
+    _seed_three_instruments(conn, "SUPPRESSED")
+    conn.execute("INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
+                 "VALUES ('RULE_10','SUPPRESSED','HIGH','prior', datetime('now','-2 days'))")
+    conn.commit()
+
+    gate_fires = set(r10.find_corroborated_tickers(conn, 14 * 24))
+    scan_fires = {r[0] for r in cc.scan(conn, 14, live_only=True)
+                  if r[1] >= RULE_10_MIN_INSTRUMENTS and not r[4]}
+    conn.close()
+
+    assert gate_fires, "fixture produced no gate fires — cannot pass vacuously"
+    assert scan_fires == gate_fires, (
+        f"watch tool disagrees with the gate about what fires: "
+        f"only-scan={scan_fires - gate_fires}, only-gate={gate_fires - scan_fires}")
+    assert "WILLFIRE" in gate_fires and "SUPPRESSED" not in gate_fires
 
 
 def test_no_candidate_sql_is_restated_in_this_script():
@@ -136,6 +175,11 @@ def test_live_mode_sees_exactly_what_the_gate_selects():
     scan_tickers = {r[0] for r in cc.scan(conn, 14, live_only=True)}
     conn.close()
 
+    # NON-EMPTY FIRST. `set() == set()` is True, so with the gate's selector neutered
+    # to `lambda *a: []` this test passed while proving nothing — and it is the only
+    # behavioural test of the coupling, so it was the worst one to have that hole.
+    assert "AGREE" in gate_tickers and len(gate_tickers) >= 1, (
+        "fixture produced no gate candidates — this test cannot pass vacuously")
     assert scan_tickers == gate_tickers, (
         f"watch tool and gate disagree about candidates: "
         f"only-scan={scan_tickers - gate_tickers}, only-gate={gate_tickers - scan_tickers}")
@@ -147,9 +191,9 @@ def test_eligibility_and_threshold_are_imported_not_restated():
     import jpt_common
     assert cc.RULE_10_EXCLUDED is jpt_common.RULE_10_EXCLUDED
     assert cc.RULE_10_MIN_INSTRUMENTS == jpt_common.RULE_10_MIN_INSTRUMENTS
-    assert cc.rule10_instruments is jpt_common.rule10_instruments
-    assert cc._already_corroborated is r10._already_corroborated
     assert cc.DEDUP_WINDOW_DAYS == r10.DEDUP_WINDOW_DAYS
+    # collapsing and the dedup check now arrive via the gate's own names — see
+    # test_the_live_DECISION_is_the_gates_too_not_just_the_selector
 
 
 def test_the_script_only_ever_reads():
@@ -187,6 +231,7 @@ def test_a_change_to_the_gates_dedup_window_is_visible_here():
     conn.commit()
     rows = {r[0]: r for r in cc.scan(conn, 14, live_only=True)}
     conn.close()
+    assert rows["THIRTYD"][1] >= RULE_10_MIN_INSTRUMENTS, "fixture fell below threshold"
     # 30 days > 7, so under the CURRENT window this is not suppressed. Under a 99-day
     # window it would be — which is exactly the drift this test exists to surface.
     assert rows["THIRTYD"][4] is False

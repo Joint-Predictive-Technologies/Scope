@@ -15,14 +15,17 @@ write. The separation therefore has to be structural: this module never calls
 call graph rather than trusting this comment.
 
 WHY IT IS SCHEDULED. `tickers` had exactly one writer (`resolve_tickers.upsert_sec_tickers`)
-and no schedule at all, so it was populated once and left to rot. RULE_16's CINS fallback
+and no schedule at all, so it only ever refreshed when someone ran it by hand. RULE_16's CINS fallback
 resolves institutional holdings against it, so staleness quietly costs coverage with no
 error anywhere — the failure mode is silence, which is why it needs a cadence rather than
 a reminder.
 
 WEEKLY IS AMPLE. Company -> ticker mappings change on the order of IPOs, delistings and
-renames. A daily poll would add load for no signal; the rot this fixes is measured in
-weeks (the table had gone seven).
+renames, so a daily poll would add load for no signal. Measured on the local DB: 10,619
+rows with updated_at spanning 2026-06-07..2026-07-09 — 18 days stale as of 2026-07-27,
+and with no schedule that only grows. (An earlier draft of this comment said "seven
+weeks". No measurement I have supports that figure; prod is UNVERIFIED — settle it with
+`SELECT COUNT(*), MIN(updated_at), MAX(updated_at) FROM tickers;`.)
 
 Failure is loud: the scheduler's `_run_rule` guarantees a SCHEDULER_JOB_FAILURE
 activity_log row for any non-zero exit, import-time crash or timeout, and a successful

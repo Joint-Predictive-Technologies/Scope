@@ -11,9 +11,10 @@ invokes every job as `[sys.executable, <script>, "--emit-alerts"]` and has no wa
 pass one — so it is structural, and these tests walk the call graph to prove it rather
 than trusting a comment.
 
-`tickers` also had no schedule at all before this: one writer, populated once, seven
-weeks stale, with RULE_16's CINS fallback resolving against it. Staleness there is
-silent, which is why it needs a cadence.
+`tickers` also had no schedule at all before this: one writer, refreshed only by hand,
+with RULE_16's CINS fallback resolving against it. Staleness there is silent, which is
+why it needs a cadence. Measured locally: 10,619 rows last touched 2026-07-09, 18 days
+before this was written. Prod UNVERIFIED.
 """
 from __future__ import annotations
 

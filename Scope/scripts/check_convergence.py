@@ -20,22 +20,29 @@ TWO MODES, and the difference matters — an earlier version conflated them and 
 `best` will always be >= `live`. A ticker can show as a best-window near miss whose legs
 are months old and long outside the live window.
 
-COUPLED TO THE GATE BY IMPORT for every decision it makes: `rule10_instruments`
-(collapsing), `RULE_10_EXCLUDED` (eligibility), `RULE_10_MIN_INSTRUMENTS` (threshold),
-`CONVERGENCE_WINDOW_DAYS` (window), `_already_corroborated`/`DEDUP_WINDOW_DAYS`
-(dedup) and `_candidate_alerts` (which alerts count at all). Change any of those in
-the gate and this script's output changes with it.
+COUPLED TO THE GATE BY IMPORT for every decision it makes: `_candidate_alerts` (which
+alerts count at all), `instruments_for` (collapsing), `find_corroborated_tickers` (the
+whole live decision — threshold, collapsing and dedup), `MIN_DISTINCT_INSTRUMENTS`,
+`CONVERGENCE_WINDOW_DAYS` and `DEDUP_WINDOW_DAYS`. Change any of those in the gate and
+this script's output changes with it.
 A local copy would drift silently — that is the RULE_01 lesson, where an
 eligible-but-unmapped rule became its own phantom instrument because two places
 disagreed about the same question.
 
-NOTHING IS RESTATED. An earlier version copied the gate's candidate SELECT, and that
-copy was a real drift risk: if the gate changed which alerts are candidates, the watch
-tool would have gone on reporting the old ones. It now calls `_candidate_alerts`
-itself, passing the gate's trailing window for `--mode live` and an unbounded one for
-`--mode best`. Severity, ticker validity and rule eligibility are whatever the gate
-says they are. Pinned by `tests/test_check_convergence.py`, which mutates the GATE and
-asserts this script's output moves with it.
+NOTHING IS RESTATED — and that claim has been earned twice over, because it was false
+the first time it was written. An early version copied the gate's candidate SELECT. The
+version after that imported the selector but still RE-DERIVED the gate's decision
+(count instruments, then check dedup separately) and reached the collapsing through
+`rule10_instruments` rather than the gate's own `instruments_for`. A verifier mutated
+`find_corroborated_tickers` and `instruments_for` and watched the gate move while this
+script did not — all its tests green, reporting fires the gate would never emit.
+
+`--mode live` now asks `find_corroborated_tickers` directly: that single function IS
+the gate's decision — threshold, collapsing and dedup together — so there is nothing
+left here to disagree with it. `--mode best` slides a window over history, which the
+gate has no equivalent of, but it collapses with the gate's `instruments_for`.
+Pinned by `tests/test_check_convergence.py`, which mutates the GATE and asserts this
+script moves with it.
 
 SELECT-only. It never writes: the DB is opened `mode=ro`, so the driver itself
 refuses, and the one query is a literal SELECT.
@@ -57,10 +64,10 @@ from datetime import datetime, timedelta
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # THE COUPLING — the gate's own logic and constants, imported rather than restated.
-from scripts.rule_10_corroboration import (_already_corroborated, _candidate_alerts,
-                                           DEDUP_WINDOW_DAYS)
-from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, _get_db_path,
-                        rule10_instruments)
+from scripts.rule_10_corroboration import (_candidate_alerts, find_corroborated_tickers,
+                                           instruments_for, DEDUP_WINDOW_DAYS,
+                                           MIN_DISTINCT_INSTRUMENTS)
+from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, _get_db_path)
 from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
 
 # `--mode best` scans all history, so it asks the gate's own selector for an
@@ -87,29 +94,32 @@ def scan(conn, window_days: int, live_only: bool = False
             ts = datetime.fromisoformat(row["created_at"])
         except (TypeError, ValueError):
             continue
-        by_ticker[row["ticker"]].append((ts, row["rule"]))
+        by_ticker[row["ticker"]].append((ts, row))
+
+    # LIVE MODE ASKS THE GATE WHAT IT WOULD DO. `find_corroborated_tickers` IS the
+    # gate's decision — threshold, instrument collapsing and the dedup check, together.
+    # An earlier version re-derived that here (count instruments, then call
+    # _already_corroborated separately), which meant a change to the gate's decision or
+    # its collapsing left this script confidently reporting fires the gate would not
+    # emit. Verified: mutating either function moved the gate and NOT the watch tool.
+    would_fire = set(find_corroborated_tickers(conn, hours)) if live_only else set()
 
     out = []
     for ticker, events in by_ticker.items():
         if live_only:
-            # The gate's SQL already bounded these rows to the trailing window.
-            rules = [r for (_ts, r) in events]
-            insts = rule10_instruments(rules)
-            # ...and the gate's real SUPPRESSION. Counting instruments is only half of
-            # what RULE_10 does; a ticker corroborated inside DEDUP_WINDOW_DAYS emits
-            # nothing. Without this the script prints "*** FIRE" for tickers the gate
-            # is correctly silent on, which reads as the gate being broken.
-            suppressed = (len(insts) >= RULE_10_MIN_INSTRUMENTS
-                          and _already_corroborated(conn, ticker))
+            # instruments_for is the gate's collapsing, not a parallel call to
+            # rule10_instruments — the gate reaches it through this name.
+            insts = instruments_for([row for _ts, row in events])
+            suppressed = (len(insts) >= MIN_DISTINCT_INSTRUMENTS
+                          and ticker not in would_fire)
             out.append((ticker, len(insts), insts,
                         str(max((ts for ts, _ in events), default="-"))[:10], suppressed))
             continue
         best, best_at = [], None
         for start, _ in events:
-            rules = [r for (ts, r) in events
-                     if start <= ts <= start + timedelta(days=window_days)]
-            # rule10_instruments does the collapsing — the same call the gate makes
-            insts = rule10_instruments(rules)
+            window_rows = [row for (ts, row) in events
+                           if start <= ts <= start + timedelta(days=window_days)]
+            insts = instruments_for(window_rows)
             if len(insts) > len(best):
                 best, best_at = insts, start
         # dedup is meaningless across historical windows — never suppressed in best mode

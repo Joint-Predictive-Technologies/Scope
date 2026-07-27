@@ -284,8 +284,10 @@ def refresh_tickers_only() -> int:
     which is asserted by an AST walk in tests/test_ticker_refresh_job.py.
 
     Why it is scheduled at all: `tickers` had exactly one writer and no schedule, so it
-    was populated once and left. RULE_16's CINS fallback resolves institutional holdings
-    against it, so a stale table quietly costs coverage — a slow rot with no error.
+    only ever refreshed when someone ran it by hand. RULE_16's CINS fallback resolves
+    institutional holdings against it, so staleness quietly costs coverage with no error
+    anywhere. Measured locally: 10,619 rows last touched 2026-07-09 (18 days). Prod
+    UNVERIFIED.
     """
     load_dotenv()
     t0 = time.time()
