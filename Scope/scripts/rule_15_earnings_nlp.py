@@ -229,20 +229,32 @@ def run(emit: bool = False) -> None:
         alerts_emitted += 1
         print(f"[RULE_15] EMIT {severity}: {headline}")
 
-        # Cross-reference with RULE_08 and RULE_09 — if all three on same ticker in 30d → corroborate
-        cross_count = conn.execute("""
-            SELECT COUNT(DISTINCT rule) FROM alerts
-            WHERE ticker = ? AND rule IN ('RULE_08', 'RULE_09', 'RULE_15')
-              AND datetime(created_at) >= datetime('now', '-30 days')
-        """, (ticker,)).fetchone()[0]
-
-        if cross_count >= 3:
-            conn.execute("""
-                UPDATE alerts SET lifecycle_stage = 'corroborated'
-                WHERE ticker = ? AND rule IN ('RULE_08', 'RULE_09', 'RULE_15')
-                  AND (lifecycle_stage IS NULL OR lifecycle_stage = 'created')
-            """, (ticker,))
-            print(f"[RULE_15] Auto-corroborated {ticker} (RULE_08+09+15 all fired within 30d)")
+        # ── REMOVED 2026-07-27: the shadow corroboration path ────────────────
+        #
+        # This used to run a SECOND corroboration gate here: if RULE_08 + RULE_09 +
+        # RULE_15 all appeared on a ticker within 30 days, it UPDATEd *other rules'*
+        # alerts to lifecycle_stage='corroborated'.
+        #
+        # It was wrong three ways and had to go before RULE_15 was ever repaired:
+        #   1. It counted rule NAMES, not instruments — precisely the D1 defect the
+        #      gate redesign removed. RULE_10 counts distinct INSTRUMENTS because
+        #      several rules can read one source; this path could not tell the
+        #      difference.
+        #   2. It bypassed RULE_10 entirely, so a corroboration could exist that the
+        #      gate never sanctioned and rule10_is_valid() would not endorse.
+        #   3. Its trigger was bounded to 30 days but its UPDATE had NO time bound at
+        #      all, so it would retroactively mark every RULE_08/09/15 alert on that
+        #      ticker corroborated, for all history. RULE_10's equivalent is 48h.
+        #
+        # It was dormant only because RULE_15 never reached its emit path. Repairing
+        # RULE_15 without removing this would have RE-ARMED D1 — which is why it is
+        # removed first, while the rule is still silent.
+        #
+        # RULE_10 (scripts/rule_10_corroboration.py:314) is now the SINGLE authority
+        # that may set lifecycle_stage='corroborated'. RULE_15 corroborates nothing.
+        # Orphan check: the only readers are build_data_moat.py (exports the column)
+        # and morning_brief.py (reads 'superseded' only) — nothing depended on RULE_15
+        # having set it.
 
     conn.commit()
     conn.close()
