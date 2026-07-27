@@ -88,7 +88,11 @@ LOOKBACK_DAYS = 120          # only consider filings this recent (13F is quarter
 #   * Baupost — EDGAR search returns CIK 0001054420 ("BAUPOST GROUP LLC /ADV"), which
 #     has no parseable 13F. 0001061768 is the entity that actually files and is used
 #     here; confirm that is the intended one.
-#   * Trian Fund Management (0001345472) — no parseable 13F found. OMITTED.
+#   * Trian — 0001345472 is the GP and files 13F-NT (a notice, no holdings). The
+#     operating entity 0001345471 files real 13F-HRs and is what is used.
+#   * DROPPED as STALE (no 13F-HR inside LOOKBACK_DAYS, so they would be skipped every
+#     run anyway): Greenlight Capital (last filed 2024-02-14) and Scion Asset
+#     Management (2025-11-03). Re-add if they resume filing.
 #   * Eminence Capital and Ruane Cunniff resolve to 13Fs with ONE holding, which is
 #     almost certainly a partial or amended filing rather than the real book. OMITTED
 #     rather than included on a number I do not believe.
@@ -102,13 +106,13 @@ WHALES: dict[str, str] = {
     "0001167483": "TIGER GLOBAL MANAGEMENT LLC",              #  54 holdings
     "0000807985": "SOUTHEASTERN ASSET MANAGEMENT INC/TN/",    #  49 holdings
     "0001138995": "GLENVIEW CAPITAL MANAGEMENT, LLC",         #  43 holdings
-    "0001079114": "GREENLIGHT CAPITAL INC",                   #  40 holdings
     "0001762304": "HHLR ADVISORS, LTD.",                      #  38 holdings
     "0001061165": "LONE PINE CAPITAL LLC",                    #  36 holdings
     "0001040273": "Third Point LLC",                          #  33 holdings
-    "0001791786": "Elliott Investment Management L.P.",       #  32 holdings
+    "0001791786": "Elliott Investment Management L.P.",       #  30 holdings
     "0001656456": "Appaloosa LP",                             #  31 holdings
     "0001061768": "Baupost Group LLC",                        #  22 holdings
+    "0001345471": "TRIAN FUND MANAGEMENT, L.P.",               #   8 holdings (0001345472 is the GP and files 13F-NT only)
     "0001067983": "BERKSHIRE HATHAWAY INC",                   #  29 holdings
     "0001517857": "Soroban Capital Partners LP",              #  27 holdings
     "0001517137": "Starboard Value LP",                       #  25 holdings
@@ -121,8 +125,7 @@ WHALES: dict[str, str] = {
     "0001336528": "Pershing Square Capital Management, L.",   #  11 holdings
     "0001358706": "ABRAMS CAPITAL MANAGEMENT, L.P.",          #  11 holdings  # AMBIGUOUS: also matched 0001426355,0001165407
     "0001056831": "FAIRHOLME CAPITAL MANAGEMENT LLC",         #  10 holdings
-    "0001159159": "JANA PARTNERS LLC",                        #   9 holdings  # AMBIGUOUS: also matched 0001998597
-    "0001649339": "Scion Asset Management, LLC",              #   8 holdings
+    "0001998597": "JANA Partners Management, LP",              #  10 holdings (replaces DEAD CIK 0001159159, last 13F 2023-08-14)
 }
 
 # Only these OpenFIGI security types become a leg. Funds/ETFs are excluded on
@@ -210,6 +213,23 @@ def recent_13f(cik: str, limit: int = 2) -> list[dict]:
         if len(out) >= limit:
             break
     return out
+
+
+# A 13F filer is required by law to have >$100M in Section 13(f) securities, so a book
+# whose reported `value` column sums to far less than that is denominated in THOUSANDS,
+# not dollars. Baupost ($5.1M reported => $5.1B) and Duquesne ($3.4M => $3.4B) both do
+# this; the $5M floor was reading $22K for a $22M position and silently zeroing both
+# entire books. Detect per FILING — never assume one unit for the whole feed.
+AUM_FLOOR_USD = 100_000_000
+THOUSANDS_MULTIPLIER = 1000.0
+
+
+def detect_value_scale(holdings_by_cusip: dict) -> float:
+    """1.0 if `value` is already dollars, 1000.0 if the filing reports thousands."""
+    total = sum(float(h.get("value") or 0) for h in holdings_by_cusip.values())
+    if total <= 0:
+        return 1.0
+    return THOUSANDS_MULTIPLIER if total < AUM_FLOOR_USD else 1.0
 
 
 def _first(elem, tag: str) -> str:
@@ -320,16 +340,21 @@ def _ticker_names(conn) -> list[tuple[str, str]]:
 
 
 _NAME_NOISE = re.compile(
-    # PUBLIC is here because "Public Limited Co" is the written-out form of "plc",
-    # which is already stripped — without it "Willis Towers Watson Public Limited Co"
-    # scores 0.851 against "Willis Towers Watson PLC" and is correctly DROPPED. The
-    # fix is to normalise a known legal-form token, never to lower the 0.90 fence.
-    r"\b(INC|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|PLC|PUBLIC|THE|CLASS|COM|SHS|ORD|"
+    r"\b(INC|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|PLC|THE|CLASS|COM|SHS|ORD|"
     r"HLDGS|HOLDINGS|GROUP|SA|NV|AG|LP|TR|TRUST|IRELAND|NEW)\b", re.I)
+
+# "PUBLIC" is a legal-form token ONLY in "Public Limited Company" (= plc). Stripping it
+# unconditionally — which is what shipped first, to make Willis Towers Watson pass —
+# mangles 52 real names: PUBLIC STORAGE -> STORAGE, VODAFONE GROUP PUBLIC LTD CO ->
+# VODAFONE, AMERICAN PUBLIC EDUCATION -> AMERICAN EDUCATION, and creates 11 new
+# collision keys. It is removed from the blanket list above and stripped only in the
+# plc context: PUBLIC immediately followed by LIMITED / LTD / CO.
+_PLC_PUBLIC = re.compile(r"\bPUBLIC\s+(?=(LIMITED|LTD|CO)\b)", re.I)
 
 
 def _norm(name: str) -> str:
-    return " ".join(_NAME_NOISE.sub(" ", (name or "").upper()).replace(",", " ").split())
+    t = _PLC_PUBLIC.sub(" ", (name or "").upper())      # plc-context PUBLIC only
+    return " ".join(_NAME_NOISE.sub(" ", t).replace(",", " ").split())
 
 
 def cins_fallback(conn, cusip: str, issuer: str) -> dict | None:
@@ -462,6 +487,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
     scanned = stored = emitted = 0
     skipped_quant = dropped_unmapped = baselined = 0
     unmapped_detail: list[str] = []
+    floor_notes: list[str] = []
     name_matched = 0
     partial = False        # ran out of time budget -> resumable
     crashed = False        # died on an exception -> distinct, and must read differently
@@ -499,6 +525,15 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                 print(f"[{RULE}] skip {label}: {len(held)} holdings > MAX_HOLDINGS")
                 continue
 
+            # Normalise units BEFORE the materiality floor, or a thousands-filing is
+            # silently zeroed by it.
+            scale = detect_value_scale(held)
+            if scale != 1.0:
+                for h in held.values():
+                    h["value"] = float(h["value"]) * scale
+                print(f"[{RULE}] {label}: value column is in THOUSANDS "
+                      f"(book sums below the $100M 13F threshold) — scaled x1000")
+
             scanned += len(held)
             baseline = not has_baseline(conn, cik, f["report_date"])
             if baseline:
@@ -506,6 +541,16 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                 print(f"[{RULE}] {label}: first filing seen — storing {len(held)} "
                       f"holdings as BASELINE, emitting nothing")
             material = {c: h for c, h in held.items() if h["value"] >= MIN_POSITION_USD}
+            # A book erased by the floor must NEVER vanish quietly — that is the silent
+            # zero this file's docstring forbids, and it is how two whole books
+            # disappeared without a single logged line.
+            floored = len(held) - len(material)
+            if floored and (not material or floored >= len(held) * 0.5):
+                msg = (f"{label}: {len(material)}/{len(held)} stored — "
+                       f"{floored} below the ${MIN_POSITION_USD/1e6:.0f}M floor"
+                       + (" (WHOLE BOOK dropped)" if not material else ""))
+                floor_notes.append(msg)
+                print(f"[{RULE}] FLOOR {msg}")
             mapped = map_cusips(list(material), budget_deadline=deadline)
 
             # A dropped holding must be VISIBLE, not silent. OpenFIGI resolves
@@ -609,6 +654,7 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
                  f"emitted={emitted} quant_skipped={skipped_quant} "
                  f"unmapped_dropped={dropped_unmapped} name_matched={name_matched} "
                  f"baselined={baselined}"
+                 + (f" | FLOOR: {'; '.join(floor_notes[:4])}" if floor_notes else "")
                  + (f" | DROPPED: {'; '.join(unmapped_detail[:6])}" if unmapped_detail else "")
                  + (" PARTIAL(time budget, resumable)" if partial else "")
                  + (" ABORTED(exception)" if crashed else ""))
@@ -628,7 +674,8 @@ def run(emit: bool = False, time_budget: float = TIME_BUDGET_SECONDS,
     return {"scanned": scanned, "stored": stored, "emitted": emitted,
             "partial": partial, "failures": failures, "baselined": baselined,
             "skipped_quant": skipped_quant, "dropped_unmapped": dropped_unmapped,
-            "unmapped_detail": unmapped_detail, "name_matched": name_matched}
+            "unmapped_detail": unmapped_detail, "name_matched": name_matched,
+            "floor_notes": floor_notes}
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -518,3 +518,116 @@ def test_chubb_uses_the_string_that_actually_appears_in_filings():
     conn = _seed_tickers([("CB", "Chubb Ltd")])
     assert r16.cins_fallback(conn, "H1467J104", "CHUBB LTD SWITZ") is None
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# The units bug — Baupost and Duquesne report `value` in THOUSANDS, so the $5M
+# floor silently zeroed both entire books (90 holdings). A silent zero is exactly
+# what this rule's docstring forbids.
+# ---------------------------------------------------------------------------
+
+def test_thousands_filing_is_detected_and_scaled():
+    """A 13F filer has >$100M by law, so a book summing below that is in thousands."""
+    baupost_like = {f"C{i:08d}": {"value": 5_115_380 / 22} for i in range(22)}
+    assert r16.detect_value_scale(baupost_like) == 1000.0
+
+
+def test_dollars_filing_is_left_alone():
+    berkshire_like = {"A": {"value": 263_095_703_570.0}}
+    assert r16.detect_value_scale(berkshire_like) == 1.0
+    assert r16.detect_value_scale({}) == 1.0            # empty book must not crash
+
+
+def test_a_thousands_book_survives_the_materiality_floor(monkeypatch):
+    """Before the fix this book stored 0 of 3 and logged nothing."""
+    filings = {"0000000011": [{"accession": "0011-26-000001", "filing_date": ISO,
+                               "report_date": "2026-03-31", "filer_name": "Thousands Book"}]}
+    # $22M, $40M, $9M positions — but reported in thousands
+    table = {"0011-26-000001": {
+        "T1111111": {"issuer": "ALPHA CO", "class": "COM", "value": 22_000.0, "shares": 1000.0},
+        "T2222222": {"issuer": "BETA CO", "class": "COM", "value": 40_000.0, "shares": 2000.0},
+        "T3333333": {"issuer": "GAMMA CO", "class": "COM", "value": 9_000.0, "shares": 300.0}}}
+    figi = {c: {"ticker": t, "name": n, "security_type": "Common Stock"} for c, t, n in
+            [("T1111111", "ALPH", "ALPHA CO"), ("T2222222", "BETA", "BETA CO"),
+             ("T3333333", "GAMA", "GAMMA CO")]}
+    _fake_sources(monkeypatch, filings, table, figi)
+    r = r16.run(emit=True, whales={"0000000011": "Thousands Book"})
+    assert r["stored"] == 3, f"thousands book still zeroed by the floor: {r}"
+    conn = db_connection()
+    vals = [x["value_usd"] for x in
+            conn.execute("SELECT value_usd FROM institutional_holdings")]
+    conn.close()
+    assert min(vals) >= 9_000_000, f"values not scaled to dollars: {vals}"
+
+
+def test_a_floor_zeroed_book_is_logged_loudly(monkeypatch):
+    """The whole point: a book vanishing must never again be silent.
+
+    The book must total ABOVE $100M so it reads as dollars (below that the unit
+    heuristic correctly treats it as thousands), while every individual position sits
+    under the $5M floor: 40 x $3M = $120M.
+    """
+    filings = {"0000000013": [{"accession": "0013-26-000001", "filing_date": ISO,
+                               "report_date": "2026-03-31", "filer_name": "Small Book"}]}
+    table = {"0013-26-000001": {f"S{i:08d}": {"issuer": f"SMALL {i}", "class": "COM",
+                                              "value": 3_000_000.0, "shares": 10.0}
+                                for i in range(40)}}
+    figi = {f"S{i:08d}": {"ticker": f"SM{i:02d}", "name": f"SMALL {i}",
+                          "security_type": "Common Stock"} for i in range(40)}
+    _fake_sources(monkeypatch, filings, table, figi)
+    r = r16.run(emit=True, whales={"0000000013": "Small Book"})
+    assert r["stored"] == 0, "positions under the floor should not be stored"
+    assert r["floor_notes"], "a whole book was dropped by the floor with no log line"
+    assert "WHOLE BOOK" in " ".join(r["floor_notes"])
+    conn = db_connection()
+    notes = conn.execute("SELECT notes FROM activity_log WHERE source='RULE_16' "
+                         "ORDER BY id DESC LIMIT 1").fetchone()["notes"]
+    conn.close()
+    assert "FLOOR" in notes and "Small Book" in notes
+
+
+def test_unit_heuristic_edge_case_is_documented():
+    """A book totalling under $100M is read as thousands. That is correct for a real
+    13F filer (>$100M by law) but WOULD mis-scale a partial or amended filing. Pinned
+    so the trade-off is explicit rather than accidental."""
+    assert r16.AUM_FLOOR_USD == 100_000_000
+    assert r16.detect_value_scale({"a": {"value": 99_000_000}}) == 1000.0
+    assert r16.detect_value_scale({"a": {"value": 101_000_000}}) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# The PUBLIC over-strip — must be plc-context only
+# ---------------------------------------------------------------------------
+
+def test_public_is_stripped_only_in_the_plc_context():
+    assert r16._norm("WILLIS TOWERS WATSON PUBLIC LIMITED CO") == "WILLIS TOWERS WATSON"
+    assert r16._norm("VODAFONE GROUP PUBLIC LTD CO") == "VODAFONE"
+    # ...and never standalone, where it is part of the actual name
+    assert r16._norm("PUBLIC STORAGE") == "PUBLIC STORAGE"
+    assert r16._norm("PUBLIC SERVICE ENTERPRISE GROUP INC") == "PUBLIC SERVICE ENTERPRISE"
+    assert r16._norm("AMERICAN PUBLIC EDUCATION INC") == "AMERICAN PUBLIC EDUCATION"
+
+
+def test_public_fix_does_not_reintroduce_a_mismap():
+    """Normalisation changed, so re-run the wrong-ticker checks (the LBTYA lesson)."""
+    conn = _seed_tickers([("PSA", "Public Storage"), ("PEG", "Public Service Enterprise Group Inc"),
+                          ("LBTYA", "Liberty Global Ltd."), ("LBTYK", "Liberty Global Ltd.")])
+    # share-class collision still drops
+    assert r16.cins_fallback(conn, "G61188127", "LIBERTY GLOBAL LTD") is None
+    # PUBLIC-named US companies are not CINS, so the fallback must not touch them
+    assert r16.cins_fallback(conn, "74460D109", "PUBLIC STORAGE") is None
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# The whale list — live entities only
+# ---------------------------------------------------------------------------
+
+def test_whale_list_has_no_known_dead_or_nt_only_ciks():
+    w = r16._whales()
+    assert "0001159159" not in w, "dead Jana CIK (last 13F 2023-08-14) still shipped"
+    assert "0001998597" in w, "live Jana entity missing"
+    assert "0001345472" not in w, "Trian GP files 13F-NT only"
+    assert "0001345471" in w, "live Trian entity missing"
+    assert "0001079114" not in w and "0001649339" not in w, \
+        "Greenlight/Scion are stale (no 13F-HR inside LOOKBACK_DAYS)"
