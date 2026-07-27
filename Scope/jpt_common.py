@@ -831,13 +831,28 @@ _SOURCE_QUALITY_WEIGHT = {"Primary": 1.0, "Secondary": 0.6, "Derived": 0.3}
 
 def calculate_evidence_confidence(distinct_rule_count, source_quality_scores,
                                   has_conflicting_evidence=False) -> float:
-    """How strongly is the thesis supported? (Not whether opportunity remains.)"""
+    """How strongly is the thesis supported? (Not whether opportunity remains.)
+
+    THE TIERS ARE IN THE GATE'S UNITS: distinct INSTRUMENTS, matching
+    RULE_10_MIN_INSTRUMENTS. The first tier MUST be the gate's firing threshold.
+
+    They used to step at 4/5/6, from when the gate's threshold was expressed in rule
+    NAMES and sat one tier higher. When D1 moved it to 3 INSTRUMENTS (several rules
+    can read one source, so the congressional trio is one leg, not three), the
+    tiers were left in the old units — so every minimum-strength corroboration fell
+    BELOW the first tier, scored base=0, and persisted 6.0 against a lone RULE_06's
+    20.0. A corroboration ranked at one third of its own constituent signals, and
+    `mode=overwatch` orders on this column. Rescaled 2026-07-27, human-signed-off.
+
+    If RULE_10_MIN_INSTRUMENTS ever moves, MOVE THE FIRST TIER WITH IT — that
+    coupling is asserted in tests/test_evidence_confidence_instruments.py.
+    """
     base = 0.0
-    if distinct_rule_count >= 4:
+    if distinct_rule_count >= 3:
         base = 40.0
-    if distinct_rule_count >= 5:
+    if distinct_rule_count >= 4:
         base = 60.0
-    if distinct_rule_count >= 6:
+    if distinct_rule_count >= 5:
         base = 75.0
     avg_quality = (sum(source_quality_scores) / len(source_quality_scores)
                    if source_quality_scores else 0.5)
@@ -929,12 +944,26 @@ def assign_time_horizon(rule, ticker=None, conn=None) -> str:
 
 
 def _distinct_rule_count(rule: str, tags: str) -> tuple:
-    """(distinct_rule_count, source_quality_weights) for scoring an alert."""
+    """(corroborator_count, source_quality_weights) for scoring an alert.
+
+    THE COUNT IS DISTINCT INSTRUMENTS, NOT RULE NAMES.
+    D1 made the GATE count instruments — several rules can read one source — but the
+    evidence path kept counting names, so the congressional trio (RULE_01B + RULE_02 +
+    RULE_CLUSTER = three views of one `transactions` feed) inflated confidence as if it
+    were three independent corroborators. Measured: trio + contracts + insider scored
+    **80.0** on 5 rule names where 3 instruments is the truth.
+
+    The parameter keeps its old name so every caller and the DB column stay valid; only
+    what it MEANS changed. Quality weights stay per-rule — averaging source quality over
+    the contributing rules is still right; it is the COUNT that was wrong.
+    """
     if rule == "RULE_10":
         elig = rule10_eligible_rules(rule10_rules_from_tags(tags or ""))
         weights = [_SOURCE_QUALITY_WEIGHT.get(RULE_SOURCE_QUALITY.get(x, "Secondary"), 0.6)
                    for x in elig] or [0.3]
-        return max(len(elig), 1), weights
+        # rule10_instruments is the gate's own authority — imported, never copied, so
+        # the evidence count and the firing count cannot diverge.
+        return max(len(rule10_instruments(elig)), 1), weights
     q = RULE_SOURCE_QUALITY.get(rule, "Secondary")
     return 1, [_SOURCE_QUALITY_WEIGHT.get(q, 0.6)]
 

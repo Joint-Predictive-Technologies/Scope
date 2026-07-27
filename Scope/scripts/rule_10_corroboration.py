@@ -131,7 +131,8 @@ RULE = "RULE_10"
 # were retired into RULE_10_EXCLUDED, which stopped them counting as instruments, but
 # this set still admitted them as SQL candidates. So a retired rule could not OPEN a
 # corroboration yet still landed in `theme_signals` and inflated the corroboration's
-# evidence_confidence, because :311 passes distinct_rule_count = rule *names*.
+# evidence_confidence. (That inflation was measured when this call passed rule NAMES;
+# it now passes INSTRUMENTS, but a retired rule leaking in is still a defect.)
 # Measured on identical 3-instrument fires: 6.0 with live rules only, 81.0 once
 # RULE_12/13/14 were present — a 13x inflation from rules that are supposedly retired.
 #
@@ -318,7 +319,10 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
         alert_id = insert_alert(
             conn, rule=RULE, ticker=ticker, severity=severity,
             headline=headline, detail=narrative, tags=tags,
-            distinct_rule_count=rule_count,
+            # INSTRUMENTS, not rule names. `rule_count` is still recorded in tags for
+            # provenance, but confidence must reflect how many INDEPENDENT things
+            # corroborate — the same question the gate answers when it fires.
+            distinct_rule_count=instrument_count,
         )
         conn.execute(
             """UPDATE alerts SET lifecycle_stage = 'corroborated'

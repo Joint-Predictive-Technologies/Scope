@@ -12,7 +12,8 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from jpt_common import db_connection, rule10_rules_from_tags, rule10_eligible_rules
+from jpt_common import (db_connection, rule10_rules_from_tags,
+                        rule10_eligible_rules, rule10_instruments)
 
 router = APIRouter()
 
@@ -67,7 +68,11 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
 
     if rule == "RULE_10":
         rules = rule10_eligible_rules(rule10_rules_from_tags(alert.get("tags") or ""))
-        rule_pts = min(len(rules) * 10, 60)
+        # INSTRUMENTS, not rule names — same correction as jpt_common._distinct_rule_count.
+        # This drawer had its own parallel confidence breakdown that also counted names,
+        # so it showed a user a higher number than the corroboration deserved.
+        instruments = rule10_instruments(rules)
+        rule_pts = min(len(instruments) * 10, 60)
         sev_pts = 20 if sev == "CRITICAL" else 10
         insider = 15 if "RULE_06" in rules else 0
         contract = 10 if "RULE_11" in rules else 0
@@ -76,7 +81,7 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
         return {
             "total": total,
             "components": {
-                "Eligible rule count": rule_pts,
+                "Distinct instrument count": rule_pts,
                 "Severity": sev_pts,
                 "Freshness": freshness,
                 "Insider significance": insider,
@@ -87,7 +92,12 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
         }
     # Single-rule alert — lighter breakdown
     sev_pts = 40 if sev == "CRITICAL" else 25 if sev == "HIGH" else 10
-    corrob = min(len({r.get("rule") for r in related}) * 8, 24)
+    # INSTRUMENTS, not rule names — the same correction as the RULE_10 branch above.
+    # This branch scored a lone alert's support by distinct rule NAME, so the
+    # congressional trio paid three times for one source (24/24, the cap, off a single
+    # instrument). rule10_instruments is the gate's authority, imported, never copied.
+    corrob = min(len(rule10_instruments(
+        rule10_eligible_rules({r.get("rule") for r in related if r.get("rule")}))) * 8, 24)
     total = min(sev_pts + freshness + corrob, 100)
     return {
         "total": total,

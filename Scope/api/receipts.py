@@ -133,7 +133,13 @@ def _corroboration(a: dict, conn) -> Optional[dict]:
         items = [_item(rule) for rule in rules]
     if not items:
         return None
-    n = tags.get("rule_count") or len({i["primary"] for i in items})
+    # INSTRUMENTS, not rule names. "independent signals" is precisely the claim the
+    # gate's instrument count answers: several rules can read ONE source, so the
+    # congressional trio is one independent signal, not three. `rule_count` is kept in
+    # tags for provenance only — reading it here restated the pre-D2 inflation in the
+    # receipt's own words. Pre-D2 alerts have no instrument_count; they fall back to the
+    # distinct families below rather than to the rule-name count.
+    n = tags.get("instrument_count") or len({i["primary"] for i in items})
     return {
         "kind": "corroboration",
         "summary": f"{n} independent signals converged on {a.get('ticker','')}",

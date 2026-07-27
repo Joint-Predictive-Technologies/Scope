@@ -4,8 +4,9 @@ Two sets used to answer that question independently and had silently DIVERGED:
 `RULE_10_EXCLUDED` (drives instrument counting) retired RULE_12/13/14, but
 `EXCLUDED_FROM_CORROBORATION` (the SQL candidate filter) still admitted them. So a
 retired rule could not OPEN a corroboration yet still entered `theme_signals` and
-inflated the corroboration's `evidence_confidence` — measured 6.0 -> 81.0, because
-rule_10_corroboration.py:311 passes distinct_rule_count as rule NAMES.
+inflated the corroboration's `evidence_confidence` — measured 6.0 -> 81.0 back when the
+emitter passed rule NAMES. It now passes INSTRUMENTS, so the leak is smaller, but a
+retired rule reaching `theme_signals` at all is still the defect these tests fence.
 
 These tests exist to make that divergence impossible rather than merely fixed.
 """

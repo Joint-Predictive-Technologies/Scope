@@ -9,6 +9,8 @@ import importlib.util
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from starlette.testclient import TestClient  # noqa: E402
@@ -28,9 +30,11 @@ _r.loader.exec_module(reddit)
 
 # ── Scoring engine (spec §7) ─────────────────────────────────────────────────
 def test_evidence_confidence_thresholds():
-    assert calculate_evidence_confidence(3, [1.0]) < 40      # below 4 rules
-    assert calculate_evidence_confidence(4, [1.0]) == 60.0   # 40 + 20 quality
-    assert calculate_evidence_confidence(6, [1.0]) == 95.0
+    # Tiers are in the GATE's units: 3 distinct INSTRUMENTS is a fire, and a fire
+    # must clear the first tier. Rescaled from 4/5/6 on 2026-07-27.
+    assert calculate_evidence_confidence(2, [1.0]) < 40      # below the gate
+    assert calculate_evidence_confidence(3, [1.0]) == 60.0   # 40 + 20 quality
+    assert calculate_evidence_confidence(5, [1.0]) == 95.0
     # conflicting evidence penalizes
     assert calculate_evidence_confidence(4, [1.0], True) < calculate_evidence_confidence(4, [1.0])
 
@@ -146,6 +150,9 @@ def test_scores_are_not_all_defaults():
     assert default_ev == 0           # nothing left at (0,0)
 
 
+# Was a strict xfail from 2026-07-27: the tiers were 4/5/6 while the gate fired at 3
+# instruments, so this invariant was genuinely broken and the marker held the seat until
+# a human decided the rescale. They did; the tiers are 3/4/5; the marker cleared itself.
 def test_rule10_evidence_exceeds_single_rule():
     from jpt_common import score_alert_fields
     import json as _j
