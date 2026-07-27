@@ -97,6 +97,11 @@ _CRON_SCHEDULE: dict[str, dict] = {
     "scripts/rule_12_fara.py":          {"day_of_week": "mon", "hour": 4,  "minute": 0},
     # Broad lobbying dataset (AIPAC + notable lobbies) — weekly Monday 4:45am
     "scripts/ingest_lobbying.py":       {"day_of_week": "mon", "hour": 4,  "minute": 45},
+    # 13F institutional holdings (RULE_16) — daily at 06:15. 13F is quarterly, but
+    # filings arrive in bursts around the 45-day deadline, so a DAILY poll is what
+    # keeps created_at within a day of filingDate. A quarterly cron would collapse a
+    # whole quarter into one instant and destroy the leg's timing (the RULE_14 defect).
+    "scripts/rule_16_institutional.py": {"hour": 6,  "minute": 15},
     # FEC PAC monitoring — daily at 5am
     "scripts/rule_13_fec.py":           {"hour": 5,  "minute": 0},
     # USPTO patents — twice weekly (Tue + Fri early morning)
@@ -480,6 +485,7 @@ TAPE_RULE_LABELS = {
     "RULE_10":      "Corroboration",
     "RULE_11":      "Gov Contract",
     "RULE_12":      "FARA",
+    "RULE_16":      "13F Whales",
     "RULE_13":      "PAC Funding",
     "RULE_14":      "Patent Cluster",
     "RULE_15":      "Earnings NLP",
@@ -491,7 +497,7 @@ TAPE_RULE_ICON = {
     "RULE_01":  "↑", "RULE_01B": "↑", "RULE_02": "↑",
     "RULE_06":  "↓", "RULE_07":  "↑", "RULE_08": "↑",
     "RULE_09":  "↑", "RULE_10":  "★", "RULE_11": "●",
-    "RULE_12":  "🌍", "RULE_13": "💰", "RULE_14": "🔬",
+    "RULE_12":  "🌍", "RULE_13": "💰", "RULE_14": "🔬", "RULE_16": "🐋",
     "RULE_15":  "📞",
     "RULE_ANOMALY": "⚡", "RULE_ADSB": "✈", "RULE_TELEGRAM_OSINT": "📡",
 }
