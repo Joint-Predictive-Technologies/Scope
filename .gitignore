@@ -10,6 +10,15 @@ __pycache__/
 !.claude/agents/
 .claude/agents/*
 !.claude/agents/*.md
+# ...and the SessionEnd breadcrumb hook. Same reasoning as the roster: this is
+# PROJECT config, not machine config. vault/Scope/02_Sessions/_session-log.md
+# documents it as the mechanism that keeps sessions from going unrecorded, so it
+# has to travel with the repo — it sat undiscovered as a missing file for a week
+# precisely because nothing tracked it.
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/*.sh
 # Explicitly local, never tracked (belt and braces — already covered above):
 .claude/settings.local.json
 .claude/*.local.json
