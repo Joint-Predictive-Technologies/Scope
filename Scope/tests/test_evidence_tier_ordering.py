@@ -178,22 +178,84 @@ def test_the_rescale_rewrites_no_historical_score():
 
     Detection-time scores are immutable. `enrich_alert_scores(only_unscored=True)`
     fills gaps; it must not recompute a row that already carries a score, or every
-    pre-rescale corroboration would silently jump 6.0 -> 46.0.
+    pre-rescale corroboration would silently jump 6.0 -> 60.0.
+
+    THE FIXTURE HAS TO CARRY `tags`, AND THAT IS THE WHOLE POINT. The first version
+    of this test seeded the row WITHOUT tags, so `_distinct_rule_count('RULE_10','')`
+    returned `(1, [0.3])` and a full rescore produced 6.0 — exactly the value seeded.
+    The assertion could not fail: a verifier made `enrich_alert_scores` an inert
+    `return 0`, and separately deleted the `only_unscored` guard, and it passed both
+    times. With 3-instrument tags a rescore yields 60.0, so the immutability
+    assertion has something to detect.
+
+    The second row is the other half: without it, an inert enrichment still passes.
     """
     from jpt_common import enrich_alert_scores
+    import json as _json
+    trio_tags = _json.dumps({"rules": ["RULE_01B", "RULE_02", "RULE_CLUSTER",
+                                       "RULE_11", "RULE_06"]})
+
     conn = db_connection()
+    # (a) already scored under the OLD tiers — must survive UNTOUCHED
     conn.execute(
-        "INSERT INTO alerts (rule, ticker, severity, headline, evidence_confidence, "
-        "opportunity_score, time_horizon) VALUES "
-        "('RULE_10','HISTORIC','HIGH','old-tier corroboration', ?, 50, 'MEDIUM')",
-        (MIN_FIRE_OLD,))
+        "INSERT INTO alerts (rule, ticker, severity, headline, tags, "
+        "evidence_confidence, opportunity_score, time_horizon) VALUES "
+        "('RULE_10','HISTORIC','HIGH','old-tier corroboration', ?, ?, 50, 'MEDIUM')",
+        (trio_tags, MIN_FIRE_OLD))
+    # (b) never scored — must BE scored, proving enrichment actually ran
+    conn.execute(
+        "INSERT INTO alerts (rule, ticker, severity, headline, tags, "
+        "evidence_confidence, opportunity_score) VALUES "
+        "('RULE_10','UNSCORED','HIGH','new corroboration', ?, 0, 0)", (trio_tags,))
     conn.commit()
+
+    rescore_would_give = calculate_evidence_confidence(3, [1.0] * 5)
+    assert rescore_would_give == 60.0 != MIN_FIRE_OLD, (
+        "fixture is inert — a rescore must produce a DIFFERENT value from the seed, "
+        "or this test cannot detect a rewrite")
 
     enrich_alert_scores(conn, only_unscored=True)
 
-    after = conn.execute(
-        "SELECT evidence_confidence FROM alerts WHERE ticker='HISTORIC'").fetchone()[0]
+    historic, unscored = (conn.execute(
+        "SELECT evidence_confidence FROM alerts WHERE ticker=?", (t,)).fetchone()[0]
+        for t in ("HISTORIC", "UNSCORED"))
     conn.close()
-    assert after == MIN_FIRE_OLD == 6.0, (
-        f"a pre-rescale score was rewritten to {after} — detection-time scores are "
-        "immutable and the rescale is forward-only")
+
+    assert historic == MIN_FIRE_OLD == 6.0, (
+        f"a pre-rescale score was rewritten to {historic} — detection-time scores "
+        "are immutable and the rescale is forward-only")
+    assert unscored == rescore_would_give, (
+        f"the unscored row was not enriched ({unscored}) — without this the test "
+        "above passes even when enrichment never runs at all")
+
+
+# ── the saturation shift the rescale moved DOWN — flagged, not fixed ─────────
+
+def test_the_top_tier_saturates_at_five_and_that_is_a_known_limitation():
+    """Documented on purpose. Do NOT "fix" this by adding a tier without sign-off.
+
+    The top tier is >=5, so 5, 6, 7... instruments all take base 75 and persist the
+    SAME score. Pre-rescale the top tier was >=6, so 5 and 6 were 15 points apart
+    (66.0 vs 81.0 at the emitter's weight). The rescale did not CREATE this — it
+    moved it down one tier, to a convergence size that is more reachable.
+
+    Two consequences, both real:
+      * mode=overwatch ties them and falls through to `datetime(created_at) DESC`,
+        so a NEWER 5-instrument corroboration can outrank an older 6-instrument one;
+      * at the theme level (score_alert_fields uses per-rule weights, not RULE_10's
+        flat 0.3) the quality average becomes the only discriminator above the top
+        tier, so adding a LOWER-quality sixth leg strictly lowers the score.
+
+    Fixing it means a fourth tier, which is a formula-SHAPE change beyond the
+    authorized threshold rescale. Whoever adds one should delete this test.
+    """
+    # alert level: 5 and 6 no longer separate
+    assert calculate_evidence_confidence(5, [0.3]) == calculate_evidence_confidence(6, [0.3]) == 81.0
+    assert calculate_evidence_confidence(9, [0.3]) == 81.0          # and never will
+
+    # theme level: a sixth, weaker leg LOWERS the score
+    five_primary = calculate_evidence_confidence(5, [1.0] * 5)
+    six_with_secondary = calculate_evidence_confidence(6, [1.0] * 5 + [0.6])
+    assert five_primary == 95.0 and six_with_secondary == 93.7
+    assert six_with_secondary < five_primary, (
+        "if this now holds the right way round, a tier was added — update the docs")
