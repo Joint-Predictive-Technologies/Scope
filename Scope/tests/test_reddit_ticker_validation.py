@@ -5,8 +5,14 @@ The subtlety: the universe check was NEVER the bug. `BACK`, `HERE`, `POST`, `MOV
 Holdings...), so `t in known` passes them happily and ordinary sentences became
 tickers. A blocklist of non-tickers cannot win — the collisions ARE tickers.
 
-So the rule inverts: a bare common English word needs an explicit `$` cashtag,
-however real the symbol is.
+THE CASHTAG IS THE DISAMBIGUATOR. A bare token that is ordinary English prose is
+rejected however real the symbol is; a cashtagged one is accepted however common the
+word is. `$POST beat earnings` counts, `I saw this post` does not.
+
+Two earlier attempts enlarged a hand-maintained blocklist and claimed to have solved
+the class. They had not — the collisions ARE tickers, so enumeration never converges.
+These tests therefore measure against the REAL universe (see `_real_universe`), never
+a fixture, because the toy `KNOWN` set below is what let the earlier claims stand.
 """
 from __future__ import annotations
 
@@ -17,7 +23,39 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import sqlite3
+
+from scripts import rule_reddit as reddit
 from scripts.rule_reddit import _COMMON_WORDS, _extract_tickers
+
+_REAL_DB = os.path.join(os.path.dirname(__file__), "..", "data", "jpt.db")
+
+
+def _real_universe() -> set[str]:
+    """The REAL ~10,600-symbol `tickers` table, read-only.
+
+    Deliberately NOT the disposable test DB and NOT a fixture. Every previous attempt at
+    this rule was validated against a toy `KNOWN` set, which is exactly why a verifier
+    measuring against the real universe found 414 uncovered symbols. Opened `mode=ro`
+    so the suite cannot write to it.
+    """
+    if not os.path.exists(_REAL_DB):
+        # LOUD, not silent. `data/jpt.db` is gitignored, so on a clean clone or in CI
+        # this file's SEVEN real-universe tests used to vanish while the suite still
+        # reported success — the branch's entire headline evidence, conditional on an
+        # untracked working file. A verifier measured it: 512 passed with the DB, 505
+        # passed + 7 skipped without, both green.
+        pytest.skip("REAL TICKER UNIVERSE MISSING (data/jpt.db) — the real-universe "
+                    "assertions in this file did NOT run. This is the evidence the "
+                    "cashtag fix rests on; a green suite here proves less than it "
+                    "looks. Restore the DB or run against a prod copy.",
+                    allow_module_level=False)
+    conn = sqlite3.connect(f"file:{_REAL_DB}?mode=ro", uri=True)
+    try:
+        return {r[0].strip().upper() for r in
+                conn.execute("SELECT symbol FROM tickers WHERE symbol IS NOT NULL")}
+    finally:
+        conn.close()
 
 KNOWN = {"BACK", "HERE", "POST", "MOVE", "BEAT", "FIVE", "GME", "NVDA", "CRWV", "PLTR"}
 
@@ -67,12 +105,17 @@ def test_forward_only_no_history_rewrite():
         assert stmt not in code.upper(), f"rule_reddit rewrites history via {stmt.strip()}"
 
 
-def test_the_blocklist_never_silently_shrinks():
-    """A rewrite dropped HIGH from the list without anyone noticing.
+def test_no_originally_protected_word_became_extractable():
+    """A rewrite once dropped HIGH from the list without anyone noticing.
 
-    Harmless only because HIGH is not currently in `tickers` — the day it lists,
-    "my cost basis is too HIGH" becomes a ticker. This pins the words the ORIGINAL
-    list protected, so the next rewrite cannot quietly lose one.
+    STRONGER THAN THE TEST IT REPLACES. The old version pinned the original word set
+    against the blocklist and passed forever — including for words that were safe only
+    because they were not listed symbols. HIGH was exactly that case, and the old test
+    could never have caught the day it listed.
+
+    A word is safe if EITHER the extractor rejects it as prose, OR it is not a symbol at
+    all. This asserts the disjunction, and names any word that relies on the second leg —
+    so if one of them ever lists, this fails with the reason.
     """
     ORIGINAL = {"YOLO", "CALL", "PUTS", "HIGH", "HOLD", "MOON", "BULL", "BEAR", "LONG",
                 "GAIN", "LOSS", "FOMO", "HODL", "TLDR", "THETA", "GAMMA", "DELTA",
@@ -81,16 +124,207 @@ def test_the_blocklist_never_silently_shrinks():
                 "GOOD", "BEST", "HUGE", "NEXT", "MORE", "MOST", "SAME", "THAN", "THEN",
                 "THEY", "WEEK", "YEAR", "TODAY", "CEO", "CFO", "IPO", "ETF", "USA",
                 "GDP", "FED", "SEC", "FDA", "USD", "CPI", "TOP"}
-    missing = sorted(ORIGINAL - _COMMON_WORDS)
-    assert not missing, f"the blocklist silently lost: {missing}"
+    known = _real_universe()
+    assert known, "no real ticker universe — this test must not pass vacuously"
+
+    extractable = sorted(w for w in ORIGINAL
+                         if w in known and w not in reddit._TICKER_WORDS)
+    assert not extractable, (
+        f"these were protected before and are now extractable bare: {extractable}. "
+        "Either the word is ordinary prose (belongs in the generated list) or it is "
+        "domain jargon (belongs in DOMAIN_JARGON).")
+
+    # Informational, and the reason this test is stronger: these are safe ONLY because
+    # they are not listed symbols today. If one lists, the assertion above starts firing.
+    by_absence = sorted(w for w in ORIGINAL if w not in known)
+    assert len(by_absence) < len(ORIGINAL), "sanity: not every word can be unlisted"
 
 
-def test_the_known_limitation_is_documented_not_hidden():
-    """This is a bigger blocklist, NOT a new mechanism. ~414 English words that are
-    real tickers remain uncovered. The module must say so, so nobody reads the fix as
-    solving the class."""
+def test_the_recall_tradeoff_is_documented_not_hidden():
+    """The fix BUYS precision WITH recall, and the module must say so.
+
+    A bare mention of a common-word ticker is now missed by design. That is defensible
+    for a gate-excluded discovery feed and indefensible if it is not written down, which
+    is the failure this project keeps repeating — the previous version of this rule
+    claimed to "invert" the blocklist when it had merely enlarged one.
+    """
     src = open(os.path.join(os.path.dirname(__file__), "..", "scripts",
                             "rule_reddit.py"), encoding="utf-8").read()
-    assert "KNOWN LIMITATION" in src
-    assert "414" in src, "the measured gap count should be stated, not vague"
-    assert "hand-maintained" in src
+    assert "RECALL COST" in src, "the tradeoff must be stated in the module"
+    assert "BY DESIGN" in src, "the miss must be labelled deliberate, not incidental"
+    assert "$POST" in src, "the cashtag escape hatch should be shown concretely"
+    # the honest framing: hand-maintenance is REDUCED, not eliminated
+    assert "DOMAIN_JARGON" in src
+    assert "414" in src, "the measured gap the old approach left should stay on record"
+
+
+def test_the_domain_residue_stays_bounded():
+    """DOMAIN_JARGON is the one hand-maintained set left. Keep it honest.
+
+    Every entry must be a REAL listed symbol — otherwise `t in known` already rejects it
+    and the entry is decoration that makes the set look load-bearing. That is precisely
+    what the old ~125-word blocklist was: 15 of its entries (CFO, CPI, DELTA, ETF, FDA,
+    GDP, IPO, USD, YOLO, ELON, MUSK, FOMO, GAMMA, THETA, TLDR) are not symbols at all.
+    """
+    known = _real_universe()
+    assert known
+    decorative = sorted(w for w in reddit.DOMAIN_JARGON if w not in known)
+    assert not decorative, (
+        f"DOMAIN_JARGON entries that are not listed symbols: {decorative}. "
+        "`known` already rejects these; remove them.")
+    assert len(reddit.DOMAIN_JARGON) <= 15, (
+        f"DOMAIN_JARGON has grown to {len(reddit.DOMAIN_JARGON)} — if it keeps growing "
+        "it is becoming the blocklist this change removed. Check whether the generated "
+        "frequency list should cover it instead.")
+
+
+# ── measured against the REAL universe, not a fixture ────────────────────────
+#
+# The previous two attempts were validated against the toy KNOWN set above and both
+# claimed to have solved the class. A verifier measuring against the real 10,619-symbol
+# universe found 414 uncovered symbols. Everything below uses the real table.
+
+_ORDINARY_PROSE = [
+    "I saw this post earlier and came back here to check",
+    "Does anyone else feel the same way about this",
+    "Ryan Cohen is on the board now",
+    "China's New AI Model Triggers Fresh Tech Selloff",
+    "OGs please help me understand the PSA connection",
+    "The Acquisition Math, Dilution, and the Reflexivity of it all",
+    "Form 425 for the big interview, the shares are owned now",
+    "It only took a bit to pump the warrants up today",
+    "BUY, HODL, DRS, Pure BOOK, SHOP, VOTE",
+    "I have been a member since 2010 and I still hold",
+    "This is a good week for the team, more news soon",
+    "Just wait and see what happens next year",
+    "My cost basis is too high to sell right now",
+    "Edit: thanks for the gold kind stranger",
+    "Well that was a wild ride, hope everyone is okay",
+]
+
+_GENUINE_MENTIONS = [
+    ("NVDA is up 4% after earnings", ["NVDA"]),
+    ("loading up on PLTR before the print", ["PLTR"]),
+    ("$POST beat earnings this quarter", ["POST"]),
+    ("$BACK is a real position for me", ["BACK"]),
+    ("GME squeeze thesis still alive", ["GME"]),
+    ("TCNNF has been consolidating for weeks", ["TCNNF"]),
+]
+
+
+def test_ordinary_prose_yields_no_tickers_against_the_real_universe():
+    """MEASURED, on these exact sentences: the old extractor yields a false ticker on
+    10 of 15 (EDIT, ELSE, FORM, GOLD, HELP, MATH, PUMP, PURE, RYAN, SHOP, TEAM, TECH).
+
+    An earlier write-up said "13 of 15". That figure came from a previous session's
+    different sentence set and was never true of THESE sentences — a number carried
+    across contexts without being re-measured, which is the habit this file exists to
+    break. Replay the old extractor against the real universe and you get 10.
+    """
+    known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
+    offenders = {s: _extract_tickers(s, known) for s in _ORDINARY_PROSE}
+    offenders = {s: t for s, t in offenders.items() if t}
+    assert not offenders, (
+        f"{len(offenders)}/{len(_ORDINARY_PROSE)} ordinary sentences still yield "
+        f"tickers: {offenders}")
+
+
+def test_genuine_mentions_still_extract_including_cashtagged_common_words():
+    """Precision must not have been bought by extracting nothing."""
+    known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
+    for text, expected in _GENUINE_MENTIONS:
+        got = _extract_tickers(text, known)
+        for e in expected:
+            assert e in got, f"lost a genuine mention: {e!r} from {text!r} (got {got})"
+
+
+def test_the_cashtag_is_what_flips_a_common_word():
+    """The mechanism itself: same token, same universe, `$` is the only difference."""
+    known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
+    for word in ("POST", "BACK", "HERE", "LIVE", "TEAM"):
+        if word not in known:
+            continue
+        assert _extract_tickers(f"talking about {word} today", known) == [], \
+            f"bare {word} was extracted"
+        assert word in _extract_tickers(f"talking about ${word} today", known), \
+            f"cashtagged ${word} was NOT extracted"
+
+
+def test_no_unambiguous_ticker_is_over_rejected():
+    """The recall guard. A frequency list must not swallow real symbols."""
+    known = _real_universe()
+    assert known, "empty universe — this test would pass on nothing"
+    for t in ("NVDA", "GME", "AMD", "PLTR", "TSLA", "AAPL", "MSFT", "LMT", "RTX",
+              "XOM", "ABBV", "AMZN", "SPCX", "TCNNF", "CRWV"):
+        if t not in known:
+            continue
+        assert t not in reddit._TICKER_WORDS, (
+            f"{t} is treated as an English word — the frequency cutoff is too high")
+
+
+def test_the_bare_extractable_common_words_are_measured_not_assumed():
+    """The residual false-positive surface, stated as a number.
+
+    Of the 4-5 char symbols reachable bare, how many are words a person would write in
+    ordinary prose? This is the metric the old blocklist failed at 414. It is pinned so
+    a regression in the word list shows up as a number, not a vibe.
+    """
+    import re
+    known = _real_universe()
+    reachable = {t for t in known if re.fullmatch(r"[A-Z]{4,5}", t)}
+    still_bare = {t for t in reachable if t not in reddit._TICKER_WORDS}
+    # everything the generated list DOES cover, i.e. the words prose actually uses
+    covered = reachable - still_bare
+    # MEASURED, not guessed: 149 of the 7,750 bare-reachable symbols (1.9%) are words
+    # prose actually uses. An earlier draft asserted 250 here, from a 2-5 char count —
+    # but BARE_TICKER_RE only reaches 4-5, so that figure was never the right one.
+    assert len(covered) >= 140, (
+        f"only {len(covered)} reachable symbols are treated as prose — the generated "
+        "word list may have failed to load")
+    # the honest residual: rare dictionary words remain extractable BY DESIGN
+    assert still_bare, "sanity: not every symbol should require a cashtag"
+
+
+def test_the_vendored_word_list_matches_its_generator():
+    """M6: the generated file could be hand-edited and nothing would notice.
+
+    `_common_words.py` documents how it was produced but nothing pinned it, so deleting
+    entries (THIS, THAT, WITH, FROM...) left the whole suite green — the exact silent
+    shrink the blocklist test was written to catch, reintroduced one layer down.
+
+    Skips only if wordfreq is absent (it is a DEV dependency by design — the list is
+    vendored precisely so production never imports it).
+    """
+    wordfreq = pytest.importorskip(
+        "wordfreq", reason="dev-only dependency; the vendored list is what ships")
+    from scripts._common_words import COMMON_WORDS
+    regenerated = {w.upper() for w in wordfreq.top_n_list("en", 5000)
+                   if 2 <= len(w) <= 5 and w.isalpha()}
+    hand_added = sorted(COMMON_WORDS - regenerated)
+    hand_removed = sorted(regenerated - COMMON_WORDS)
+    assert not hand_added and not hand_removed, (
+        f"scripts/_common_words.py has drifted from top_n_list('en', 5000): "
+        f"added={hand_added[:10]} removed={hand_removed[:10]}. Regenerate it rather "
+        "than editing by hand.")
+
+
+def test_the_curated_three_char_set_is_case_sensitive():
+    """SPY must survive, and 'spy' must not become a ticker.
+
+    Frequency-gating the CURATED set killed SPY outright — the most-mentioned ETF on
+    these subreddits, with a real mention in the stored data. Reverting to the old
+    uppercased match would restore a pre-existing false positive, because this is a
+    POLITICAL feed where "spy agency" is ordinary prose. Case settles it.
+    """
+    known = _real_universe()
+    assert known and "SPY" in known
+    assert "SPY" in _extract_tickers("If SPY doesn't hit ATH by EOM", known)
+    for prose in ("the spy agency briefed the committee",
+                  "a spy plane was spotted over the region"):
+        assert "SPY" not in _extract_tickers(prose, known), f"'spy' became a ticker: {prose!r}"
+    # the rest of the curated set must not have been collateral damage
+    assert "GME" in _extract_tickers("Ryan Cohen & GME getting discussed", known)
+    assert "AMC" in _extract_tickers("AMC and GME are both moving today", known)

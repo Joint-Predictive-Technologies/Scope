@@ -1,0 +1,243 @@
+"""The 1888 most frequent short English words — GENERATED, do not hand-edit.
+
+Ticker extraction needs to know "would a person write this token as ordinary prose?".
+That is a FREQUENCY question, not a dictionary one, and the difference is the whole
+point of this file.
+
+WHY NOT A DICTIONARY. Intersecting the real 10619-symbol universe with the macOS system
+dictionary flags 446 symbols. Only ~109 of those are words anyone actually writes —
+the rest are things like AGIO, ALAR, ABSI, AKAN, ALMS, roughly 66x rarer by measured
+frequency. Rejecting those bare would cost real coverage to prevent false positives
+that never happen. A dictionary answers "is this a word"; we need "is this a word in
+use".
+
+WHY NOT `wordfreq` AT RUNTIME. It carries language data and would become a new
+production dependency for a rule that runs every 30 minutes. And `/usr/share/dict/words`
+— the other obvious source — exists on macOS but NOT in a slim container, so it would
+have worked in dev and silently degraded in prod. This list is generated ONCE, here, and
+vendored: identical in dev and prod, reviewable in a diff, no runtime import.
+
+CUTOFF CHOSEN BY MEASUREMENT, not taste. The "prose words" probe is this exact set,
+named here so the table can be re-run rather than taken on trust:
+
+    BACK HERE POST LIVE TEAM ELSE ONTO HELP GIVE ROCK LINK EARN WASH PUMP
+    OPEN REAL GOOD NEXT HOLD FREE LOVE HIGH                        (22 words)
+
+and the "unambiguous tickers" probe is NVDA GME AMD PLTR TSLA AAPL MSFT LMT RTX XOM
+SPCX TCNNF ABBV AMZN. Both are small, hand-chosen probes — see the module docstring in
+rule_reddit.py for what a WIDER sweep found, which is less flattering. Against the real
+universe:
+
+    top-N     prose words caught     unambiguous tickers lost     symbols needing $
+     2000          19/22                     none                    158
+     5000          22/22                     none                    277   <- chosen
+    10000          22/22                     none                    454
+    20000          22/22                     AMD                     721
+
+5000 is the smallest N catching every word in that 22-word probe while costing nothing
+in that 14-ticker probe. ⚠️ READ THAT NARROWLY. It does NOT mean "no unambiguous ticker
+is lost" — a verifier attached company names to the 149 symbols that now need a cashtag
+and found SNOW, SPOT, TEAM, SHOP, OPEN, COST, FAST, RACE, WELL and ~30 more, six of them
+S&P 500. The probe was chosen before that sweep existed, and a claim resting on it is a
+selection effect. AMD first enters the list between N=12000 and N=15000, not at 20000 —
+the grid above is coarse, not wrong.
+
+REGENERATE WITH:
+    from wordfreq import top_n_list
+    sorted({w.upper() for w in top_n_list('en', 5000) if 2 <= len(w) <= 5 and w.isalpha()})
+Source: wordfreq top_n_list('en', 5000), filtered to 2-5 alpha chars (the length a ticker
+can occupy). Generated 2026-07-27.
+"""
+
+COMMON_WORDS = frozenset((
+    "AARON", "ABC", "ABLE", "ABOUT", "ABOVE", "ABUSE", "AC", "ACID", "ACT", "ACTED",
+    "ACTOR", "ACTS", "AD", "ADAM", "ADAMS", "ADD", "ADDED", "ADDS", "ADMIT", "ADS",
+    "ADULT", "AFTER", "AGAIN", "AGE", "AGED", "AGENT", "AGES", "AGO", "AGREE", "AH",
+    "AHEAD", "AI", "AID", "AIDS", "AIM", "AIMED", "AIR", "AL", "ALAN", "ALARM", "ALBUM",
+    "ALERT", "ALEX", "ALI", "ALICE", "ALIEN", "ALIVE", "ALL", "ALLEN", "ALLOW", "ALONE",
+    "ALONG", "ALPHA", "ALSO", "AM", "AMONG", "AN", "AND", "ANDY", "ANGEL", "ANGER",
+    "ANGLE", "ANGRY", "ANIME", "ANN", "ANNA", "ANNE", "ANTI", "ANY", "AP", "APART",
+    "APP", "APPLE", "APPLY", "APPS", "APRIL", "ARAB", "ARE", "AREA", "AREAS", "ARENA",
+    "ARGUE", "ARM", "ARMED", "ARMS", "ARMY", "ART", "ARTS", "AS", "ASIA", "ASIAN",
+    "ASIDE", "ASK", "ASKED", "ASKS", "ASS", "ASSET", "AT", "ATE", "AUDIO", "AUG",
+    "AUTO", "AVOID", "AWARD", "AWARE", "AWAY", "AWFUL", "BABY", "BACK", "BAD", "BADLY",
+    "BAG", "BAGS", "BAKER", "BALL", "BALLS", "BAN", "BAND", "BANDS", "BANG", "BANK",
+    "BANKS", "BAR", "BARRY", "BARS", "BASE", "BASED", "BASIC", "BASIS", "BASS", "BAT",
+    "BATH", "BAY", "BBC", "BC", "BE", "BEACH", "BEAR", "BEARS", "BEAST", "BEAT",
+    "BEATS", "BED", "BEEF", "BEEN", "BEER", "BEGAN", "BEGIN", "BEGUN", "BEING", "BELL",
+    "BELOW", "BELT", "BEN", "BENCH", "BEST", "BET", "BIBLE", "BID", "BIG", "BIKE",
+    "BILL", "BILLS", "BILLY", "BIN", "BIRD", "BIRDS", "BIRTH", "BIT", "BITCH", "BITE",
+    "BLACK", "BLAME", "BLAST", "BLIND", "BLOCK", "BLOG", "BLOOD", "BLOW", "BLUE",
+    "BLUES", "BOARD", "BOAT", "BOATS", "BOB", "BOBBY", "BODY", "BOLD", "BOMB", "BOND",
+    "BONDS", "BONE", "BONES", "BONUS", "BOOK", "BOOKS", "BOOM", "BOOST", "BOOTS",
+    "BORN", "BOSS", "BOTH", "BOUND", "BOW", "BOWL", "BOX", "BOXES", "BOY", "BOYS",
+    "BRAIN", "BRAND", "BRAVE", "BREAD", "BREAK", "BRIAN", "BRICK", "BRIEF", "BRING",
+    "BRO", "BROAD", "BROKE", "BROWN", "BRUCE", "BRUSH", "BUDDY", "BUILD", "BUILT",
+    "BULL", "BUNCH", "BURN", "BURNS", "BUS", "BUSH", "BUSY", "BUT", "BUTT", "BUY", "BY",
+    "BYE", "CA", "CABLE", "CAKE", "CALL", "CALLS", "CALM", "CAME", "CAMP", "CAN",
+    "CANAL", "CANDY", "CANT", "CAP", "CAPE", "CAR", "CARD", "CARDS", "CARE", "CARES",
+    "CARL", "CARRY", "CARS", "CASE", "CASES", "CASH", "CAST", "CAT", "CATCH", "CATS",
+    "CAUSE", "CD", "CELL", "CELLS", "CENT", "CENTS", "CEO", "CHAIN", "CHAIR", "CHAOS",
+    "CHART", "CHASE", "CHAT", "CHEAP", "CHECK", "CHEF", "CHEST", "CHIEF", "CHILD",
+    "CHINA", "CHIP", "CHOSE", "CHRIS", "CITED", "CITY", "CIVIL", "CLAIM", "CLARK",
+    "CLASS", "CLAY", "CLEAN", "CLEAR", "CLICK", "CLIMB", "CLIP", "CLOCK", "CLOSE",
+    "CLOUD", "CLUB", "CLUBS", "CM", "CNN", "CO", "COACH", "COAL", "COAST", "COAT",
+    "COCK", "CODE", "COINS", "COLD", "COLOR", "COM", "COME", "COMES", "COMIC", "CON",
+    "COOK", "COOL", "COP", "COPS", "COPY", "CORE", "CORP", "CORPS", "COST", "COSTS",
+    "COULD", "COUNT", "COURT", "COVER", "CRACK", "CRAFT", "CRAP", "CRASH", "CRAZY",
+    "CREAM", "CREEK", "CREW", "CRIME", "CROSS", "CROWD", "CROWN", "CRY", "CUP", "CURE",
+    "CUT", "CUTE", "CUTS", "CYCLE", "DA", "DAD", "DADDY", "DAILY", "DAMN", "DAN",
+    "DANCE", "DANNY", "DARE", "DARK", "DATA", "DATE", "DATED", "DATES", "DAVE", "DAVID",
+    "DAVIS", "DAWN", "DAY", "DAYS", "DC", "DE", "DEAD", "DEAL", "DEALS", "DEAN", "DEAR",
+    "DEATH", "DEBT", "DEBUT", "DEC", "DECK", "DEEP", "DEL", "DELAY", "DELHI", "DENY",
+    "DEPTH", "DES", "DESK", "DEVIL", "DI", "DICK", "DID", "DIE", "DIED", "DIEGO",
+    "DIES", "DIET", "DIG", "DIRT", "DIRTY", "DJ", "DNA", "DO", "DOC", "DOES", "DOG",
+    "DOGS", "DOING", "DON", "DONE", "DONT", "DOOR", "DOORS", "DOUBT", "DOWN", "DOZEN",
+    "DR", "DRAFT", "DRAG", "DRAMA", "DRAW", "DRAWN", "DREAM", "DRESS", "DREW", "DRINK",
+    "DRIVE", "DROP", "DROPS", "DROVE", "DRUG", "DRUGS", "DRUNK", "DRY", "DUAL", "DUDE",
+    "DUE", "DUKE", "DUMB", "DUST", "DUTCH", "DUTY", "DVD", "DYING", "EACH", "EAR",
+    "EARLY", "EARN", "EARS", "EARTH", "EASE", "EAST", "EASY", "EAT", "ED", "EDGE",
+    "EDIT", "EGG", "EGGS", "EGYPT", "EH", "EIGHT", "EL", "ELITE", "ELSE", "EM", "EMAIL",
+    "EMMA", "EMPTY", "EN", "END", "ENDED", "ENDS", "ENEMY", "ENJOY", "ENTER", "ENTRY",
+    "EPIC", "EQUAL", "ER", "ERA", "ERIC", "ERROR", "ESSAY", "ET", "ETC", "EU", "EVANS",
+    "EVE", "EVEN", "EVENT", "EVER", "EVERY", "EVIL", "EX", "EXACT", "EXAM", "EXIST",
+    "EXIT", "EXTRA", "EYE", "EYES", "FACE", "FACED", "FACES", "FACT", "FACTS", "FAIL",
+    "FAILS", "FAIR", "FAITH", "FAKE", "FALL", "FALLS", "FALSE", "FAME", "FAN", "FANCY",
+    "FANS", "FAR", "FARM", "FAST", "FAT", "FATE", "FAULT", "FAVOR", "FBI", "FEAR",
+    "FEB", "FED", "FEE", "FEED", "FEEL", "FEELS", "FEES", "FEET", "FELL", "FELT",
+    "FEVER", "FEW", "FEWER", "FI", "FIELD", "FIFTH", "FIFTY", "FIGHT", "FILE", "FILED",
+    "FILES", "FILL", "FILM", "FILMS", "FINAL", "FIND", "FINDS", "FINE", "FIRE", "FIRED",
+    "FIRM", "FIRMS", "FIRST", "FISH", "FIT", "FITS", "FIVE", "FIX", "FIXED", "FLAG",
+    "FLASH", "FLAT", "FLEET", "FLOOD", "FLOOR", "FLOW", "FLUID", "FLY", "FOCUS", "FOLK",
+    "FOLKS", "FOOD", "FOODS", "FOOL", "FOOT", "FOR", "FORCE", "FORD", "FORM", "FORMS",
+    "FORT", "FORTH", "FORUM", "FOUND", "FOUR", "FOX", "FRAME", "FRANK", "FRAUD", "FREE",
+    "FRESH", "FROM", "FRONT", "FRUIT", "FT", "FUCK", "FUEL", "FULL", "FULLY", "FUN",
+    "FUND", "FUNDS", "FUNNY", "GAIN", "GAINS", "GAME", "GAMES", "GANG", "GAP", "GARY",
+    "GAS", "GATE", "GATES", "GAVE", "GAY", "GEAR", "GEN", "GENE", "GET", "GETS",
+    "GHOST", "GIANT", "GIFT", "GIFTS", "GIRL", "GIRLS", "GIVE", "GIVEN", "GIVES",
+    "GLAD", "GLASS", "GLOBE", "GLORY", "GO", "GOAL", "GOALS", "GOD", "GODS", "GOES",
+    "GOING", "GOLD", "GOLF", "GONE", "GONNA", "GOOD", "GOODS", "GOP", "GOT", "GOTTA",
+    "GRAB", "GRACE", "GRADE", "GRAND", "GRANT", "GRASS", "GRAVE", "GRAY", "GREAT",
+    "GREEK", "GREEN", "GREG", "GREW", "GREY", "GROSS", "GROUP", "GROW", "GROWN",
+    "GUARD", "GUESS", "GUEST", "GUIDE", "GULF", "GUN", "GUNS", "GUY", "GUYS", "GYM",
+    "HA", "HABIT", "HAD", "HAHA", "HAIR", "HALF", "HALL", "HAND", "HANDS", "HANG",
+    "HAPPY", "HARD", "HARM", "HARRY", "HAS", "HAT", "HATE", "HAVE", "HD", "HE", "HEAD",
+    "HEADS", "HEAR", "HEARD", "HEART", "HEAT", "HEAVY", "HELD", "HELL", "HELLO", "HELP",
+    "HELPS", "HENCE", "HENRY", "HER", "HERE", "HERO", "HEY", "HI", "HIDE", "HIGH",
+    "HILL", "HILLS", "HIM", "HIP", "HIRE", "HIRED", "HIS", "HIT", "HITS", "HO", "HOLD",
+    "HOLDS", "HOLE", "HOLES", "HOLY", "HOME", "HOMES", "HONEY", "HONG", "HONOR", "HOOK",
+    "HOP", "HOPE", "HOPED", "HOPES", "HORSE", "HOST", "HOSTS", "HOT", "HOTEL", "HOUR",
+    "HOURS", "HOUSE", "HOW", "HTTP", "HTTPS", "HUGE", "HUH", "HUMAN", "HUNT", "HURT",
+    "HURTS", "IAN", "ICE", "ID", "IDEA", "IDEAL", "IDEAS", "IDIOT", "IF", "II", "III",
+    "IL", "ILL", "IM", "IMAGE", "IN", "INC", "INCH", "INDEX", "INDIA", "INFO", "INNER",
+    "INPUT", "INTO", "IOWA", "IRAN", "IRAQ", "IRISH", "IRON", "IS", "ISIS", "ISLAM",
+    "ISSUE", "IT", "ITALY", "ITEM", "ITEMS", "ITS", "IV", "JACK", "JACOB", "JAIL",
+    "JAMES", "JAN", "JANE", "JAPAN", "JASON", "JAY", "JAZZ", "JEAN", "JEFF", "JERRY",
+    "JESUS", "JET", "JEWS", "JIM", "JIMMY", "JOB", "JOBS", "JOE", "JOHN", "JOIN",
+    "JOINT", "JOKE", "JOKES", "JON", "JONES", "JOSH", "JOY", "JR", "JUDGE", "JUICE",
+    "JULY", "JUMP", "JUNE", "JURY", "JUST", "KATE", "KEEP", "KEEPS", "KELLY", "KEPT",
+    "KEVIN", "KEY", "KEYS", "KHAN", "KICK", "KID", "KIDS", "KILL", "KILLS", "KIM",
+    "KIND", "KINDA", "KINDS", "KING", "KINGS", "KISS", "KIT", "KM", "KNEE", "KNEW",
+    "KNIFE", "KNOCK", "KNOW", "KNOWN", "KNOWS", "KONG", "KOREA", "LA", "LAB", "LABEL",
+    "LABOR", "LACK", "LADY", "LAID", "LAKE", "LAND", "LANDS", "LANE", "LARGE", "LARRY",
+    "LAS", "LAST", "LATE", "LATER", "LATIN", "LAUGH", "LAURA", "LAW", "LAWS", "LAY",
+    "LAYER", "LAZY", "LE", "LEAD", "LEADS", "LEAF", "LEARN", "LEAST", "LEAVE", "LED",
+    "LEE", "LEFT", "LEG", "LEGAL", "LEGS", "LEO", "LESS", "LET", "LETS", "LEVEL",
+    "LEWIS", "LI", "LIE", "LIES", "LIFE", "LIFT", "LIGHT", "LIKE", "LIKED", "LIKES",
+    "LIMIT", "LINE", "LINES", "LINK", "LINKS", "LION", "LIPS", "LISA", "LIST", "LISTS",
+    "LIVE", "LIVED", "LIVES", "LL", "LMAO", "LOAD", "LOADS", "LOAN", "LOANS", "LOCAL",
+    "LOCK", "LOG", "LOGIC", "LOGO", "LOL", "LONG", "LOOK", "LOOKS", "LOOP", "LOOSE",
+    "LORD", "LOS", "LOSE", "LOSS", "LOST", "LOT", "LOTS", "LOUD", "LOUIS", "LOVE",
+    "LOVED", "LOVER", "LOVES", "LOW", "LOWER", "LTD", "LUCK", "LUCKY", "LUKE", "LUNCH",
+    "LYING", "MA", "MAC", "MAD", "MADE", "MAGIC", "MAIL", "MAIN", "MAJOR", "MAKE",
+    "MAKER", "MAKES", "MALE", "MALL", "MAMA", "MAN", "MANY", "MAP", "MAPS", "MARCH",
+    "MARIA", "MARIO", "MARK", "MARKS", "MARRY", "MARS", "MARY", "MASK", "MASS", "MATCH",
+    "MATE", "MATH", "MATT", "MAX", "MAY", "MAYBE", "MAYOR", "ME", "MEAL", "MEAN",
+    "MEANS", "MEANT", "MEAT", "MEDAL", "MEDIA", "MEET", "MEETS", "MEN", "MENU", "MERCY",
+    "MESS", "MET", "METAL", "MI", "MIAMI", "MID", "MIGHT", "MIKE", "MILE", "MILES",
+    "MILK", "MILL", "MILLS", "MIN", "MIND", "MINDS", "MINE", "MINI", "MINOR", "MISS",
+    "MIX", "MIXED", "MM", "MO", "MODE", "MODEL", "MOM", "MONEY", "MONTH", "MOOD",
+    "MOON", "MOORE", "MORAL", "MORE", "MOST", "MOTOR", "MOUNT", "MOUSE", "MOUTH",
+    "MOVE", "MOVED", "MOVES", "MOVIE", "MP", "MR", "MRS", "MS", "MUCH", "MULTI", "MUM",
+    "MUSIC", "MUST", "MY", "NA", "NAH", "NAKED", "NAME", "NAMED", "NAMES", "NASTY",
+    "NAVAL", "NAVY", "NAZI", "NBA", "NEAR", "NECK", "NEED", "NEEDS", "NET", "NEVER",
+    "NEW", "NEWLY", "NEWS", "NEXT", "NFL", "NICE", "NICK", "NIGHT", "NINE", "NO",
+    "NOBLE", "NOISE", "NON", "NONE", "NOPE", "NOR", "NORTH", "NOSE", "NOT", "NOTE",
+    "NOTED", "NOTES", "NOV", "NOVEL", "NOW", "NURSE", "NUTS", "NY", "OBAMA", "OCCUR",
+    "OCEAN", "OCT", "ODD", "ODDS", "OF", "OFF", "OFFER", "OFTEN", "OH", "OHIO", "OIL",
+    "OK", "OKAY", "OLD", "OLDER", "ON", "ONCE", "ONE", "ONES", "ONLY", "ONTO", "OP",
+    "OPEN", "OPENS", "OPERA", "OR", "ORAL", "ORDER", "OSCAR", "OTHER", "OUGHT", "OUR",
+    "OUT", "OUTER", "OVER", "OWN", "OWNED", "OWNER", "PA", "PACE", "PACK", "PAGE",
+    "PAGES", "PAID", "PAIN", "PAINT", "PAIR", "PALM", "PAN", "PANEL", "PANIC", "PANTS",
+    "PAPER", "PARIS", "PARK", "PARKS", "PART", "PARTS", "PARTY", "PASS", "PAST", "PAT",
+    "PATH", "PAUL", "PAY", "PAYS", "PC", "PEACE", "PEAK", "PEN", "PER", "PERRY", "PET",
+    "PETER", "PHASE", "PHIL", "PHONE", "PHOTO", "PIANO", "PICK", "PICKS", "PIECE",
+    "PILOT", "PIN", "PINK", "PIPE", "PIT", "PITCH", "PIZZA", "PLACE", "PLAIN", "PLAN",
+    "PLANE", "PLANS", "PLANT", "PLATE", "PLAY", "PLAYS", "PLOT", "PLUS", "PM", "POEM",
+    "POINT", "POLE", "POLL", "POOL", "POOR", "POP", "POPE", "PORN", "PORT", "POST",
+    "POSTS", "POT", "POUND", "POWER", "PP", "PRAY", "PRE", "PRESS", "PRICE", "PRIDE",
+    "PRIME", "PRINT", "PRIOR", "PRIZE", "PRO", "PROOF", "PROUD", "PROVE", "PUB", "PULL",
+    "PUMP", "PUNCH", "PURE", "PUSH", "PUSSY", "PUT", "PUTS", "QUEEN", "QUEST", "QUICK",
+    "QUIET", "QUIT", "QUITE", "QUOTE", "RACE", "RACES", "RADIO", "RAIL", "RAIN",
+    "RAISE", "RALLY", "RAN", "RANGE", "RANK", "RANKS", "RAPE", "RAPID", "RARE", "RATE",
+    "RATED", "RATES", "RATIO", "RAW", "RAY", "RE", "REACH", "READ", "READS", "READY",
+    "REAL", "REAR", "RED", "REFER", "RELAX", "RELY", "RENT", "REP", "REPLY", "REST",
+    "RICE", "RICH", "RICK", "RID", "RIDE", "RIGHT", "RING", "RINGS", "RIO", "RIP",
+    "RISE", "RISK", "RISKS", "RIVER", "ROAD", "ROADS", "ROB", "ROBIN", "ROBOT", "ROCK",
+    "ROCKS", "ROGER", "ROLE", "ROLES", "ROLL", "ROLLS", "ROMAN", "ROME", "RON", "ROOF",
+    "ROOM", "ROOMS", "ROOT", "ROOTS", "ROSE", "ROSS", "ROUGH", "ROUND", "ROUTE", "ROW",
+    "ROY", "ROYAL", "RUDE", "RUGBY", "RUIN", "RULE", "RULED", "RULES", "RUN", "RUNS",
+    "RURAL", "RUSH", "RYAN", "SA", "SAD", "SAFE", "SAID", "SAINT", "SAKE", "SALE",
+    "SALES", "SALT", "SAM", "SAME", "SAN", "SAND", "SANTA", "SARAH", "SAT", "SAUCE",
+    "SAUDI", "SAVE", "SAVED", "SAW", "SAY", "SAYS", "SCALE", "SCARY", "SCENE", "SCOPE",
+    "SCORE", "SCOTT", "SCREW", "SE", "SEA", "SEAL", "SEAN", "SEAT", "SEATS", "SEC",
+    "SEE", "SEED", "SEEDS", "SEEK", "SEEM", "SEEMS", "SEEN", "SEES", "SELF", "SELL",
+    "SEMI", "SEND", "SENSE", "SENT", "SEPT", "SERVE", "SET", "SETS", "SEVEN", "SEX",
+    "SEXY", "SHAKE", "SHALL", "SHAME", "SHAPE", "SHARE", "SHARP", "SHE", "SHED",
+    "SHEET", "SHELL", "SHIFT", "SHIP", "SHIPS", "SHIRT", "SHIT", "SHOCK", "SHOE",
+    "SHOES", "SHOOT", "SHOP", "SHOPS", "SHORE", "SHORT", "SHOT", "SHOTS", "SHOW",
+    "SHOWN", "SHOWS", "SHUT", "SICK", "SIDE", "SIDES", "SIGHT", "SIGN", "SIGNS",
+    "SILLY", "SIMON", "SIN", "SINCE", "SING", "SIR", "SIT", "SITE", "SITES", "SIX",
+    "SIXTH", "SIZE", "SIZED", "SKILL", "SKIN", "SKY", "SLAVE", "SLEEP", "SLIDE", "SLIP",
+    "SLOW", "SMALL", "SMART", "SMELL", "SMILE", "SMITH", "SMOKE", "SNAKE", "SNOW", "SO",
+    "SOFT", "SOIL", "SOLAR", "SOLD", "SOLE", "SOLID", "SOLO", "SOLVE", "SOME", "SON",
+    "SONG", "SONGS", "SONS", "SOON", "SORRY", "SORT", "SOUL", "SOUND", "SOUTH", "SPACE",
+    "SPAIN", "SPARE", "SPEAK", "SPEED", "SPELL", "SPEND", "SPENT", "SPIN", "SPLIT",
+    "SPOKE", "SPORT", "SPOT", "SPOTS", "SPY", "SQUAD", "ST", "STAFF", "STAGE", "STAND",
+    "STAR", "STARS", "START", "STATE", "STATS", "STAY", "STAYS", "STEAL", "STEAM",
+    "STEEL", "STEM", "STEP", "STEPS", "STEVE", "STICK", "STILL", "STOCK", "STONE",
+    "STOOD", "STOP", "STOPS", "STORE", "STORM", "STORY", "STRIP", "STUCK", "STUDY",
+    "STUFF", "STYLE", "SUB", "SUCH", "SUCK", "SUCKS", "SUE", "SUGAR", "SUIT", "SUITS",
+    "SUM", "SUN", "SUPER", "SURE", "SUSAN", "SWEAR", "SWEET", "SWING", "SWORD", "SYRIA",
+    "TABLE", "TAG", "TAIL", "TAKE", "TAKEN", "TAKES", "TALE", "TALK", "TALKS", "TALL",
+    "TANK", "TANKS", "TAP", "TAPE", "TASK", "TASKS", "TASTE", "TAX", "TAXES", "TEA",
+    "TEACH", "TEAM", "TEAMS", "TEAR", "TEARS", "TECH", "TED", "TEEN", "TEETH", "TELL",
+    "TELLS", "TEN", "TEND", "TERM", "TERMS", "TERRY", "TEST", "TESTS", "TEXAS", "TEXT",
+    "TEXTS", "THAN", "THANK", "THAT", "THATS", "THE", "THEIR", "THEM", "THEME", "THEN",
+    "THERE", "THESE", "THEY", "THICK", "THIN", "THING", "THINK", "THIRD", "THIS", "THO",
+    "THOSE", "THREE", "THREW", "THROW", "THUS", "TIE", "TIED", "TIES", "TIGER", "TIGHT",
+    "TILL", "TIM", "TIME", "TIMES", "TINY", "TIP", "TIPS", "TIRED", "TITLE", "TO",
+    "TODAY", "TOKYO", "TOLD", "TOM", "TON", "TONE", "TONS", "TONY", "TOO", "TOOK",
+    "TOOL", "TOOLS", "TOP", "TOPIC", "TOTAL", "TOUCH", "TOUGH", "TOUR", "TOWER", "TOWN",
+    "TOWNS", "TOXIC", "TOY", "TOYS", "TRACK", "TRADE", "TRAIL", "TRAIN", "TRANS",
+    "TRAP", "TRASH", "TREAT", "TREE", "TREES", "TREND", "TRIAL", "TRICK", "TRIED",
+    "TRIES", "TRIP", "TRIPS", "TRUCK", "TRUE", "TRULY", "TRUMP", "TRUST", "TRUTH",
+    "TRY", "TUBE", "TUNE", "TURN", "TURNS", "TV", "TWICE", "TWIN", "TWIST", "TWO",
+    "TYPE", "TYPES", "UGH", "UGLY", "UH", "UK", "ULTRA", "UN", "UNCLE", "UNDER",
+    "UNION", "UNIT", "UNITS", "UNITY", "UNTIL", "UP", "UPON", "UPPER", "UPS", "UPSET",
+    "URBAN", "US", "USA", "USAGE", "USE", "USED", "USER", "USERS", "USES", "USING",
+    "USUAL", "UTAH", "VA", "VALID", "VALUE", "VAN", "VARY", "VAST", "VE", "VEGAS",
+    "VENUE", "VERY", "VIA", "VICE", "VIDEO", "VIEW", "VIEWS", "VIRUS", "VISIT", "VITAL",
+    "VOICE", "VOL", "VOTE", "VOTED", "VOTES", "VS", "WAGE", "WAGES", "WAIT", "WAKE",
+    "WALES", "WALK", "WALKS", "WALL", "WALLS", "WANNA", "WANT", "WANTS", "WAR", "WARD",
+    "WARM", "WARS", "WAS", "WASH", "WASTE", "WATCH", "WATER", "WAVE", "WAVES", "WAY",
+    "WAYNE", "WAYS", "WE", "WEAK", "WEAR", "WEB", "WEED", "WEEK", "WEEKS", "WEIRD",
+    "WELL", "WELLS", "WENT", "WERE", "WEST", "WET", "WHAT", "WHEEL", "WHEN", "WHERE",
+    "WHICH", "WHILE", "WHITE", "WHO", "WHOLE", "WHOM", "WHOSE", "WHY", "WIDE", "WIDER",
+    "WIFE", "WILD", "WILL", "WIN", "WIND", "WINDS", "WINE", "WING", "WINGS", "WINS",
+    "WIRE", "WISE", "WISH", "WITH", "WOKE", "WOLF", "WOMAN", "WOMEN", "WON", "WOOD",
+    "WOODS", "WORD", "WORDS", "WORE", "WORK", "WORKS", "WORLD", "WORN", "WORRY",
+    "WORSE", "WORST", "WORTH", "WOULD", "WOUND", "WOW", "WRITE", "WRONG", "WROTE",
+    "WTF", "YA", "YARD", "YARDS", "YE", "YEA", "YEAH", "YEAR", "YEARS", "YEP", "YES",
+    "YET", "YO", "YORK", "YOU", "YOUNG", "YOUR", "YOURS", "YOUTH", "ZERO", "ZONE",
+))
