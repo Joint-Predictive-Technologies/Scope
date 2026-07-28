@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ticker Universe — Scope</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/tokens.css"/>
+  <style>
+* { box-sizing:border-box; margin:0; padding:0; }
+    html, body { height:100%; }
+    body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; display:flex; flex-direction:column; overflow:hidden; }
+    nav { flex-shrink:0; border-bottom:1px solid var(--border); background:rgba(12,11,9,0.95); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
+    .nav-brand { font-family:var(--font-sans); font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
+    nav a { font-family:var(--font-mono); font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
+    nav a:hover { color:var(--amber); }
+
+    header.strip { flex-shrink:0; padding:0.8rem 2rem; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:1.2rem; flex-wrap:wrap; }
+    .page-title { font-family:var(--font-sans); font-size:1.1rem; font-weight:700; }
+    .coverage-note { font-family:var(--font-mono); font-size:0.62rem; color:var(--muted); letter-spacing:0.04em; max-width:56ch; }
+    .count-chip { font-family:var(--font-mono); font-size:0.66rem; color:var(--cream2); }
+    .fixture-chip { font-family:var(--font-mono); font-size:0.6rem; color:var(--bg); background:var(--amber); padding:2px 8px; border-radius:var(--radius-sm); letter-spacing:0.06em; }
+
+    /* Legend — the key to the encodings. Information, not decoration. */
+    .legend { flex-shrink:0; padding:0.45rem 2rem; border-bottom:1px solid var(--border); display:flex; gap:1.6rem; align-items:center; flex-wrap:wrap; font-family:var(--font-mono); font-size:0.6rem; color:var(--muted); letter-spacing:0.04em; }
+    .lg { display:flex; align-items:center; gap:6px; }
+    .sw { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+
+    .stage { position:relative; flex:1; min-height:0; }
+    canvas { display:block; width:100%; height:100%; cursor:grab; }
+    canvas.dragging { cursor:grabbing; }
+    canvas.over-ball { cursor:pointer; }
+
+    #tooltip { position:absolute; display:none; pointer-events:none; z-index:20;
+      background:var(--surface-2); border:1px solid var(--border2); border-radius:var(--radius-md);
+      padding:0.5rem 0.7rem; font-family:var(--font-mono); font-size:0.66rem; line-height:1.5; color:var(--cream2); max-width:260px; }
+    #tooltip .tt-ticker { color:var(--amber); font-weight:600; font-size:0.78rem; }
+    #tooltip .tt-dim { color:var(--muted); }
+
+    /* Empty universe = early, not broken. */
+    #empty { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:0.6rem; text-align:center; padding:2rem; }
+    #empty .e-title { font-family:var(--font-sans); font-size:1.3rem; font-weight:600; color:var(--cream); }
+    #empty .e-sub { font-family:var(--font-mono); font-size:0.7rem; color:var(--muted); max-width:52ch; line-height:1.7; }
+
+    .zoom-ctl { position:absolute; right:1.2rem; bottom:1.2rem; display:flex; flex-direction:column; gap:1px; z-index:10; }
+    .zoom-ctl button { width:32px; height:32px; background:var(--bg2); border:1px solid var(--border2); color:var(--cream2); font-family:var(--font-mono); font-size:0.85rem; cursor:pointer; }
+    .zoom-ctl button:hover { color:var(--amber); border-color:var(--amber); }
+    .zoom-ctl button:first-child { border-radius:var(--radius-sm) var(--radius-sm) 0 0; }
+    .zoom-ctl button:last-child  { border-radius:0 0 var(--radius-sm) var(--radius-sm); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">◈ SCOPE</a>
+  <a href="/">Dashboard</a><a href="/feed">Alerts</a><a href="/status">Status</a>
+</nav>
+
+<header class="strip">
+  <span class="page-title">Ticker Universe</span>
+  <span class="count-chip" id="count-chip"></span>
+  <span class="fixture-chip" title="This page renders a seeded fixture — it is not connected to the live database.">SEEDED FIXTURE — NOT LIVE</span>
+  <span class="coverage-note" id="coverage-note"></span>
+</header>
+
+<div class="legend" id="legend">
+  <span class="lg"><span class="sw" style="background:#c89664"></span>cap small</span>
+  <span class="lg"><span class="sw" style="background:#8a8a92"></span>cap unknown</span>
+  <span class="lg"><span class="sw" style="background:#5b7fa6"></span>excluded (confirmed large cap — kept for audit)</span>
+  <span class="lg">size = times seen (a count, not a score)</span>
+  <span class="lg">bright &amp; lively = seen recently · dim &amp; drifting outward = stale</span>
+  <span class="lg">position is arbitrary — nothing here is ranked</span>
+</div>
+
+<div class="stage" id="stage">
+  <canvas id="pit"></canvas>
+  <div id="tooltip"></div>
+  <div id="empty">
+    <div class="e-title">The universe is empty — early, not broken.</div>
+    <div class="e-sub">The coverage collector hasn't accumulated any ticker names yet.
+      Names appear here as the collector sees them cashtagged on posts a human engaged with.
+      Presence means only that a name exists and is not a confirmed large cap — nothing more.</div>
+  </div>
+  <div class="zoom-ctl">
+    <button id="z-in"  aria-label="Zoom in">+</button>
+    <button id="z-out" aria-label="Zoom out">−</button>
+    <button id="z-fit" aria-label="Fit all" title="Fit all">◎</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   The coverage "ball pit". One floating ball per collected ticker name.
+
+   Every visual property ENCODES a ticker_universe column — nothing decorative:
+     size       = times_seen        (sqrt scale, so AREA tracks the count)
+     brightness = recency of last_seen_at (fresh ≈ full luminance; stale fades)
+     motion     = recency           (fresh balls breathe/wander; stale sit still)
+     home ring  = recency           (stale names drift toward the edge)
+     tint       = cap_status        (small / unknown / excluded)
+     position (angle) = hash(ticker) — ARBITRARY BY DESIGN. There is no order
+       here: no ranking, no leaderboard, no "top". times_seen is a count, not a
+       score, and this surface must never imply otherwise.
+
+   Rendering: a single Canvas 2D surface (never per-ball DOM — 500+ DOM nodes
+   with transforms would jank the compositor). Below LAZY_THRESHOLD balls the
+   pit runs live collision separation each frame (spatial hash); at or above it
+   the layout is settled ONCE at load (60 relaxation iterations) and per-frame
+   work drops to O(n) wander only.
+   ============================================================================ */
+
+/* ── THE SEEDED FIXTURE ──────────────────────────────────────────────────────
+   LIVE WIRING: deferred until ticker_universe is populated and caps are
+   corrected (the CLBK cap-label fix is on a parallel branch). This function is
+   the single seam: to go live, replace its body with
+
+       const r = await fetch('/api/universe?limit=1000');
+       return await r.json();
+
+   Everything below loadUniverse() consumes only the payload shape of
+   GET /api/universe (api/routers/universe.py): { kind, disclaimer, count,
+   tickers: [{ ticker, first_collected_at, last_seen_at, times_seen,
+               market_cap, cap_status, source }] }.
+   Until then the page has ZERO network/DB dependency: ?fixture=few|hundred|
+   swarm|empty picks a deterministic seeded scenario (default: hundred).      */
+async function loadUniverse() {
+  const scenario = new URLSearchParams(location.search).get('fixture') || 'hundred';
+  return buildFixture(scenario);
+}
+
+/* Deterministic PRNG (mulberry32) + string hash — the fixture and the layout
+   must be reproducible run-to-run, and ball positions must derive from the
+   ticker name alone so the field is stable but UNORDERED. */
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+function hash32(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+const FIXTURE_DISCLAIMER =
+  "Coverage, not a signal. These are ticker NAMES collected so the real " +
+  "instruments have something to cross-reference against — presence here means " +
+  "only that the name exists and is not a confirmed large cap. No confidence, " +
+  "no direction, no ranking; it contributes nothing to corroboration.";
+
+function buildFixture(scenario) {
+  // UTC-naive "YYYY-MM-DD HH:MM:SS", exactly as the DB stores datetime('now').
+  const sqlTs = d => d.toISOString().slice(0, 19).replace('T', ' ');
+  const daysAgo = n => sqlTs(new Date(Date.now() - n * 86400e3));
+
+  if (scenario === 'empty') return { kind:'ticker_coverage_list', disclaimer:FIXTURE_DISCLAIMER, count:0, tickers:[] };
+
+  if (scenario === 'few') {
+    // Five hand-picked rows spanning the encoding space: fresh vs stale,
+    // once-seen vs recurring, all three cap_status values.
+    const rows = [
+      { ticker:'ACME', times_seen:24, first: 30,  last: 0.1, market_cap: 410e6,  cap_status:'small'    },
+      { ticker:'BOLT', times_seen:3,  first: 12,  last: 1.5, market_cap: null,   cap_status:'unknown'  },
+      { ticker:'CRWN', times_seen:9,  first: 21,  last: 6,   market_cap: 1.2e9,  cap_status:'small'    },
+      { ticker:'DUSK', times_seen:1,  first: 28,  last: 28,  market_cap: null,   cap_status:'unknown'  },
+      { ticker:'EXLG', times_seen:5,  first: 9,   last: 2,   market_cap: 88e9,   cap_status:'excluded' },
+    ].map(r => ({ ticker:r.ticker, times_seen:r.times_seen,
+                  first_collected_at:daysAgo(r.first), last_seen_at:daysAgo(r.last),
+                  market_cap:r.market_cap, cap_status:r.cap_status, source:'reddit' }));
+    return { kind:'ticker_coverage_list', disclaimer:FIXTURE_DISCLAIMER, count:rows.length, tickers:rows };
+  }
+
+  // Generated scenarios: 'hundred' (120) and 'swarm' (600).
+  const n = scenario === 'swarm' ? 600 : 120;
+  const rnd = mulberry32(0xC0FFEE ^ n);
+  const rows = [];
+  const used = new Set();
+  while (rows.length < n) {
+    let t = '';
+    const len = 2 + Math.floor(rnd() * 3);
+    for (let i = 0; i < len; i++) t += String.fromCharCode(65 + Math.floor(rnd() * 26));
+    if (used.has(t)) continue;
+    used.add(t);
+    // times_seen skews heavily toward 1 — most names are seen once or twice.
+    const seen = Math.max(1, Math.round(Math.pow(rnd(), 2.6) * 40));
+    const lastD = Math.pow(rnd(), 1.6) * 30;                 // 0 .. 30 days ago
+    const firstD = lastD + rnd() * (35 - lastD);
+    const capRoll = rnd();
+    const cap_status = capRoll < 0.42 ? 'small' : capRoll < 0.94 ? 'unknown' : 'excluded';
+    const market_cap = cap_status === 'small' ? Math.round((30 + rnd() * 1970) * 1e6)
+                     : cap_status === 'excluded' ? Math.round((2 + rnd() * 200) * 1e9) : null;
+    rows.push({ ticker:t, times_seen:seen, first_collected_at:daysAgo(firstD),
+                last_seen_at:daysAgo(lastD), market_cap, cap_status, source:'reddit' });
+  }
+  return { kind:'ticker_coverage_list', disclaimer:FIXTURE_DISCLAIMER, count:rows.length, tickers:rows };
+}
+
+/* ── ENCODING CONSTANTS ── */
+const TINT = {                       // cap_status → color (legend must match)
+  small:    '#c89664',               // --accent: the coverage target
+  unknown:  '#8a8a92',               // --direction-neutral: unresolved cap
+  excluded: '#5b7fa6',               // dimmed slate (from --link): audit-only
+};
+const R_MIN = 5, R_MAX = 26;         // world-unit ball radius bounds
+const RECENCY_HALFLIFE_DAYS = 7;     // brightness/motion half-life on last_seen_at
+const LAZY_THRESHOLD = 250;          // >= this many balls: settle layout once at
+                                     // load, skip per-frame pairwise collisions
+const REDUCED_MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ── STATE ── */
+const canvas = document.getElementById('pit');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+let balls = [];                      // {t: row, x,y, hx,hy, r, rec, tint, phase}
+let worldR = 300;                    // radius of the field the balls live in
+let lazy = false;
+const cam = { x:0, y:0, z:1, tx:0, ty:0, tz:1 };   // current + target (lerped)
+let dpr = 1, cw = 0, ch = 0;
+let hoverBall = null;
+
+function recencyOf(lastSeen) {
+  const t = new Date(String(lastSeen).replace(' ', 'T') + 'Z').getTime();
+  const days = Math.max(0, (Date.now() - t) / 86400e3);
+  return Math.pow(0.5, days / RECENCY_HALFLIFE_DAYS);   // 1 fresh → 0 stale
+}
+
+function makeBalls(rows) {
+  const maxSeen = Math.max(1, ...rows.map(r => r.times_seen));
+  // Field radius grows with sqrt(n) so density stays comfortable at any count.
+  worldR = Math.max(170, Math.sqrt(rows.length) * 30);
+  lazy = rows.length >= LAZY_THRESHOLD;
+
+  balls = rows.map(row => {
+    const h = hash32(row.ticker);
+    const prnd = mulberry32(h);
+    const rec = recencyOf(row.last_seen_at);
+    // AREA tracks the count: radius ∝ sqrt(times_seen).
+    const r = R_MIN + (R_MAX - R_MIN) * Math.sqrt(row.times_seen / maxSeen);
+    // Home ring: fresh names live inward, stale names drift to the edge.
+    // Angle comes from the ticker hash — arbitrary, stable, unordered.
+    const ang = prnd() * Math.PI * 2;
+    const ring = worldR * (0.18 + 0.78 * Math.pow(1 - rec, 0.75)) * (0.82 + prnd() * 0.36);
+    const b = {
+      t: row, r, rec,
+      tint: TINT[row.cap_status] || TINT.unknown,
+      hx: Math.cos(ang) * ring, hy: Math.sin(ang) * ring,
+      phase: prnd() * Math.PI * 2,
+      wspd: 0.25 + prnd() * 0.35,
+    };
+    b.x = b.hx + (prnd() - 0.5) * 40;
+    b.y = b.hy + (prnd() - 0.5) * 40;
+    return b;
+  });
+  // Fresh balls draw last (on top) purely so bright ones aren't buried —
+  // draw order is z-layering, not ranking.
+  balls.sort((a, b2) => a.rec - b2.rec);
+
+  if (lazy || REDUCED_MOTION) settle(60);
+  fitCamera(true);
+}
+
+/* Spatial-hash collision separation. Used per-frame in live mode, and only
+   at load (settle) in lazy mode. */
+function separate(strength) {
+  const cell = R_MAX * 2.2;
+  const grid = new Map();
+  const key = (cx, cy) => cx * 100003 + cy;
+  balls.forEach((b, i) => {
+    const cx = Math.floor(b.x / cell), cy = Math.floor(b.y / cell);
+    const k = key(cx, cy);
+    (grid.get(k) || grid.set(k, []).get(k)).push(i);
+  });
+  balls.forEach((b, i) => {
+    const cx = Math.floor(b.x / cell), cy = Math.floor(b.y / cell);
+    for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) {
+      const bucket = grid.get(key(gx, gy));
+      if (!bucket) continue;
+      for (const j of bucket) {
+        if (j <= i) continue;
+        const o = balls[j];
+        const dx = o.x - b.x, dy = o.y - b.y;
+        const min = b.r + o.r + 2;
+        const d2 = dx * dx + dy * dy;
+        if (d2 >= min * min || d2 === 0) continue;
+        const d = Math.sqrt(d2), push = (min - d) / d * 0.5 * strength;
+        b.x -= dx * push; b.y -= dy * push;
+        o.x += dx * push; o.y += dy * push;
+      }
+    }
+  });
+}
+function settle(iters) {
+  for (let k = 0; k < iters; k++) {
+    balls.forEach(b => { b.x += (b.hx - b.x) * 0.08; b.y += (b.hy - b.y) * 0.08; });
+    separate(1);
+  }
+}
+
+/* ── CAMERA ── */
+function fitCamera(snap) {
+  // Fit what's actually there (ball bounds), not the nominal field — a
+  // five-ball universe should fill the view the same way a swarm does.
+  let x0 = -worldR, x1 = worldR, y0 = -worldR, y1 = worldR;
+  if (balls.length) {
+    x0 = Math.min(...balls.map(b => b.x - b.r)); x1 = Math.max(...balls.map(b => b.x + b.r));
+    y0 = Math.min(...balls.map(b => b.y - b.r)); y1 = Math.max(...balls.map(b => b.y + b.r));
+  }
+  const pad = 70;
+  const z = Math.min((cw - pad) / Math.max(60, x1 - x0), (ch - pad) / Math.max(60, y1 - y0));
+  cam.tx = (x0 + x1) / 2; cam.ty = (y0 + y1) / 2; cam.tz = Math.max(0.2, Math.min(z, 3));
+  if (snap) { cam.x = cam.tx; cam.y = cam.ty; cam.z = cam.tz; }
+}
+function screenToWorld(sx, sy) {
+  return { x: (sx - cw / 2) / cam.z + cam.x, y: (sy - ch / 2) / cam.z + cam.y };
+}
+
+/* ── INPUT: wheel zoom (toward cursor), drag pan, pinch, buttons ── */
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const w = screenToWorld(e.offsetX, e.offsetY);
+  const f = Math.exp(-e.deltaY * 0.0016);
+  cam.tz = Math.min(8, Math.max(0.15, cam.tz * f));
+  // Keep the point under the cursor fixed while zooming.
+  cam.tx = w.x - (e.offsetX - cw / 2) / cam.tz;
+  cam.ty = w.y - (e.offsetY - ch / 2) / cam.tz;
+}, { passive: false });
+
+let drag = null;
+canvas.addEventListener('pointerdown', e => {
+  drag = { sx: e.clientX, sy: e.clientY, cx: cam.tx, cy: cam.ty, moved: false };
+  try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+});
+canvas.addEventListener('pointermove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  if (drag) {
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    if (drag.moved) {
+      canvas.classList.add('dragging');
+      cam.tx = drag.cx - dx / cam.z; cam.ty = drag.cy - dy / cam.z;
+      cam.x = cam.tx; cam.y = cam.ty;
+    }
+    return;
+  }
+  hoverBall = hitTest(mx, my);
+  canvas.classList.toggle('over-ball', !!hoverBall);
+  if (hoverBall) showTooltip(hoverBall, mx, my); else tooltip.style.display = 'none';
+});
+canvas.addEventListener('pointerup', e => {
+  const wasDrag = drag && drag.moved;
+  drag = null;
+  canvas.classList.remove('dragging');
+  if (wasDrag) return;
+  const rect = canvas.getBoundingClientRect();
+  const b = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+  // The doorway: a ball opens the ticker's EXISTING page, where the real
+  // data (and any actual signals) live. The pit itself asserts nothing.
+  if (b) location.href = '/ticker/' + encodeURIComponent(b.t.ticker);
+});
+canvas.addEventListener('pointerleave', () => { hoverBall = null; tooltip.style.display = 'none'; });
+document.getElementById('z-in').onclick  = () => cam.tz = Math.min(8, cam.tz * 1.45);
+document.getElementById('z-out').onclick = () => cam.tz = Math.max(0.15, cam.tz / 1.45);
+document.getElementById('z-fit').onclick = () => fitCamera(false);
+
+function hitTest(sx, sy) {
+  const w = screenToWorld(sx, sy);
+  for (let i = balls.length - 1; i >= 0; i--) {      // reverse draw order: topmost first
+    const b = balls[i];
+    const dx = w.x - b.x, dy = w.y - b.y;
+    const rr = Math.max(b.r, 8 / cam.z);             // ≥8px screen target for tiny balls
+    if (dx * dx + dy * dy <= rr * rr) return b;
+  }
+  return null;
+}
+
+function showTooltip(b, mx, my) {
+  const ago = d => {
+    const s = (Date.now() - new Date(String(d).replace(' ', 'T') + 'Z').getTime()) / 1000;
+    return s < 3600 ? Math.max(1, Math.floor(s / 60)) + 'm ago'
+         : s < 86400 ? Math.floor(s / 3600) + 'h ago' : Math.floor(s / 86400) + 'd ago';
+  };
+  const cap = b.t.market_cap == null ? '—'
+    : b.t.market_cap >= 1e9 ? '$' + (b.t.market_cap / 1e9).toFixed(1) + 'B'
+    : '$' + Math.round(b.t.market_cap / 1e6) + 'M';
+  tooltip.innerHTML =
+    `<div class="tt-ticker">$${b.t.ticker}</div>` +
+    `<div>seen ${b.t.times_seen}× <span class="tt-dim">(a count, not a score)</span></div>` +
+    `<div>last seen ${ago(b.t.last_seen_at)} · cap ${b.t.cap_status} (${cap})</div>` +
+    `<div class="tt-dim">click for the ticker page</div>`;
+  tooltip.style.display = 'block';
+  const stage = document.getElementById('stage').getBoundingClientRect();
+  tooltip.style.left = Math.min(mx + 14, stage.width - tooltip.offsetWidth - 8) + 'px';
+  tooltip.style.top  = Math.min(my + 14, stage.height - tooltip.offsetHeight - 8) + 'px';
+}
+
+/* ── RENDER LOOP ── */
+function resize() {
+  const stage = document.getElementById('stage');
+  dpr = window.devicePixelRatio || 1;
+  cw = stage.clientWidth; ch = stage.clientHeight;
+  canvas.width = cw * dpr; canvas.height = ch * dpr;
+}
+window.addEventListener('resize', () => { resize(); fitCamera(false); });
+
+let tPrev = performance.now();
+function frame(tNow) {
+  const dt = Math.min(0.05, (tNow - tPrev) / 1000); tPrev = tNow;
+  const t = tNow / 1000;
+
+  // Smooth camera (the "stays smooth" half of zoom: targets are lerped).
+  const k = REDUCED_MOTION ? 1 : Math.min(1, dt * 8);
+  cam.x += (cam.tx - cam.x) * k; cam.y += (cam.ty - cam.y) * k; cam.z += (cam.tz - cam.z) * k;
+
+  if (!REDUCED_MOTION) {
+    if (!lazy) {
+      // Live mode: relax toward home, then resolve overlaps each frame.
+      balls.forEach(b => { b.x += (b.hx - b.x) * dt * 0.9; b.y += (b.hy - b.y) * dt * 0.9; });
+      separate(0.9);
+    }
+    // Wander/breathing amplitude IS the motion encoding: fresh names are
+    // lively, stale names sit still. Lazy mode gets only this O(n) pass.
+    balls.forEach(b => {
+      b.ox = Math.sin(t * b.wspd + b.phase) * (0.6 + b.rec * 2.6);
+      b.oy = Math.cos(t * b.wspd * 0.83 + b.phase * 1.7) * (0.6 + b.rec * 2.6);
+    });
+  }
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cw, ch);
+  ctx.translate(cw / 2, ch / 2); ctx.scale(cam.z, cam.z); ctx.translate(-cam.x, -cam.y);
+
+  const labelable = 12 / cam.z;   // draw the ticker inside balls big enough on screen
+  for (const b of balls) {
+    const x = b.x + (b.ox || 0), y = b.y + (b.oy || 0);
+    // Brightness encoding: alpha tracks recency; a fresh ball also breathes
+    // radius slightly (scaled by rec, so stale balls are visually inert).
+    const breathe = REDUCED_MOTION ? 0 : Math.sin(t * 1.4 + b.phase) * 0.045 * b.rec;
+    const rr = b.r * (1 + breathe);
+    ctx.globalAlpha = 0.28 + 0.72 * b.rec;
+    ctx.fillStyle = b.tint;
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
+    if (b === hoverBall) {
+      ctx.globalAlpha = 1; ctx.lineWidth = 1.5 / cam.z; ctx.strokeStyle = '#e8e8ee';
+      ctx.beginPath(); ctx.arc(x, y, rr + 2 / cam.z, 0, Math.PI * 2); ctx.stroke();
+    }
+    if (rr > labelable && b.t.ticker.length * 5.4 < rr * 2.2) {
+      ctx.globalAlpha = Math.min(1, 0.35 + 0.65 * b.rec);
+      ctx.fillStyle = '#0a0a0c';
+      ctx.font = `500 ${Math.max(7, rr * 0.52)}px "JetBrains Mono", monospace`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(b.t.ticker, x, y);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  if (!document.hidden) requestAnimationFrame(frame);
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) { tPrev = performance.now(); requestAnimationFrame(frame); }
+});
+
+/* ── BOOT ── */
+function setData(payload) {
+  const rows = payload.tickers || [];
+  document.getElementById('count-chip').textContent =
+    rows.length + ' name' + (rows.length === 1 ? '' : 's') + ' collected';
+  document.getElementById('coverage-note').textContent = payload.disclaimer || '';
+  document.getElementById('empty').style.display = rows.length ? 'none' : 'flex';
+  document.getElementById('legend').style.visibility = rows.length ? 'visible' : 'hidden';
+  makeBalls(rows);
+}
+
+resize();
+loadUniverse().then(payload => {
+  setData(payload);
+  requestAnimationFrame(frame);
+  // Test seam (also handy in devtools): swap datasets without reloading.
+  window.__ballpit = { setData, balls: () => balls, cam };
+});
+</script>
+</body>
+</html>
