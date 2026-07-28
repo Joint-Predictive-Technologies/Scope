@@ -65,6 +65,31 @@ REQUIRE_BOTH = False
 # Everything below it, and everything unpriceable, is collected.
 LARGE_CAP_MIN = 10_000_000_000
 CAP_TTL_DAYS = 30           # market caps move slowly; do not re-fetch per run
+
+# ── PLAUSIBILITY BOUNDS — both discovered live, in production ────────────────
+#
+# `classify_cap` checked only a CEILING, so any MIS-SCALED cap sailed through as "small"
+# and the small-cap gate was simply wrong. Two real cases, both from `ticker_meta` on main:
+#
+#   CLBK  $1,085          a savings institution with 15 insiders and $4.5M of buys
+#   TSM   $10,349,411,116,118   ~5x its real value
+#
+# A listed company is not worth $1,085, and none is worth $10T. These are backstops for
+# arithmetic that has already gone wrong — the root causes are fixed in `market_cap`
+# below, and these catch the next mis-scale nobody has seen yet.
+MIN_PLAUSIBLE_CAP = 1_000_000            # $1M. Genuine nano-caps sit well above this
+                                         # (MOBX, the smallest thing this system has
+                                         # priced, is $5.6M), and anything under it on a
+                                         # listed exchange is an arithmetic error.
+MAX_PLAUSIBLE_CAP = 10_000_000_000_000   # $10T. The largest real company is ~$5T
+                                         # (AAPL $4.9T, NVDA $4.8T), so this is 2x
+                                         # headroom and flags order-of-magnitude errors.
+                                         # ⚠️ TSM's bad value was $10.35T — only just
+                                         # over. The ceiling is a BACKSTOP; the real
+                                         # protection for that class is the
+                                         # foreign-issuer check in `market_cap`.
+MIN_PLAUSIBLE_SHARES = 100_000           # CLBK reported 100. A listed company does not
+                                         # have a hundred shares outstanding.
 # A FAILED lookup is cached too, on a shorter clock. Unknowns were not cached at all, so
 # every still-unknown row re-hit SEC AND Yahoo on EVERY run — measured at 4 SEC + 4 Yahoo
 # calls per unpriceable row per day, growing without bound, and flatly contradicting the
@@ -171,6 +196,34 @@ def _cik_for(symbol: str) -> str | None:
     return _cik_cache.get(symbol.upper())
 
 
+def _is_foreign_private_issuer(cik: str) -> bool | None:
+    """Does this filer report on 20-F/6-K rather than 10-K?
+
+    THE TSM BUG. SEC reports the ORDINARY share count (25,932,524,521 for TSM); Yahoo
+    prices the ADR ($399.09). They are not commensurable — an ADS represents N ordinary
+    shares — so multiplying them overstates the cap by exactly the ADR ratio, which for
+    TSM is 5: $10.35T reported against ~$2.07T implied.
+
+    THE RATIO IS NOT IN SEC DATA, so it cannot be recovered here. Rather than guess one,
+    a foreign private issuer's cap is treated as UNKNOWN and the caller fails closed.
+    That costs coverage of ADRs; inventing a ratio would cost correctness on all of them.
+
+    Returns None when the lookup itself fails, so a network error is not mistaken for
+    "domestic".
+    """
+    try:
+        r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json",
+                         headers=_SEC_HEADERS, timeout=15)
+        if not r.ok:
+            return None
+        forms = set(r.json().get("filings", {}).get("recent", {}).get("form", []) or [])
+    except Exception:
+        return None
+    if "10-K" in forms or "10-Q" in forms:
+        return False
+    return bool(forms & {"20-F", "40-F", "6-K"})
+
+
 def _shares_outstanding(cik: str) -> float | None:
     try:
         r = requests.get(
@@ -181,9 +234,11 @@ def _shares_outstanding(cik: str) -> float | None:
             return None
         units = r.json()["units"]
         rows = units[list(units)[0]]
-        return float(max(rows, key=lambda x: x["end"])["val"])
+        shares = float(max(rows, key=lambda x: x["end"])["val"])
     except Exception:
         return None
+
+    return shares
 
 
 def _last_close(symbol: str) -> float | None:
@@ -231,6 +286,13 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     row = conn.execute(
         "SELECT market_cap, cap_updated FROM ticker_meta WHERE symbol = ?",
         (symbol,)).fetchone()
+    # STALE IMPLAUSIBLE VALUES ARE RE-RESOLVED, not served from cache. Without this the
+    # fix would never reach the rows that motivated it: CLBK=1085 and
+    # TSM=10349411116118 are already cached with fresh timestamps, so a TTL check alone
+    # would keep serving them for 30 days. `ticker_meta` is a CACHE — re-resolving it is
+    # a refresh, not a rewrite of detection-time data.
+    if row and row[0] and not (MIN_PLAUSIBLE_CAP <= row[0] <= MAX_PLAUSIBLE_CAP):
+        row = None
     if row and row[1]:
         try:
             age = datetime.now(timezone.utc) - datetime.fromisoformat(row[1]).replace(
@@ -245,12 +307,40 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     if not cik:
         _cache_unknown(conn, symbol, cache)
         return None
+    if _is_foreign_private_issuer(cik):
+        # SEC ordinary shares x a US ADR price is not a market cap. Fail closed.
+        _cache_unknown(conn, symbol, cache)
+        return None
     shares = _shares_outstanding(cik) if cik else None
     price = _last_close(symbol)
     if not shares or not price:
         _cache_unknown(conn, symbol, cache)
         return None
+
+    # THE CLBK BUG, guarded where shares ENTER THE PRODUCT rather than inside the fetcher.
+    # Columbia Financial, Inc./MD/ (CIK 0002115119) is a freshly reorganised holding
+    # company — S-1, 8-K12B, POS AM — whose ONLY cover-page share tag reports the shell's
+    # nominal **100** shares. There is no alternative concept to fall back on: us-gaap
+    # CommonStockSharesOutstanding, CommonStockSharesIssued and
+    # WeightedAverageNumberOfSharesOutstandingBasic are all absent for this filer. So the
+    # fix cannot be "use a better tag" — a share count this small is not a real float.
+    #
+    # It lives HERE, not in `_shares_outstanding`, deliberately: a guard inside one
+    # fetcher protects one code path, and vanishes silently the day a second share source
+    # is added or that fetcher is replaced. This is the only place shares become a cap.
+    if shares < MIN_PLAUSIBLE_SHARES:
+        _cache_unknown(conn, symbol, cache)
+        return None
+
     cap = int(shares * price)
+
+    # An implausible COMPUTED cap is never cached. Two reasons: a bad value must not enter
+    # the cache at all, and — since the read path above re-resolves implausible cached
+    # values — caching one would re-fetch SEC and Yahoo on every single run, forever.
+    if not (MIN_PLAUSIBLE_CAP <= cap <= MAX_PLAUSIBLE_CAP):
+        _cache_unknown(conn, symbol, cache)
+        return None
+
     if cache:
         conn.execute(
             "INSERT INTO ticker_meta (symbol, market_cap, cap_updated) VALUES (?,?,?) "
@@ -292,6 +382,11 @@ def classify_cap(conn, ticker: str, cache: bool = True) -> tuple[str, int | None
     """
     cap = market_cap(conn, normalize_ticker(ticker) or ticker, cache=cache)
     if cap is None:
+        return "unknown", None
+    # IMPLAUSIBLE IN EITHER DIRECTION -> UNKNOWN, never "small" and never a confident
+    # "excluded". This check did not exist, so CLBK at $1,085 was classified SMALL and
+    # published as the top insider cluster. A mis-scaled cap must never again pass a gate.
+    if cap < MIN_PLAUSIBLE_CAP or cap > MAX_PLAUSIBLE_CAP:
         return "unknown", None
     if cap >= LARGE_CAP_MIN:
         return "excluded", cap
@@ -402,14 +497,36 @@ def repair_unknown_caps(conn, cache_caps: bool = True) -> dict:
     on real data, so leaving it would mean the outage silently widened the universe's
     definition. Rows that are still unpriceable are left alone, flagged, to be retried.
     """
-    out = {"repaired": 0, "evicted": 0, "still_unknown": 0}
+    out = {"repaired": 0, "evicted": 0, "still_unknown": 0, "implausible_recheck": 0}
+
+    # THE PROD REMEDIATION for the mis-scale bug, and the reason this sweep's original
+    # WHERE clause was not enough. CLBK was stored with cap_status **'small'** — the whole
+    # defect is that a mis-scaled cap looks like a confident small-cap — so a sweep over
+    # ('unknown','excluded') would never revisit the very rows the bug created.
+    #
+    # Re-checking on stored VALUE rather than status catches them, and it needs no manual
+    # prod surgery: the next scheduled collect() heals CLBK and TSM on its own.
+    implausible = [r[0] for r in conn.execute(
+        "SELECT ticker FROM ticker_universe WHERE market_cap IS NOT NULL "
+        "AND (market_cap < ? OR market_cap > ?)",
+        (MIN_PLAUSIBLE_CAP, MAX_PLAUSIBLE_CAP)).fetchall()]
+    out["implausible_recheck"] = len(implausible)
+
     stale = [r[0] for r in conn.execute(
         "SELECT ticker FROM ticker_universe "
         "WHERE cap_status IN ('unknown','excluded')").fetchall()]
+    stale = list(dict.fromkeys(stale + implausible))
     for t in stale:
         status, cap = classify_cap(conn, t, cache=cache_caps)
         if status == "unknown":
             out["still_unknown"] += 1
+            # An implausible row must be CLEARED even when the re-check cannot price it.
+            # Falling through to `continue` here would leave CLBK sitting at
+            # cap_status='small', market_cap=1085 — the bad value surviving its own
+            # remediation. An honest unknown is the correct resting state.
+            if t in set(implausible):
+                conn.execute("UPDATE ticker_universe SET cap_status='unknown', "
+                             "market_cap=NULL WHERE ticker = ?", (t,))
             continue
         # MARKED, NOT DELETED. Deleting made a wrongful eviction PERMANENT: one bad
         # price tick removed a genuine small cap, and it could not return without both a
