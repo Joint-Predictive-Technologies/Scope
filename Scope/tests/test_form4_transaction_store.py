@@ -259,7 +259,13 @@ def test_RULE_06_is_byte_unchanged():
                           capture_output=True, text=True,
                           cwd=os.path.join(os.path.dirname(__file__), "..", "..")).stdout
     if not base:
-        pytest.skip("no git baseline available")
+        # LOUD. This silently skipped from a clean `git archive` export (no .git, no
+        # `main` ref) — and it is the guard for the entire "purely additive" claim, so a
+        # green suite there proved less than it looked. A verifier confirmed the
+        # underlying fact by blob hash instead.
+        pytest.skip("NO GIT BASELINE — the purely-additive guard did NOT run. Verify "
+                    "with: git rev-parse main:Scope/rule_06_form4.py "
+                    "HEAD:Scope/rule_06_form4.py (the blobs must match).")
     assert ast.dump(ast.parse(head)) == ast.dump(ast.parse(base)), \
         "rule_06_form4.py changed — the store must be purely additive"
 
@@ -402,3 +408,138 @@ def test_a_dry_run_stores_no_rows_and_creates_no_table(monkeypatch):
     conn.close()
     assert out["rows"] == 1, "a dry run should still REPORT what it would store"
     assert exists == 0 and logged == 0
+
+
+# ── verifier follow-ups: the reliability bug and the identity gaps ───────────
+
+def test_the_seen_set_is_bounded_by_the_OLDEST_filing_not_the_newest(monkeypatch):
+    """DATA-LOSS class. `processed_adsh(conn, refs[0].file_date)` on an UNSORTED refs
+    list bounded the seen-set by EDGAR's NEWEST filing, so everything already processed
+    on an earlier day of the window was re-fetched every run."""
+    import datetime as _dt
+    today = _dt.date.today()
+    old = f4.FilingRef(adsh="0000000000-26-000100", owner_cik="1", filename="f.xml",
+                       file_date=(today - _dt.timedelta(days=5)).isoformat())
+    new = f4.FilingRef(adsh="0000000000-26-000101", owner_cik="2", filename="f.xml",
+                       file_date=today.isoformat())
+    _stub_search(monkeypatch, [new, old])          # EDGAR order: newest first
+    monkeypatch.setattr(f4, "fetch_filing_xml", lambda r: _xml(_owner(), _txn("P")))
+    f4.run()
+    second = f4.run(window_days=7)
+    assert second["parsed"] == 0, (
+        f"the second run re-parsed {second['parsed']} already-processed filing(s) — the "
+        "seen-set is bounded by the wrong date")
+
+
+def test_refs_are_processed_OLDEST_FIRST_so_a_partial_run_leaves_no_gap(monkeypatch):
+    """The other half. Newest-first, a time-budget break recorded the NEWEST filing, the
+    watermark jumped past the older ones, the window shrank, and they fell out of the
+    search range permanently with nothing logged."""
+    import datetime as _dt
+    today = _dt.date.today()
+    refs = [f4.FilingRef(adsh=f"0000000000-26-0002{i:02d}", owner_cik=str(i),
+                         filename="f.xml",
+                         file_date=(today - _dt.timedelta(days=d)).isoformat())
+            for i, d in enumerate((0, 4, 6))]
+    order = []
+    _stub_search(monkeypatch, refs)                # newest first, as EDGAR returns
+    def _fetch(r):
+        order.append(r.file_date)
+        return _xml(_owner(), _txn("P"))
+    monkeypatch.setattr(f4, "fetch_filing_xml", _fetch)
+    f4.run(window_days=7)
+    assert order == sorted(order), f"processed newest-first: {order}"
+
+
+def test_an_unparseable_body_is_NOT_recorded_so_it_retries(monkeypatch):
+    """`fetch_filing_xml` returns r.text on ANY 200, so a rate-limit HTML body arrives
+    as a 200. Recording that as processed loses the filing permanently."""
+    ref = f4.FilingRef(adsh="0000000000-26-000300", owner_cik="1", filename="f.xml",
+                       file_date="2026-06-17")
+    _stub_search(monkeypatch, [ref])
+    monkeypatch.setattr(f4, "fetch_filing_xml", lambda r: "<html>rate limited</html>")
+    out = f4.run()
+    conn = db_connection()
+    marked = conn.execute("SELECT COUNT(*) FROM filings WHERE source=? AND doc_id=?",
+                          (f4.FILING_SOURCE, ref.adsh)).fetchone()[0]
+    conn.close()
+    assert out["unparseable"] == 1 and out["no_ticker"] == 0, out
+    assert marked == 0, "a transient bad body was recorded as permanently processed"
+
+
+def test_a_missing_symbol_IS_recorded_because_it_is_deterministic(monkeypatch):
+    """The control: a genuinely symbol-less filing must not be retried forever."""
+    ref = f4.FilingRef(adsh="0000000000-26-000301", owner_cik="1", filename="f.xml",
+                       file_date="2026-06-17")
+    _stub_search(monkeypatch, [ref])
+    monkeypatch.setattr(f4, "fetch_filing_xml", lambda r: _xml(_owner(), _txn(), symbol=""))
+    out = f4.run()
+    conn = db_connection()
+    marked = conn.execute("SELECT COUNT(*) FROM filings WHERE source=? AND doc_id=?",
+                          (f4.FILING_SOURCE, ref.adsh)).fetchone()[0]
+    conn.close()
+    assert out["no_ticker"] == 1 and marked == 1
+
+
+def test_a_codeless_transaction_is_dropped_but_COUNTED():
+    """Silent before. A drop with no counter is indistinguishable from a shorter filing."""
+    txns = _txn("P") + """<nonDerivativeTransaction>
+        <securityTitle><value>X</value></securityTitle>
+        <transactionCoding></transactionCoding></nonDerivativeTransaction>"""
+    p = f4.parse_transactions(_xml(_owner(), txns))
+    assert len(p["transactions"]) == 1 and p["dropped_no_code"] == 1
+
+
+def test_two_owners_sharing_a_CIK_do_not_swallow_each_other():
+    """The unique key was (accession, insider_cik, txn_index), so a second owner with the
+    same or absent CIK collided with the first and vanished under INSERT OR IGNORE."""
+    conn = db_connection(); f4.ensure_tables(conn)
+    owners = _owner("Alpha Fund I", cik="") + _owner("Beta Fund II", cik="")
+    ref = f4.FilingRef(adsh="0000000000-26-000400", owner_cik="1", filename="f.xml",
+                       file_date="2026-06-17")
+    n = f4.store_filing(conn, ref, f4.parse_transactions(_xml(owners, _txn("P"))))
+    conn.commit()
+    rows = conn.execute("SELECT COUNT(*) FROM form4_transactions").fetchone()[0]
+    conn.close()
+    assert rows == 2, f"an owner was swallowed by a CIK collision ({rows} rows)"
+    assert n == rows, f"store_filing reported {n} but wrote {rows}"
+
+
+def test_store_filing_reports_ACTUAL_writes_not_attempts():
+    """It counted attempts, so a re-run logged rows it had not written."""
+    conn = db_connection(); f4.ensure_tables(conn)
+    ref = f4.FilingRef(adsh="0000000000-26-000500", owner_cik="1", filename="f.xml",
+                       file_date="2026-06-17")
+    parsed = f4.parse_transactions(_xml(_owner(), _txn("P") + _txn("S", "D")))
+    assert f4.store_filing(conn, ref, parsed) == 2
+    assert f4.store_filing(conn, ref, parsed) == 0, "a re-store reported phantom rows"
+    conn.close()
+
+
+def test_a_DIRECTOR_flag_does_not_override_an_entity_name():
+    """Entities sit on boards by deputization. An earlier version short-circuited on
+    director OR officer, so an entity ticking Director read as a person — and 24 of 70
+    owners in a live sample carried that flag."""
+    for n in ("Silver Lake Partners IV", "Manulife (International) Ltd", "SL SPV-2"):
+        assert f4.classify_insider(n, is_director=True, is_officer=False,
+                                   is_ten_pct=True) == "institution", n
+    # officer still IS decisive — an entity cannot hold an officer title
+    assert f4.classify_insider("Bank Jonathan", False, True, False) == "person"
+
+
+def test_the_SPV_case_from_the_real_corpus():
+    """`SL SPV-2` files on DELL beside `Silver Lake Partners IV`. Missing it made one
+    manager read as an institution AND a person."""
+    for n in ("SL SPV-2", "Silver Lake Partners IV"):
+        assert f4.classify_insider(n, False, False, True) == "institution", n
+
+
+def test_the_recall_limit_is_documented_not_hidden():
+    """Token matching cannot see a suffix-less brand name. That is a real limit and the
+    module must say so rather than imply institutional detection is complete."""
+    import inspect
+    src = inspect.getsource(f4.classify_insider)
+    assert "RECALL LIMIT" in src and "entityType" in src, \
+        "the known miss must be documented with its measured rate and the real fix"
+    # and it genuinely is a miss — pinned so nobody reads the flag as complete
+    assert f4.classify_insider("BlackRock", False, False, True) == "person"

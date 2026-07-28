@@ -84,6 +84,11 @@ _ENTITY_TOKENS = {
     "ADVISORS", "ADVISERS", "HOLDINGS", "HOLDING", "GROUP", "BRANCH", "BANK",
     "INSURANCE", "ASSURANCE", "ASSOCIATES", "INTERNATIONAL", "INVESTMENTS",
     "INVESTMENT", "VENTURES", "EQUITY", "ASSET", "SECURITIES", "FINANCIAL", "GP",
+    # Special-purpose vehicles. `SL SPV-2` is a live example from the real corpus: it
+    # files on DELL alongside `Silver Lake Partners IV`, which IS caught — so without
+    # this the same manager reads as "an institution and a person", which is the
+    # Manulife failure recurring in the shape the suffix test misses.
+    "SPV", "HOLDCO", "AGGREGATOR", "VEHICLE", "AFFILIATES", "MANAGERS", "ADVISORY",
 }
 _PUNCT = re.compile(r"[^\w\s]")
 _WS = re.compile(r"\s+")
@@ -106,18 +111,31 @@ def classify_insider(name: str, is_director: bool, is_officer: bool,
                      is_ten_pct: bool) -> str:
     """'person' | 'institution'. Errs toward 'person' ONLY on positive evidence.
 
-    Two signals, in order of trust:
-      1. A director or officer title is held by a natural person. An entity cannot be an
-         officer, so this is decisive when present.
-      2. Otherwise, entity-suffix tokens in the name (LTD, PTE, BRANCH, INSURANCE...).
+    OFFICER is decisive; DIRECTOR is not. An entity cannot hold an officer title, so
+    `is_officer` settles it. `is_director` does NOT — entities routinely sit on boards by
+    deputization, and an earlier version short-circuited on either flag, so
+    `classify_insider("Silver Lake Partners IV", is_director=True, ...)` returned
+    'person'. In a live 70-filing sample 24 of 70 owners carried the director flag, so
+    that override was doing a great deal of work in exactly the wrong direction.
 
-    A 10%-owner with no officer/director role and no entity token is left as 'person',
-    because plenty of founders hold >10% personally. That is the conservative direction
-    here: mislabelling an entity as a person inflates a cluster, so the NEXT session's
-    rule should treat `institution` as a hard signal and `person` as the default rather
-    than as proof.
+    Order now: officer -> person. Otherwise entity tokens -> institution. Otherwise
+    person.
+
+    ⚠️ KNOWN AND MEASURED RECALL LIMIT. Token matching cannot see a brand name with no
+    legal suffix. Against a hand-labelled set of the 220 distinct insider names in the
+    real corpus this misses 1 of 18 entities (5.6%) with 0 of 202 false positives; but
+    against a constructed list of well-known managers (BlackRock, Vanguard, Renaissance
+    Technologies, Citadel, Point72, Baupost...) it misses roughly 31 of 33. The real-corpus
+    number is the lower one because EDGAR conformed names usually carry a legal suffix.
+    The residue concentrates on SPV and holding-vehicle names — precisely the
+    affiliate-stacking shape a cluster rule cares about.
+
+    THE REAL FIX IS NOT MORE TOKENS. SEC `submissions/CIK*.json` exposes `entityType`,
+    which answers this directly per owner CIK. That is a network lookup and belongs with
+    the cluster session, which is where the cost is justified. Until then treat
+    `institution` as a HARD signal and `person` as a DEFAULT, not as proof.
     """
-    if is_director or is_officer:
+    if is_officer:
         return "person"
     tokens = set(normalize_insider(name).split())
     if tokens & _ENTITY_TOKENS:
@@ -169,6 +187,20 @@ def _f(el, path: str) -> float:
         return 0.0
 
 
+def _is_form4_document(xml_text: str) -> bool:
+    """Is this actually a Form 4, or did EDGAR hand back something else?
+
+    The discriminator is the ROOT ELEMENT, not parseability. `<html>rate limited</html>`
+    is perfectly well-formed XML, so "did it parse" would classify a rate-limit page as
+    a genuine symbol-less filing and record it as permanently processed — losing the
+    filing for good. A real Form 4 roots at `ownershipDocument`; nothing else does.
+    """
+    try:
+        return ET.fromstring(xml_text).tag == "ownershipDocument"
+    except ET.ParseError:
+        return False
+
+
 def parse_transactions(xml_text: str) -> dict | None:
     """Everything, not just P/S. Returns None only if the filing is unusable.
 
@@ -207,11 +239,15 @@ def parse_transactions(xml_text: str) -> dict | None:
         ))
 
     txns: list[Txn] = []
+    dropped: list[str] = []
     for table, derivative in (("nonDerivativeTable/nonDerivativeTransaction", False),
                               ("derivativeTable/derivativeTransaction", True)):
         for x in root.findall(table):
             code = _t(x, "transactionCoding/transactionCode").upper()
             if not code:
+                # COUNTED, not silent. A dropped transaction with no counter is
+                # indistinguishable from a filing that simply had fewer rows.
+                dropped.append(table)
                 continue
             txns.append(Txn(
                 security_title=_t(x, "securityTitle/value"),
@@ -238,6 +274,7 @@ def parse_transactions(xml_text: str) -> dict | None:
         "is_10b5_1": is_10b5_1,
         "owners": owners,
         "transactions": txns,
+        "dropped_no_code": len(dropped),
     }
 
 
@@ -247,6 +284,7 @@ def ensure_tables(conn) -> None:
         CREATE TABLE IF NOT EXISTS form4_transactions (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             accession         TEXT NOT NULL,
+            owner_seq         INTEGER NOT NULL,
             txn_index         INTEGER NOT NULL,
             ticker            TEXT NOT NULL,
             issuer_cik        TEXT,
@@ -273,7 +311,10 @@ def ensure_tables(conn) -> None:
             -- (accession, owner, index) is the natural key. Two identical transactions
             -- in one filing are legitimately distinct rows, so the index is required —
             -- deduping on the values would silently merge them.
-            UNIQUE(accession, insider_cik, txn_index)
+            -- owner_seq, not insider_cik: two reportingOwners can share a CIK (or file
+            -- with none at all), and keying on it made the second owner's rows collide
+            -- with the first's and vanish under INSERT OR IGNORE.
+            UNIQUE(accession, owner_seq, txn_index)
         )""")
     for idx, cols in (("idx_f4txn_ticker_date", "ticker, txn_date"),
                       ("idx_f4txn_insider", "insider_name_norm"),
@@ -284,28 +325,30 @@ def ensure_tables(conn) -> None:
 
 def store_filing(conn, ref: FilingRef, parsed: dict) -> int:
     """One row per (filing, insider, transaction). Returns rows written."""
-    written = 0
-    for owner in parsed["owners"]:
+    # ACTUAL writes, via total_changes. `written += 1` after INSERT OR IGNORE counted
+    # ATTEMPTS, so a re-run logged rows it had not written and an owner-CIK collision
+    # reported a swallowed row as stored.
+    before = conn.total_changes
+    for owner_seq, owner in enumerate(parsed["owners"]):
         kind = classify_insider(owner.name, owner.is_director, owner.is_officer,
                                 owner.is_ten_pct)
         for i, t in enumerate(parsed["transactions"]):
             conn.execute(
                 """INSERT OR IGNORE INTO form4_transactions
-                   (accession, txn_index, ticker, issuer_cik, issuer_name,
+                   (accession, owner_seq, txn_index, ticker, issuer_cik, issuer_name,
                     insider_cik, insider_name, insider_name_norm, insider_kind,
                     is_director, is_officer, is_ten_pct_owner, officer_title,
                     security_title, is_derivative, txn_code, acquired_disposed,
                     shares, price, value, txn_date, filing_date, is_10b5_1)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (ref.adsh, i, parsed["ticker"], parsed["issuer_cik"],
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (ref.adsh, owner_seq, i, parsed["ticker"], parsed["issuer_cik"],
                  parsed["issuer_name"], owner.cik, owner.name,
                  normalize_insider(owner.name), kind,
                  int(owner.is_director), int(owner.is_officer), int(owner.is_ten_pct),
                  owner.title, t.security_title, int(t.is_derivative), t.code,
                  t.acquired_disposed, t.shares, t.price, t.value, t.txn_date,
                  ref.file_date, parsed["is_10b5_1"]))
-            written += 1
-    return written
+    return conn.total_changes - before
 
 
 def scan_watermark(conn) -> str | None:
@@ -371,8 +414,22 @@ def run(dry_run: bool = False, window_days: int | None = None) -> dict:
         conn.close()
         raise
 
-    seen = processed_adsh(conn, refs[0].file_date) if refs else set()
+    # OLDEST FIRST, so the watermark advances monotonically and a partial run leaves no
+    # gap behind it. Unsorted, the loop walked newest-first into the time-budget break:
+    # the newest filing got recorded, the watermark jumped past it, the next window
+    # shrank to ~2 days, and the older unprocessed filings fell out of the search range
+    # FOREVER with nothing logged. RULE_06 sorts for exactly this reason
+    # (rule_06_form4.py:527-529). Sorted BEFORE `seen` is computed, because that bound
+    # reads refs[0].
+    refs = sorted(refs, key=lambda r: (r.file_date, r.adsh))
     counts["offered"] = len(refs)
+
+    # Bounded by the OLDER of (window start, oldest offered filing) — never by the
+    # NEWEST ref, which is what it used to be. That bound dropped every filing already
+    # processed on an earlier day of the window, so they were re-fetched every run; and
+    # `since` alone would miss a filing EDGAR still offers from before the window.
+    floor = min(since, refs[0].file_date) if refs else since
+    seen = processed_adsh(conn, floor)
 
     for ref in refs:
         if ref.adsh in seen:
@@ -387,9 +444,17 @@ def run(dry_run: bool = False, window_days: int | None = None) -> dict:
             continue                       # deliberately NOT recorded — retry next run
         parsed = parse_transactions(xml_text)
         if parsed is None:
-            counts["no_ticker"] += 1
-            if not dry_run:
-                record_filing(conn, ref, "no_ticker")
+            # WHY THESE ARE SPLIT. `fetch_filing_xml` returns r.text on ANY HTTP 200, so
+            # a rate-limit page or a truncated body arrives as a 200. A missing trading
+            # symbol on a REAL Form 4 is deterministic and is recorded so it is not
+            # retried forever; anything that is not a Form 4 at all is treated as
+            # transient and left to retry.
+            if _is_form4_document(xml_text):
+                counts["no_ticker"] += 1
+                if not dry_run:
+                    record_filing(conn, ref, "no_ticker")
+            else:
+                counts["unparseable"] += 1
             continue
         counts["parsed"] += 1
         if not dry_run:
@@ -405,7 +470,8 @@ def run(dry_run: bool = False, window_days: int | None = None) -> dict:
         if not dry_run else 0
     notes = (f"offered={counts['offered']}, parsed={counts['parsed']}, "
              f"rows={counts['rows']}, no_ticker={counts['no_ticker']}, "
-             f"fetch_failed={counts['fetch_failed']}, window={window_days}d, "
+             f"fetch_failed={counts['fetch_failed']}, "
+             f"unparseable={counts['unparseable']}, window={window_days}d, "
              f"status={status}, store_total={total}, dry_run={dry_run}")
     if not dry_run:
         record_activity(RULE, scanned=counts["offered"], flagged=counts["parsed"],
