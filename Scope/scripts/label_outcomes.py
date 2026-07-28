@@ -103,6 +103,43 @@ def _ret(closes: list[float], n: int) -> tuple[float | None, float | None]:
     return round(price, 4), round((price - base) / base, 4)
 
 
+# ── Fabricated-signal quarantine ─────────────────────────────────────────────
+#
+# `alert_outcomes` is the seed corpus for per-rule realized win rate — the reserved
+# `historical_win_rate` input to calculate_opportunity_score, today a fixed 0.5
+# placeholder. Whatever ends up in this table eventually PROMOTES OR DEMOTES a rule.
+#
+# RULE_15 emitted 9 alerts into production before its repair landed, and every one of
+# them is fabricated: the rule attributed 8-K sentiment by NAME, so Boeing was scored
+# from *BA Credit Card Trust* filings (BA +109%), plus XOM +637% and RTX +2557% from a
+# denominator bug. Those are not noisy signals — they measure the WRONG COMPANY.
+#
+# Left alone they would become RULE_15's entire calibration sample (it has no other
+# alerts), and a +637% "win" would make the rule look like the best performer in the
+# system, feeding win_rate*10 straight back into opportunity_score. A rule would be
+# promoted on the strength of signals it never really produced.
+#
+# So they are marked `excluded` rather than deleted. THE ALERTS THEMSELVES STAY — they
+# are the evidence of what the bug did, and deleting them would erase the only proof it
+# reached production (decided 2026-07-27). This excludes their OUTCOMES from
+# calibration, which is a different object and a different question.
+#
+# Same epoch as the rule's own quarantine (rule_15_earnings_nlp.REPAIR_EPOCH), so the
+# two agree about which rows are pre-repair. Forward-only: post-repair RULE_15 alerts
+# label normally. To undo, empty this dict — nothing else encodes the decision.
+QUARANTINED_BEFORE = {
+    "RULE_15": "2026-07-27 00:00:00",
+}
+QUARANTINE_NOTE = ("excluded from calibration: pre-repair {rule} alert (name-based "
+                   "attribution / denominator bug) — fabricated, not a real signal")
+
+
+def _quarantined(rule: str | None, created_at: str | None) -> bool:
+    """Is this alert a known-fabricated pre-repair row?"""
+    epoch = QUARANTINED_BEFORE.get((rule or "").strip())
+    return bool(epoch and created_at and str(created_at) < epoch)
+
+
 def _is_equity_ticker(ticker: str | None) -> bool:
     if not ticker:
         return False
@@ -136,10 +173,19 @@ def run(limit: int | None = None) -> dict:
         f"WHERE datetime(created_at) > datetime('now', '-{HORIZON_CALENDAR_DAYS} days')"
     ).fetchone()["n"]
 
-    labeled = unavailable = 0
+    labeled = unavailable = excluded = 0
     for a in eligible:
         ticker = (a["ticker"] or "").strip()
         now = datetime.now(timezone.utc).isoformat()
+
+        # Fabricated rows are marked and never priced — a real forward return on a
+        # signal that measured the wrong company is worse than no data, because it
+        # looks like data.
+        if _quarantined(a["rule"], a["created_at"]):
+            _upsert(conn, a["id"], ticker or None, None, {}, "excluded",
+                    QUARANTINE_NOTE.format(rule=a["rule"]), now)
+            excluded += 1
+            continue
 
         if not _is_equity_ticker(ticker):
             note = "no ticker" if not ticker else "non-single-equity (basket/multi-ticker)"
@@ -175,14 +221,27 @@ def run(limit: int | None = None) -> dict:
         if status == "complete":
             labeled += 1
 
+    # Rows already labelled `complete` are not in `eligible` (the query only picks up
+    # NULL/pending), so the fabricated returns ALREADY in the table need their own
+    # sweep. Idempotent, and it never touches a row that is already excluded.
+    for rule, epoch in QUARANTINED_BEFORE.items():
+        swept = conn.execute(
+            """UPDATE alert_outcomes SET status = 'excluded', note = ?
+               WHERE status != 'excluded' AND alert_id IN (
+                   SELECT id FROM alerts WHERE rule = ? AND created_at < ?)""",
+            (QUARANTINE_NOTE.format(rule=rule), rule, epoch)).rowcount
+        excluded += max(swept, 0)
+
     conn.commit()
-    notes = f"labeled={labeled}, unavailable={unavailable}, still_pending={still_pending}"
+    notes = (f"labeled={labeled}, unavailable={unavailable}, excluded={excluded}, "
+             f"still_pending={still_pending}")
     record_activity("LABEL_OUTCOMES", scanned=len(eligible), flagged=unavailable,
                     emitted=labeled, duration_seconds=round(time.time() - t0, 2),
                     notes=notes)
     print(f"[LABEL_OUTCOMES] {notes}")
     conn.close()
-    return {"labeled": labeled, "unavailable": unavailable, "still_pending": still_pending}
+    return {"labeled": labeled, "unavailable": unavailable, "excluded": excluded,
+            "still_pending": still_pending}
 
 
 def _upsert(conn, alert_id, ticker, price_at, fields, status, note, labeled_at) -> None:
