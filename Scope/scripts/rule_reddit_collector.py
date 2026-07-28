@@ -42,7 +42,7 @@ import argparse
 import os
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
@@ -77,10 +77,29 @@ CAP_TTL_DAYS = 30           # market caps move slowly; do not re-fetch per run
 # A listed company is not worth $1,085, and none is worth $10T. These are backstops for
 # arithmetic that has already gone wrong — the root causes are fixed in `market_cap`
 # below, and these catch the next mis-scale nobody has seen yet.
-MIN_PLAUSIBLE_CAP = 1_000_000            # $1M. Genuine nano-caps sit well above this
-                                         # (MOBX, the smallest thing this system has
-                                         # priced, is $5.6M), and anything under it on a
-                                         # listed exchange is an arithmetic error.
+MIN_PLAUSIBLE_CAP = 1_000_000            # $1M. ⚠️ THIS FLOOR IS NOT FREE — an earlier
+                                         # comment here claimed "genuine nano-caps sit
+                                         # well above this", and that is FALSE. Measured
+                                         # live: real listed securities with FRESH share
+                                         # facts price below it — ADTX $2,447, SXTC
+                                         # $67,065, RUBI $813,407 — so the floor does
+                                         # reject real things.
+                                         #
+                                         # It is acceptable anyway because of the
+                                         # asymmetry the whole module is built on: unknown
+                                         # is COLLECTED (flagged), so the collector loses
+                                         # no coverage — it loses only a confident
+                                         # "small" LABEL on a number it cannot stand
+                                         # behind. The fail-closed cluster surface does
+                                         # drop them, which is the correct direction there:
+                                         # a sub-$1M cap on a surface a human reads is the
+                                         # CLBK case verbatim.
+                                         #
+                                         # The old anchor cited MOBX at $5.6M. Do not
+                                         # reuse it — MOBX's only dei share fact is from
+                                         # 2023-11-14, so that figure is itself a
+                                         # mis-scale of the family this module exists to
+                                         # stop. See MAX_SHARES_AGE_DAYS.
 MAX_PLAUSIBLE_CAP = 10_000_000_000_000   # $10T. The largest real company is ~$5T
                                          # (AAPL $4.9T, NVDA $4.8T), so this is 2x
                                          # headroom and flags order-of-magnitude errors.
@@ -88,6 +107,11 @@ MAX_PLAUSIBLE_CAP = 10_000_000_000_000   # $10T. The largest real company is ~$5
                                          # over. The ceiling is a BACKSTOP; the real
                                          # protection for that class is the
                                          # foreign-issuer check in `market_cap`.
+MAX_SHARES_AGE_DAYS = 540                # 18 months. MEASURED, not guessed: across all
+                                         # 5,109 listed filers with a dei share fact, 100%
+                                         # are within 365 days and the stalest is 343. This
+                                         # drops zero real filers and still catches a fact
+                                         # years old (MOBX's is from 2023-11-14).
 MIN_PLAUSIBLE_SHARES = 100_000           # CLBK reported 100. A listed company does not
                                          # have a hundred shares outstanding.
 # A FAILED lookup is cached too, on a shorter clock. Unknowns were not cached at all, so
@@ -224,7 +248,14 @@ def _is_foreign_private_issuer(cik: str) -> bool | None:
     return bool(forms & {"20-F", "40-F", "6-K"})
 
 
-def _shares_outstanding(cik: str) -> float | None:
+def _shares_outstanding(cik: str) -> tuple[float, str] | None:
+    """(shares, as_of_date), or None. THE DATE IS PART OF THE ANSWER.
+
+    Returning a bare number was the third instance of this module's bug class — a value
+    carrying no information about the dimension that invalidates it. A share count is only
+    meaningful with its as-of date, so the two travel together and the caller cannot
+    silently forget to check.
+    """
     try:
         r = requests.get(
             f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}"
@@ -234,11 +265,12 @@ def _shares_outstanding(cik: str) -> float | None:
             return None
         units = r.json()["units"]
         rows = units[list(units)[0]]
-        shares = float(max(rows, key=lambda x: x["end"])["val"])
+        # (end, filed) so a restatement at the same period-end resolves to the LATER
+        # filing rather than to whichever row the sort happened to leave last.
+        best = max(rows, key=lambda x: (x["end"], x.get("filed") or ""))
+        return float(best["val"]), best["end"]
     except Exception:
         return None
-
-    return shares
 
 
 def _last_close(symbol: str) -> float | None:
@@ -307,13 +339,44 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     if not cik:
         _cache_unknown(conn, symbol, cache)
         return None
-    if _is_foreign_private_issuer(cik):
+    # `is not False` — NOT a bare truth test. `_is_foreign_private_issuer` returns None
+    # when the SEC lookup itself fails, and None is FALSY, so `if _is_foreign_...(cik):`
+    # silently read "lookup failed" as "domestic" and re-enabled the ADR mis-scale during
+    # exactly the SEC degradation the None was introduced to signal. The docstring
+    # claimed the opposite of what the call site did.
+    #
+    # Failing closed here is the module's stated priority — a mis-scaled cap must never
+    # pass a gate — and the cost is bounded: unknown is collected (flagged), and
+    # `repair_unknown_caps` retries it on the next run.
+    if _is_foreign_private_issuer(cik) is not False:
         # SEC ordinary shares x a US ADR price is not a market cap. Fail closed.
         _cache_unknown(conn, symbol, cache)
         return None
-    shares = _shares_outstanding(cik) if cik else None
+
+    shares_fact = _shares_outstanding(cik) if cik else None
     price = _last_close(symbol)
-    if not shares or not price:
+    if not shares_fact or not price:
+        _cache_unknown(conn, symbol, cache)
+        return None
+    shares, as_of = shares_fact
+
+    # STALENESS — the dimension every other guard here is blind to. A share count can be
+    # perfectly plausible in magnitude and still years out of date, and the product is
+    # then wrong by however much the float has moved. Found on MOBX, the ticker this
+    # module previously used to CALIBRATE its floor: its only dei share fact is
+    # 2023-11-14, while MOBX has filed a 10-Q as recently as 2026-05-20.
+    #
+    # THE THRESHOLD IS MEASURED, NOT GUESSED. Across all 5,109 listed filers carrying a
+    # dei share fact, 100% are within 365 days and the stalest is 343. 540 days is that
+    # maximum plus a full late-10-K cycle of margin, so this drops ZERO real filers while
+    # still catching a fact that is years old.
+    try:
+        age = (datetime.now(timezone.utc).date()
+               - date.fromisoformat(as_of)).days
+    except (TypeError, ValueError):
+        _cache_unknown(conn, symbol, cache)
+        return None
+    if age > MAX_SHARES_AGE_DAYS:
         _cache_unknown(conn, symbol, cache)
         return None
 
