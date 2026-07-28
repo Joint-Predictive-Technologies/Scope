@@ -147,6 +147,15 @@ CREATE TABLE IF NOT EXISTS telegram_pushes (
     pushed_at TEXT DEFAULT (datetime('now'))
 );
 
+-- A contract is identified by its AWARD, never by (recipient, date). The old
+-- UNIQUE(recipient_name, award_date) silently dropped a recipient's 2nd..Nth
+-- award in a run. Measured on a real 2026 YTD sweep of 270 awards: the unique
+-- key alone loses 17 (6.3%) even with correct dates, and — because the shipped
+-- bug stamped every row with the RUN date — the collapse as it actually ran
+-- lost 106 of 270 (39.3%), leaving one award per recipient per run.
+-- `award_id` is USASpending's `generated_internal_id` (stable, encodes the PIID);
+-- `verified_at` is stamped only when the row has been confirmed against source.
+-- Migration for existing DBs: rule_11_contracts.ensure_contracts_schema().
 CREATE TABLE IF NOT EXISTS contracts (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     recipient_name TEXT NOT NULL,
@@ -157,8 +166,19 @@ CREATE TABLE IF NOT EXISTS contracts (
     award_id       TEXT,
     description    TEXT,
     ingested_at    TEXT DEFAULT (datetime('now')),
-    UNIQUE(recipient_name, award_date)
+    verified_at    TEXT
 );
+-- NOTE: neither the unique index on contracts(award_id) nor the index on
+-- alerts(award_key) is declared here, deliberately. This file is replayed by
+-- `_initialize_schema` on EVERY `db_connection()`, against databases that
+-- already hold data:
+--   * a UNIQUE index raises `IntegrityError` if the existing table still holds
+--     duplicate award_ids — which would break every connection process-wide,
+--     not just RULE_11, before any migration could collapse them;
+--   * `alerts.award_key` may not exist yet, and CREATE INDEX on an absent
+--     column raises.
+-- Both indexes are therefore created by rule_11_contracts.ensure_contracts_schema()
+-- / _ensure_alert_key(), which first make the data satisfy them.
 
 CREATE TABLE IF NOT EXISTS daily_briefs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
