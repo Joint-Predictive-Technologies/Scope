@@ -755,3 +755,67 @@ def test_the_issuer_LABEL_is_deterministic_when_two_tickers_tie_on_filing_date()
     assert len(set(labels)) == 1, f"the issuer label was unstable: {set(labels)}"
     assert labels[0] == "AAAA", ("the tie must resolve by sorted ticker, not by row "
                                  f"order: got {labels[0]}")
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  The surface — endpoint behaviour, injection, and honest zeros
+# ════════════════════════════════════════════════════════════════════════════
+
+def _client():
+    from fastapi.testclient import TestClient
+    from api.main import app
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("params", [
+    {"window_days": 0}, {"window_days": 999}, {"window_days": "abc"},
+    {"min_insiders": 1}, {"min_insiders": 99}, {"min_insiders": "; DROP TABLE alerts;--"},
+    {"window_days": "1 OR 1=1"}, {"min_insiders": "' UNION SELECT 1 --"},
+])
+def test_the_endpoint_REJECTS_out_of_range_and_injected_input(params):
+    r = _client().get("/api/insider-clusters", params=params)
+    assert r.status_code == 422, f"{params} was not rejected: {r.status_code}"
+
+
+@pytest.mark.parametrize("verb", ["post", "put", "patch", "delete"])
+def test_the_endpoint_is_READ_ONLY_by_method(verb):
+    r = getattr(_client(), verb)("/api/insider-clusters")
+    assert r.status_code == 405
+
+
+def test_a_MISSING_STORE_is_an_ERROR_not_an_honest_quiet_day(monkeypatch):
+    """The predecessor's `except Exception` turned `no such table` into `count: 0` with
+    HTTP 200 — a schema failure indistinguishable from a quiet day, on a surface whose
+    entire claim is that its zeros are honest."""
+    body = _client().get("/api/insider-clusters").json()
+    assert body["count"] == 0
+    assert body["error"] and "EMPTY STORE" in body["error"]
+
+
+def test_a_REAL_schema_error_is_NOT_swallowed(monkeypatch):
+    """Only a missing table is tolerated; anything else must surface as a 500."""
+    import sqlite3
+    from api.routers import insider_clusters as rt
+
+    def boom(*a, **k):
+        raise sqlite3.OperationalError("no such column: nonsense")
+    monkeypatch.setattr(rt, "find_clusters", boom)
+    with pytest.raises(sqlite3.OperationalError):
+        _client().get("/api/insider-clusters")
+
+
+def test_the_surface_publishes_no_confidence_and_states_its_corpus():
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=100_000.0, days_ago=1)
+    _row(conn, "A2", 0, 0, cik="200", value=100_000.0, days_ago=2)
+    conn.close()
+    body = _client().get("/api/insider-clusters").json()
+    assert body["kind"] == "discovery"
+    assert "no confidence" in body["disclaimer"] or "carries no" in body["disclaimer"]
+    # The corpus block is what makes an insider COUNT interpretable: identity is global
+    # over the ingested corpus only.
+    assert body["corpus"]["corpus_start"] and body["corpus"]["horizon_start"]
+    for c in body["clusters"]:
+        assert "confidence" not in repr(c).lower()
+        assert set(c) >= {"provisional", "legs_dropped_unresolved",
+                          "undisclosed_10b5_1_trades"}
