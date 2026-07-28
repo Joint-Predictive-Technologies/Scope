@@ -81,9 +81,10 @@ MIN_PLAUSIBLE_CAP = 1_000_000            # $1M. ⚠️ THIS FLOOR IS NOT FREE �
                                          # comment here claimed "genuine nano-caps sit
                                          # well above this", and that is FALSE. Measured
                                          # live: real listed securities with FRESH share
-                                         # facts price below it — ADTX $2,447, SXTC
-                                         # $67,065, RUBI $813,407 — so the floor does
-                                         # reject real things.
+                                         # facts price below it — ADTX $2,448, SXTC
+                                         # $52,311, RUBI $840,392 (re-derived at today's
+                                         # closes; these drift with price) — so the floor
+                                         # does reject real things.
                                          #
                                          # It is acceptable anyway because of the
                                          # asymmetry the whole module is built on: unknown
@@ -96,10 +97,13 @@ MIN_PLAUSIBLE_CAP = 1_000_000            # $1M. ⚠️ THIS FLOOR IS NOT FREE �
                                          # CLBK case verbatim.
                                          #
                                          # The old anchor cited MOBX at $5.6M. Do not
-                                         # reuse it — MOBX's only dei share fact is from
-                                         # 2023-11-14, so that figure is itself a
-                                         # mis-scale of the family this module exists to
-                                         # stop. See MAX_SHARES_AGE_DAYS.
+                                         # reuse it as a FLOOR anchor — MOBX's newest of
+                                         # TEN share facts is 2,778,912 at end=2023-11-14
+                                         # (CIK 0001855467, "MOBIX LABS, INC", verified by
+                                         # the name the CIK returns), so that figure is a
+                                         # STALE product, not a current micro-cap. The
+                                         # arithmetic was always right; the input was old.
+                                         # See MAX_SHARES_AGE_DAYS.
 MAX_PLAUSIBLE_CAP = 10_000_000_000_000   # $10T. The largest real company is ~$5T
                                          # (AAPL $4.9T, NVDA $4.8T), so this is 2x
                                          # headroom and flags order-of-magnitude errors.
@@ -107,11 +111,27 @@ MAX_PLAUSIBLE_CAP = 10_000_000_000_000   # $10T. The largest real company is ~$5
                                          # over. The ceiling is a BACKSTOP; the real
                                          # protection for that class is the
                                          # foreign-issuer check in `market_cap`.
-MAX_SHARES_AGE_DAYS = 540                # 18 months. MEASURED, not guessed: across all
-                                         # 5,109 listed filers with a dei share fact, 100%
-                                         # are within 365 days and the stalest is 343. This
-                                         # drops zero real filers and still catches a fact
-                                         # years old (MOBX's is from 2023-11-14).
+MAX_SHARES_AGE_DAYS = 540                # 18 months.
+                                         # ⚠️ POPULATION MATTERS, AND THE FIRST VERSION OF
+                                         # THIS COMMENT NAMED THE WRONG ONE. It claimed
+                                         # "100% of 5,109 listed filers within 365 days,
+                                         # stalest 343, drops ZERO real filers" — measured
+                                         # over `xbrl/frames` for recent quarters, a sample
+                                         # that BY CONSTRUCTION contains only filers who
+                                         # reported recently, so it could not contain the
+                                         # staleness it was meant to bound.
+                                         # POPULATION: every CIK in SEC's
+                                         # `company_tickers.json`, queried per-CIK through
+                                         # the same `companyconcept` endpoint the code
+                                         # uses. On that population the cover-page tag is
+                                         # years stale for hundreds of real filers
+                                         # (Comcast end=2009-12-31). So the threshold is
+                                         # NOT load-bearing on its own — the fallback
+                                         # concepts in `_SHARE_CONCEPTS` and the
+                                         # "only fail closed on a SMALL cap" rule in
+                                         # `market_cap` are what keep real large-caps out
+                                         # of `unknown`. See the session note for the
+                                         # full-census distribution.
 MIN_PLAUSIBLE_SHARES = 100_000           # CLBK reported 100. A listed company does not
                                          # have a hundred shares outstanding.
 # A FAILED lookup is cached too, on a shorter clock. Unknowns were not cached at all, so
@@ -126,6 +146,17 @@ UNKNOWN_TTL_DAYS = 7
 COLLECTION_EPOCH = "2026-07-27 00:00:00"
 
 _SEC_HEADERS = {"User-Agent": "Scope research sloppysecondstbb@gmail.com"}
+
+# Share-count concepts, in preference order. The cover-page tag is authoritative WHEN
+# FRESH; the rest are fallbacks for filers whose undimensioned cover-page fact is years
+# stale (see `_shares_outstanding`). Weighted-average is last — it is a period average,
+# not a point-in-time count, so it is used only when nothing better exists.
+_SHARE_CONCEPTS = (
+    ("dei", "EntityCommonStockSharesOutstanding"),
+    ("us-gaap", "CommonStockSharesOutstanding"),
+    ("us-gaap", "CommonStockSharesIssued"),
+    ("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic"),
+)
 _YF_HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
 
@@ -248,29 +279,62 @@ def _is_foreign_private_issuer(cik: str) -> bool | None:
     return bool(forms & {"20-F", "40-F", "6-K"})
 
 
-def _shares_outstanding(cik: str) -> tuple[float, str] | None:
-    """(shares, as_of_date), or None. THE DATE IS PART OF THE ANSWER.
+def _fact_age_days(as_of: str) -> int | None:
+    """Days between `as_of` and today. NEGATIVE if the date is in the future."""
+    try:
+        return (datetime.now(timezone.utc).date() - date.fromisoformat(as_of)).days
+    except (TypeError, ValueError):
+        return None
 
-    Returning a bare number was the third instance of this module's bug class — a value
-    carrying no information about the dimension that invalidates it. A share count is only
-    meaningful with its as-of date, so the two travel together and the caller cannot
-    silently forget to check.
-    """
+
+def _concept_fact(cik: str, taxonomy: str, concept: str) -> tuple[float, str] | None:
+    """The newest (shares, as_of) for one XBRL concept, or None."""
     try:
         r = requests.get(
             f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}"
-            f"/dei/EntityCommonStockSharesOutstanding.json",
-            headers=_SEC_HEADERS, timeout=15)
+            f"/{taxonomy}/{concept}.json", headers=_SEC_HEADERS, timeout=15)
         if not r.ok:
             return None
-        units = r.json()["units"]
-        rows = units[list(units)[0]]
+        units = r.json().get("units") or {}
+        rows = units[list(units)[0]] if units else []
+        if not rows:
+            return None
         # (end, filed) so a restatement at the same period-end resolves to the LATER
         # filing rather than to whichever row the sort happened to leave last.
         best = max(rows, key=lambda x: (x["end"], x.get("filed") or ""))
         return float(best["val"]), best["end"]
     except Exception:
         return None
+
+
+def _shares_outstanding(cik: str) -> tuple[float, str] | None:
+    """(shares, as_of_date), or None. THE DATE IS PART OF THE ANSWER.
+
+    Returning a bare number was an instance of this module's bug class — a value carrying
+    no information about the dimension that invalidates it. The date travels with it so
+    the caller cannot silently forget to check.
+
+    ⚠️ THE FALLBACK EXISTS BECAUSE THE COVER-PAGE TAG GOES STALE FOR REAL COMPANIES.
+    Measured over the FULL per-CIK census (every CIK in SEC's `company_tickers.json`, not
+    a recent-quarter sample), `dei:EntityCommonStockSharesOutstanding` is years out of
+    date for hundreds of filers — Comcast's newest is `end=2009-12-31`, Visa's
+    `2010-01-27`, Ford's `2011-04-28`. `companyconcept` returns only the ancient
+    UNDIMENSIONED fact for those filers; the current number lives in a dimensioned or
+    us-gaap concept.
+
+    So: try the cover-page tag first and STOP if it is fresh — which it is for ~90% of
+    filers, so the extra requests are paid only where they are needed. Otherwise keep
+    looking and take the FRESHEST fact found.
+    """
+    best: tuple[float, str] | None = None
+    for taxonomy, concept in _SHARE_CONCEPTS:
+        fact = _concept_fact(cik, taxonomy, concept)
+        if fact and (best is None or fact[1] > best[1]):
+            best = fact
+        age = _fact_age_days(best[1]) if best else None
+        if age is not None and abs(age) <= MAX_SHARES_AGE_DAYS:
+            break                      # fresh enough — do not spend more SEC requests
+    return best
 
 
 def _last_close(symbol: str) -> float | None:
@@ -360,33 +424,12 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
         return None
     shares, as_of = shares_fact
 
-    # STALENESS — the dimension every other guard here is blind to. A share count can be
-    # perfectly plausible in magnitude and still years out of date, and the product is
-    # then wrong by however much the float has moved. Found on MOBX, the ticker this
-    # module previously used to CALIBRATE its floor: its only dei share fact is
-    # 2023-11-14, while MOBX has filed a 10-Q as recently as 2026-05-20.
-    #
-    # THE THRESHOLD IS MEASURED, NOT GUESSED. Across all 5,109 listed filers carrying a
-    # dei share fact, 100% are within 365 days and the stalest is 343. 540 days is that
-    # maximum plus a full late-10-K cycle of margin, so this drops ZERO real filers while
-    # still catching a fact that is years old.
-    try:
-        age = (datetime.now(timezone.utc).date()
-               - date.fromisoformat(as_of)).days
-    except (TypeError, ValueError):
-        _cache_unknown(conn, symbol, cache)
-        return None
-    if age > MAX_SHARES_AGE_DAYS:
-        _cache_unknown(conn, symbol, cache)
-        return None
-
     # THE CLBK BUG, guarded where shares ENTER THE PRODUCT rather than inside the fetcher.
     # Columbia Financial, Inc./MD/ (CIK 0002115119) is a freshly reorganised holding
     # company — S-1, 8-K12B, POS AM — whose ONLY cover-page share tag reports the shell's
-    # nominal **100** shares. There is no alternative concept to fall back on: us-gaap
-    # CommonStockSharesOutstanding, CommonStockSharesIssued and
-    # WeightedAverageNumberOfSharesOutstandingBasic are all absent for this filer. So the
-    # fix cannot be "use a better tag" — a share count this small is not a real float.
+    # nominal **100** shares, and `_shares_outstanding`'s fallbacks are absent for it too.
+    # So the fix cannot be "use a better tag" — a share count this small is not a real
+    # float.
     #
     # It lives HERE, not in `_shares_outstanding`, deliberately: a guard inside one
     # fetcher protects one code path, and vanishes silently the day a second share source
@@ -396,6 +439,33 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
         return None
 
     cap = int(shares * price)
+
+    # ── STALENESS ────────────────────────────────────────────────────────────────
+    #
+    # A share count can be perfectly plausible in MAGNITUDE and still years out of date,
+    # and the product is then wrong by however much the float has moved. MOBX is the
+    # case — CIK 0001855467, "MOBIX LABS, INC" (name verified against the CIK, which is
+    # how the previous attempt at this comment went wrong): its newest of TEN share facts
+    # is 2,778,912 at end=2023-11-14, so pricing it today publishes a stale ~$5.6M
+    # "micro-cap".
+    #
+    # ⚠️ TWO-SIDED, because `age > MAX` alone let a FUTURE `end` date through
+    # unchallenged — and those exist: THM `end=2033-10-31`, AXR `2033-09-12`,
+    # REPX `2029-04-03`, declared ages of -2652/-2603/-980 days masking counts that are
+    # really 993/1049/846 days old and were publishing as confident small caps. The most
+    # obviously malformed input in the corpus was the one input the guard ignored.
+    #
+    # ⚠️ AND IT ONLY FAILS CLOSED ON A CAP THAT WOULD READ *SMALL*. A blanket rejection
+    # dropped 443 real filers to `unknown` — Comcast, Visa, UPS, Mastercard, Accenture,
+    # Ford — and because the collector FAILS OPEN on unknown it then COLLECTED them,
+    # defeating gate 3, whose whole job is "$AAPL does not need discovering". Staleness
+    # only misleads in the direction that matters here: a stale count still yielding
+    # >= LARGE_CAP_MIN is a confirmed large cap either way and excluding it is right; a
+    # stale count yielding a SMALL cap is the mis-scale.
+    age = _fact_age_days(as_of)
+    if age is None or (abs(age) > MAX_SHARES_AGE_DAYS and cap < LARGE_CAP_MIN):
+        _cache_unknown(conn, symbol, cache)
+        return None
 
     # An implausible COMPUTED cap is never cached. Two reasons: a bad value must not enter
     # the cache at all, and — since the read path above re-resolves implausible cached

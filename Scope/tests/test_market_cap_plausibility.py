@@ -16,6 +16,7 @@ so both consumers are covered.
 from __future__ import annotations
 
 import datetime as _dt
+import inspect
 import os
 import sys
 
@@ -69,10 +70,16 @@ def test_a_shell_share_count_yields_UNKNOWN_not_a_tiny_cap(monkeypatch):
 def test_the_share_floor_does_not_reject_a_real_small_float(monkeypatch):
     """The control: the share floor must sit below anything real.
 
-    An earlier version of this test asserted `2_778_912 x $2.00 == $5,557,824` and called
-    it MOBX. That decomposition was INVENTED to reach a product I had observed — MOBX
-    actually reports 10,599,296 shares at ~$0.52. The verifier then repeated my fabricated
-    figure back to me, which is precisely how an unfounded specific becomes "established".
+    ⚠️ THIS DOCSTRING WAS ITSELF THE FABRICATION, AND SAID SO OF THE TRUE NUMBER.
+    It claimed `2,778,912 x $2.00` was "INVENTED" and that MOBX "actually reports
+    10,599,296 shares at ~$0.52". Neither is so. The correction was derived from CIK
+    `0001855555` — which is **ACCRETION ACQUISITION CORP**, not MOBX — and the name the
+    CIK returned was never checked. MOBX is CIK `0001855467`, **MOBIX LABS, INC**, and it
+    really does report **2,778,912** shares (end 2023-11-14, the newest of ten facts).
+    `10,599,296` appears in no concept for the real MOBX at all.
+
+    So the ORIGINAL figure was right the whole time. That is the rule this file now
+    follows: no share figure without the CIK it came from AND the name that CIK returned.
 
     Anchored instead on a real, independently-derived float: SEB/Seaboard, 957,794 shares
     — the smallest genuine common float found across all 5,109 listed filers carrying a
@@ -193,9 +200,20 @@ def test_an_UNRESOLVED_issuer_lookup_fails_closed(monkeypatch):
     conn.close()
 
 
-def test_an_implausible_computed_cap_is_NEVER_written_to_the_cache(monkeypatch):
-    """If a bad value could be cached, the read-side self-heal would re-resolve it on
-    every run — hammering SEC and Yahoo forever. It must be stored as unknown instead."""
+def test_the_SHARE_FLOOR_path_writes_an_unknown_to_the_cache(monkeypatch):
+    """⚠️ RENAMED, because the old name lied about which branch it reached.
+
+    It was called `test_an_implausible_computed_cap_is_NEVER_written_to_the_cache`, but
+    with `shares=100` it returns at the SHARE FLOOR and never reaches the computed-cap
+    branch it was named for — a line trace showed the computed-cap lines never executing,
+    and a mutant deleting `_cache_unknown` from that branch survived the whole suite while
+    this test stayed green. The computed-cap branch has its own test below
+    (`test_the_COMPUTED_CAP_branch_caches_its_unknown`), which does reach it.
+
+    What this actually tests — and now says — is the SHARE-FLOOR path's caching. Kept,
+    because that path needs the same guarantee: a bad value must never enter the cache,
+    or the read-side self-heal re-resolves it against SEC and Yahoo on every run forever.
+    """
     conn = db_connection(); rc.ensure_tables(conn)
     _cap(monkeypatch, 100, 10.85)
     assert rc.market_cap(conn, "CLBK", cache=True) is None
@@ -225,7 +243,9 @@ def test_an_implausibly_HIGH_cap_is_UNKNOWN_never_a_confident_exclusion(monkeypa
 
 
 @pytest.mark.parametrize("cap,expected", [
-    (5_557_824, "small"),            # MOBX, a genuine micro-cap
+    (5_557_824, "small"),            # a real micro-cap magnitude (MOBX's 2023 fact x
+                                     # ~$2.00 — correct arithmetic on a STALE input; the
+                                     # staleness is caught upstream, not by this band)
     (50_000_000, "small"),           # $50M micro-cap
     (200_000_000, "small"),          # $200M small-cap
     (1_178_642_214, "small"),        # ABSI
@@ -404,10 +424,10 @@ def test_the_TSM_shape_is_swept_too(monkeypatch):
 # A stale count is plausible in MAGNITUDE and wrong in FACT, so no bound can see it.
 
 def test_a_YEARS_STALE_share_fact_yields_UNKNOWN(monkeypatch):
-    """The MOBX shape, with its real reported float (10,599,296 — NOT the 2,778,912 an
-    earlier version of this file invented)."""
+    """The MOBX shape, with its REAL reported float: 2,778,912 at end 2023-11-14 — the
+    number an earlier version of this file wrongly branded invented."""
     conn = db_connection()
-    _cap(monkeypatch, 10_599_296, 0.52, as_of="2023-11-14")
+    _cap(monkeypatch, 2_778_912, 2.00, as_of="2023-11-14")
     assert rc.market_cap(conn, "MOBX", cache=False) is None
     conn.close()
 
@@ -416,8 +436,8 @@ def test_a_FRESH_share_fact_of_the_same_size_is_accepted(monkeypatch):
     """The control that makes the test above mean something: identical numbers, current
     date. Staleness must be the ONLY thing that rejected it."""
     conn = db_connection()
-    _cap(monkeypatch, 10_599_296, 0.52)
-    assert rc.market_cap(conn, "MOBX", cache=False) == 5_511_633
+    _cap(monkeypatch, 2_778_912, 2.00)
+    assert rc.market_cap(conn, "MOBX", cache=False) == 5_557_824
     conn.close()
 
 
@@ -607,3 +627,128 @@ def test_the_repair_sweep_DEDUPES_its_worklist(monkeypatch):
     rc.repair_unknown_caps(conn, cache_caps=False)
     conn.close()
     assert seen.count("DUP") == 1, f"repriced {seen.count('DUP')}x: {seen}"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  The certification's three instances — pinned
+# ════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("as_of,label", [
+    ("2033-10-31", "THM — declared age -2652d, really 993d stale"),
+    ("2033-09-12", "AXR — declared age -2603d, really 1049d stale"),
+    ("2029-04-03", "REPX — declared age -980d, really 846d stale"),
+])
+def test_INSTANCE2_a_FUTURE_as_of_date_is_caught(monkeypatch, as_of, label):
+    """THE FIFTH DIMENSION: the bound was `age > MAX`, so a NEGATIVE age — an `end` date
+    in the future — was never greater and passed unchallenged. These three are real
+    filers, and they were publishing as confident small caps. The most obviously
+    malformed input in the corpus was the one input the guard ignored."""
+    conn = db_connection()
+    _cap(monkeypatch, 50_000_000, 10.0, as_of=as_of)     # $500M -> would read SMALL
+    assert rc.market_cap(conn, "X", cache=False) is None, label
+    conn.close()
+
+
+@pytest.mark.parametrize("age_days", [541, 987, 6053])
+def test_INSTANCE1_a_stale_count_that_still_reads_LARGE_is_KEPT(monkeypatch, age_days):
+    """A blanket staleness rejection dropped 443 real filers to `unknown` — Comcast,
+    Visa, UPS, Mastercard, Accenture, Ford — and because the collector FAILS OPEN they
+    were then COLLECTED, defeating gate 3 ("$AAPL does not need discovering").
+
+    Staleness only misleads in the direction that matters: a stale count still yielding
+    >= LARGE_CAP_MIN is a confirmed large cap either way. 6053 days is Comcast's real
+    cover-page age.
+    """
+    conn = db_connection()
+    as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
+    _cap(monkeypatch, 2_000_000_000, 25.0, as_of=as_of)  # $50B
+    cap = rc.market_cap(conn, "CMCSA", cache=False)
+    status, _ = rc.classify_cap(conn, "CMCSA", cache=False)
+    conn.close()
+    assert cap == 50_000_000_000, f"a stale LARGE cap was dropped to unknown ({age_days}d)"
+    assert status == "excluded", "and gate 3 must still exclude it"
+
+
+@pytest.mark.parametrize("age_days", [541, 987, 6053])
+def test_INSTANCE1_the_other_direction_a_stale_SMALL_cap_still_fails_closed(
+        monkeypatch, age_days):
+    """The control that keeps the exemption honest. Without it the rule would read
+    'staleness never matters', which is the mis-scale this dimension exists to stop."""
+    conn = db_connection()
+    as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
+    _cap(monkeypatch, 2_778_912, 2.00, as_of=as_of)      # $5.56M -> SMALL
+    assert rc.market_cap(conn, "MOBX", cache=False) is None
+    conn.close()
+
+
+def test_the_large_cap_exemption_is_at_the_LARGE_CAP_MIN_boundary(monkeypatch):
+    conn = db_connection()
+    stale = (_dt.date.today() - _dt.timedelta(days=1000)).isoformat()
+    _cap(monkeypatch, 1_000_000_000, 10.0, as_of=stale)          # exactly $10B
+    assert rc.market_cap(conn, "X", cache=False) == 10_000_000_000
+    _cap(monkeypatch, 999_999_999, 10.0, as_of=stale)            # a dollar under
+    assert rc.market_cap(conn, "X", cache=False) is None
+    conn.close()
+
+
+def test_the_share_concept_FALLBACK_prefers_the_freshest_fact(monkeypatch):
+    """Instance 1's root cause: `companyconcept` returns only the ancient UNDIMENSIONED
+    cover-page fact for hundreds of real filers (Comcast's newest is end=2009-12-31), so
+    the current number lives in another concept. MOBX is the live case — its cover-page
+    fact is 2023-11-14, but `WeightedAverageNumberOfSharesOutstandingBasic` is 2026-03-31.
+    """
+    facts = {
+        ("dei", "EntityCommonStockSharesOutstanding"): (2_778_912.0, "2023-11-14"),
+        ("us-gaap", "CommonStockSharesOutstanding"): (23_600_558.0, "2024-03-31"),
+        ("us-gaap", "CommonStockSharesIssued"): (2_000_000.0, "2023-09-30"),
+        ("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic"):
+            (8_058_263.0, "2026-03-31"),
+    }
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, t, c: facts.get((t, c)))
+    assert rc._shares_outstanding("1") == (8_058_263.0, "2026-03-31")
+
+
+def test_the_fallback_STOPS_once_a_fresh_fact_is_found(monkeypatch):
+    """~90% of filers have a fresh cover-page tag. Querying every fallback for all of them
+    would multiply SEC traffic for no gain, so the search stops at the first fresh hit."""
+    asked = []
+
+    def _probe(cik, tax, con):
+        asked.append(con)
+        return (5_000_000.0, _dt.date.today().isoformat())
+    monkeypatch.setattr(rc, "_concept_fact", _probe)
+    rc._shares_outstanding("1")
+    assert asked == ["EntityCommonStockSharesOutstanding"], \
+        f"kept querying after a fresh fact: {asked}"
+
+
+def test_the_fallback_returns_the_freshest_even_when_ALL_are_stale(monkeypatch):
+    facts = {("dei", "EntityCommonStockSharesOutstanding"): (100.0, "2009-12-31"),
+             ("us-gaap", "CommonStockSharesOutstanding"): (200.0, "2015-06-30")}
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, t, c: facts.get((t, c)))
+    assert rc._shares_outstanding("1") == (200.0, "2015-06-30")
+
+
+def test_a_filer_with_NO_share_fact_anywhere_is_unknown(monkeypatch):
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, t, c: None)
+    assert rc._shares_outstanding("1") is None
+
+
+def test_LINT_INSTANCE3_no_fabricated_MOBX_figure_survives():
+    """A PROVENANCE LINT — explicitly NOT a protection, and nothing rests on it. The real
+    protections are the behavioural tests above; this only stops a known-bad literal
+    creeping back in.
+
+    `10,599,296` came from CIK `0001855555` — ACCRETION ACQUISITION CORP — and appears in
+    no concept for the real MOBX (CIK `0001855467`, MOBIX LABS, INC). The literals are
+    ASSEMBLED below so this test does not match itself.
+    """
+    # Only the PYTHON-LITERAL forms are linted. The prose above deliberately names the
+    # fabricated values so the mistake stays legible; a value pinned as CODE is the thing
+    # that must not come back. Literals are assembled so this test cannot match itself.
+    fabricated = ["10" + "_599_296", "5_511" + "_633"]
+    src = inspect.getsource(rc)
+    body = open(__file__).read()
+    for bad in fabricated:
+        assert bad not in src, f"{bad} is back in the module"
+        assert bad not in body, f"{bad} is pinned again in this file"

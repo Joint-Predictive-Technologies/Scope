@@ -517,8 +517,15 @@ def test_market_cap_fails_closed_in_every_failure_mode(monkeypatch):
     assert cap("X") is None                                          # zero shares
     monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (100.0, fresh))
     assert cap("X") is None                                          # shell share count
+    # STALENESS IS ONLY FATAL TO A CAP THAT WOULD READ *SMALL*. A blanket rejection
+    # dropped 443 real filers to unknown (Comcast, Visa, UPS, Mastercard, Accenture,
+    # Ford) and the collector then COLLECTED them, defeating gate 3. Both directions:
     monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (2e9, "2019-01-01"))
-    assert cap("X") is None                                          # years-stale fact
+    assert cap("X") == 20_000_000_000                    # stale but LARGE -> still large
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (1e6, "2019-01-01"))
+    assert cap("X") is None                              # stale and SMALL -> unknown
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (1e6, "2033-01-01"))
+    assert cap("X") is None                              # FUTURE as-of -> unknown
     monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (2e9, fresh))
     monkeypatch.setattr(coll, "_is_foreign_private_issuer", lambda c: True)
     assert cap("X") is None                                          # foreign issuer
