@@ -566,7 +566,21 @@ function renderReceipts(r){
           capEl.textContent = `${fmtCap(d.market_cap)} market cap · ${label}` +
             (d.social_spike ? ' · ⚡ Active on Stocktwits' : '');
         } else {
-          capEl.textContent = 'Market cap unavailable';
+          // AN HONEST UNKNOWN, NOT A DEAD END. Every ticker page used to read "Market cap
+          // unavailable" because the old source (Yahoo quoteSummary) returned 401 for
+          // every symbol and the failure was swallowed. Now a blank means the lookup ran
+          // and genuinely could not price the name — usually a share count SEC reports
+          // too stale to trust, or units that cannot be compared (a foreign issuer's
+          // ordinary shares against a US ADR price). Say which, rather than implying the
+          // company has no size.
+          capEl.textContent = d.cap_resolved
+            ? 'Market cap unknown — no reliable share count'
+            : 'Market cap unavailable';
+          capEl.title = d.cap_resolved
+            ? 'SEC and Yahoo were queried. Scope will not publish a market cap it cannot '
+              + 'stand behind, so this reads unknown rather than a number that may be '
+              + 'wrong by orders of magnitude.'
+            : '';
         }
       })
       .catch(() => {

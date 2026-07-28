@@ -493,23 +493,45 @@ def test_collect_passes_the_REAL_flag_not_a_literal():
 def test_market_cap_fails_closed_in_every_failure_mode(monkeypatch):
     """0% coverage before this: `no_network` stubs `coll.market_cap` in every test, so
     the real SEC/Yahoo path was never executed and could have returned anything."""
+    import datetime as _d
+    fresh = _d.date.today().isoformat()
     conn = db_connection(); coll.ensure_tables(conn)
     cap = lambda t: _REAL_MARKET_CAP(conn, t, cache=False)   # noqa: E731
+    # `_is_foreign_private_issuer` is a REAL SEC call on this path — stub it, or this test
+    # hits data.sec.gov live. Default False = domestic; the FPI case is asserted below.
+    monkeypatch.setattr(coll, "_is_foreign_private_issuer", lambda c: False)
     monkeypatch.setattr(coll, "_cik_for", lambda s: None)
     assert cap("X") is None                                          # no CIK
     monkeypatch.setattr(coll, "_cik_for", lambda s: "0000320193")
     monkeypatch.setattr(coll, "_shares_outstanding", lambda c: None)
     monkeypatch.setattr(coll, "_last_close", lambda s: 100.0)
     assert cap("X") is None                                          # SEC down
-    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 1e9)
+    # `_shares_outstanding` returns (shares, as_of_date) — the date is part of the answer.
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (1e9, fresh))
     monkeypatch.setattr(coll, "_last_close", lambda s: None)
     assert cap("X") is None                                          # Yahoo down
     monkeypatch.setattr(coll, "_last_close", lambda s: 0.0)
     assert cap("X") is None                                          # zero price
-    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 0.0)
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (0.0, fresh))
     monkeypatch.setattr(coll, "_last_close", lambda s: 10.0)
     assert cap("X") is None                                          # zero shares
-    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: 2e9)
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (100.0, fresh))
+    assert cap("X") is None                                          # shell share count
+    # STALENESS IS ONLY FATAL TO A CAP THAT WOULD READ *SMALL*. A blanket rejection
+    # dropped 443 real filers to unknown (Comcast, Visa, UPS, Mastercard, Accenture,
+    # Ford) and the collector then COLLECTED them, defeating gate 3. Both directions:
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (2e9, "2019-01-01"))
+    assert cap("X") == 20_000_000_000                    # stale but LARGE -> still large
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (1e6, "2019-01-01"))
+    assert cap("X") is None                              # stale and SMALL -> unknown
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (1e6, "2033-01-01"))
+    assert cap("X") is None                              # FUTURE as-of -> unknown
+    monkeypatch.setattr(coll, "_shares_outstanding", lambda c: (2e9, fresh))
+    monkeypatch.setattr(coll, "_is_foreign_private_issuer", lambda c: True)
+    assert cap("X") is None                                          # foreign issuer
+    monkeypatch.setattr(coll, "_is_foreign_private_issuer", lambda c: None)
+    assert cap("X") is None                                          # issuer lookup failed
+    monkeypatch.setattr(coll, "_is_foreign_private_issuer", lambda c: False)
     assert cap("X") == 20_000_000_000                                # healthy
     conn.close()
 
