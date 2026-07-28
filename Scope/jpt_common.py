@@ -657,7 +657,21 @@ def classify_sector(ticker: str, text: str = "") -> str:
 #   RULE_13 — 100% of its FEC requests 422; cannot finish inside the 300s timeout
 #   RULE_14 — search.patentsview.org is authoritative NXDOMAIN (moved to USPTO ODP)
 RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT",
-                              "RULE_10", "RULE_12", "RULE_13", "RULE_14"}
+                              "RULE_10", "RULE_12", "RULE_13", "RULE_14",
+                              # RULE_COLLECTOR gathers COVERAGE — ticker names for the
+                              # real instruments to cross-reference against. A collected
+                              # name is not "watch this", it is "this name exists", so it
+                              # must never be able to open a corroboration. RULE_DISCOVERY
+                              # is its retired predecessor, kept excluded rather than
+                              # deleted for the same reason RULE_12/13/14 are.
+                              # Excluded rather than merely unmapped, because an
+                              # eligible-but-unmapped rule becomes its OWN instrument
+                              # (rule10_instruments does .get(rule, rule)) — the phantom
+                              # trap that made RULE_12/13/14 count as three legs after
+                              # they were "retired". Discovery emits no alerts today, so
+                              # this changes nothing now; it is here so the trap cannot
+                              # arm itself the day someone gives it one.
+                              "RULE_DISCOVERY", "RULE_COLLECTOR"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.
