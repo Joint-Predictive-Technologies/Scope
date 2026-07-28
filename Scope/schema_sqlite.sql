@@ -168,12 +168,17 @@ CREATE TABLE IF NOT EXISTS contracts (
     ingested_at    TEXT DEFAULT (datetime('now')),
     verified_at    TEXT
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_award_id
-    ON contracts(award_id) WHERE award_id IS NOT NULL;
--- NOTE: the matching index on alerts(award_key) is NOT declared here. This file
--- is replayed against existing databases, where `award_key` may not exist yet,
--- and CREATE INDEX on an absent column raises. The column and its index are
--- created together by rule_11_contracts._ensure_alert_key().
+-- NOTE: neither the unique index on contracts(award_id) nor the index on
+-- alerts(award_key) is declared here, deliberately. This file is replayed by
+-- `_initialize_schema` on EVERY `db_connection()`, against databases that
+-- already hold data:
+--   * a UNIQUE index raises `IntegrityError` if the existing table still holds
+--     duplicate award_ids — which would break every connection process-wide,
+--     not just RULE_11, before any migration could collapse them;
+--   * `alerts.award_key` may not exist yet, and CREATE INDEX on an absent
+--     column raises.
+-- Both indexes are therefore created by rule_11_contracts.ensure_contracts_schema()
+-- / _ensure_alert_key(), which first make the data satisfy them.
 
 CREATE TABLE IF NOT EXISTS daily_briefs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

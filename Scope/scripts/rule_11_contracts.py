@@ -143,14 +143,36 @@ def ensure_contracts_schema(conn) -> bool:
            GROUP BY award_id HAVING n > 1"""
     ).fetchall()
     if dupes:
-        print(f"[RULE_11] {len(dupes)} award_id(s) duplicated — collapsing to the "
-              f"earliest row each before indexing")
+        victims = conn.execute(
+            """SELECT id, award_id, recipient_name, amount FROM contracts
+               WHERE id NOT IN (SELECT MIN(id) FROM contracts
+                                WHERE COALESCE(TRIM(award_id),'') != ''
+                                GROUP BY award_id)
+                 AND COALESCE(TRIM(award_id),'') != ''"""
+        ).fetchall()
+        print(f"[RULE_11] {len(dupes)} award_id(s) duplicated — collapsing "
+              f"{len(victims)} row(s) to the earliest of each before indexing")
+        for v in victims:
+            print(f"[RULE_11]   removing id={v['id']} {v['award_id']} "
+                  f"{v['recipient_name']}")
         conn.execute("""DELETE FROM contracts WHERE id NOT IN (
                             SELECT MIN(id) FROM contracts
                             WHERE COALESCE(TRIM(award_id),'') != ''
                             GROUP BY award_id)
                         AND COALESCE(TRIM(award_id),'') != ''""")
         conn.commit()
+        # This is the only row-deleting step in the rule. It runs unattended on
+        # deploy, so it leaves a permanent audit row rather than only a log line
+        # that scrolls away.
+        try:
+            from jpt_common import record_activity
+            record_activity(
+                "RULE_11_MIGRATION", scanned=len(victims), flagged=len(dupes),
+                emitted=0, duration_seconds=0.0,
+                notes=("collapsed duplicate award_id rows before unique index; "
+                       "removed ids=" + ",".join(str(v["id"]) for v in victims)))
+        except Exception as e:                                   # noqa: BLE001
+            print(f"[RULE_11] (could not record migration activity: {e})")
     conn.executescript("""
         PRAGMA foreign_keys=off;
         BEGIN;
