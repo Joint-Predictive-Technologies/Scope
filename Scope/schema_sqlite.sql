@@ -147,6 +147,12 @@ CREATE TABLE IF NOT EXISTS telegram_pushes (
     pushed_at TEXT DEFAULT (datetime('now'))
 );
 
+-- A contract is identified by its AWARD, never by (recipient, date). The old
+-- UNIQUE(recipient_name, award_date) silently dropped a recipient's 2nd..Nth
+-- award in a run — 17 of 270 real awards (6.3%) in a measured 2026 YTD sweep.
+-- `award_id` is USASpending's `generated_internal_id` (stable, encodes the PIID);
+-- `verified_at` is stamped only when the row has been confirmed against source.
+-- Migration for existing DBs: rule_11_contracts.ensure_contracts_schema().
 CREATE TABLE IF NOT EXISTS contracts (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     recipient_name TEXT NOT NULL,
@@ -157,8 +163,10 @@ CREATE TABLE IF NOT EXISTS contracts (
     award_id       TEXT,
     description    TEXT,
     ingested_at    TEXT DEFAULT (datetime('now')),
-    UNIQUE(recipient_name, award_date)
+    verified_at    TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_award_id
+    ON contracts(award_id) WHERE award_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS daily_briefs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
