@@ -33,6 +33,7 @@ from api.routers import (
     annotations as annotations_router,
     warroom as warroom_router,
     forming as forming_router,
+    insider_clusters as insider_clusters_router,
  universe,)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -370,6 +371,8 @@ app.include_router(annotations_router.router, prefix="/api/annotations", tags=["
 # whole point of the page.
 app.include_router(forming_router.router,  prefix="/api/forming", tags=["Forming"])
 app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
+app.include_router(insider_clusters_router.router, prefix="/api",
+                   tags=["Insider Clusters"])
 
 
 @app.get("/health", tags=["Health"])
