@@ -320,20 +320,24 @@ def person_kind(conn, person_id: tuple[str, ...], store_kinds: dict[str, set],
     costs no network call. It is a HARD signal for `institution` and only a DEFAULT for
     `person` (its own docstring measures it missing ~31 of 33 suffix-less managers), so
     a store 'person' is still confirmed against SEC rather than trusted.
+
+    ⚠️ RESOLVE EVERY MEMBER BEFORE DECIDING. An earlier draft early-returned "person" on
+    the first person member, so the verdict depended on which CIK sorted first: the SAME
+    two facts gave `person` for {100:person, 200:unknown} and `unknown` for
+    {100:unknown, 200:person}. That is K12's class — an answer decided by iteration order
+    — reappearing in the one function that decides whether a cluster exists at all.
     """
-    saw_institution = False
+    kinds = []
     for cik in person_id:                      # already sorted; deterministic
         if store_kinds.get(cik) == {"institution"}:
-            saw_institution = True
+            kinds.append("institution")        # a hard signal; costs no network call
             continue
-        kind = resolve(conn, cik)
-        if kind == "person":
-            return "person"
-        if kind == "institution":
-            saw_institution = True
-        else:
-            return "unknown"                   # fail closed on any unresolved member
-    return "institution" if saw_institution else "unknown"
+        kinds.append(resolve(conn, cik))
+    if "person" in kinds:
+        return "person"
+    if "unknown" in kinds:
+        return "unknown"                       # fail closed
+    return "institution" if kinds else "unknown"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -491,11 +495,24 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     # fallback is counted and published as `issuer_cik_missing`.
     labels = issuer_labels(conn)
     by_issuer: dict[str, list[dict]] = {}
+    dropped_no_issuer = 0
     for r in rows:
         issuer = str(r["issuer_cik"] or "").strip()
         if not issuer:
-            issuer = "ticker:" + (normalize_ticker(r["ticker"])
-                                  or (r["ticker"] or "").strip().upper())
+            # ⚠️ AN UNUSABLE ISSUER ID IS ABSENT, NOT A NAMESPACE — the same rule
+            # `_norm_cik` applies to people, and the first draft of this rewrite broke it
+            # HERE while stating it THERE. It fell back to a `"ticker:"+label` namespace,
+            # which a verifier drove in both directions: two DIFFERENT companies with no
+            # issuer id and a shared symbol merged into a false 2-insider $200,000
+            # cluster, and ONE company filing once with an id and once without split in
+            # two, losing a real cluster. The sixteenth identity site, and the fifteenth
+            # site's own fix created it.
+            #
+            # Fail closed, like every other unidentifiable thing here, and COUNT it —
+            # a silent drop is how a surface lies about its own coverage.
+            # Counted, and published by `corpus_meta` as `rows_without_issuer_cik`.
+            dropped_no_issuer += 1
+            continue
         by_issuer.setdefault(issuer, []).append(r)
 
     out: list[dict] = []
@@ -553,7 +570,15 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
                 # re-filing the same trade collapses. `txn_index` is REQUIRED: one filing
                 # can hold two legitimately distinct identical legs, and omitting it lost
                 # $19,995 of SCTX's $84,990 — the store's own schema comment warns of it.
-                key = (tuple(live), b["txn_index"], b["txn_date"],
+                # `ticker` IS IN THE KEY, and it has to be. Grouping widened from one
+                # ticker to one ISSUER (site fifteen), which put two share classes of the
+                # same company in one group — so without the security, a person buying
+                # the same size of FOOA and FOOB on the same day collapsed to one trade
+                # and $125,000 vanished. That is the SCTX regression one level up,
+                # created by the previous fix. A 4/A re-files under the same ticker, so
+                # this does not weaken the amendment dedupe.
+                key = (tuple(live), normalize_ticker(b["ticker"]) or b["ticker"],
+                       b["txn_index"], b["txn_date"],
                        b["shares"], round(b["value"] or 0.0, 2))
                 if key in counted:
                     continue

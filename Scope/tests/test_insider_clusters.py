@@ -414,10 +414,11 @@ def test_a_NULL_10b5_1_is_KEPT_and_SURFACED_not_excluded():
     for acc, cik in (("A1", "100"), ("A2", "200")):
         conn.execute(
             "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
-            "insider_cik, insider_name, insider_name_norm, insider_kind, txn_code, "
-            "acquired_disposed, shares, price, value, txn_date, filing_date, "
-            "is_derivative, is_10b5_1) VALUES (?,0,0,'SMLC',?,'N','N','person','P','A',"
-            "100,1000.0,100000.0, date('now','-1 days'), date('now'), 0, NULL)",
+            "issuer_cik, insider_cik, insider_name, insider_name_norm, insider_kind, "
+            "txn_code, acquired_disposed, shares, price, value, txn_date, filing_date, "
+            "is_derivative, is_10b5_1) VALUES (?,0,0,'SMLC','ISS-SMLC',?,'N','N',"
+            "'person','P','A',100,1000.0,100000.0, date('now','-1 days'), date('now'), "
+            "0, NULL)",
             (acc, cik))
     conn.commit()
     clusters = ic.find_clusters(conn)
@@ -819,3 +820,100 @@ def test_the_surface_publishes_no_confidence_and_states_its_corpus():
         assert "confidence" not in repr(c).lower()
         assert set(c) >= {"provisional", "legs_dropped_unresolved",
                           "undisclosed_10b5_1_trades"}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  SITES 16 & 17 — found by the verifier, both created by the fifteenth's fix
+# ════════════════════════════════════════════════════════════════════════════
+
+def test_SITE16_an_unusable_issuer_id_is_ABSENT_not_a_NAMESPACE():
+    """The module stated this rule for PEOPLE (`_norm_cik`) and broke it for COMPANIES.
+    An empty `issuer_cik` fell back to a `"ticker:"+label` namespace, so two DIFFERENT
+    companies sharing a symbol merged into a false 2-insider $200,000 cluster."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="SAME", issuer="", value=100_000.0,
+         days_ago=1)
+    _row(conn, "A2", 0, 0, cik="200", ticker="SAME", issuer="", value=100_000.0,
+         days_ago=2)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters == [], "an unusable issuer id became a namespace and merged two " \
+                           "companies (site 16)"
+
+
+def test_SITE16_the_other_direction_one_company_is_not_SPLIT_by_a_missing_id():
+    """K13's over-split, transposed to the issuer axis: one company filing once WITH an
+    issuer id and once WITHOUT became two groups. Failing closed drops the unidentifiable
+    leg rather than inventing a second company for it."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="FOO", issuer="ISS-1", value=100_000.0,
+         days_ago=1)
+    _row(conn, "A2", 0, 0, cik="200", ticker="FOO", issuer="", value=100_000.0,
+         days_ago=2)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters == [], "the id-less leg formed a second company"
+
+
+def test_SITE17_the_trade_key_carries_the_SECURITY():
+    """Created by the fifteenth site's own fix. Grouping widened from one TICKER to one
+    ISSUER, which put two share classes in one group — so one person buying the same size
+    of FOOA and FOOB on the same day collapsed into a single trade and $125,000 vanished.
+
+    The SCTX regression one level up.
+    """
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="FOOA", issuer="ISS-1", value=125_000.0,
+         days_ago=1)
+    _row(conn, "A2", 0, 0, cik="100", ticker="FOOB", issuer="ISS-1", value=125_000.0,
+         days_ago=1)
+    _row(conn, "A3", 0, 0, cik="900", ticker="FOOA", issuer="ISS-1", value=50_000.0,
+         days_ago=1)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters[0]["total_value"] == 300_000.0, \
+        f"a share class collapsed: {clusters[0]['total_value']} (site 17)"
+
+
+@pytest.mark.parametrize("kinds,expected", [
+    ({"100": "person", "200": "unknown"}, "person"),
+    ({"100": "unknown", "200": "person"}, "person"),   # the SAME facts, reordered
+    ({"100": "institution", "200": "unknown"}, "unknown"),
+    ({"100": "unknown", "200": "institution"}, "unknown"),
+    ({"100": "institution", "200": "institution"}, "institution"),
+    ({"100": "person", "200": "institution"}, "person"),
+])
+def test_person_kind_is_ORDER_INDEPENDENT(kinds, expected):
+    """It early-returned on the first person member, so the verdict depended on which CIK
+    sorted first: the same two facts gave `person` one way and `unknown` the other. K12's
+    class, in the function that decides whether a cluster exists at all."""
+    conn = _db()
+    got = ic.person_kind(conn, ("100", "200"), {},
+                         lambda c, cik, **k: kinds[cik])
+    conn.close()
+    assert got == expected
+
+
+def test_the_display_name_TIE_BREAK_is_pinned_not_just_its_scope():
+    """The `ORDER BY` in `_display_names` could be deleted with the whole suite green —
+    K12 on the label axis, in the function whose docstring claims to guard it. The
+    corpus-scope test pinned scope, not the tie-break."""
+    conn = _db()
+    for i, nm in enumerate(("Zzz Later", "Aaa Earlier", "Mmm Middle")):
+        _row(conn, f"N{i}", 0, 0, cik="100", name=nm, value=1.0, days_ago=500 + i)
+    picks = {ic._display_names(conn)["100"]["name"] for _ in range(5)}
+    conn.close()
+    assert picks == {"Aaa Earlier"}, f"the display name was not tie-broken by sort: {picks}"
+
+
+@pytest.mark.parametrize("fn", ["_display_names", "_store_kinds"])
+def test_the_lookup_tables_are_keyed_on_the_NORMALISED_cik(fn):
+    """Both build CIK-keyed maps that `person_kind` and `_member_record` read with a
+    normalised key. Keying them raw leaves a silently blank published name and a lost
+    store shortcut — correct today only because real corpus CIKs are zero-padded."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="0000000100", name="Padded Person", value=1.0)
+    out = getattr(ic, fn)(conn)
+    conn.close()
+    assert "100" in out, f"{fn} keyed on the RAW cik: {sorted(out)[:4]}"
+    assert "0000000100" not in out
