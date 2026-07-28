@@ -44,6 +44,14 @@ def _fetch_market_cap(conn, symbol: str) -> int | None:
         return None
 
 
+def _with_cap_flags(d: dict) -> dict:
+    """The ONE place the cap flags are attached, so the cache-hit and cache-miss paths
+    cannot disagree — they already did, and the page silently lost its honest wording."""
+    d["cap_resolved"] = True
+    d["cap_status"] = "known" if d.get("market_cap") else "unknown"
+    return d
+
+
 def _fetch_social_spike(symbol: str) -> bool:
     try:
         url = f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
@@ -164,7 +172,14 @@ def get_ticker_meta(symbol: str):
 
     if row and not _stale(row["cap_updated"]):
         conn.close()
-        return dict(row)
+        # ⚠️ THE CACHE HIT MUST CARRY THE SAME FLAGS AS THE MISS. Returning a bare
+        # `dict(row)` here meant `cap_resolved` was absent on every request after the
+        # first, so the page fell back to "Market cap unavailable" — the exact dead-end
+        # string this change exists to remove. Since the endpoint stamps a fresh
+        # `cap_updated` on every resolve, the honest wording was reachable at most once
+        # per ticker per 24h, and in production — where the collector has already warmed
+        # `ticker_meta` — very likely never.
+        return _with_cap_flags(dict(row))
 
     # `cache=False` on the resolver: THIS endpoint owns the `ticker_meta` write below,
     # and letting both write produced two upserts per request.
@@ -198,9 +213,7 @@ def get_ticker_meta(symbol: str):
     # be able to say so. Without this the frontend cannot tell "we asked SEC and Yahoo and
     # genuinely cannot price this" from "this lookup never ran", and it rendered both as
     # the same dead-end string.
-    out["cap_resolved"] = True
-    out["cap_status"] = "known" if out.get("market_cap") else "unknown"
-    return out
+    return _with_cap_flags(out)
 
 
 # ── price action during disclosure window ─────────────────────────────────────

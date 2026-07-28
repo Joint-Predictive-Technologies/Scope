@@ -82,8 +82,12 @@ def test_the_share_floor_does_not_reject_a_real_small_float(monkeypatch):
     follows: no share figure without the CIK it came from AND the name that CIK returned.
 
     Anchored instead on a real, independently-derived float: SEB/Seaboard, 957,794 shares
-    — the smallest genuine common float found across all 5,109 listed filers carrying a
-    dei share fact, and still ~9.6x above the floor.
+    — ~9.6x above the share floor.
+
+    ⚠️ NOT "the smallest across all listed filers". That claim rested on the same
+    discredited recent-quarters sample. Over the FULL population smaller FRESH floats
+    exist, and the module's own `MIN_PLAUSIBLE_CAP` comment names two of them a few lines
+    apart: ADTX 815,921 and RUBI 385,501.
     """
     conn = db_connection()
     _cap(monkeypatch, 957_794, 2_500.00)
@@ -442,16 +446,31 @@ def test_a_FRESH_share_fact_of_the_same_size_is_accepted(monkeypatch):
 
 
 @pytest.mark.parametrize("age_days,accepted", [
-    (343, True),    # the STALEST real filer measured across all 5,109
-    (365, True),    # 100% of real listed filers fall within this
+    (343, True),    # comfortably fresh
+    (365, True),    # ~90% of real listed filers fall within this
     (540, True),    # exactly the threshold
     (541, False),   # one day past
-    (987, False),   # MOBX
+    (987, False),   # MOBX's cover-page tag
 ])
 def test_the_staleness_threshold_boundary(monkeypatch, age_days, accepted):
-    """MEASURED, not guessed. Across all 5,109 listed filers carrying a dei share fact,
-    100% are within 365 days and the stalest is 343 — so 540 drops zero real filers.
-    Both sides of the boundary pinned."""
+    """Both sides of the boundary, pinned.
+
+    ⚠️ THIS DOCSTRING USED TO CARRY THE FALSIFIED MEASUREMENT — "MEASURED, not guessed.
+    Across all 5,109 listed filers … 100% are within 365 days and the stalest is 343 — so
+    540 drops zero real filers" — on the very parametrisation that pins the threshold.
+    That figure came from `xbrl/frames` over recent quarters, a sample that BY
+    CONSTRUCTION could only contain recent dates. The module comment was corrected and
+    this one was missed, so the discredited number outlived its own retraction by a commit.
+
+    POPULATION, re-derived per-CIK over every entry in `company_tickers.json` (8,017
+    CIKs; 5,687 carry a fact): **89.96% within 365 days, stalest 6,053 days (CMCSA,
+    end=2009-12-31), and 447 (7.86%) more than 540 days from today in either direction.**
+
+    So 540 does NOT "drop zero real filers" — alone it would drop hundreds. What keeps
+    real large-caps out of `unknown` is the `_SHARE_CONCEPTS` fallback plus the rule that
+    staleness only fails closed on a cap that would read SMALL. The threshold is one
+    component, not the protection.
+    """
     conn = db_connection()
     as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
     _cap(monkeypatch, 50_000_000, 10.0, as_of=as_of)
@@ -752,3 +771,183 @@ def test_LINT_INSTANCE3_no_fabricated_MOBX_figure_survives():
     for bad in fabricated:
         assert bad not in src, f"{bad} is back in the module"
         assert bad not in body, f"{bad} is pinned again in this file"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  The SECOND verifier pass — defects this repair itself introduced
+# ════════════════════════════════════════════════════════════════════════════
+
+def test_the_fallback_takes_the_FRESHEST_not_the_first_fresh(monkeypatch):
+    """HEICO, live: the cover-page tag is stale, `CommonStockSharesOutstanding`
+    (55,143,000 @2025-10-31) is INSIDE the 540-day window so the loop stopped there — and
+    never saw `WeightedAverageNumberOfSharesOutstandingBasic` 139,464,000 @2026-04-30.
+    Published $19.9B against a real ~$50B, unflagged, because "first fresh" is not
+    "freshest"."""
+    facts = {
+        ("dei", "EntityCommonStockSharesOutstanding"): (10_000.0, "2015-12-15"),
+        ("us-gaap", "CommonStockSharesOutstanding"): (55_143_000.0, "2025-10-31"),
+        ("us-gaap", "CommonStockSharesIssued"): None,
+        ("us-gaap", "WeightedAverageNumberOfSharesOutstandingBasic"):
+            (139_464_000.0, "2026-04-30"),
+    }
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, t, c: facts.get((t, c)))
+    assert rc._shares_outstanding("1") == (139_464_000.0, "2026-04-30")
+
+
+def test_a_BOGUS_FUTURE_date_does_not_win_the_freshest_contest(monkeypatch):
+    """ASLE/THM/AXR/REPX each carry a typo'd future `end` AND a perfectly good current
+    fact one concept away. Ranking by "latest end" — a string compare — buried the real
+    fact behind the typo and dropped four priceable filers to `unknown`. Ranking by
+    DISTANCE FROM TODAY puts the real one first."""
+    facts = {
+        ("dei", "EntityCommonStockSharesOutstanding"): (5_271_309.0, "2033-09-12"),
+        ("us-gaap", "CommonStockSharesOutstanding"): (5_305_199.0, "2026-04-30"),
+    }
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, t, c: facts.get((t, c)))
+    assert rc._shares_outstanding("1") == (5_305_199.0, "2026-04-30")
+
+
+def test_the_cover_page_tag_still_short_circuits_when_FRESH(monkeypatch):
+    """The saving must survive the fix: ~90% of filers have a fresh cover-page tag, and
+    querying three more concepts for all of them would multiply SEC traffic for nothing."""
+    asked = []
+
+    def _probe(cik, tax, con):
+        asked.append(con)
+        return (5_000_000.0, _dt.date.today().isoformat())
+    monkeypatch.setattr(rc, "_concept_fact", _probe)
+    rc._shares_outstanding("1")
+    assert asked == ["EntityCommonStockSharesOutstanding"], \
+        f"kept querying after a fresh COVER-PAGE fact: {asked}"
+
+
+def test_a_stale_cover_page_tag_does_NOT_short_circuit(monkeypatch):
+    """The other half — the bug was short-circuiting on ANY fresh concept, not the
+    cover-page one."""
+    asked = []
+
+    def _probe(cik, tax, con):
+        asked.append(con)
+        return (1_000.0, "2015-01-01") if con == "EntityCommonStockSharesOutstanding" \
+            else (9_000_000.0, _dt.date.today().isoformat())
+    monkeypatch.setattr(rc, "_concept_fact", _probe)
+    got = rc._shares_outstanding("1")
+    assert len(asked) == 4, f"stopped early on a stale cover-page tag: {asked}"
+    assert got[0] == 9_000_000.0
+
+
+def test_a_start_date_TIE_is_broken_by_the_shorter_period(monkeypatch):
+    """MOBX, live: two weighted-average rows tie on BOTH `end` and `filed` and differ only
+    in `start`. Sorting on `(end, filed)` alone left a 22% swing in the published cap to
+    JSON row order.
+
+    ⚠️ The LATER `start` must win, and the VALUE must not decide it. A first version of
+    this test used MOBX's real rows, where the later `start` also happens to carry the
+    larger `val` — so deleting `start` from the sort key left `val` picking the same
+    winner and the mutant SURVIVED. These rows invert that: the later, shorter period
+    carries the SMALLER count, so only `start` gives the right answer.
+    """
+    class _R:
+        ok = True
+        @staticmethod
+        def json():
+            return {"units": {"shares": [
+                {"start": "2025-10-01", "end": "2026-03-31", "filed": "2026-07-09",
+                 "val": 9_000_000},          # six-month average, LARGER
+                {"start": "2026-01-01", "end": "2026-03-31", "filed": "2026-07-09",
+                 "val": 7_000_000},          # three-month average, more current
+            ]}}
+    monkeypatch.setattr(rc.requests, "get", lambda *a, **k: _R())
+    for _ in range(5):      # deterministic, not row-order luck
+        assert rc._concept_fact("1", "us-gaap", "X") == (7_000_000.0, "2026-03-31")
+
+
+# ── the web layer, which had ZERO coverage ──────────────────────────────────
+
+def _meta(monkeypatch, cap):
+    from fastapi.testclient import TestClient
+    import api.routers.tickers as rt
+    from api.main import app
+    monkeypatch.setattr(rt, "_fetch_market_cap", lambda conn, s: cap)
+    monkeypatch.setattr(rt, "_fetch_social_spike", lambda s: False)
+    return TestClient(app)
+
+
+def test_the_ticker_meta_endpoint_flags_a_KNOWN_cap(monkeypatch):
+    d = _meta(monkeypatch, 134_000_000_000).get("/tickers/LMT/meta").json()
+    assert d["market_cap"] == 134_000_000_000
+    assert d["cap_status"] == "known" and d["cap_resolved"] is True
+
+
+def test_the_ticker_meta_endpoint_flags_an_UNKNOWN_cap(monkeypatch):
+    d = _meta(monkeypatch, None).get("/tickers/CLBK/meta").json()
+    assert d["market_cap"] is None
+    assert d["cap_status"] == "unknown" and d["cap_resolved"] is True
+
+
+def test_the_CACHE_HIT_path_carries_the_same_flags_as_the_miss(monkeypatch):
+    """The gap a verifier found: the 24h cache hit returned a bare `dict(row)`, so
+    `cap_resolved` was absent on every request after the first and the page fell back to
+    the dead-end 'Market cap unavailable'. Since the endpoint stamps a fresh
+    `cap_updated` on every resolve, the honest wording was reachable at most once per
+    ticker per day."""
+    c = _meta(monkeypatch, None)
+    first = c.get("/tickers/CLBK/meta").json()
+    second = c.get("/tickers/CLBK/meta").json()          # served from ticker_meta
+    assert first["cap_resolved"] is True
+    assert second["cap_resolved"] is True, "the cache hit lost cap_resolved"
+    assert second["cap_status"] == "unknown"
+
+
+def test_the_endpoint_writes_ONLY_ticker_meta(monkeypatch):
+    conn = db_connection()
+    before = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
+              for t in ("alerts", "themes", "activity_log", "watchlist")}
+    conn.close()
+    _meta(monkeypatch, 5_000_000_000).get("/tickers/LMT/meta")
+    conn = db_connection()
+    after = {t: conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in before}
+    cached = conn.execute("SELECT market_cap FROM ticker_meta WHERE symbol='LMT'"
+                          ).fetchone()
+    conn.close()
+    assert after == before, f"the ticker page wrote Scope data: {before} -> {after}"
+    assert cached and cached[0] == 5_000_000_000
+
+
+def test_the_page_distinguishes_resolved_unknown_from_never_looked_up():
+    """The frontend contract. Both used to render the same dead-end string."""
+    page = open(os.path.join(os.path.dirname(__file__), "..", "api", "static",
+                             "ticker.html")).read()
+    assert "Market cap unknown — no reliable share count" in page
+    assert "d.cap_resolved" in page
+    # and render must not block on the network call
+    assert "withTimeout(8000)" in page
+
+
+def test_the_ticker_page_does_NOT_double_write_the_cap_cache(monkeypatch):
+    """The endpoint owns the `ticker_meta` write. Letting the resolver cache too
+    (`cache=True`) produced two upserts per page view for the same symbol — harmless to
+    the value, but it stamps `cap_updated` twice and doubles the write path on a surface
+    whose whole claim is that it is read-only."""
+    import api.routers.tickers as rt
+    calls = []
+    monkeypatch.setattr(
+        "scripts.rule_reddit_collector.market_cap",
+        lambda conn, sym, **kw: calls.append(kw.get("cache")) or 5_000_000_000)
+    conn = db_connection()
+    rt._fetch_market_cap(conn, "LMT")
+    conn.close()
+    assert calls == [False], f"the page's resolver was allowed to cache: {calls}"
+
+
+def test_LINT_the_page_binds_its_wording_to_cap_resolved():
+    """A TEMPLATE LINT, not a protection — there is no JS runtime in this suite, so the
+    frontend conditional cannot be exercised behaviourally. A mutant that keeps the honest
+    string but rewires the condition to `false` SURVIVES, and that is a stated limitation
+    rather than a covered case. The endpoint side is pinned behaviourally above; this only
+    checks the page reads the flag it is handed."""
+    page = open(os.path.join(os.path.dirname(__file__), "..", "api", "static",
+                             "ticker.html")).read()
+    i = page.index("Market cap unknown — no reliable share count")
+    assert "d.cap_resolved" in page[max(0, i - 400):i], \
+        "the honest wording is not bound to cap_resolved"

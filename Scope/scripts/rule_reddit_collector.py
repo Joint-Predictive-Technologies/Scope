@@ -288,7 +288,19 @@ def _fact_age_days(as_of: str) -> int | None:
 
 
 def _concept_fact(cik: str, taxonomy: str, concept: str) -> tuple[float, str] | None:
-    """The newest (shares, as_of) for one XBRL concept, or None."""
+    """The newest (shares, as_of) for one XBRL concept, or None.
+
+    ⚠️ THE SORT KEY IS `(end, filed, start)`, AND `start` IS LOAD-BEARING. A weighted-average
+    concept publishes several rows that tie on BOTH `end` and `filed` and differ only in the
+    period they average over. MOBX has exactly this:
+
+        start 2025-10-01  end 2026-03-31  filed 2026-07-09  val 8,058,263   (six months)
+        start 2026-01-01  end 2026-03-31  filed 2026-07-09  val 9,838,724   (three months)
+
+    Sorting on `(end, filed)` alone left the winner to JSON row order — a 22% swing in the
+    published cap decided by nothing. The later `start` is the shorter, more current period,
+    so it wins.
+    """
     try:
         r = requests.get(
             f"https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}"
@@ -299,9 +311,8 @@ def _concept_fact(cik: str, taxonomy: str, concept: str) -> tuple[float, str] | 
         rows = units[list(units)[0]] if units else []
         if not rows:
             return None
-        # (end, filed) so a restatement at the same period-end resolves to the LATER
-        # filing rather than to whichever row the sort happened to leave last.
-        best = max(rows, key=lambda x: (x["end"], x.get("filed") or ""))
+        best = max(rows, key=lambda x: (x["end"], x.get("filed") or "",
+                                        x.get("start") or "", x.get("val") or 0))
         return float(best["val"]), best["end"]
     except Exception:
         return None
@@ -326,15 +337,43 @@ def _shares_outstanding(cik: str) -> tuple[float, str] | None:
     filers, so the extra requests are paid only where they are needed. Otherwise keep
     looking and take the FRESHEST fact found.
     """
-    best: tuple[float, str] | None = None
-    for taxonomy, concept in _SHARE_CONCEPTS:
+    facts: list[tuple[float, str]] = []
+    for i, (taxonomy, concept) in enumerate(_SHARE_CONCEPTS):
         fact = _concept_fact(cik, taxonomy, concept)
-        if fact and (best is None or fact[1] > best[1]):
-            best = fact
-        age = _fact_age_days(best[1]) if best else None
-        if age is not None and abs(age) <= MAX_SHARES_AGE_DAYS:
-            break                      # fresh enough — do not spend more SEC requests
-    return best
+        if fact:
+            facts.append(fact)
+            # SHORT-CIRCUIT ONLY ON THE COVER-PAGE TAG. It is the authoritative
+            # point-in-time count, so when it is fresh — ~90% of filers — there is nothing
+            # better to find and three SEC requests are saved.
+            #
+            # ⚠️ IT USED TO SHORT-CIRCUIT ON *ANY* FRESH CONCEPT, which is not the same
+            # thing and published wrong numbers. HEICO: the cover-page tag is stale, the
+            # next concept (55,143,000 @2025-10-31) is inside the window so the loop
+            # stopped there — and never saw 139,464,000 @2026-04-30. Published $19.9B
+            # against a real ~$50B, with no flag, because "first fresh" is not "freshest".
+            # `is not None`, NOT `or` — an age of 0 (a fact dated TODAY, the freshest
+            # possible) is FALSY, so `age or 10**6` scored the best fact as the worst.
+            _a = _fact_age_days(fact[1])
+            if i == 0 and _a is not None and abs(_a) <= MAX_SHARES_AGE_DAYS:
+                break
+    if not facts:
+        return None
+
+    # ⚠️ RANKED BY DISTANCE FROM TODAY, NOT BY LATEST `end`. A string/date comparison on
+    # `end` means a BOGUS FUTURE DATE ALWAYS WINS, and those are real: ASLE `end=2034-03-05`,
+    # THM `2033-10-31`, AXR `2033-09-12`, REPX `2029-04-03`. Each of those filers has a
+    # perfectly good current fact one concept away, and picking "the latest end" buried it
+    # behind the typo — so all four were dropped to `unknown` with the right number in hand.
+    # |age| puts the real fact first and the typo last.
+    #
+    # Pre-sorting by (filed, end) descending makes `min` — which returns the FIRST minimal
+    # element — resolve an |age| tie toward the later filing rather than toward list order.
+    def _distance(f: tuple[float, str]) -> int:
+        a = _fact_age_days(f[1])
+        return 10**6 if a is None else abs(a)      # unparseable ranks last, never first
+
+    facts.sort(key=lambda f: f[1], reverse=True)   # later `end` first, so ties are stable
+    return min(facts, key=_distance)
 
 
 def _last_close(symbol: str) -> float | None:
