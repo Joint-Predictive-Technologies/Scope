@@ -57,15 +57,15 @@
 
 <header class="strip">
   <span class="page-title">Ticker Universe</span>
-  <span class="count-chip" id="count-chip"></span>
   <span class="fixture-chip" title="This page renders a seeded fixture — it is not connected to the live database.">SEEDED FIXTURE — NOT LIVE</span>
+  <span class="count-chip" id="count-chip"></span>
   <span class="coverage-note" id="coverage-note"></span>
 </header>
 
 <div class="legend" id="legend">
   <span class="lg"><span class="sw" style="background:#c89664"></span>cap small</span>
   <span class="lg"><span class="sw" style="background:#8a8a92"></span>cap unknown</span>
-  <span class="lg"><span class="sw" style="background:#5b7fa6"></span>excluded (confirmed large cap — kept for audit)</span>
+  <span class="lg" id="lg-excluded"><span class="sw" style="background:#5b7fa6"></span>excluded (confirmed large cap — kept for audit)</span>
   <span class="lg">size = times seen (a count, not a score)</span>
   <span class="lg">bright &amp; lively = seen recently · dim &amp; drifting outward = stale</span>
   <span class="lg">position is arbitrary — nothing here is ranked</span>
@@ -79,6 +79,10 @@
     <div class="e-sub">The coverage collector hasn't accumulated any ticker names yet.
       Names appear here as the collector sees them cashtagged on posts a human engaged with.
       Presence means only that a name exists and is not a confirmed large cap — nothing more.</div>
+    <div class="e-sub" style="margin-top:0.8rem">Seeded demo scenarios (invented data, for
+      visual work only): <a href="?fixture=few" style="color:var(--link)">few</a> ·
+      <a href="?fixture=hundred" style="color:var(--link)">hundred</a> ·
+      <a href="?fixture=swarm" style="color:var(--link)">swarm</a></div>
   </div>
   <div class="zoom-ctl">
     <button id="z-in"  aria-label="Zoom in">+</button>
@@ -121,9 +125,16 @@
    tickers: [{ ticker, first_collected_at, last_seen_at, times_seen,
                market_cap, cap_status, source }] }.
    Until then the page has ZERO network/DB dependency: ?fixture=few|hundred|
-   swarm|empty picks a deterministic seeded scenario (default: hundred).      */
+   swarm picks a deterministic seeded demo scenario. The DEFAULT is the honest
+   state — empty — because in every current environment the real universe IS
+   empty; the invented scenarios are opt-in for visual work only.
+   At wiring time, also: (1) remove the "SEEDED FIXTURE — NOT LIVE" chip and
+   the "(seeded fixture)" count suffix; (2) note the endpoint filters
+   cap_status='excluded' by default (and its cap_status param accepts only
+   small|unknown), so excluded balls are unreachable live — the excluded
+   legend entry already hides itself when no such rows arrive.               */
 async function loadUniverse() {
-  const scenario = new URLSearchParams(location.search).get('fixture') || 'hundred';
+  const scenario = new URLSearchParams(location.search).get('fixture') || 'empty';
   return buildFixture(scenario);
 }
 
@@ -144,6 +155,9 @@ function hash32(str) {
   return h >>> 0;
 }
 
+// Verbatim copy of _DISCLAIMER in api/routers/universe.py — that file is the
+// source of truth; if it changes, change this with it. (Duplicated only so the
+// fixture page keeps its zero-network guarantee.)
 const FIXTURE_DISCLAIMER =
   "Coverage, not a signal. These are ticker NAMES collected so the real " +
   "instruments have something to cross-reference against — presence here means " +
@@ -319,7 +333,10 @@ function screenToWorld(sx, sy) {
 /* ── INPUT: wheel zoom (toward cursor), drag pan, pinch, buttons ── */
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const w = screenToWorld(e.offsetX, e.offsetY);
+  // Anchor against the TARGET camera, not the lerping one — otherwise the
+  // point under the cursor slides during fast scroll bursts.
+  const w = { x: (e.offsetX - cw / 2) / cam.tz + cam.tx,
+              y: (e.offsetY - ch / 2) / cam.tz + cam.ty };
   const f = Math.exp(-e.deltaY * 0.0016);
   cam.tz = Math.min(8, Math.max(0.15, cam.tz * f));
   // Keep the point under the cursor fixed while zooming.
@@ -369,7 +386,9 @@ function hitTest(sx, sy) {
   const w = screenToWorld(sx, sy);
   for (let i = balls.length - 1; i >= 0; i--) {      // reverse draw order: topmost first
     const b = balls[i];
-    const dx = w.x - b.x, dy = w.y - b.y;
+    // Test against the DRAWN position (incl. wander offset) — hit-testing the
+    // undisplaced center can open a neighbouring ticker's page.
+    const dx = w.x - (b.x + (b.ox || 0)), dy = w.y - (b.y + (b.oy || 0));
     const rr = Math.max(b.r, 8 / cam.z);             // ≥8px screen target for tiny balls
     if (dx * dx + dy * dy <= rr * rr) return b;
   }
@@ -385,10 +404,13 @@ function showTooltip(b, mx, my) {
   const cap = b.t.market_cap == null ? '—'
     : b.t.market_cap >= 1e9 ? '$' + (b.t.market_cap / 1e9).toFixed(1) + 'B'
     : '$' + Math.round(b.t.market_cap / 1e6) + 'M';
+  // Escape the data-derived strings: harmless on the fixture, but this page is
+  // documented to be swapped onto live DB rows.
+  const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
   tooltip.innerHTML =
-    `<div class="tt-ticker">$${b.t.ticker}</div>` +
-    `<div>seen ${b.t.times_seen}× <span class="tt-dim">(a count, not a score)</span></div>` +
-    `<div>last seen ${ago(b.t.last_seen_at)} · cap ${b.t.cap_status} (${cap})</div>` +
+    `<div class="tt-ticker">$${esc(b.t.ticker)}</div>` +
+    `<div>seen ${b.t.times_seen | 0}× <span class="tt-dim">(a count, not a score)</span></div>` +
+    `<div>last seen ${ago(b.t.last_seen_at)} · cap ${esc(b.t.cap_status)} (${cap})</div>` +
     `<div class="tt-dim">click for the ticker page</div>`;
   tooltip.style.display = 'block';
   const stage = document.getElementById('stage').getBoundingClientRect();
@@ -403,9 +425,14 @@ function resize() {
   cw = stage.clientWidth; ch = stage.clientHeight;
   canvas.width = cw * dpr; canvas.height = ch * dpr;
 }
-window.addEventListener('resize', () => { resize(); fitCamera(false); });
+// Observe the STAGE, not the window: the header above the stage changes height
+// when the disclaimer text lands, which resizes the stage with no window
+// resize event. A stale canvas buffer squeezes the rendering AND skews the
+// pointer→world mapping, so clicks resolve to the wrong ball.
+new ResizeObserver(() => { resize(); fitCamera(false); }).observe(document.getElementById('stage'));
 
 let tPrev = performance.now();
+let rafId = null;
 function frame(tNow) {
   const dt = Math.min(0.05, (tNow - tPrev) / 1000); tPrev = tNow;
   const t = tNow / 1000;
@@ -456,27 +483,36 @@ function frame(tNow) {
   }
   ctx.globalAlpha = 1;
 
-  if (!document.hidden) requestAnimationFrame(frame);
+  rafId = document.hidden ? null : requestAnimationFrame(frame);
 }
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) { tPrev = performance.now(); requestAnimationFrame(frame); }
+  // Only restart if the loop actually stopped — browsers SUSPEND hidden-tab
+  // rAF callbacks rather than cancel them, so an unconditional request here
+  // would stack a second loop on every hide/show cycle.
+  if (!document.hidden && rafId === null) { tPrev = performance.now(); rafId = requestAnimationFrame(frame); }
 });
 
 /* ── BOOT ── */
 function setData(payload) {
   const rows = payload.tickers || [];
+  // "(seeded fixture)" is load-bearing honesty: the count must never read as a
+  // live collection tally. Remove the suffix only at live-wiring time.
   document.getElementById('count-chip').textContent =
-    rows.length + ' name' + (rows.length === 1 ? '' : 's') + ' collected';
+    rows.length + ' name' + (rows.length === 1 ? '' : 's') + ' (seeded fixture)';
   document.getElementById('coverage-note').textContent = payload.disclaimer || '';
   document.getElementById('empty').style.display = rows.length ? 'none' : 'flex';
   document.getElementById('legend').style.visibility = rows.length ? 'visible' : 'hidden';
+  // The live endpoint never returns excluded rows (filtered server-side), so
+  // the legend entry only exists when the data actually contains them.
+  document.getElementById('lg-excluded').style.display =
+    rows.some(r => r.cap_status === 'excluded') ? 'flex' : 'none';
   makeBalls(rows);
 }
 
 resize();
 loadUniverse().then(payload => {
   setData(payload);
-  requestAnimationFrame(frame);
+  rafId = requestAnimationFrame(frame);
   // Test seam (also handy in devtools): swap datasets without reloading.
   window.__ballpit = { setData, balls: () => balls, cam };
 });

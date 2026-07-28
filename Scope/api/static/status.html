@@ -48,8 +48,10 @@
     RULE_13:86400, RULE_14:302400, DECAY:86400, BACKTEST:604800, BRIEF:86400,
     RULE_COLLECTOR:21600,
   };
-  // The coverage rules are doorways: their names open the ticker-universe ball
-  // pit (/universe) — a browsable field of collected NAMES, not a signal surface.
+  // Doorways to the ticker-universe ball pit (/universe) — a browsable field of
+  // collected NAMES, not a signal surface. Only RULE_COLLECTOR writes
+  // ticker_universe; RULE_REDDIT links too because it ingests the reddit
+  // mentions the collector evaluates — but it is a separate, alert-emitting rule.
   const UNIVERSE_LINKED = new Set(['RULE_COLLECTOR', 'RULE_REDDIT']);
   const ago = s => { if(!s) return null; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); return isNaN(t)?null:(Date.now()-t)/1000; };
   const fmtAgo = sec => sec==null?'never':sec<3600?Math.floor(sec/60)+'m ago':sec<86400?Math.floor(sec/3600)+'h ago':Math.floor(sec/86400)+'d ago';
@@ -74,7 +76,7 @@
         <tbody>${rows.map(r=>`
           <tr class="${r.stale?'stale':''}">
             <td class="src">${UNIVERSE_LINKED.has(r.src)
-              ? `<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — coverage names this rule collects">${r.src} ◍</a>`
+              ? `<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — the coverage list built from reddit mentions (currently a seeded demo; live wiring pending)">${r.src} ◍</a>`
               : r.src}</td>
             <td>${fmtInt(r.exp)}</td>
             <td>${fmtAgo(r.sec)}</td>
