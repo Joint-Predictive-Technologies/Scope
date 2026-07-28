@@ -149,7 +149,10 @@ CREATE TABLE IF NOT EXISTS telegram_pushes (
 
 -- A contract is identified by its AWARD, never by (recipient, date). The old
 -- UNIQUE(recipient_name, award_date) silently dropped a recipient's 2nd..Nth
--- award in a run — 17 of 270 real awards (6.3%) in a measured 2026 YTD sweep.
+-- award in a run. Measured on a real 2026 YTD sweep of 270 awards: the unique
+-- key alone loses 17 (6.3%) even with correct dates, and — because the shipped
+-- bug stamped every row with the RUN date — the collapse as it actually ran
+-- lost 106 of 270 (39.3%), leaving one award per recipient per run.
 -- `award_id` is USASpending's `generated_internal_id` (stable, encodes the PIID);
 -- `verified_at` is stamped only when the row has been confirmed against source.
 -- Migration for existing DBs: rule_11_contracts.ensure_contracts_schema().
@@ -167,6 +170,10 @@ CREATE TABLE IF NOT EXISTS contracts (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contracts_award_id
     ON contracts(award_id) WHERE award_id IS NOT NULL;
+-- NOTE: the matching index on alerts(award_key) is NOT declared here. This file
+-- is replayed against existing databases, where `award_key` may not exist yet,
+-- and CREATE INDEX on an absent column raises. The column and its index are
+-- created together by rule_11_contracts._ensure_alert_key().
 
 CREATE TABLE IF NOT EXISTS daily_briefs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

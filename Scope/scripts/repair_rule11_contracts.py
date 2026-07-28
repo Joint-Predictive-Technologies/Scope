@@ -80,21 +80,30 @@ def award_detail(award_id: str, cache_dir: str | None) -> dict | None:
     return d
 
 
+# The search endpoint rejects a window starting before this, and rejects
+# fractional award_amount bounds. Both were wrong in the first version of this
+# script, which made every recovery attempt a swallowed HTTP 422 — the search
+# reported "no match" without ever having run. Caught by the verifier pass.
+API_MIN_START = "2007-10-01"
+
+
 def find_award_by_amount(recipient: str, amount: float) -> list[dict]:
     """Awards to `recipient` whose obligated total equals `amount` exactly.
 
     Used only to recover a legacy row's identity. Returns every candidate so the
-    caller can refuse to guess when the match is not unique.
+    caller can refuse to guess when the match is not unique. Raises on an
+    unexpected status so a broken query can never masquerade as "no match".
     """
-    lo = max(0.0, amount - 1.0)
     payload = {
         "filters": {
-            "time_period": [{"start_date": "2000-01-01",
+            "time_period": [{"start_date": API_MIN_START,
                              "end_date": datetime.now(timezone.utc)
                                                  .strftime("%Y-%m-%d")}],
             "award_type_codes": ["A", "B", "C", "D"],
             "recipient_search_text": [recipient[:100]],
-            "award_amounts": [{"lower_bound": lo, "upper_bound": amount + 1.0}],
+            # Integer bounds only — a float here is a 422.
+            "award_amounts": [{"lower_bound": int(max(0.0, amount - 1)),
+                               "upper_bound": int(amount + 1)}],
         },
         "fields": ["Award ID", "Recipient Name", "Award Amount",
                    "Awarding Agency", "Base Obligation Date", "Start Date",
@@ -105,9 +114,37 @@ def find_award_by_amount(recipient: str, amount: float) -> list[dict]:
                       headers={"User-Agent": USER_AGENT})
     time.sleep(REQUEST_PAUSE)
     if r.status_code != 200:
-        return []
+        raise RuntimeError(f"recovery search HTTP {r.status_code}: {r.text[:200]}")
     return [x for x in r.json().get("results", [])
             if abs(float(x.get("Award Amount") or 0) - amount) < 1.0]
+
+
+def _award_id_from_tags(tags: str | None) -> str:
+    """Pull the award id out of a tags string of EITHER vintage.
+
+    Current tags are pipe-delimited; the 39 oldest RULE_11 alerts are
+    comma-delimited. Splitting on '|' alone put `parts[0]` = the whole
+    "RECIPIENT,2026-07-08" string and could never find the id, so those alerts
+    were force-retracted as "unsourceable" when they were merely differently
+    formatted. Find the token by shape instead of by position.
+    """
+    if not tags:
+        return ""
+    for sep in ("|", ","):
+        for tok in tags.split(sep):
+            tok = tok.strip()
+            if tok.startswith("CONT_AWD_") or tok.startswith("CONT_IDV_"):
+                return tok
+    return ""
+
+
+def _clean_recipient(tags: str | None, ticker: str | None) -> str:
+    """First field of either tag vintage, without a trailing date fragment."""
+    if tags:
+        head = tags.split("|")[0].split(",")[0].strip()
+        if head:
+            return head
+    return (ticker or "unknown recipient").strip()
 
 
 def _detail_fields(d: dict) -> dict:
@@ -179,7 +216,8 @@ def phase2_recover_unidentified(conn, apply: bool, attempt: bool) -> dict:
         """SELECT id, recipient_name, amount, agency, award_date FROM contracts
            WHERE (award_id IS NULL OR award_id = '') ORDER BY id"""
     ).fetchall()
-    st = {"legacy": len(rows), "recovered": 0, "ambiguous": 0, "no_match": 0}
+    st = {"legacy": len(rows), "recovered": 0, "ambiguous": 0, "no_match": 0,
+          "lookup_failed": 0}
     if not attempt:
         return st
     taken = {r[0] for r in conn.execute(
@@ -192,8 +230,12 @@ def phase2_recover_unidentified(conn, apply: bool, attempt: bool) -> dict:
         try:
             cands = [c for c in find_award_by_amount(r["recipient_name"], amount)
                      if (c.get("generated_internal_id") or "") not in taken]
-        except Exception:                                        # noqa: BLE001
-            cands = []
+        except Exception as e:                                   # noqa: BLE001
+            # A failed lookup is NOT evidence of absence — say so out loud
+            # rather than silently counting it as "no match".
+            print(f"  ! recovery lookup failed for row {r['id']}: {e}")
+            st["lookup_failed"] += 1
+            continue
         if len(cands) == 1:
             c = cands[0]
             aid = c["generated_internal_id"]
@@ -254,15 +296,14 @@ def phase3_correct_alerts(conn, cache_dir, apply: bool) -> dict:
     factual claim (headline / severity / event_date) is corrected.
     """
     alerts = conn.execute(
-        """SELECT id, headline, severity, tags, ticker, event_date, award_key
+        """SELECT id, headline, severity, tags, ticker, detail, event_date, award_key
            FROM alerts WHERE rule='RULE_11' ORDER BY id"""
     ).fetchall()
     st = {"total": len(alerts), "corrected": 0, "retracted": 0, "already_ok": 0,
           "sev_before": {}, "sev_after": {}}
     for a in alerts:
         st["sev_before"][a["severity"]] = st["sev_before"].get(a["severity"], 0) + 1
-        parts = (a["tags"] or "").split("|")
-        award_id = parts[2].strip() if len(parts) > 2 else ""
+        award_id = _award_id_from_tags(a["tags"])
         d = None
         if award_id:
             try:
@@ -271,17 +312,26 @@ def phase3_correct_alerts(conn, cache_dir, apply: bool) -> dict:
                 d = None
         if not d:
             # No source => the figure cannot be restated. Retract it rather than
-            # leave a false number on a live surface.
-            new_head = (f"Gov Contract — {parts[0] if parts else a['ticker']} "
-                        f"(award unidentified; original figure retracted "
-                        f"2026-07-28 — see repair_rule11_contracts.py)")
+            # leave a false number on a live surface. The figure appears in THREE
+            # places — headline, detail and event_date (which held the fabricated
+            # run date) — so all three are cleared; rewriting only the headline
+            # leaves the same false number one click away.
+            new_head = (f"Gov Contract — {_clean_recipient(a['tags'], a['ticker'])} "
+                        f"— award unidentified; original figure retracted "
+                        f"(see repair_rule11_contracts.py)")
             new_sev = "LOW"
             st["retracted"] += 1
             if apply:
                 conn.execute(
-                    """UPDATE alerts SET headline=?, severity=?,
+                    """UPDATE alerts SET headline=?, severity=?, detail=?,
+                                         event_date=NULL,
                                          lifecycle_stage='superseded'
-                       WHERE id=?""", (new_head, new_sev, a["id"]))
+                       WHERE id=?""",
+                    (new_head, new_sev,
+                     "The stored amount could not be tied to any USASpending "
+                     "award and the stored date was the ingest run date, not an "
+                     "award date. Both were retracted rather than restated.",
+                     a["id"]))
             st["sev_after"][new_sev] = st["sev_after"].get(new_sev, 0) + 1
             continue
         t = _detail_fields(d)
@@ -322,9 +372,12 @@ def main() -> int:
     mode = "APPLY" if args.apply else "REPORT-ONLY"
     print(f"=== RULE_11 contracts repair [{mode}] ===")
 
+    # `award_key` is added even in report-only mode: it is an additive, nullable
+    # column, and Phase 3 reads it. Without this the documented dry run crashed
+    # with "no such column: award_key" on any DB where the new rule had not yet
+    # run — a report-only path that could not report.
+    _ensure_alert_key(conn)
     migrated = ensure_contracts_schema(conn) if args.apply else False
-    if args.apply:
-        _ensure_alert_key(conn)
     print(f"Phase 0 — schema migrated: {migrated}")
 
     p1 = phase1_verify_identified(conn, args.cache_dir, args.apply)

@@ -132,6 +132,25 @@ def ensure_contracts_schema(conn) -> bool:
     print("[RULE_11] migrating `contracts`: dropping UNIQUE(recipient_name, award_date), "
           "keying on award_id")
     before = conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0]
+
+    # Check the new key BEFORE the destructive step. If duplicates exist the
+    # rebuild would commit and then the unique index would raise, leaving a
+    # migrated-but-unindexed table and a rule that fails on every later run.
+    # Collapse duplicates first, keeping the lowest id (the original ingest).
+    dupes = conn.execute(
+        """SELECT award_id, COUNT(*) n FROM contracts
+           WHERE COALESCE(TRIM(award_id),'') != ''
+           GROUP BY award_id HAVING n > 1"""
+    ).fetchall()
+    if dupes:
+        print(f"[RULE_11] {len(dupes)} award_id(s) duplicated — collapsing to the "
+              f"earliest row each before indexing")
+        conn.execute("""DELETE FROM contracts WHERE id NOT IN (
+                            SELECT MIN(id) FROM contracts
+                            WHERE COALESCE(TRIM(award_id),'') != ''
+                            GROUP BY award_id)
+                        AND COALESCE(TRIM(award_id),'') != ''""")
+        conn.commit()
     conn.executescript("""
         PRAGMA foreign_keys=off;
         BEGIN;
@@ -430,10 +449,20 @@ def run(dry_run: bool = False, full_year: bool = False,
                   f"(by design; the >=${MIN_AMOUNT:,} population is ~12.7k/yr)")
 
         seen: dict[str, dict] = {}
+        unusable = 0
         for rec in large + small:
             row = normalize(rec)
             if row:
                 seen.setdefault(row["award_id"], row)
+            else:
+                # No id or no recipient: cannot be stored coherently. Counted and
+                # reported — the >=$50M tier is meant to be provably complete, so
+                # a discard here must never be invisible.
+                unusable += 1
+        stats["unusable"] = unusable
+        if unusable:
+            print(f"[RULE_11] ⚠ {unusable} record(s) lacked an award id or "
+                  f"recipient and were not stored")
         stats["scanned"] = len(seen)
         print(f"[RULE_11] {len(large)} large + {len(small)} watchlist-tier records "
               f"→ {len(seen)} distinct awards")

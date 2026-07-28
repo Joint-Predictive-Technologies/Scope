@@ -68,9 +68,11 @@ def test_two_awards_to_one_recipient_on_one_day_both_persist(seeded, monkeypatch
     """THE drop bug.
 
     `UNIQUE(recipient_name, award_date)` + `INSERT OR IGNORE` meant the second
-    award to a recipient on a given date was silently discarded. Because every
-    award_date was the run date, that collapsed to "one award per recipient per
-    run" — measured at 17 of 270 real awards (6.3%) lost in a YTD sweep.
+    award to a recipient on a given date was silently discarded, and because
+    every award_date was the RUN date, that collapsed to "one award per recipient
+    per run". Measured on a real 270-award YTD sweep: the unique key alone loses
+    17 (6.3%) even with correct dates; as the bug actually shipped it lost 106 of
+    270 (39.3%), i.e. everything past each recipient's first award.
     """
     _stub_fetch(monkeypatch, [
         _award("CONT_AWD_AAA", "LOCKHEED MARTIN CORP", 900_000_000, "2026-03-31", "AAA"),
@@ -149,10 +151,39 @@ def test_amount_and_award_id_always_describe_the_same_award(seeded, monkeypatch)
         "each row's amount must belong to that row's award"
 
 
-def test_severity_is_not_uniformly_critical(seeded, monkeypatch):
-    """All 102 live alerts were CRITICAL because every amount was a lifetime total.
+def test_the_sweep_asks_for_newly_signed_awards_only(seeded, monkeypatch):
+    """The real cause of 102/102 CRITICAL — and the only thing that fixes it.
 
-    Over real per-award values the tiers separate again.
+    `_severity`'s thresholds were never wrong; the *inputs* were. With no working
+    date filter the sort returned the largest CUMULATIVE contracts (a 1993
+    Lockheed award, expired 2017, carrying $48B), so every alert cleared the
+    $500M CRITICAL bar. Asserting that a stubbed $900M maps to CRITICAL would
+    pass on the broken code too, so this pins the request instead: the sweep must
+    filter on `new_awards_only`, which is what makes "awarded $X" a true claim.
+    """
+    seen: list[dict] = []
+
+    def capture(payload):
+        seen.append(payload)
+        return {"results": [], "page_metadata": {"hasNext": False}}
+
+    monkeypatch.setattr(r11, "_post", capture)
+    r11.run()
+
+    assert seen, "no request was issued"
+    for payload in seen:
+        window = payload["filters"]["time_period"][0]
+        assert window.get("date_type") == "new_awards_only", (
+            "without date_type=new_awards_only the window filters transaction "
+            "activity, so decades-old mega-contracts return as if newly awarded")
+
+
+def test_severity_tiers_map_award_values_to_a_spread(seeded, monkeypatch):
+    """Companion to the above: the tier table itself, over per-award values.
+
+    This pins the thresholds (unchanged by the repair); it does NOT prove the
+    lifetime-vs-event fix — `test_the_sweep_asks_for_newly_signed_awards_only`
+    does that.
     """
     _stub_fetch(monkeypatch, [
         _award("CONT_AWD_1", "LOCKHEED MARTIN CORP", 900_000_000, "2026-01-05", "P1"),
