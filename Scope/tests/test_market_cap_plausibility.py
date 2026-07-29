@@ -1098,11 +1098,15 @@ def test_the_SEC_url_still_gets_the_PADDED_cik(monkeypatch):
     assert seen == ["0000071691"], f"SEC was asked for {seen!r}"
 
 
-def test_THE_TWO_CACHES_CANNOT_DISAGREE_about_one_company(monkeypatch):
-    """One company, one COMPUTED cap. The symbol cache (`ticker_meta`, the collector's and
-    the ticker page's key) and the CIK cache (`issuer_cap`, the cluster surface's) held
-    independently computed values, so the two surfaces could publish different caps for
-    the same company."""
+def test_NEITHER_path_computes_a_cap_the_other_never_sees(monkeypatch):
+    """The symbol cache (`ticker_meta`, the collector's and the ticker page's key) and the
+    CIK cache (`issuer_cap`, the cluster surface's) computed independently, so the two
+    surfaces could publish different caps for one company.
+
+    ⚠️ THE CLAIM IS NOT "they can never differ" — a `ticker_meta` row inside its own TTL is
+    still served, so a live symbol value can differ from a newer CIK one. What is closed is
+    that a cap computed on either path is written to the shared layer, and a company
+    already priced by CIK is not priced again."""
     _count_map(monkeypatch, {"1": ("SMLC",)})
     _cap(monkeypatch, 1_000_000, 50.0)
     conn = db_connection()
@@ -1198,3 +1202,43 @@ def test_the_repair_sweep_RUNS_from_repair_unknown_caps(monkeypatch):
     out = rc.repair_unknown_caps(conn)
     conn.close()
     assert seen and "cik_repaired" in out
+
+
+def test_a_PADDED_cik_HITS_the_cache_written_by_its_unpadded_form(monkeypatch):
+    """The write is normalised at `_write_issuer_cap`, so an un-normalised READ key does
+    not corrupt the table — it simply never hits, and the cap is recomputed from SEC and
+    Yahoo on every single lookup. A cache that silently stops caching is exactly the
+    failure mode `_cik_for`'s module cache was added for."""
+    _count_map(monkeypatch, {"71691": ("NYT",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    assert rc.market_cap_by_cik(conn, "71691", ("NYT",)) == 50_000_000
+    calls = []
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: calls.append(cik) or (1_000_000, "2026-07-01"))
+    assert rc.market_cap_by_cik(conn, "0000071691", ("NYT",)) == 50_000_000
+    conn.close()
+    assert calls == [], "the padded form missed a cache row its own company had written"
+
+
+def test_a_cached_UNKNOWN_expires_sooner_than_a_cached_VALUE(monkeypatch):
+    """`UNKNOWN_TTL_DAYS` (7) is not `CAP_TTL_DAYS` (30), and the difference is the whole
+    point: a real cap is stable for a month, while "could not price this" is a statement
+    about a bad moment and must be retried far sooner."""
+    _count_map(monkeypatch, {"1": ("SMLC",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    aged = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=10)).isoformat()
+    conn.execute("INSERT INTO issuer_cap (cik, market_cap, cap_updated) VALUES ('1',NULL,?)",
+                 (aged,))
+    conn.commit()
+    assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == 50_000_000, \
+        "a 10-day-old UNKNOWN was served as though it had the 30-day value TTL"
+    # ...and the control: a 10-day-old VALUE is still inside its own TTL and IS served.
+    # PLAUSIBLE, deliberately: an implausible stored value is re-resolved by the self-heal
+    # above, so a token `7` here would test that guard instead of the TTL.
+    conn.execute("UPDATE issuer_cap SET market_cap=7000000, cap_updated=? WHERE cik='1'",
+                 (aged,))
+    conn.commit()
+    assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == 7_000_000
+    conn.close()

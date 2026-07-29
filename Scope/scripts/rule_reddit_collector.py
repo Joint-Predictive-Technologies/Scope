@@ -463,9 +463,18 @@ def _market_cap_core(resolve_cik, hints, resolve_fallback, cache_read, cache_wri
     ⚠️ TWO CACHE LAYERS, AND THAT IS THE RECONCILIATION. `cache_read/write` is the entry
     point's own key — a symbol for `market_cap`, a CIK for `market_cap_by_cik`.
     `shared_read/write` is the CIK-keyed layer BOTH entry points consult once a CIK is in
-    hand, so one company yields ONE computed cap and the two stores cannot disagree about
-    it. `market_cap_by_cik` passes no shared layer because its own key already IS the CIK;
-    passing one would read and write the same row twice.
+    hand: a cap computed on either path is written to it, and a live value there is served
+    (and mirrored) rather than recomputed. `market_cap_by_cik` passes no shared layer
+    because its own key already IS the CIK; passing one would read and write the same row
+    twice.
+
+    ⚠️ THE PROPERTY THIS BUYS, STATED EXACTLY. Neither path can now compute a cap the other
+    never sees, and a company already priced by CIK is not priced a second time. It is NOT
+    "the two stores can never differ": a `ticker_meta` row written days ago is still served
+    while it is inside its own TTL, so a LIVE symbol-cache value can differ from a NEWER
+    CIK-cache one. The CIK path cannot heal that direction because it has no symbol to key
+    `ticker_meta` on — only the symbol it happened to PRICE with, which is not the same
+    thing.
 
     `force=True` skips both reads (never the writes). Only `repair_unknown_caps` sets it,
     to re-resolve a cached `NULL` before its TTL expires — otherwise one SEC blip removes a
