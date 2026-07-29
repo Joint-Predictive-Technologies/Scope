@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="/tokens.css"/>
+  <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
@@ -46,7 +47,7 @@
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <button class="hamburger" onclick="document.getElementById('nav-links').classList.toggle('open')">☰</button>
   <div class="nav-links" id="nav-links">
-    <a href="/">Dashboard</a>
+    <a href="/">Brief</a><a href="/home">Dashboard</a>
     <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
     <a href="/congress">Congress</a>
     <a href="/insiders">Insiders</a>
@@ -133,5 +134,6 @@ curl <span class="k">".../api/v1/heat-index?api_key=scope_your_key_here"</span><
 
   <div class="note" style="border-color:var(--muted);color:var(--muted)">Data is provided for informational purposes only and does not constitute investment advice.</div>
 </div>
+<script src="/cmdk.js" defer></script>
 </body>
 </html>

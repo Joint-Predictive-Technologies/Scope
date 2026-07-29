@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="/tokens.css"/>
+  <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
@@ -106,7 +107,7 @@
   <a href="/" class="nav-brand">◈ SCOPE</a>
   <button class="hamburger" id="ham-btn">☰</button>
   <div class="nav-links" id="nav-links">
-    <a href="/">Dashboard</a>
+    <a href="/">Brief</a><a href="/home">Dashboard</a>
     <a href="/feed">Alerts <span class="nav-badge" id="alert-badge" style="display:none"></span></a>
     <a href="/congress">Congress</a>
     <a href="/insiders">Insiders</a>
@@ -117,7 +118,6 @@
     <a href="/osint">OSINT Globe</a>
     <a href="/ask">Ask Scope</a>
   </div>
-  <button onclick="openCmd()" style="font-family:var(--font-mono);font-size:0.65rem;color:#7a7060;background:#111009;border:1px solid #2a2620;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:0.5rem">⌘K</button>
 </nav>
 
 <!-- CMD PALETTE -->
@@ -357,5 +357,6 @@
     } catch { document.getElementById('cmd-results').innerHTML='<div class=\"cmd-empty\">Search failed.</div>'; }
   }
 </script>
+<script src="/cmdk.js" defer></script>
 </body>
 </html>
