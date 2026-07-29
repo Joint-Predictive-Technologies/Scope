@@ -162,10 +162,22 @@ def _synthesize_headline(conn) -> dict:
             # ⚠️ COUNTED ONLY FOR NON-EXCLUDED RULES, because `hi` is the TIE-BREAK
             # that decides who fronts the site once two tickers hold the same number
             # of gate instruments. Counting every alert here left the decision to raw
-            # volume from rules the gate throws out: measured on the corpus, LMT tied
-            # SPCX and HII at 2 instruments and won with hi=34, of which **25 (73.5%)
-            # were RULE_OSINT**. Excluding them takes LMT to 9 and the tie is decided
-            # by real signals. The earlier fix stopped an excluded rule CLAIMING a
+            # volume from rules the gate throws out.
+            #
+            # ⚠️ AND THE FIGURE FIRST QUOTED HERE WAS MEASURED OVER THE WRONG POPULATION.
+            # It said LMT "won with hi=34, of which 25 (73.5%) were RULE_OSINT, excluding
+            # them takes LMT to 9". Those counts are ALL-TIME; this function looks back
+            # `CONVERGENCE_WINDOW_DAYS` (14), and inside that window LMT does not win even
+            # before the fix — only 1 of its 25 OSINT HIGH/CRITICAL alerts falls in it.
+            # The arithmetic was also wrong: 34 − 25 OSINT − 2 ANOMALY = **7**, not 9,
+            # because ANOMALY is excluded too. Corrected rather than quietly dropped: a
+            # number measured over one population and printed beside a function that uses
+            # another is the defect this codebase keeps paying for.
+            #
+            # What IS re-derivable on the corpus: the tie-break stops being decided by
+            # excluded volume. The behaviour is pinned by a seeded fixture in
+            # `test_an_EXCLUDED_rules_VOLUME_cannot_choose_the_headline`, which fails when
+            # this line is reverted. The earlier fix stopped an excluded rule CLAIMING a
             # convergence; this stops it CHOOSING the headline.
             a["hi"] += 1
         if a["example"] is None and rule.upper() not in RULE_10_EXCLUDED:

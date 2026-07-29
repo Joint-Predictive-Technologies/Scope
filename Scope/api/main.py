@@ -1102,7 +1102,14 @@ def osint_hotspots():
             continue
 
         if region not in groups:
-            coords = REGION_COORDS.get(region, (31.0, 35.0))
+            # ⚠️ NO FALLBACK COORDINATE. `REGION_COORDS.get(region, (31.0, 35.0))`
+            # survived the removal of the "Middle East" default as a pair of NUMBERS:
+            # 31.0N 35.0E is the Levant, so an unmapped region with no event coordinates
+            # was still placed in a war zone. Latent (every COUNTRY_REGION_MAP value is
+            # in REGION_COORDS), and removed on the same argument as the string.
+            coords = REGION_COORDS.get(region)
+            if coords is None:
+                continue
             try:
                 tags_obj = _json.loads(tags_raw)
                 lat = float(tags_obj.get("lat") or coords[0])
@@ -1208,7 +1215,18 @@ def osint_summary(region: str):
 
 @app.get("/api/conflict-news", tags=["OSINT"])
 def conflict_news():
-    """Return recent conflict headlines — from RULE_OSINT DB alerts, then static fallback."""
+    """Recent conflict headlines from real alert rows. Empty when there are none.
+
+    ⚠️ THE STATIC FALLBACK WAS DELETED ON 2026-07-29 — six invented headlines labelled
+    `"source": "Scope OSINT"` ("Middle East tensions — monitoring GDELT + ADS-B feeds",
+    "South China Sea — ADS-B military flight tracking enabled") served whenever there
+    were no rows, so the tape never showed "Loading…". It rendered on the SAME page as
+    the globe, beside hotspots that were being fabricated by the same reasoning.
+
+    Retiring RULE_OSINT's emission made that fallback the PERMANENT state rather than an
+    edge case, which is what turned it from a cosmetic placeholder into the site's
+    standing account of itself. An empty tape is a true statement.
+    """
     import json as _json
     from jpt_common import db_connection as _dbc
     conn = _dbc()
@@ -1233,17 +1251,6 @@ def conflict_news():
         except Exception:
             pass
         items.append({"title": row["headline"], "source": source, "url": url or "/feed?rule=RULE_OSINT"})
-
-    # Static fallback so tape never shows "Loading…"
-    if not items:
-        items = [
-            {"title": "Middle East tensions — monitoring GDELT + ADS-B feeds", "source": "Scope OSINT", "url": "/feed"},
-            {"title": "Eastern Europe — tracking military movements via open-source signals", "source": "Scope OSINT", "url": "/feed"},
-            {"title": "Taiwan Strait — semiconductor supply chain risk monitor active", "source": "Scope OSINT", "url": "/feed"},
-            {"title": "OSINT pipeline active — run rule_osint.py to populate live signals", "source": "Scope", "url": "/feed"},
-            {"title": "Korean Peninsula — monitoring via GDELT event classification", "source": "Scope OSINT", "url": "/feed"},
-            {"title": "South China Sea — ADS-B military flight tracking enabled", "source": "Scope OSINT", "url": "/feed"},
-        ]
 
     return items
 
@@ -1483,8 +1490,14 @@ def search(q: str = ""):
 
 @app.get("/api/osint-region-context", tags=["OSINT"])
 def osint_region_context(region: str):
-    """Return congressional trades and contracts for tickers linked to this region."""
-    from jpt_common import db_connection as _dbc
+    """Return congressional trades and contracts for tickers linked to this region.
+
+    ⚠️ THE TICKERS HERE ARE A HARDCODED BASKET (`REGION_TICKERS`), not companies found
+    at the place. It is the same defect the OSINT emission was retired for, one surface
+    over, and it is left in place ONLY because this endpoint is out of that change's
+    scope — see the globe rewrite ([[The OSINT Globe]]), which replaces it.
+    """
+    from jpt_common import db_connection as _dbc, REGION_TICKERS
     conn = _dbc()
     tickers = REGION_TICKERS.get(region, [])
 

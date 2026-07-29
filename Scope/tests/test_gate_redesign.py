@@ -251,7 +251,7 @@ def test_excluded_rules_are_still_excluded():
     # across 387 alerts. Unlike OSINT it was NOT already contained — it mapped to
     # the `flight` instrument, so a basket rule could complete a convergence on a
     # 5-minute cadence.
-    basket_keyed = {"RULE_ADSB"}
+    basket_keyed = {"RULE_ADSB", "RULE_TELEGRAM_OSINT"}
     assert RULE_10_EXCLUDED == (noisy_or_self_referential | retired
                                 | candidate_generators | basket_keyed)
 
@@ -333,21 +333,54 @@ if __name__ == "__main__":
 
 
 def test_a_BASKET_KEYED_rule_cannot_contribute_an_instrument():
-    """RULE_ADSB's ticker is `REGION_TICKERS[zone]` (`scripts/rule_adsb.py:127`) — a
-    lookup table, not evidence that a company is involved in anything. Before this it
-    mapped to the `flight` instrument, so `rule10_instruments(['RULE_ADSB'])` returned
-    `['flight']` and a basket rule could be one of the three legs of a convergence.
+    """A rule whose alert ticker comes from a hardcoded region basket must not be able
+    to complete a convergence. `RULE_ADSB` reads `REGION_TICKERS[zone]`
+    (`scripts/rule_adsb.py:127`); `RULE_TELEGRAM_OSINT` reads the same table
+    (`scripts/rule_telegram_osint.py:109`) and writes `tickers[0]` as the ticker
+    (`:141`). A lookup-table ticker is not evidence that a company is involved in
+    anything.
 
-    Its ticker source is what disqualifies it, and that is what this asserts — the
-    mapping in `RULE_10_INSTRUMENTS` is deliberately left in place, because an
-    eligible-but-UNMAPPED rule becomes its own instrument (the phantom trap that let
-    RULE_12/13/14 count as three legs after being 'retired').
+    ⚠️ THIS ASSERTS A CLASS, SO IT ENUMERATES THE CLASS — AND CHECKS THE ENUMERATION
+    AGAINST SOURCE. Its first version named the class and checked ONE member, and a
+    verification pass immediately found the other: TELEGRAM_OSINT was unexcluded, hourly,
+    and actually firing the gate —
+    `['RULE_01B','RULE_06','RULE_TELEGRAM_OSINT']` produced three instruments where
+    `['RULE_01B','RULE_06']` produced two. The sweep at the end is what stops a third
+    instance arriving unnoticed.
+
+    Each rule's mapping in `RULE_10_INSTRUMENTS` is deliberately LEFT in place: an
+    eligible-but-UNMAPPED rule becomes its own instrument — the phantom trap that let
+    RULE_12/13/14 count as three legs after being 'retired'.
     """
-    from jpt_common import RULE_10_INSTRUMENTS, rule10_instruments
-    assert rule10_instruments(["RULE_ADSB"]) == [], \
-        "a rule whose ticker comes from a hardcoded basket can still be a gate leg"
-    assert RULE_10_INSTRUMENTS.get("RULE_ADSB") == "flight", \
-        "the mapping was deleted — an unmapped eligible rule becomes its own instrument"
-    # ...and it cannot be smuggled in beside real legs either.
-    assert rule10_instruments(["RULE_01B", "RULE_06", "RULE_ADSB"]) == \
-        rule10_instruments(["RULE_01B", "RULE_06"])
+    import os
+    import re
+    from jpt_common import RULE_10_EXCLUDED, RULE_10_INSTRUMENTS, rule10_instruments
+
+    for rule, instrument in (("RULE_ADSB", "flight"),
+                             ("RULE_TELEGRAM_OSINT", "telegram")):
+        assert rule10_instruments([rule]) == [], \
+            f"{rule}'s ticker comes from a hardcoded basket and it can still be a gate leg"
+        assert RULE_10_INSTRUMENTS.get(rule) == instrument, \
+            f"{rule}'s mapping was deleted — an unmapped eligible rule becomes its own"
+        assert rule10_instruments(["RULE_01B", "RULE_06", rule]) == \
+            rule10_instruments(["RULE_01B", "RULE_06"]), \
+            f"{rule} was smuggled in beside real legs"
+
+    # THE COMPLETENESS HALF, derived from source rather than memory: every rule script
+    # that reads a region ticker basket must be excluded.
+    root = os.path.join(os.path.dirname(__file__), "..", "scripts")
+    checked = []
+    for fn in sorted(os.listdir(root)):
+        if not fn.startswith("rule_") or not fn.endswith(".py"):
+            continue
+        src = open(os.path.join(root, fn)).read()
+        if "REGION_TICKERS" not in src and "EVENT_TICKER_MAP" not in src:
+            continue
+        m = re.search(r"RULE\s*=\s*[\"']([A-Z_0-9]+)[\"']", src) or \
+            re.search(r"rule\s*=\s*[\"']([A-Z_0-9]+)[\"']", src) or \
+            re.search(r"[\"'](RULE_[A-Z_0-9]+)[\"']", src)
+        assert m, f"{fn} reads a ticker basket but its rule name could not be determined"
+        checked.append((fn, m.group(1)))
+        assert m.group(1) in RULE_10_EXCLUDED, \
+            f"{fn} keys its ticker on a hardcoded basket and {m.group(1)} is NOT excluded"
+    assert len(checked) >= 3, f"the sweep found too few basket readers to be working: {checked}"

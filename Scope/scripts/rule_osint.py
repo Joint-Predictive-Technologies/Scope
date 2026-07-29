@@ -293,6 +293,11 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
         )
 
         if EMISSION_RETIRED:
+            if dry_run:
+                # A DRY RUN MUST NOT CONSUME THE DEDUPE. Marking events seen here meant
+                # `--dry-run` silently changed what a later real run would process —
+                # a dry run with a side effect is not a dry run.
+                continue
             # RETIRED. The event is marked seen — the ingest and the dedupe are the
             # salvage and keep working — but NO alert is written, because the only
             # ticker this path can produce is `tickers[0]`, an artefact of the

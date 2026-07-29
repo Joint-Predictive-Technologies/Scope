@@ -706,7 +706,21 @@ RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_RED
                               # (0 alerts, 0 logged runs locally; UNVERIFIED in prod),
                               # which is why it is a one-line defang now rather than a
                               # rewrite. Its full fate is a separate session.
-                              "RULE_ADSB"}
+                              "RULE_ADSB",
+                              # RULE_TELEGRAM_OSINT — the SAME table, and the one that was
+                              # actually LIVE at the gate. `rule_telegram_osint.py:109`
+                              # reads `REGION_TICKERS[region]` and `:141` writes
+                              # `ticker = tickers[0]`, hourly. Measured before this line
+                              # existed:
+                              #
+                              #   ['RULE_01B','RULE_06']                       -> 2 instruments, gate FALSE
+                              #   ['RULE_01B','RULE_06','RULE_TELEGRAM_OSINT'] -> 3 instruments, gate TRUE
+                              #
+                              # A basket ticker completed a convergence. Found by the
+                              # verification pass on the commit that defanged ADSB, whose
+                              # own test asserted a CLASS ("a basket-keyed rule cannot
+                              # contribute an instrument") while checking one member of it.
+                              "RULE_TELEGRAM_OSINT"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.
