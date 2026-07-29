@@ -689,7 +689,24 @@ RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_RED
                               # they were "retired". Discovery emits no alerts today, so
                               # this changes nothing now; it is here so the trap cannot
                               # arm itself the day someone gives it one.
-                              "RULE_DISCOVERY", "RULE_COLLECTOR"}
+                              "RULE_DISCOVERY", "RULE_COLLECTOR",
+                              # RULE_ADSB draws its tickers from `REGION_TICKERS` — the
+                              # SAME hardcoded region->basket table that made RULE_OSINT
+                              # publish 8 distinct tickers across 387 alerts, LMT among
+                              # them because it is the first element of six regions. A
+                              # ticker chosen by a lookup table is not evidence that a
+                              # company is involved in anything, so it must not be able
+                              # to complete a convergence.
+                              #
+                              # ⚠️ AND THIS ONE WAS NOT ALREADY CONTAINED. OSINT was
+                              # excluded from the start; ADSB was mapped to the `flight`
+                              # instrument, so `rule10_instruments(['RULE_ADSB'])`
+                              # returned `['flight']` and a basket rule COULD be a gate
+                              # leg — on a 5-minute cadence. Latent when this was written
+                              # (0 alerts, 0 logged runs locally; UNVERIFIED in prod),
+                              # which is why it is a one-line defang now rather than a
+                              # rewrite. Its full fate is a separate session.
+                              "RULE_ADSB"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.

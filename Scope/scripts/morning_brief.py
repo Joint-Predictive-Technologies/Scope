@@ -159,8 +159,18 @@ def _synthesize_headline(conn) -> dict:
             a["noise"].add(_source_type(rule) or rule)
         else:
             a["rules"].add(rule)
-        a["hi"] += 1
-        if a["example"] is None:
+            # ⚠️ COUNTED ONLY FOR NON-EXCLUDED RULES, because `hi` is the TIE-BREAK
+            # that decides who fronts the site once two tickers hold the same number
+            # of gate instruments. Counting every alert here left the decision to raw
+            # volume from rules the gate throws out: measured on the corpus, LMT tied
+            # SPCX and HII at 2 instruments and won with hi=34, of which **25 (73.5%)
+            # were RULE_OSINT**. Excluding them takes LMT to 9 and the tie is decided
+            # by real signals. The earlier fix stopped an excluded rule CLAIMING a
+            # convergence; this stops it CHOOSING the headline.
+            a["hi"] += 1
+        if a["example"] is None and rule.upper() not in RULE_10_EXCLUDED:
+            # The example headline shown beside the hero must come from a signal that
+            # counted toward it, not from whichever noise row happened to be first.
             a["example"] = r["headline"]
     if not agg:
         return {"mode": "quiet"}

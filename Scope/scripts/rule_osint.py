@@ -1,10 +1,39 @@
 #!/usr/bin/env python3
 """
-RULE_OSINT — Geopolitical Event Detection via GDELT 2.0 Event Stream
+RULE_OSINT — GDELT 2.0 event ingest. ⚠️ EMISSION RETIRED 2026-07-29.
 
-Downloads the raw 15-minute GDELT event CSV directly — no API key, no rate
-limits, updates every 15 minutes. The previous GDELT DOC API approach
-(/api/v2/doc/doc) caused 429 errors; this avoids it entirely.
+⚠️ THIS RULE NO LONGER EMITS ALERTS, AND THE PIPELINE BELOW IS DELIBERATELY KEPT.
+Read both halves of that sentence before changing anything here.
+
+WHY THE EMISSION IS RETIRED. The alert path was `news → region → CAMEO category →
+a hardcoded ticker basket → ticker = tickers[0]`, so the published ticker was a
+function of the LOOKUP TABLE, not of the event. Nothing here ever asked *which
+companies are in this event*: the article text is never read and its URL is stored
+and never fetched. Measured over the corpus on 2026-07-29:
+
+    387 alerts  ->  8 distinct tickers  ->  top 3 (USO/XOM/LMT) = 75.7%
+    11,672 GDELT rows scanned across 32 runs to produce them
+    17 countries -> 11 regions -> 8 tickers      <- the information funnel
+
+LMT headlined the site for days because it is the first element of six region
+baskets, not because it was at any event. Tuning the baskets treats the symptom;
+the baskets ARE the defect, so the emission stops rather than being re-weighted.
+
+WHY THE PIPELINE STAYS. Everything ABOVE the basket is the salvage for the globe
+rewrite ([[The OSINT Globe]]): the keyless 15-minute GDELT feed, the hostile
+filter, `gdelt_events` dedupe, and — the part worth most — the ActionGeo
+coordinates. Contrary to the assumption that this rule threw the place away, it
+parses and persists `country`, `geo_lat` and `geo_lng`, and **100% of the 387
+alerts carried lat/lng**. That is the globe's spine and it already works. Deleting
+this file would throw it away.
+
+⚠️ AND THE EVENT SELECTION DOES NOT SURVIVE THE REWRITE. The filter is
+`goldstein < -4` — HOSTILE EVENTS ONLY. "A district attorney elected, oil
+discovered" is categorically outside what this collects. The feed survives; what
+is selected from it does not.
+
+Still in `RULE_10_EXCLUDED`: it was never a gate leg and must not become one on
+the way out.
 
 Run every 15 minutes via APScheduler (configured in api/main.py) or cron:
   */15 * * * * cd /path/to/Scope && python scripts/rule_osint.py
@@ -32,6 +61,14 @@ from jpt_common import (
 
 GDELT_MASTER_URL = "http://data.gdeltproject.org/gdeltv2/lastupdate.txt"
 HEADERS = {"User-Agent": "Scope Political Intelligence Monitor 1.0"}
+
+# ⚠️ THE RETIREMENT SWITCH, and it is deliberately a hard constant rather than a
+# flag, an env var or a CLI option. `--emit-alerts` still exists because the
+# scheduler passes it to every rule uniformly; if this were a settable option the
+# scheduler would keep emitting and the retirement would be a comment. Flipping
+# this to True re-enables the basket path that was retired — do not, until the
+# globe replaces it and the ticker comes from the event rather than a lookup.
+EMISSION_RETIRED = True
 
 
 # ── GDELT Event Stream ────────────────────────────────────────────────────────
@@ -251,9 +288,22 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
         tags_str = json.dumps(tags_obj)
 
         print(
-            f"[RULE_OSINT] {'[dry]' if dry_run else '[emit]'} {severity} — "
-            f"{event['event_type']} ({region}) → {ticker_str}"
+            f"[RULE_OSINT] {'[RETIRED — no alert]' if EMISSION_RETIRED else ('[dry]' if dry_run else '[emit]')} "
+            f"{severity} — {event['event_type']} ({region}) → {ticker_str}"
         )
+
+        if EMISSION_RETIRED:
+            # RETIRED. The event is marked seen — the ingest and the dedupe are the
+            # salvage and keep working — but NO alert is written, because the only
+            # ticker this path can produce is `tickers[0]`, an artefact of the
+            # lookup table above. `emitted` stays 0 and `record_activity` publishes
+            # that honestly rather than the run looking silently broken.
+            conn.execute(
+                "INSERT OR IGNORE INTO gdelt_events (event_id) VALUES (?)",
+                (event["event_id"],),
+            )
+            conn.commit()
+            continue
 
         if not dry_run and emit:
             # One alert per GDELT event — all tickers live in tags_obj["tickers"].
@@ -268,7 +318,12 @@ def _run_gdelt(conn, emit: bool, dry_run: bool) -> tuple[int, int, int]:
             conn.commit()
             emitted += 1
 
-    print(f"[RULE_OSINT] GDELT: {emitted} new alerts emitted")
+    if EMISSION_RETIRED:
+        print(f"[RULE_OSINT] GDELT: EMISSION RETIRED — {flagged} events ingested, 0 alerts. "
+              f"The ingest and the ActionGeo coordinates are the globe's salvage; the "
+              f"ticker-basket alert path is retired.")
+    else:
+        print(f"[RULE_OSINT] GDELT: {emitted} new alerts emitted")
     return scanned, flagged, emitted
 
 

@@ -245,8 +245,15 @@ def test_excluded_rules_are_still_excluded():
                                  "RULE_REDDIT", "RULE_10"}
     retired = {"RULE_12", "RULE_13", "RULE_14"}
     candidate_generators = {"RULE_DISCOVERY", "RULE_COLLECTOR"}
+    # A FOURTH CATEGORY, added 2026-07-29: rules whose ticker comes from a
+    # hardcoded region->basket table rather than from the event. RULE_ADSB reads
+    # `REGION_TICKERS`, the same table that gave RULE_OSINT 8 distinct tickers
+    # across 387 alerts. Unlike OSINT it was NOT already contained — it mapped to
+    # the `flight` instrument, so a basket rule could complete a convergence on a
+    # 5-minute cadence.
+    basket_keyed = {"RULE_ADSB"}
     assert RULE_10_EXCLUDED == (noisy_or_self_referential | retired
-                                | candidate_generators)
+                                | candidate_generators | basket_keyed)
 
 
 def test_noisy_rules_cannot_contribute_an_instrument():
@@ -323,3 +330,24 @@ def test_an_unmapped_rule_counts_as_its_own_instrument():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_a_BASKET_KEYED_rule_cannot_contribute_an_instrument():
+    """RULE_ADSB's ticker is `REGION_TICKERS[zone]` (`scripts/rule_adsb.py:127`) — a
+    lookup table, not evidence that a company is involved in anything. Before this it
+    mapped to the `flight` instrument, so `rule10_instruments(['RULE_ADSB'])` returned
+    `['flight']` and a basket rule could be one of the three legs of a convergence.
+
+    Its ticker source is what disqualifies it, and that is what this asserts — the
+    mapping in `RULE_10_INSTRUMENTS` is deliberately left in place, because an
+    eligible-but-UNMAPPED rule becomes its own instrument (the phantom trap that let
+    RULE_12/13/14 count as three legs after being 'retired').
+    """
+    from jpt_common import RULE_10_INSTRUMENTS, rule10_instruments
+    assert rule10_instruments(["RULE_ADSB"]) == [], \
+        "a rule whose ticker comes from a hardcoded basket can still be a gate leg"
+    assert RULE_10_INSTRUMENTS.get("RULE_ADSB") == "flight", \
+        "the mapping was deleted — an unmapped eligible rule becomes its own instrument"
+    # ...and it cannot be smuggled in beside real legs either.
+    assert rule10_instruments(["RULE_01B", "RULE_06", "RULE_ADSB"]) == \
+        rule10_instruments(["RULE_01B", "RULE_06"])

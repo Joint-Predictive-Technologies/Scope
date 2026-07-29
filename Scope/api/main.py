@@ -1039,28 +1039,34 @@ REGION_COORDS = {
 }
 
 
-_DEMO_HOTSPOTS = [
-    {"region": "Middle East",      "lat": 29.5,  "lng": 45.0,   "severity": "HIGH",     "count": 3, "ticker_list": ["USO", "XLE", "LMT"],        "last_at": None},
-    {"region": "Eastern Europe",   "lat": 49.0,  "lng": 31.0,   "severity": "HIGH",     "count": 2, "ticker_list": ["LMT", "RTX", "NOC"],        "last_at": None},
-    {"region": "Russia",           "lat": 60.0,  "lng": 90.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
-    {"region": "Taiwan Strait",    "lat": 24.0,  "lng": 121.0,  "severity": "CRITICAL", "count": 2, "ticker_list": ["TSM", "NVDA", "AMAT"],      "last_at": None},
-    {"region": "Korean Peninsula", "lat": 37.5,  "lng": 127.5,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
-    {"region": "South China Sea",  "lat": 12.0,  "lng": 114.0,  "severity": "HIGH",     "count": 2, "ticker_list": ["TSM", "LMT", "NOC"],        "last_at": None},
-    {"region": "South Asia",       "lat": 28.0,  "lng": 77.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["LMT", "RTX"],               "last_at": None},
-    {"region": "West Africa",      "lat": 8.0,   "lng": 2.0,    "severity": "MEDIUM",   "count": 1, "ticker_list": ["XOM", "CVX"],               "last_at": None},
-    {"region": "East Africa",      "lat": 0.0,   "lng": 38.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["USO", "XLE"],               "last_at": None},
-    {"region": "Latin America",    "lat": -15.0, "lng": -60.0,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["XOM", "CVX"],               "last_at": None},
-    {"region": "North Africa",     "lat": 25.0,  "lng": 15.0,   "severity": "MEDIUM",   "count": 1, "ticker_list": ["USO", "XLE"],               "last_at": None},
-    {"region": "Southeast Asia",   "lat": 10.0,  "lng": 106.0,  "severity": "MEDIUM",   "count": 1, "ticker_list": ["TSM", "NVDA"],              "last_at": None},
-]
+# ⚠️ `_DEMO_HOTSPOTS` WAS DELETED HERE ON 2026-07-29, AND MUST NOT COME BACK.
+# It was 12 invented regions with invented severities, counts and ticker lists,
+# served by `/api/osint-hotspots` whenever there were no real events, tagged
+# `demo: True` — a flag `api/static/osint.html` never read. So fabricated
+# hotspots rendered IDENTICALLY to real ones on a product whose stated principle
+# is that its zeros are honest. `universe.html` labels its fixture on the page;
+# the globe labelled nothing.
+#
+# An empty globe is a TRUE STATEMENT: "no located events". Invented events are
+# not a fallback, they are a false one. If a demo mode is ever wanted again, the
+# PAGE must label it unmistakably before the endpoint may serve it.
 
 
 @app.get("/api/osint-hotspots", tags=["OSINT"])
 def osint_hotspots():
-    """Return grouped RULE_OSINT alerts from last 14 days as globe hotspots."""
+    """Located RULE_OSINT events from the last 14 days, grouped for the globe.
+
+    ⚠️ RETURNS `[]` WHEN NOTHING IS LOCATED, AND THAT IS THE POINT. This endpoint
+    used to fabricate 12 hotspots rather than answer "none", and the page could not
+    tell the difference. It now answers only from real rows, and only where the
+    event carries real geodata.
+
+    RULE_OSINT's emission is retired (see `scripts/rule_osint.py`), so `[]` is the
+    expected steady state until the globe rewrite supplies located events. An empty
+    globe is a true statement; the previous behaviour was not.
+    """
     import json as _json
-    from datetime import datetime as _dt, timezone as _tz
-    from jpt_common import db_connection as _dbc, REGION_TICKERS
+    from jpt_common import db_connection as _dbc
     conn = _dbc()
     rows = conn.execute("""
         SELECT id, ticker, headline, severity, tags, created_at
@@ -1084,15 +1090,16 @@ def osint_hotspots():
                     region = rname
                     break
 
+        # ⚠️ NO LOCATION IS GUESSED. Two inferences lived here and both are gone:
+        # a region deduced from WHICH TICKER BASKET the symbol appears in — the
+        # basket defect running backwards, a location derived from a lookup table
+        # — and, failing that, a hard default of "Middle East", which placed any
+        # unlocatable alert in a war zone. On a surface whose entire claim is that
+        # position means something, a confidently mislocated event is worse than
+        # an absent one. A location comes from real event geodata (GDELT
+        # ActionGeo) or the row is DROPPED.
         if not region:
-            ticker = (row["ticker"] or "").replace("$", "").split()[0]
-            for rname, tickers in REGION_TICKERS.items():
-                if ticker in tickers:
-                    region = rname
-                    break
-
-        if not region:
-            region = "Middle East"
+            continue
 
         if region not in groups:
             coords = REGION_COORDS.get(region, (31.0, 35.0))
@@ -1119,14 +1126,10 @@ def osint_hotspots():
         if not g["last_at"] or row["created_at"] > g["last_at"]:
             g["last_at"] = row["created_at"]
 
-    result = list(groups.values())
-
-    # Globe must never be blank — show demo hotspots if no OSINT data yet
-    if not result:
-        now = _dt.now(_tz.utc).isoformat()
-        result = [{**h, "last_at": now, "demo": True} for h in _DEMO_HOTSPOTS]
-
-    return result
+    # An empty list is the honest answer when nothing is located, and it is what
+    # the globe now shows. RULE_OSINT's emission is retired, so this endpoint is
+    # expected to return [] until the globe rewrite supplies located events.
+    return list(groups.values())
 
 
 @app.get("/api/osint-summary", tags=["OSINT"])
@@ -1481,7 +1484,7 @@ def search(q: str = ""):
 @app.get("/api/osint-region-context", tags=["OSINT"])
 def osint_region_context(region: str):
     """Return congressional trades and contracts for tickers linked to this region."""
-    from jpt_common import db_connection as _dbc, REGION_TICKERS
+    from jpt_common import db_connection as _dbc
     conn = _dbc()
     tickers = REGION_TICKERS.get(region, [])
 

@@ -110,3 +110,29 @@ def test_the_hero_reads_the_same_window_and_floor_as_the_gate():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+def test_an_EXCLUDED_rules_VOLUME_cannot_choose_the_headline(monkeypatch):
+    """THE TIEBREAK. The earlier fix stopped an excluded rule CLAIMING a convergence;
+    it did not stop one CHOOSING the headline. `hi` breaks the tie when two tickers
+    hold the same number of gate instruments, and it counted every alert — so measured
+    on the real corpus, LMT tied SPCX and HII at 2 instruments and won with hi=34, of
+    which **25 (73.5%) were RULE_OSINT**. Strip them and LMT falls to 9.
+
+    Here: both tickers hold the SAME two real instruments, and the noisy one carries a
+    pile of excluded-rule alerts on top. The honest winner is decided by the real
+    signals, so the excluded volume must not move it.
+    """
+    conn = jpt_common.db_connection()
+    # BOTH hold exactly TWO gate instruments, so the ranking falls through to the
+    # `hi` tiebreak — which is the thing under test. QUIET has one more REAL alert;
+    # NOISY has thirty excluded ones.
+    rows = [("NOISY", "RULE_01B", "HIGH"), ("NOISY", "RULE_06", "HIGH"),
+            ("QUIET", "RULE_01B", "HIGH"), ("QUIET", "RULE_06", "HIGH"),
+            ("QUIET", "RULE_06", "HIGH")]
+    rows += [("NOISY", "RULE_OSINT", "HIGH")] * 30
+    _seed(conn, rows)
+    hero = mb._synthesize_headline(conn)
+    conn.close()
+    assert hero.get("ticker") == "QUIET", (
+        f"an excluded rule's volume chose the headline: {hero}")
