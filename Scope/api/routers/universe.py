@@ -1,6 +1,6 @@
 """Read-only ticker COVERAGE list.
 
-SELECT ONLY. Populated by `scripts/rule_reddit_collector.py`, read here for a future page.
+SELECT ONLY. Populated by `scripts/rule_reddit_collector.py`, read by /universe.
 
 ⚠️ THIS IS NOT A WATCHLIST AND NOT A RECOMMENDATION. It is a list of ticker NAMES that
 exist — coverage, so the real instruments (insider clusters, congressional trades,
@@ -15,6 +15,8 @@ RULE_10_EXCLUDED and no corroboration path reads `ticker_universe`. Asserted in
 tests/test_reddit_collector.py.
 """
 from __future__ import annotations
+
+import sqlite3
 
 from fastapi import APIRouter, Query
 
@@ -52,8 +54,12 @@ def coverage_list(limit: int = Query(200, ge=1, le=1000),
                 FROM ticker_universe {where}
                 ORDER BY datetime(last_seen_at) DESC LIMIT ?""",
             (*params, limit)).fetchall()
-    except Exception:
-        rows = []          # not yet created — an empty universe is a valid state
+    except sqlite3.OperationalError as e:
+        # "No such table" is genuinely EARLY: the collector creates it on its
+        # first run, so before that an empty universe is the truthful answer.
+        if "no such table" not in str(e).lower():
+            raise
+        rows = []
     finally:
         conn.close()
 
