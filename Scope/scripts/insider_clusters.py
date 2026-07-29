@@ -60,7 +60,7 @@ import requests
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from jpt_common import normalize_ticker  # noqa: E402
-from scripts.rule_reddit_collector import classify_cap  # noqa: E402
+from scripts.rule_reddit_collector import classify_cap_by_cik  # noqa: E402
 
 # ── tunables — none of these are measured, they are judgement ────────────────
 WINDOW_DAYS = 7               # on the TRADE date, not the filing date
@@ -577,7 +577,7 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     """2+ distinct `person_id`s buying the same small-cap inside `window_days`."""
     ensure_tables(conn)
     resolve = resolve or resolve_insider_kind
-    cap_fn = cap_fn or classify_cap
+    cap_fn = cap_fn or classify_cap_by_cik
 
     partition = person_partition(conn)              # ONE identity, computed ONCE
     persons_of = accession_persons(conn, partition)
@@ -623,8 +623,8 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     out: list[dict] = []
     for issuer in sorted(by_issuer):
         buys = by_issuer[issuer]
-        ticker = labels.get(issuer) or issuer.removeprefix("ticker:")
-        ticker = normalize_ticker(ticker) or ticker
+        raw_label = labels.get(issuer) or ""
+        ticker = normalize_ticker(raw_label) or raw_label
         # Cheap reject on DISTINCT PERSONS, not on accession count: two filings by one
         # household are not two insiders, and counting accessions here would let the
         # expensive path run on shapes that can never qualify.
@@ -735,7 +735,18 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
         # unknown cap keeps the ticker OFF a surface a human reads. This is deliberately
         # the OPPOSITE of the reddit collector, which fails open because a missing name
         # in a lookup table is the expensive failure there.
-        status, cap = cap_fn(conn, ticker)
+        # ⚠️ THE CAP RESOLVES BY `issuer_cik`, NOT THE TYPED SYMBOL — the fifth entity.
+        # This gate is the TERMINAL filter and it fails CLOSED, so a symbol that will not
+        # resolve does not mis-display a cluster, it DELETES it: same issuer, same trades,
+        # label `NYT` -> 1 cluster, label `NYT.A` -> 0. The canonical id was one line up
+        # the whole time.
+        #
+        # Both labels are passed as PRICE HINTS because Yahoo still prices by symbol, and
+        # the RAW one comes first: `normalize_ticker` canonicalises to dot form (`BRK-B`
+        # -> `BRK.B`) for Scope's internal matching, but SEC and Yahoo both use the HYPHEN
+        # form — `_last_close("BRK.B")` is None where `BRK-B` returns 497.18. Normalising
+        # the label before pricing it broke every class-share ticker at this gate.
+        status, cap = cap_fn(conn, issuer, price_hints=(raw_label, ticker))
         if status != "small" or cap is None or cap >= LARGE_CAP_MIN:
             continue
         best[1]["market_cap"] = cap

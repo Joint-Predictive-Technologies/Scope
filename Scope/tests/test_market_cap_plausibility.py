@@ -340,7 +340,9 @@ def test_the_CLUSTER_surface_fails_CLOSED_on_the_mis_scaled_cap(monkeypatch):
         "scripts.insider_clusters",
         reason="lives on the unmerged feat/insider-cluster-discovery branch; this test "
                "activates automatically when the two branches meet")
-    monkeypatch.setattr(ic, "classify_cap", lambda c, t, **k: ("unknown", None))
+    # The cluster gate now resolves by `issuer_cik`, not the typed symbol — the fifth
+    # entity. The stub follows the entry point it actually calls.
+    monkeypatch.setattr(ic, "classify_cap_by_cik", lambda c, cik, **k: ("unknown", None))
     conn = db_connection()
     from scripts.ingest_form4_transactions import ensure_tables as store_tables
     store_tables(conn); ic.ensure_tables(conn)

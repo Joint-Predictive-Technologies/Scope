@@ -35,7 +35,8 @@ _REAL_RESOLVER = ic.resolve_insider_kind
 def no_network(monkeypatch):
     """No test here reaches SEC or Yahoo. Each injects the shape it needs."""
     monkeypatch.setattr(ic, "resolve_insider_kind", lambda conn, cik, **k: "person")
-    monkeypatch.setattr(ic, "classify_cap", lambda conn, t, **k: ("small", 400_000_000))
+    monkeypatch.setattr(ic, "classify_cap_by_cik",
+                        lambda conn, cik, **k: ("small", 400_000_000))
 
 
 def _db():
@@ -334,7 +335,7 @@ _XPROC = textwrap.dedent("""
     from jpt_common import db_connection
     from scripts import insider_clusters as ic
     ic.resolve_insider_kind = lambda conn, cik, **k: "person"
-    ic.classify_cap = lambda conn, t, **k: ("small", 400000000)
+    ic.classify_cap_by_cik = lambda conn, cik, **k: ("small", 400000000)
     conn = db_connection()
     part = ic.person_partition(conn)
     out = {{"partition": sorted((k, list(v)) for k, v in part.items()),
@@ -451,7 +452,7 @@ def test_the_cap_gate_FAILS_CLOSED(monkeypatch, cap, why):
     """The opposite direction from the reddit collector, deliberately: a human reads this
     surface, so an unknown cap keeps the ticker OFF it."""
     conn = _db()
-    monkeypatch.setattr(ic, "classify_cap", lambda conn, t, **k: cap)
+    monkeypatch.setattr(ic, "classify_cap_by_cik", lambda conn, cik, **k: cap)
     _row(conn, "A1", 0, 0, cik="100", value=100_000.0)
     _row(conn, "A2", 0, 0, cik="200", value=100_000.0)
     clusters = ic.find_clusters(conn)

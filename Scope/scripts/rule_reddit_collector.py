@@ -402,25 +402,25 @@ def _cache_unknown(conn, symbol: str, cache: bool) -> None:
     conn.commit()
 
 
-def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
-    """Cached market cap, or None if it cannot be determined.
+def _market_cap_core(resolve_cik, price_symbols, cache_read, cache_write):
+    """THE plausibility guards. ONE implementation, two entry points.
 
-    ⚠️ THIS FUNCTION FAILS CLOSED (returns None); ITS CALLER FAILS OPEN. Read both.
+    ⚠️ EVERY GUARD BELOW WAS MOVED HERE UNCHANGED — the share floor, the two-sided
+    staleness bound, the foreign-issuer check, the computed-cap bounds and the
+    implausible-cache self-heal. They are NOT re-implemented, because "several call sites
+    each re-deriving the same rule from a slightly different projection" is the exact bug
+    class this codebase has paid for five times. The regression proof is that
+    `test_market_cap_plausibility.py` passes UNCHANGED.
 
-    An earlier version of this docstring claimed "callers reject it… failing closed is
-    the right direction", which was true of the watch pool that no longer exists and is
-    FALSE for the collector. `classify_cap` treats None as `unknown` and COLLECTS it,
-    because a missing name in a cross-reference universe is the expensive failure.
+    The caller supplies the cache accessors, so the core knows nothing about whether it is
+    keyed on a symbol or a CIK.
 
-    The consequence, which a verifier measured: during a SEC or Yahoo outage EVERY
-    lookup returns None at once, so gate 3 stops excluding anything and AAPL/NVDA/MSFT
-    all enter the universe. `repair_unknown_caps` exists to undo exactly that — without
-    it those rows were permanent, because `collect()` skips anything already excluded
-    and nothing ever deleted.
+    ⚠️ `resolve_cik` IS A CALLABLE, NOT A VALUE, and the difference is behavioural. Passing
+    the resolved CIK meant `_cik_for` ran on every call INCLUDING a cache hit — a live SEC
+    request per cached lookup. `test_a_failed_cap_lookup_is_cached_so_it_is_not_retried_every_run`
+    caught it (4 calls where 1 is correct), which is what that regression suite is for.
     """
-    row = conn.execute(
-        "SELECT market_cap, cap_updated FROM ticker_meta WHERE symbol = ?",
-        (symbol,)).fetchone()
+    row = cache_read()
     # STALE IMPLAUSIBLE VALUES ARE RE-RESOLVED, not served from cache. Without this the
     # fix would never reach the rows that motivated it: CLBK=1085 and
     # TSM=10349411116118 are already cached with fresh timestamps, so a TTL check alone
@@ -438,9 +438,9 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
         except (TypeError, ValueError):
             pass
 
-    cik = _cik_for(symbol)
+    cik = resolve_cik()          # AFTER the cache check — see the docstring
     if not cik:
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
     # `is not False` — NOT a bare truth test. `_is_foreign_private_issuer` returns None
     # when the SEC lookup itself fails, and None is FALSY, so `if _is_foreign_...(cik):`
@@ -453,13 +453,24 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     # `repair_unknown_caps` retries it on the next run.
     if _is_foreign_private_issuer(cik) is not False:
         # SEC ordinary shares x a US ADR price is not a market cap. Fail closed.
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
 
     shares_fact = _shares_outstanding(cik) if cik else None
-    price = _last_close(symbol)
+    # THE FIRST SYMBOL THAT PRICES. The shares leg is authoritative from the CIK, but
+    # Yahoo prices by SYMBOL, so one is still needed — and the typed one may not be
+    # priceable. `NYT.A` returns no close where `NYT` returns 72.37, and `BRK.B` returns
+    # none where `BRK-B` returns 497.18. For the symbol entry point this list is a single
+    # element, so the behaviour is unchanged.
+    price = None
+    for _sym in price_symbols:
+        if not _sym:
+            continue
+        price = _last_close(_sym)
+        if price:
+            break
     if not shares_fact or not price:
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
     shares, as_of = shares_fact
 
@@ -474,7 +485,7 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     # fetcher protects one code path, and vanishes silently the day a second share source
     # is added or that fetcher is replaced. This is the only place shares become a cap.
     if shares < MIN_PLAUSIBLE_SHARES:
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
 
     cap = int(shares * price)
@@ -503,24 +514,47 @@ def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
     # stale count yielding a SMALL cap is the mis-scale.
     age = _fact_age_days(as_of)
     if age is None or (abs(age) > MAX_SHARES_AGE_DAYS and cap < LARGE_CAP_MIN):
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
 
     # An implausible COMPUTED cap is never cached. Two reasons: a bad value must not enter
     # the cache at all, and — since the read path above re-resolves implausible cached
     # values — caching one would re-fetch SEC and Yahoo on every single run, forever.
     if not (MIN_PLAUSIBLE_CAP <= cap <= MAX_PLAUSIBLE_CAP):
-        _cache_unknown(conn, symbol, cache)
+        cache_write(None)
         return None
 
-    if cache:
+    cache_write(cap)
+    return cap
+
+
+
+
+def market_cap(conn, symbol: str, cache: bool = True) -> int | None:
+    """Cached market cap by SYMBOL. Behaviour unchanged; the guards now live in the core.
+
+    ⚠️ THIS FUNCTION FAILS CLOSED (returns None); ITS CALLER FAILS OPEN. Read both.
+    `classify_cap` treats None as `unknown` and COLLECTS it, because a missing name in a
+    cross-reference universe is the expensive failure. During a SEC or Yahoo outage EVERY
+    lookup returns None at once, so gate 3 stops excluding anything — `repair_unknown_caps`
+    exists to undo exactly that.
+    """
+    def _read():
+        return conn.execute(
+            "SELECT market_cap, cap_updated FROM ticker_meta WHERE symbol = ?",
+            (symbol,)).fetchone()
+
+    def _write(cap):
+        if not cache:
+            return
         conn.execute(
             "INSERT INTO ticker_meta (symbol, market_cap, cap_updated) VALUES (?,?,?) "
             "ON CONFLICT(symbol) DO UPDATE SET market_cap=excluded.market_cap, "
             "cap_updated=excluded.cap_updated",
             (symbol, cap, datetime.now(timezone.utc).isoformat()))
         conn.commit()
-    return cap
+
+    return _market_cap_core(lambda: _cik_for(symbol), (symbol,), _read, _write)
 
 
 # ── the traction test ────────────────────────────────────────────────────────
@@ -542,6 +576,101 @@ def clears_engagement(score: int, num_comments: int) -> bool:
     return score >= MIN_SCORE or num_comments >= MIN_COMMENTS
 
 
+def _ensure_issuer_cap(conn) -> None:
+    """The CIK-keyed cap cache. Additive; `ticker_meta` is untouched.
+
+    A separate table rather than a column on `ticker_meta`, whose PRIMARY KEY is the
+    symbol — the whole point here is to stop keying a company on its typed symbol.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS issuer_cap (
+            cik          TEXT PRIMARY KEY,
+            market_cap   INTEGER,
+            cap_updated  TEXT
+        )""")
+    conn.commit()
+
+
+def _tickers_for_cik(cik: str) -> tuple[str, ...]:
+    """Every symbol SEC lists for this CIK. Used ONLY to find a priceable symbol."""
+    norm = str(cik or "").strip().lstrip("0")
+    try:
+        r = requests.get("https://www.sec.gov/files/company_tickers.json",
+                         headers=_SEC_HEADERS, timeout=15)
+        if not r.ok:
+            return ()
+        return tuple(v["ticker"] for v in r.json().values()
+                     if str(v.get("cik_str", "")).lstrip("0") == norm)
+    except Exception:
+        return ()
+
+
+def market_cap_by_cik(conn, cik: str, price_hints: tuple = (),
+                      cache: bool = True) -> int | None:
+    """Market cap keyed on the AUTHORITATIVE CIK. The fifth entity's fix.
+
+    ⚠️ WHY THIS EXISTS. The cluster surface's cap gate is its TERMINAL filter and it fails
+    CLOSED — so a symbol that will not resolve does not mis-display a cluster, it silently
+    DELETES it. And the gate was keyed on the free-text `issuerTradingSymbol` while
+    `issuer_cik` sat one line up as the group key. Measured: same issuer, same trades,
+    label `NYT` -> 1 cluster, label `NYT.A` -> 0.
+
+    Two hops broke on the typed symbol, and this entry point removes the first entirely:
+      * `_cik_for("NYT.A")` -> None, `_cik_for("BRK.B")` -> None. **Not called here** —
+        the CIK comes from the Form 4, which declares its own issuer.
+      * `_last_close("NYT.A")` -> None, `_last_close("BRK.B")` -> None. Still needs a
+        SYMBOL, so `price_hints` is tried first and SEC's own symbols for the CIK second.
+
+    ⚠️ AND IT SIDESTEPS SEC'S TICKER MAP. That map sends `XOM` to CIK 2115436,
+    "ExxonMobil Holdings Corp" — a factless holdco — while the real filer is 34088. A
+    Form 4's `issuer_cik` cannot have that failure mode because the filing states it.
+
+    The guards are NOT re-implemented: this shares `_market_cap_core` with `market_cap`.
+    """
+    key = str(cik or "").strip()
+    if not key:
+        return None
+    _ensure_issuer_cap(conn)
+
+    def _read():
+        return conn.execute(
+            "SELECT market_cap, cap_updated FROM issuer_cap WHERE cik = ?",
+            (key,)).fetchone()
+
+    def _write(cap):
+        if not cache:
+            return
+        conn.execute(
+            "INSERT INTO issuer_cap (cik, market_cap, cap_updated) VALUES (?,?,?) "
+            "ON CONFLICT(cik) DO UPDATE SET market_cap=excluded.market_cap, "
+            "cap_updated=excluded.cap_updated",
+            (key, cap, datetime.now(timezone.utc).isoformat()))
+        conn.commit()
+
+    symbols = tuple(dict.fromkeys([h for h in price_hints if h]))
+    return _market_cap_core(lambda: key, symbols + _tickers_for_cik(key), _read, _write)
+
+
+def _band(cap: int | None) -> tuple[str, int | None]:
+    """The plausibility band. ONE implementation, shared by both classify entry points."""
+    if cap is None:
+        return "unknown", None
+    # IMPLAUSIBLE IN EITHER DIRECTION -> UNKNOWN, never "small" and never a confident
+    # "excluded". CLBK at $1,085 was classified SMALL and published as the top insider
+    # cluster; a mis-scaled cap must never again pass a gate.
+    if cap < MIN_PLAUSIBLE_CAP or cap > MAX_PLAUSIBLE_CAP:
+        return "unknown", None
+    if cap >= LARGE_CAP_MIN:
+        return "excluded", cap
+    return "small", cap
+
+
+def classify_cap_by_cik(conn, cik: str, price_hints: tuple = (),
+                        cache: bool = True) -> tuple[str, int | None]:
+    """(cap_status, market_cap) for an authoritative CIK. Same band as `classify_cap`."""
+    return _band(market_cap_by_cik(conn, cik, price_hints, cache=cache))
+
+
 def classify_cap(conn, ticker: str, cache: bool = True) -> tuple[str, int | None]:
     """(cap_status, market_cap). Only a CONFIRMED large cap is excluded.
 
@@ -552,17 +681,9 @@ def classify_cap(conn, ticker: str, cache: bool = True) -> tuple[str, int | None
     universe the real instruments cross-reference against. Unknown therefore collects,
     flagged, so the gap is visible rather than absent.
     """
-    cap = market_cap(conn, normalize_ticker(ticker) or ticker, cache=cache)
-    if cap is None:
-        return "unknown", None
-    # IMPLAUSIBLE IN EITHER DIRECTION -> UNKNOWN, never "small" and never a confident
-    # "excluded". This check did not exist, so CLBK at $1,085 was classified SMALL and
-    # published as the top insider cluster. A mis-scaled cap must never again pass a gate.
-    if cap < MIN_PLAUSIBLE_CAP or cap > MAX_PLAUSIBLE_CAP:
-        return "unknown", None
-    if cap >= LARGE_CAP_MIN:
-        return "excluded", cap
-    return "small", cap
+    # The band lives in `_band`, shared with `classify_cap_by_cik`. Two copies of a
+    # threshold rule is how the tiers and the gate drifted apart once already.
+    return _band(market_cap(conn, normalize_ticker(ticker) or ticker, cache=cache))
 
 
 def collectable(conn, ticker: str, cashtagged: int, score: int, num_comments: int,
