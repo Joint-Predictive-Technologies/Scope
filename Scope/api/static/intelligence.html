@@ -6,12 +6,13 @@
   <title>Intelligence — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
@@ -26,10 +27,10 @@
     .thesis-card:hover { border-color: var(--amber); }
     .tc-top { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; }
     .status-badge { font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 2px 8px; border-radius: 3px; }
-    .st-emerging { background: rgba(122,112,96,0.2); color: var(--cream2); }
-    .st-developing { background: rgba(106,176,224,0.15); color: var(--blue); }
-    .st-confirmed { background: rgba(200,146,42,0.18); color: var(--amber2); }
-    .st-saturated { background: rgba(122,112,96,0.15); color: var(--muted); }
+    .st-emerging { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--cream2); }
+    .st-developing { background: color-mix(in srgb, var(--link) 15%, transparent); color: var(--blue); }
+    .st-confirmed { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber2); }
+    .st-saturated { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
     .tc-title { font-family: var(--font-sans); font-size: 1.05rem; color: var(--cream); font-weight: 600; flex: 1; min-width: 200px; }
     .tc-ticker { font-family: var(--font-mono); color: var(--amber); font-size: 0.8rem; }
     .tc-meta { display: flex; gap: 1.4rem; margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.66rem; flex-wrap: wrap; }

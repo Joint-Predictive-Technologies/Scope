@@ -5,13 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ticker Universe — Scope</title>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing:border-box; margin:0; padding:0; }
     html, body { height:100%; }
     body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; display:flex; flex-direction:column; overflow:hidden; }
-    nav { flex-shrink:0; border-bottom:1px solid var(--border); background:rgba(12,11,9,0.95); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
+    nav { flex-shrink:0; border-bottom:1px solid var(--border); background:var(--surface-nav); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
     .nav-brand { font-family:var(--font-sans); font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
     nav a { font-family:var(--font-mono); font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
     nav a:hover { color:var(--amber); }
@@ -68,7 +69,7 @@
   <span class="lg"><span class="sw" style="background:#8a8a92"></span>cap unknown</span>
   <span class="lg" id="lg-excluded"><span class="sw" style="background:#5b7fa6"></span>excluded (confirmed large cap — kept for audit)</span>
   <span class="lg">size = times seen (a count, not a score)</span>
-  <span class="lg">bright &amp; lively = seen recently · dim &amp; drifting outward = stale</span>
+  <span class="lg">vivid &amp; lively = seen recently · faded &amp; drifting outward = stale</span>
   <span class="lg">position is arbitrary — nothing here is ranked</span>
 </div>
 
@@ -213,11 +214,28 @@ function buildFixture(scenario) {
 }
 
 /* ── ENCODING CONSTANTS ── */
-const TINT = {                       // cap_status → color (legend must match)
+/* cap_status → colour (the legend must match).
+   DECISION for this canvas: ADAPT to light, do not keep the panel dark.
+   The recency encoding here is ALPHA (`globalAlpha = 0.28 + 0.72*rec`), not
+   brightness — alpha is luminance-agnostic, so "fresh = opaque, stale = faded
+   into the background" reads identically on black and on white. Nothing about
+   the encoding had to change. What did break on white is contrast: these tints
+   were picked to glow on near-black and sit at ~2.2:1 on paper, so light gets
+   deeper values, and the near-white hover ring had to become a dark one. */
+const TINT_DARK = {
   small:    '#c89664',               // --accent: the coverage target
   unknown:  '#8a8a92',               // --direction-neutral: unresolved cap
   excluded: '#5b7fa6',               // dimmed slate (from --link): audit-only
 };
+const TINT_LIGHT = {
+  small:    '#8a5a24',               // deeper copper — legible as a mark on paper
+  unknown:  '#5f5c55',
+  excluded: '#38618c',
+};
+function isLight() {
+  return document.documentElement.getAttribute('data-theme') === 'light';
+}
+let TINT = isLight() ? TINT_LIGHT : TINT_DARK;
 const R_MIN = 5, R_MAX = 26;         // world-unit ball radius bounds
 const RECENCY_HALFLIFE_DAYS = 7;     // brightness/motion half-life on last_seen_at
 const LAZY_THRESHOLD = 250;          // >= this many balls: settle layout once at
@@ -471,11 +489,15 @@ function frame(tNow) {
     ctx.fillStyle = b.tint;
     ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.fill();
     if (b === hoverBall) {
-      ctx.globalAlpha = 1; ctx.lineWidth = 1.5 / cam.z; ctx.strokeStyle = '#e8e8ee';
+      ctx.globalAlpha = 1; ctx.lineWidth = 1.5 / cam.z;
+      // Contrast against the FIELD, which follows the page background.
+      ctx.strokeStyle = isLight() ? '#1c1b18' : '#e8e8ee';
       ctx.beginPath(); ctx.arc(x, y, rr + 2 / cam.z, 0, Math.PI * 2); ctx.stroke();
     }
     if (rr > labelable && b.t.ticker.length * 5.4 < rr * 2.2) {
       ctx.globalAlpha = Math.min(1, 0.35 + 0.65 * b.rec);
+      // Sits ON the ball, so it contrasts with the tint, not the page —
+      // dark reads on every tint in both themes.
       ctx.fillStyle = '#0a0a0c';
       ctx.font = `500 ${Math.max(7, rr * 0.52)}px "JetBrains Mono", monospace`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -509,6 +531,16 @@ function setData(payload) {
     rows.some(r => r.cap_status === 'excluded') ? 'flex' : 'none';
   makeBalls(rows);
 }
+
+// Re-tint in place when the theme changes: the balls keep their positions and
+// their data, only the palette is swapped.
+document.addEventListener('scope:themechange', () => {
+  TINT = isLight() ? TINT_LIGHT : TINT_DARK;
+  for (const b of balls) b.tint = TINT[b.t.cap_status] || TINT.unknown;
+  document.querySelectorAll('#legend .sw').forEach((sw, i) => {
+    sw.style.background = [TINT.small, TINT.unknown, TINT.excluded][i] || sw.style.background;
+  });
+});
 
 resize();
 loadUniverse().then(payload => {

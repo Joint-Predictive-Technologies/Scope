@@ -6,12 +6,13 @@
   <title>Watchlist — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.92); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; }
     .nav-links { display: flex; gap: 2rem; align-items: center; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.75rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
@@ -36,8 +37,8 @@
     .wl-actions { margin-left: auto; display: flex; gap: 0.6rem; }
     .btn-view { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 12px; border-radius: 4px; text-decoration: none; transition: border-color 0.15s, color 0.15s; }
     .btn-view:hover { border-color: var(--amber); color: var(--amber); }
-    .btn-remove { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid rgba(192,57,43,0.3); color: #e55b4d; background: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; transition: background 0.15s; }
-    .btn-remove:hover { background: rgba(192,57,43,0.1); }
+    .btn-remove { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; border: 1px solid color-mix(in srgb, var(--severity-critical) 30%, transparent); color: var(--severity-critical); background: none; padding: 5px 12px; border-radius: 4px; cursor: pointer; transition: background 0.15s; }
+    .btn-remove:hover { background: color-mix(in srgb, var(--severity-critical) 10%, transparent); }
 
     .empty { padding: 3rem 0; text-align: center; font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
     .msg { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); padding: 0.4rem 0; min-height: 1.2rem; }
@@ -63,24 +64,24 @@
     .rule-msg { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); padding: 0.4rem 0; min-height: 1.2rem; }
 
     /* ── CMD PALETTE ── */
-    #cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
+    #cmd-backdrop { display:none; position:fixed; inset:0; background:var(--surface-overlay); z-index:9000; backdrop-filter:blur(4px); }
     #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
-    #cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; }
-    #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:var(--font-mono); font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
+    #cmd-box { background:var(--bg2); border:1px solid var(--border2); border-radius:10px; width:min(640px,92vw); overflow:hidden; }
+    #cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid var(--border); outline:none; font-family:var(--font-mono); font-size:0.9rem; color:var(--cream); padding:1rem 1.2rem; }
     #cmd-results { max-height:360px; overflow-y:auto; }
-    .cmd-group-label { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
+    .cmd-group-label { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); padding:0.6rem 1.2rem 0.2rem; }
     .cmd-item { display:flex; align-items:center; gap:0.8rem; padding:0.65rem 1.2rem; cursor:pointer; text-decoration:none; border-left:2px solid transparent; }
-    .cmd-item:hover,.cmd-item.active { background:#222018; border-left-color:#c8922a; }
+    .cmd-item:hover,.cmd-item.active { background:var(--bg3); border-left-color:var(--amber); }
     .cmd-item-icon { font-size:0.9rem; opacity:0.6; width:18px; text-align:center; flex-shrink:0; }
-    .cmd-item-main { font-family:var(--font-mono); font-size:0.75rem; color:#e8e0cc; }
-    .cmd-item-sub  { font-size:0.68rem; color:#7a7060; margin-top:1px; }
+    .cmd-item-main { font-family:var(--font-mono); font-size:0.75rem; color:var(--cream); }
+    .cmd-item-sub  { font-size:0.68rem; color:var(--muted); margin-top:1px; }
     .cmd-badge { font-family:var(--font-mono); font-size:0.55rem; padding:1px 5px; border-radius:2px; margin-left:auto; flex-shrink:0; }
-    .cmd-badge-CRITICAL { background:rgba(229,91,77,0.2); color:#e55b4d; }
-    .cmd-badge-HIGH     { background:rgba(200,146,42,0.2); color:#c8922a; }
-    .cmd-badge-MEDIUM   { background:rgba(106,176,224,0.2); color:#6ab0e0; }
-    .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
-    .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+    .cmd-badge-CRITICAL { background:color-mix(in srgb, var(--severity-critical) 20%, transparent); color:var(--severity-critical); }
+    .cmd-badge-HIGH     { background:color-mix(in srgb, var(--amber) 20%, transparent); color:var(--amber); }
+    .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
+    .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
+    .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
   
     /* --- unified nav mobile (injected) --- */
     .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 9px 13px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }

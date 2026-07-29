@@ -819,6 +819,12 @@ def rule_model():
         "instruments": sorted(set(instrument_of.values())),
     }
 
+@app.get("/theme.js", include_in_schema=False)
+def theme_js():
+    """Theme toggle. Served from <head> synchronously so the stored choice is
+    applied before first paint — deferring it flashes dark on every load."""
+    return FileResponse(STATIC_DIR / "theme.js", media_type="application/javascript")
+
 @app.get("/rule-names.js", include_in_schema=False)
 def rule_names_js():
     """Rule DISPLAY names. Presentation only — the programmatic ids that the

@@ -6,12 +6,13 @@
   <title>API Docs — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
@@ -27,7 +28,7 @@
     pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; overflow-x: auto; font-family: var(--font-mono); font-size: 0.74rem; line-height: 1.6; color: var(--cream2); margin-bottom: 1rem; }
     pre .c { color: var(--muted); } pre .k { color: var(--amber2); } pre .s { color: var(--green-light); }
     .endpoint { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
-    .ep-method { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; background: rgba(42,138,74,0.15); color: var(--green-light); border: 1px solid rgba(42,138,74,0.3); padding: 2px 7px; border-radius: 3px; }
+    .ep-method { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; background: color-mix(in srgb, var(--direction-buy) 15%, transparent); color: var(--green-light); border: 1px solid color-mix(in srgb, var(--direction-buy) 30%, transparent); padding: 2px 7px; border-radius: 3px; }
     .ep-path { font-family: var(--font-mono); font-size: 0.82rem; color: var(--amber2); margin-left: 0.5rem; }
     .ep-desc { color: var(--cream2); font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.6; }
     .ep-params { font-family: var(--font-mono); font-size: 0.68rem; color: var(--muted); margin-top: 0.4rem; }

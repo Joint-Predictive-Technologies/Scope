@@ -6,12 +6,13 @@
   <title>Sector War Room — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
@@ -33,9 +34,9 @@
     .row { display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.78rem; }
     .row:last-child { border-bottom: none; }
     .badge { font-family: var(--font-mono); font-size: 0.56rem; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; }
-    .b-CRITICAL { background: rgba(192,57,43,0.18); color: var(--red-light); }
-    .b-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); }
-    .b-MEDIUM { background: rgba(42,100,160,0.15); color: #6ab0e0; }
+    .b-CRITICAL { background: color-mix(in srgb, var(--severity-critical) 18%, transparent); color: var(--red-light); }
+    .b-HIGH { background: color-mix(in srgb, var(--amber) 15%, transparent); color: var(--amber2); }
+    .b-MEDIUM { background: color-mix(in srgb, var(--link) 15%, transparent); color: var(--link); }
     .tkr { font-family: var(--font-mono); color: var(--amber); text-decoration: none; font-size: 0.72rem; flex-shrink: 0; min-width: 42px; }
     .tkr:hover { color: var(--amber2); }
     .hl { color: var(--cream2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }

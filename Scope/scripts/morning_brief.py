@@ -642,6 +642,7 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 {_TEMPLATE_MARKER}
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/tokens.css"/>
 <script src="/rule-names.js"></script>
 <script src="/cmdk.js" defer></script>
@@ -723,7 +724,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "ui-restore-5"   # nav: + Dashboard(/home); shared ⌘K;
+TEMPLATE_VERSION = "light-theme-1"   # nav: + Dashboard(/home); shared ⌘K;
                                     # hero counted in the gate's units
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
