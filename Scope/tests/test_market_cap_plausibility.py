@@ -1242,3 +1242,48 @@ def test_a_cached_UNKNOWN_expires_sooner_than_a_cached_VALUE(monkeypatch):
     conn.commit()
     assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == 7_000_000
     conn.close()
+
+
+def test_a_FAILED_map_fetch_returns_None_and_is_NOT_memoised(monkeypatch):
+    """THE 429 BRANCH ITSELF. The tests above stub `_ticker_map`, so they pin what the
+    CALLER does with a `None` — not that a rate limit produces one. Returning `()`/`{}`
+    here collapses "could not ask" into "no symbols exist", which is what silently reverted
+    the fix to the deletion it exists to prevent, and cached that as a verdict for a week.
+    `resolve_insider_kind` has said "a 429 must be retried" since it was written.
+    """
+    monkeypatch.setattr(rc, "_TICKER_MAP", None)
+
+    class _RateLimited:
+        ok = False
+        status_code = 429
+
+        def json(self):                       # pragma: no cover — must never be reached
+            raise AssertionError("a 429 body was parsed as a map")
+
+    monkeypatch.setattr(rc.requests, "get", lambda *a, **k: _RateLimited())
+    assert rc._ticker_map() is None, "a 429 was reported as 'this CIK lists no symbols'"
+
+    def _boom(*a, **k):
+        raise rc.requests.RequestException("connection reset")
+
+    monkeypatch.setattr(rc.requests, "get", _boom)
+    assert rc._ticker_map() is None, "a transport exception was reported as an absence"
+    assert rc._TICKER_MAP is None, "a failure was memoised — the next run cannot retry"
+
+
+def test_a_SUCCESSFUL_map_fetch_IS_memoised_the_control(monkeypatch):
+    """Without this the test above passes on a module that never caches anything."""
+    monkeypatch.setattr(rc, "_TICKER_MAP", None)
+    calls = []
+
+    class _Ok:
+        ok = True
+
+        def json(self):
+            calls.append(1)
+            return {"0": {"cik_str": 71691, "ticker": "NYT"}}
+
+    monkeypatch.setattr(rc.requests, "get", lambda *a, **k: _Ok())
+    assert rc._ticker_map() == {"71691": ("NYT",)}
+    assert rc._ticker_map() == {"71691": ("NYT",)}
+    assert calls == [1], f"the map was re-downloaded {len(calls)} times"
