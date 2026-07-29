@@ -408,8 +408,10 @@ def _horizon_expr(horizon_days: int) -> str:
     `corpus_meta` computed `date.today() - timedelta(days=N)` — Python's LOCAL clock — while
     this predicate has always used SQLite's `date('now')`, which is UTC. Measured on one
     instant: `TZ=Europe/Berlin` agreed, `TZ=Pacific/Auckland` published 2026-06-15 where the
-    predicate used 2026-06-14. On the host's own zone they differ for the two hours of every
-    day between 22:00 and 24:00 UTC.
+    predicate used 2026-06-14. On the host's own zone they differ whenever local midnight has
+    passed and UTC's has not — two hours a day under CEST, one under CET, which is 6.6% of
+    2026's minutes measured over the year. (An earlier draft wrote "the two hours of every
+    day" as though the offset never changed.)
 
     That is wrong precisely in the case the field exists for. Its docstring says resolving
     the horizon makes the scanned population RE-DERIVABLE by a reader — and a boundary on
@@ -514,9 +516,12 @@ def _display_names(conn) -> dict[str, dict]:
     for the same reason. Taking the first row of a CIK-sorted scan meant that once two
     PADDINGS of one CIK collapse to one key, the rendered name came from whichever padding
     sorted first rather than from the most recent filing: the key was canonical while the
-    label was decided by string order. A certify pass measured it live — `0000741021` /
-    `741021` correctly key to `741021`, and rendered the OLDER name. The asymmetry is now
-    gone; the pick is still a function of the corpus alone, never of row order.
+    label was decided by string order. A certify pass demonstrated it on a CONSTRUCTED
+    fixture (`0000741021` / `741021` key correctly to `741021` and rendered the OLDER name)
+    — NOT on corpus data: every `insider_cik` in today's corpus is 10 characters, so 0 of
+    1,364 normalised CIKs carry two paddings and the defect is LATENT here. An earlier draft
+    of this paragraph said "measured it live", which claimed more than the evidence. The
+    asymmetry is gone either way; the pick is still a function of the corpus alone.
 
     Ties on `filing_date` fall to `(name, title)` ascending, so the choice is deterministic
     rather than a set-iteration artefact (K12).

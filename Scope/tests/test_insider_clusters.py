@@ -1365,9 +1365,16 @@ def _horizon_in_tz(tz: str, repo: str | None = None) -> tuple[str, str]:
     """`(published horizon_start, the predicate's own boundary)` from a SEPARATE PROCESS
     under `TZ`, on ONE database at ONE instant.
 
-    A subprocess, not `monkeypatch`: `date.today()` reads the C library's timezone, which
-    is captured at first use and cannot be moved from inside a running interpreter. A test
-    that sets `os.environ['TZ']` in-process silently measures nothing.
+    A subprocess, not an in-process `os.environ['TZ']` flip. ⚠️ THE REASON IS PORTABILITY
+    AND LEAKAGE, NOT IMPOSSIBILITY — an earlier version of this docstring claimed an
+    in-process flip "silently measures nothing", and that is FALSE on this host: Darwin's
+    `localtime_r` re-reads `TZ` on every call, so `date.today()` does move (only
+    `time.tzname` goes stale). Measured: `TZ=Pacific/Kiritimati` in-process gives
+    2026-07-30 where UTC is 2026-07-29, with no `time.tzset()` call.
+
+    It is a subprocess because glibc does NOT re-read `TZ` until `time.tzset()`, so the
+    in-process form is platform-dependent, and because the mutation is process-global and
+    would leak into every test that runs after it.
     """
     repo = repo or os.path.join(os.path.dirname(__file__), "..")
     src = textwrap.dedent("""
