@@ -497,6 +497,7 @@ function renderReceipts(r){
     if (Object.keys(ruleCount).length < 2) return '';
     // Rendered after the model resolves (see hydrateRuleGraph).
     window._graphCounts = ruleCount;
+    window._graphAlerts = alerts;
     return `
       <div class="section-label">Signal Relationship Graph</div>
       <div class="graph-wrap">
@@ -511,6 +512,7 @@ function renderReceipts(r){
   async function hydrateRuleGraph() {
     const svgEl = document.getElementById('rel-graph');
     const counts = window._graphCounts;
+    const alertsForGraph = window._graphAlerts || [];
     if (!svgEl || !counts || typeof d3 === 'undefined') return;
     const model = await loadRuleModel();
 
@@ -546,17 +548,33 @@ function renderReceipts(r){
     const maxLegCount = Math.max(1, ...nodes.filter(n => n.kind === 'instrument')
                                             .map(n => n.count));
 
-    // The instruments actually present — the gate counts INSTRUMENTS, so this,
-    // not the node count, is the honest measure of breadth.
-    const instrumentsPresent = [...new Set(nodes.filter(n => n.kind === 'instrument')
+    // Breadth is counted in the gate's units AND over the gate's window. The
+    // graph draws a year of activity (that is what the page fetches), but the
+    // gate only corroborates instruments landing within CONVERGENCE_WINDOW_DAYS,
+    // so counting a year's worth here would announce a convergence the engine
+    // would refuse — three instruments spread over twelve months converge on
+    // nothing. The header therefore states the window it counted.
+    const winDays = model.window_days || 14;
+    const winCut = Date.now() - winDays * 86400e3;
+    const inWindowRules = new Set(
+      alertsForGraph.filter(a => {
+        const t = Date.parse(String(a.created_at || '').replace(' ', 'T') + 'Z');
+        return !isNaN(t) && t >= winCut;
+      }).map(a => a.rule));
+    const instrumentsPresent = [...new Set(
+      nodes.filter(n => n.kind === 'instrument' && inWindowRules.has(n.id))
+           .map(n => n.instrument))];
+    const instrumentsAllTime = [...new Set(nodes.filter(n => n.kind === 'instrument')
                                                 .map(n => n.instrument))];
     const need = model.min_instruments || 3;
 
     document.getElementById('graph-head').innerHTML = model._degraded
       ? `<span style="color:var(--muted)">Signal model unavailable — every signal is shown as context, none as corroborating.</span>`
       : `<b style="color:var(--cream)">${instrumentsPresent.length}</b> corroborating instrument${instrumentsPresent.length === 1 ? '' : 's'}
-         of <b style="color:var(--cream)">${need}</b> needed to converge${gateFired ? ' · <span style="color:var(--amber)">corroboration fired</span>' : ''}.
-         Edges show which signals fired on this ticker — not that they agree.`;
+         in the last ${winDays} days, of <b style="color:var(--cream)">${need}</b> needed to converge${gateFired ? ' · <span style="color:var(--amber)">corroboration fired</span>' : ''}.
+         Edges show every signal that fired on this ticker in the last year — activity, not agreement${
+           instrumentsAllTime.length > instrumentsPresent.length
+             ? ` (${instrumentsAllTime.length} instruments appear across the full year, too far apart to converge)` : ''}.`;
 
     const svg = d3.select(svgEl);
     svg.selectAll('*').remove();

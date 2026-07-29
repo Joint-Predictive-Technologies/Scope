@@ -800,6 +800,10 @@ def rule_model():
     """
     from jpt_common import (RULE_10_EXCLUDED, RULE_10_INSTRUMENTS,
                             RULE_10_MIN_INSTRUMENTS, rule10_instruments)
+    # The window matters as much as the threshold: instruments only corroborate
+    # if they land within it. A caller counting instruments over a longer period
+    # would claim a convergence the gate would refuse.
+    from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
     known = sorted(set(RULE_10_INSTRUMENTS) | set(RULE_10_EXCLUDED))
     instrument_of = {}
     for rule in known:
@@ -809,6 +813,7 @@ def rule_model():
     return {
         "gate_rule": "RULE_10",
         "min_instruments": RULE_10_MIN_INSTRUMENTS,
+        "window_days": CONVERGENCE_WINDOW_DAYS,
         "instrument_of": instrument_of,                      # eligible rules only
         "excluded": sorted(r for r in RULE_10_EXCLUDED if r != "RULE_10"),
         "instruments": sorted(set(instrument_of.values())),
