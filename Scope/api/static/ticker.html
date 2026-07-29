@@ -533,11 +533,30 @@ function renderReceipts(r){
     const gateFired = rules.includes(model.gate_rule || 'RULE_10');
     const drawn = rules.filter(r => r !== (model.gate_rule || 'RULE_10'));
 
+    // The page's alert fetch is a SUBSTRING match (tickers.py:297
+    // `ticker LIKE '%SYM%'`), so /ticker/PWR also collects MPWR's alerts and
+    // every basket containing "PWR". Drawing those as a solid "corroborating
+    // instrument" leg attributes another company's filing to this one. A rule
+    // therefore only earns leg status if it has at least one alert whose ticker
+    // is EXACTLY this page's — the same grouping the gate uses
+    // (rule_10_corroboration.py:164). Anything matched only via a related or
+    // basket symbol stays context, and says so.
+    const pageKey = String(queryKey || '').replace(/\$/g, '').trim().toUpperCase();
+    const tickerOf = a => String(a.ticker || '').replace(/\$/g, '').trim().toUpperCase();
+    const isExact  = a => tickerOf(a) === pageKey;
+    const gateSev  = a => ['HIGH', 'CRITICAL'].includes(String(a.severity || '').toUpperCase());
+    const exactCount = {};
+    for (const a of alertsForGraph) if (isExact(a)) exactCount[a.rule] = (exactCount[a.rule] || 0) + 1;
+
     const nodes = drawn.map(r => {
-      const kind = classifyRule(r, model);
+      const eligible = classifyRule(r, model);
+      // Eligible-but-borrowed: the rule can corroborate in general, but not
+      // here — every one of its alerts belongs to a different symbol.
+      const borrowed = eligible === 'instrument' && !exactCount[r];
+      const kind = borrowed ? 'context' : eligible;
       const inst = (model.instrument_of || {})[r] || null;
       return {
-        id: r, kind, instrument: inst, count: counts[r],
+        id: r, kind, instrument: inst, count: counts[r], borrowed,
         color: kind === 'instrument' ? instrumentColor(inst, model) : '#6b6b73',
         // NODE SIZE = alerts this rule fired on this ticker (real field).
         radius: 11 + Math.round((counts[r] / maxCount) * 9),
@@ -564,8 +583,13 @@ function renderReceipts(r){
     // nothing. The header therefore states the window it counted.
     const winDays = model.window_days || 14;
     const winCut = Date.now() - winDays * 86400e3;
+    // Counted exactly as the gate counts: this ticker only, at HIGH/CRITICAL,
+    // inside the window. Without the severity floor the header claimed
+    // instruments the gate refuses — /ticker/MSFT read "2 instruments" off
+    // eleven MEDIUM Federal Register rows.
     const inWindowRules = new Set(
       alertsForGraph.filter(a => {
+        if (!isExact(a) || !gateSev(a)) return false;
         const t = Date.parse(String(a.created_at || '').replace(' ', 'T') + 'Z');
         return !isNaN(t) && t >= winCut;
       }).map(a => a.rule));
@@ -574,6 +598,7 @@ function renderReceipts(r){
            .map(n => n.instrument))];
     const instrumentsAllTime = [...new Set(nodes.filter(n => n.kind === 'instrument')
                                                 .map(n => n.instrument))];
+    const nAll = instrumentsAllTime.length;
     const need = model.min_instruments || 3;
 
     document.getElementById('graph-head').innerHTML = model._degraded
@@ -582,7 +607,7 @@ function renderReceipts(r){
          in the last ${winDays} days, of <b style="color:var(--cream)">${need}</b> needed to converge${gateFired ? ' · <span style="color:var(--amber)">corroboration fired</span>' : ''}.
          Edges show every signal that fired on this ticker in the last year — activity, not agreement${
            instrumentsAllTime.length > instrumentsPresent.length
-             ? ` (${instrumentsAllTime.length} instruments appear across the full year, too far apart to converge)` : ''}.`;
+             ? ` (${nAll} instrument${nAll === 1 ? '' : 's'} appear${nAll === 1 ? 's' : ''} across the full year, but not together inside the window)` : ''}.`;
 
     const svg = d3.select(svgEl);
     svg.selectAll('*').remove();
@@ -620,7 +645,9 @@ function renderReceipts(r){
       .text(d => `${ruleName(d.id)} — ${d.count} alert${d.count === 1 ? '' : 's'} · `
                + (d.kind === 'instrument'
                   ? `corroborating instrument: ${d.instrument}`
-                  : 'context only — excluded from corroboration'));
+                  : d.borrowed
+                    ? `not on this ticker — every alert belongs to a related or basket symbol, so it cannot corroborate ${pageKey}`
+                    : 'context only — excluded from corroboration'));
 
     const center = svg.append('g').attr('class', 'graph-center');
     center.append('circle').attr('r', 24).attr('fill', '#c8922a').attr('fill-opacity', 0.9);
