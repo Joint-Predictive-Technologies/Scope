@@ -20,6 +20,8 @@ import subprocess
 import sys
 import textwrap
 
+import zlib
+
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -46,6 +48,11 @@ def _db():
     return conn
 
 
+def _issuer_id(ticker: str) -> str:
+    """A deterministic, cross-process-stable numeric issuer CIK for a test ticker."""
+    return str(zlib.crc32(ticker.strip().upper().encode()) or 1)
+
+
 def _row(conn, accession, owner_seq, txn_index, *, ticker="SMLC", cik="1",
          name="Doe Jane", kind="person", code="P", ad="A", value=100_000.0,
          days_ago=1, plan=0, derivative=0, title="CFO", shares=100.0, issuer=None,
@@ -60,10 +67,13 @@ def _row(conn, accession, owner_seq, txn_index, *, ticker="SMLC", cik="1",
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
         f"date('now','-{int(days_ago)} days'), date('now'),?,?)",
         (accession, owner_seq, txn_index, ticker,
-         # Issuer identity defaults to the ticker so a test that does not care about
-         # issuer identity behaves as it reads. Tests about ticker VARIANTS pass an
-         # explicit shared issuer, which is what makes them a real K10 test.
-         issuer if issuer is not None else f"ISS-{ticker.strip().upper()}",
+         # Issuer identity defaults to a stable NUMERIC id derived from the ticker, so a
+         # test that does not care about issuer identity behaves as it reads. Tests about
+         # ticker VARIANTS pass an explicit shared issuer — what makes them a real K10 test.
+         # ⚠️ NUMERIC, because `find_clusters` now normalises the issuer through
+         # `_norm_cik`, which treats a non-numeric id as ABSENT — the module's own rule for
+         # an unusable identity. `crc32` (not `hash`) so it is stable across processes.
+         issuer if issuer is not None else _issuer_id(ticker),
          security,
          cik, name, name.upper(), kind, title,
          code, ad, shares, value / max(shares, 1), value, derivative, plan))
@@ -248,9 +258,9 @@ def test_K9_padded_vs_unpadded_does_not_fabricate_a_second_insider():
 def test_K10_ticker_case_and_form_variants_are_ONE_cluster(variants):
     conn = _db()
     _row(conn, "A1", 0, 0, cik="100", ticker=variants[0], value=100_000.0, days_ago=1,
-         issuer="ISS-1")
+         issuer="9000001")
     _row(conn, "A2", 0, 0, cik="200", ticker=variants[1], value=100_000.0, days_ago=2,
-         issuer="ISS-1")
+         issuer="9000001")
     clusters = ic.find_clusters(conn)
     conn.close()
     assert len(clusters) == 1, f"{variants} did not group as one ticker (K10)"
@@ -416,10 +426,13 @@ def test_a_NULL_10b5_1_is_KEPT_and_SURFACED_not_excluded():
     conn = _db()
     for acc, cik in (("A1", "100"), ("A2", "200")):
         conn.execute(
+            # `security_title` is set because the trade key now FAILS CLOSED without one;
+            # this test is about a NULL `is_10b5_1`, not about an untitled security.
             "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
-            "issuer_cik, insider_cik, insider_name, insider_name_norm, insider_kind, "
-            "txn_code, acquired_disposed, shares, price, value, txn_date, filing_date, "
-            "is_derivative, is_10b5_1) VALUES (?,0,0,'SMLC','ISS-SMLC',?,'N','N',"
+            "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
+            "insider_kind, txn_code, acquired_disposed, shares, price, value, txn_date, "
+            "filing_date, is_derivative, is_10b5_1) "
+            "VALUES (?,0,0,'SMLC','866611680','Common Stock',?,'N','N',"
             "'person','P','A',100,1000.0,100000.0, date('now','-1 days'), date('now'), "
             "0, NULL)",
             (acc, cik))
@@ -646,9 +659,9 @@ def test_THE_FIFTEENTH_SITE_the_issuer_is_identified_by_cik_not_by_its_ticker_st
     A ticker RENAME mid-horizon splits one company's cluster in two.
     """
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="OLDT", issuer="ISS-9", value=100_000.0,
+    _row(conn, "A1", 0, 0, cik="100", ticker="OLDT", issuer="9000009", value=100_000.0,
          days_ago=2)
-    _row(conn, "A2", 0, 0, cik="200", ticker="NEWT", issuer="ISS-9", value=100_000.0,
+    _row(conn, "A2", 0, 0, cik="200", ticker="NEWT", issuer="9000009", value=100_000.0,
          days_ago=1)
     clusters = ic.find_clusters(conn)
     conn.close()
@@ -659,8 +672,8 @@ def test_THE_FIFTEENTH_SITE_the_issuer_is_identified_by_cik_not_by_its_ticker_st
 def test_THE_FIFTEENTH_SITE_a_REUSED_ticker_does_not_merge_two_issuers():
     """The other direction: one symbol, two genuinely different companies."""
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="SAME", issuer="ISS-A", value=100_000.0)
-    _row(conn, "A2", 0, 0, cik="200", ticker="SAME", issuer="ISS-B", value=100_000.0)
+    _row(conn, "A1", 0, 0, cik="100", ticker="SAME", issuer="9000101", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="SAME", issuer="9000102", value=100_000.0)
     clusters = ic.find_clusters(conn)
     conn.close()
     assert clusters == [], "two different issuers merged through a shared ticker string"
@@ -758,11 +771,11 @@ def test_the_issuer_LABEL_is_deterministic_when_two_tickers_tie_on_filing_date()
     through to SQL row order — so the published symbol for one issuer could differ
     between runs. Two tickers, one issuer, one filing date."""
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="ZZZZ", issuer="ISS-1", value=100_000.0,
+    _row(conn, "A1", 0, 0, cik="100", ticker="ZZZZ", issuer="9000001", value=100_000.0,
          days_ago=1)
-    _row(conn, "A2", 0, 0, cik="200", ticker="AAAA", issuer="ISS-1", value=100_000.0,
+    _row(conn, "A2", 0, 0, cik="200", ticker="AAAA", issuer="9000001", value=100_000.0,
          days_ago=1)
-    labels = [ic.issuer_labels(conn)["ISS-1"] for _ in range(5)]
+    labels = [ic.issuer_labels(conn)["9000001"] for _ in range(5)]
     conn.close()
     assert len(set(labels)) == 1, f"the issuer label was unstable: {set(labels)}"
     assert labels[0] == "AAAA", ("the tie must resolve by sorted ticker, not by row "
@@ -857,7 +870,7 @@ def test_SITE16_the_other_direction_one_company_is_not_SPLIT_by_a_missing_id():
     issuer id and once WITHOUT became two groups. Failing closed drops the unidentifiable
     leg rather than inventing a second company for it."""
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="FOO", issuer="ISS-1", value=100_000.0,
+    _row(conn, "A1", 0, 0, cik="100", ticker="FOO", issuer="9000001", value=100_000.0,
          days_ago=1)
     _row(conn, "A2", 0, 0, cik="200", ticker="FOO", issuer="", value=100_000.0,
          days_ago=2)
@@ -878,11 +891,11 @@ def test_SITE17_two_share_classes_under_ONE_TICKER_do_not_collapse():
     stay distinct on the thing that actually distinguishes them.
     """
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="BFLY", issuer="ISS-1", value=50_000.0,
+    _row(conn, "A1", 0, 0, cik="100", ticker="BFLY", issuer="9000001", value=50_000.0,
          security="Class A Common Stock", days_ago=1)
-    _row(conn, "A2", 0, 0, cik="100", ticker="BFLY", issuer="ISS-1", value=50_000.0,
+    _row(conn, "A2", 0, 0, cik="100", ticker="BFLY", issuer="9000001", value=50_000.0,
          security="Class B Common Stock", days_ago=1)
-    _row(conn, "A3", 0, 0, cik="900", ticker="BFLY", issuer="ISS-1", value=40_000.0,
+    _row(conn, "A3", 0, 0, cik="900", ticker="BFLY", issuer="9000001", value=40_000.0,
          security="Class A Common Stock", days_ago=1)
     clusters = ic.find_clusters(conn)
     conn.close()
@@ -896,11 +909,11 @@ def test_SITE17_ONE_security_under_TWO_TICKERS_is_not_double_counted():
     corpus, so a 4/A that retypes the symbol used to re-file the same trade as a new one
     and DOUBLE-COUNT $50,000."""
     conn = _db()
-    _row(conn, "ORIG", 0, 0, cik="100", ticker="NYT", issuer="ISS-1", value=50_000.0,
+    _row(conn, "ORIG", 0, 0, cik="100", ticker="NYT", issuer="9000001", value=50_000.0,
          security="Class A Common Stock", days_ago=3)
-    _row(conn, "AMEND", 0, 0, cik="100", ticker="NYT.A", issuer="ISS-1", value=50_000.0,
+    _row(conn, "AMEND", 0, 0, cik="100", ticker="NYT.A", issuer="9000001", value=50_000.0,
          security="Class A Common Stock", days_ago=3)
-    _row(conn, "OTH", 0, 0, cik="900", ticker="NYT", issuer="ISS-1", value=40_000.0,
+    _row(conn, "OTH", 0, 0, cik="900", ticker="NYT", issuer="9000001", value=40_000.0,
          security="Class A Common Stock", days_ago=2)
     clusters = ic.find_clusters(conn)
     conn.close()
@@ -913,11 +926,11 @@ def test_a_CASE_VARIANT_of_one_security_title_is_ONE_security():
     over-split, traded for the one being fixed. Normalization is what makes the canonical
     id safe to use."""
     conn = _db()
-    _row(conn, "ORIG", 0, 0, cik="100", ticker="BYRN", issuer="ISS-1", value=50_000.0,
+    _row(conn, "ORIG", 0, 0, cik="100", ticker="BYRN", issuer="9000001", value=50_000.0,
          security="Common stock", days_ago=3)
-    _row(conn, "AMEND", 0, 0, cik="100", ticker="BYRN", issuer="ISS-1", value=50_000.0,
+    _row(conn, "AMEND", 0, 0, cik="100", ticker="BYRN", issuer="9000001", value=50_000.0,
          security="Common Stock", days_ago=3)
-    _row(conn, "OTH", 0, 0, cik="900", ticker="BYRN", issuer="ISS-1", value=40_000.0,
+    _row(conn, "OTH", 0, 0, cik="900", ticker="BYRN", issuer="9000001", value=40_000.0,
          security="Common Stock", days_ago=2)
     clusters = ic.find_clusters(conn)
     conn.close()
@@ -1010,11 +1023,11 @@ def test_the_TICKER_is_no_longer_an_identity_component():
     """The whole point. One issuer, one security, two typed symbols, and a third insider
     so a cluster forms — the trade must dedupe on the security, not the string."""
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="ZZZZ", issuer="ISS-1", value=50_000.0,
+    _row(conn, "A1", 0, 0, cik="100", ticker="ZZZZ", issuer="9000001", value=50_000.0,
          security="Common Stock", days_ago=2)
-    _row(conn, "A2", 0, 0, cik="100", ticker="ZZZZ.A", issuer="ISS-1", value=50_000.0,
+    _row(conn, "A2", 0, 0, cik="100", ticker="ZZZZ.A", issuer="9000001", value=50_000.0,
          security="Common Stock", days_ago=2)
-    _row(conn, "A3", 0, 0, cik="200", ticker="ZZZZ", issuer="ISS-1", value=40_000.0,
+    _row(conn, "A3", 0, 0, cik="200", ticker="ZZZZ", issuer="9000001", value=40_000.0,
          security="Common Stock", days_ago=1)
     clusters = ic.find_clusters(conn)
     conn.close()
@@ -1084,7 +1097,7 @@ def test_an_offset_suffixed_row_is_INCLUDED_not_silently_dropped():
         "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
         "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
         "insider_kind, txn_code, acquired_disposed, shares, price, value, txn_date, "
-        "filing_date, is_derivative, is_10b5_1) VALUES ('OFF',0,0,'SMLC','ISS-1',"
+        "filing_date, is_derivative, is_10b5_1) VALUES ('OFF',0,0,'SMLC','9000001',"
         "'Common Stock','100','N','N','person','P','A',100,1000.0,100000.0, "
         "date('now','-1 days') || '-05:00', date('now'), 0, 0)")
     conn.commit()
@@ -1100,7 +1113,7 @@ def test_the_scan_drops_are_PUBLISHED_and_name_their_population():
     the scan's own drops. Both are published now, each saying which population it is —
     and the scan block shares `_buy_predicate` with the scan, so it cannot drift."""
     conn = _db()
-    _row(conn, "GOOD", 0, 0, cik="100", issuer="ISS-1", value=100_000.0)
+    _row(conn, "GOOD", 0, 0, cik="100", issuer="9000001", value=100_000.0)
     _row(conn, "NOISS", 0, 0, cik="200", issuer="", value=100_000.0)
     meta = ic.corpus_meta(conn)
     conn.close()
@@ -1115,9 +1128,228 @@ def test_the_scan_block_uses_the_SAME_predicate_as_the_scan():
     """Reconciliation by construction, not by remembering. A row excluded from the scan
     (a sell) must not appear in the scan diagnostics either."""
     conn = _db()
-    _row(conn, "BUY", 0, 0, cik="100", issuer="ISS-1", value=100_000.0)
+    _row(conn, "BUY", 0, 0, cik="100", issuer="9000001", value=100_000.0)
     _row(conn, "SELL", 0, 0, cik="200", issuer="", code="S", ad="D", value=100_000.0)
     meta = ic.corpus_meta(conn)
     conn.close()
     assert meta["scan"]["transactions"] == 1, "a sell leaked into the scan diagnostics"
     assert meta["scan"]["dropped_no_issuer_cik"] == 0
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  CLOSE-OUT — the entity taxonomy, pinned behaviourally
+#
+#  Every test below kills a mutant that the previous pass left alive. See
+#  `vault/Scope/01_Architecture/insider-cluster-entity-taxonomy.md` for the
+#  fifteen entities these close.
+# ════════════════════════════════════════════════════════════════════════════
+
+def test_M01_the_cap_gate_is_keyed_on_the_ISSUER_CIK_not_the_typed_ticker(monkeypatch):
+    """THE MUTANT THAT REVERTED THE FIX AND LEFT 838 TESTS GREEN.
+
+    Every cap stub in this file is `lambda conn, cik, **k`, which accepts ANY second
+    argument — so `cap_fn(conn, issuer)` and `cap_fn(conn, ticker)` are indistinguishable
+    to all of them and the commit's entire subject was untested. This stub RECORDS its
+    second argument.
+
+    It matters because the gate FAILS CLOSED: a label that will not resolve does not
+    mis-display a cluster, it DELETES it.
+    """
+    seen = []
+    monkeypatch.setattr(ic, "classify_cap_by_cik",
+                        lambda conn, key, **k: (seen.append(key), ("small", 4e8))[1])
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="NYT", issuer="71691", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="NYT", issuer="71691", value=100_000.0)
+    ic.find_clusters(conn)
+    conn.close()
+    assert seen == ["71691"], f"the gate was keyed on {seen!r}, not the issuer CIK"
+
+
+def test_the_price_HINTS_carry_the_raw_label_FIRST(monkeypatch):
+    """`normalize_ticker` canonicalises to DOT form (`BRK-B` -> `BRK.B`) for Scope's
+    internal matching, while SEC and Yahoo both use the HYPHEN form. Normalising before
+    pricing broke every class-share ticker at this gate, so the raw label goes first."""
+    seen = {}
+    monkeypatch.setattr(ic, "classify_cap_by_cik",
+                        lambda conn, key, **k: (seen.update(k), ("small", 4e8))[1])
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="BRK-B", issuer="1067983", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="BRK-B", issuer="1067983", value=100_000.0)
+    ic.find_clusters(conn)
+    conn.close()
+    assert seen["price_hints"][0] == "BRK-B", \
+        f"the NORMALISED label was tried first: {seen.get('price_hints')}"
+
+
+def test_ENTITY_2_the_issuer_is_NORMALISED_so_padding_cannot_split_a_company():
+    """K9 on the issuer axis. `'0000012345'` and `'12345'` are ONE company; keying the
+    group on the raw string split their trades and published ZERO clusters where one
+    exists. Latent on today's corpus (523 issuer CIKs, all 10-padded) — a property of the
+    ingest, not a guarantee of the key."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="SMLC", issuer="0000012345", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="SMLC", issuer="12345", value=100_000.0)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert len(clusters) == 1, "two paddings of one CIK were treated as two issuers"
+    assert clusters[0]["issuer_cik"] == "12345"
+    assert len(clusters[0]["insiders"]) == 2
+
+
+def test_ENTITY_11_the_issuer_LABEL_is_keyed_on_the_NORMALISED_cik():
+    """The label map keyed on `str(issuer).strip()` while the group key is now normalised
+    — a mismatch that hands every mixed-padding issuer an EMPTY label."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, ticker="OLDT", issuer="0000012345", days_ago=9)
+    _row(conn, "A2", 0, 0, ticker="NEWT", issuer="12345", days_ago=1)
+    labels = ic.issuer_labels(conn)
+    conn.close()
+    assert set(labels) == {"12345"}, f"the label map is not normalised: {list(labels)}"
+
+
+def test_the_LABEL_is_the_most_recent_filing_across_BOTH_paddings():
+    """`setdefault` over `ORDER BY issuer_cik, filing_date DESC` picked the first row of a
+    RAW-string group, so once two paddings collapse the winner is whichever PADDING sorts
+    first — not the most recent filing. Here the newer ticker is filed under the SHORTER
+    padding, which sorts second."""
+    conn = _db()
+    conn.execute(
+        "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
+        "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
+        "txn_code, acquired_disposed, shares, price, value, txn_date, filing_date, "
+        "is_derivative, is_10b5_1) VALUES "
+        "('OLD',0,0,'OLDT','0000012345','Common Stock','1','N','N','P','A',1,1,1,"
+        " date('now','-9 days'), date('now','-9 days'),0,0)")
+    conn.execute(
+        "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
+        "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
+        "txn_code, acquired_disposed, shares, price, value, txn_date, filing_date, "
+        "is_derivative, is_10b5_1) VALUES "
+        "('NEW',0,0,'NEWT','12345','Common Stock','2','N','N','P','A',1,1,1,"
+        " date('now','-1 days'), date('now','-1 days'),0,0)")
+    conn.commit()
+    labels = ic.issuer_labels(conn)
+    conn.close()
+    assert labels["12345"] == "NEWT", \
+        f"the label came from the padding that sorts first, not the newest filing: {labels}"
+
+
+def test_an_UNUSABLE_issuer_id_is_ABSENT_not_a_namespace():
+    """The same rule `_norm_cik` applies to people. A non-numeric or all-zero issuer id
+    cannot identify a company, and grouping on it merged unrelated filers."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="SMLC", issuer="NOT-A-CIK", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="SMLC", issuer="0000000000", value=100_000.0)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters == [], "an unusable issuer id formed a cluster"
+
+
+def test_ENTITY_3_an_ABSENT_security_title_FAILS_CLOSED_it_is_not_a_namespace():
+    """`normalize_security(None) == ''`, and `''` entered the trade key unguarded — so two
+    genuinely DIFFERENT securities of one issuer merged under one empty namespace. The
+    over-merge direction, which this module calls the worse one."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=50_000.0, security=None)
+    _row(conn, "A2", 0, 0, cik="200", value=50_000.0, security="")
+    _row(conn, "A3", 0, 0, cik="900", value=40_000.0, security="Common Stock")
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters == [], "untitled securities formed a cluster"
+
+
+def test_the_untitled_legs_are_COUNTED_and_PUBLISHED_not_silently_dropped():
+    """A silent drop is how a surface lies about its own coverage."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", value=100_000.0)
+    _row(conn, "A3", 0, 0, cik="900", value=70_000.0, security=None)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert len(clusters) == 1
+    assert clusters[0]["dropped_unnamed_security"] == 1
+    assert clusters[0]["total_value"] == 200_000.0, "an unnameable security's dollars counted"
+
+
+def test_a_TITLED_security_still_clusters_the_control():
+    """The other direction — without this the guard could reject everything and pass."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=100_000.0, security="Common Stock")
+    _row(conn, "A2", 0, 0, cik="200", value=100_000.0, security="COMMON  stock")
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert len(clusters) == 1 and clusters[0]["total_value"] == 200_000.0
+
+
+def test_dropped_unparseable_date_counts_TRANSACTIONS_not_date_STRINGS():
+    """THE UNITS DEFECT, introduced by the commit that fixed the same defect one field
+    over. Three dropped transactions sharing ONE bad date string reported as 1, while
+    every sibling counter in this block counts transactions."""
+    conn = _db()
+    for acc in ("A1", "A2", "A3"):
+        _row(conn, acc, 0, 0, cik="1", value=1.0)
+        # SQLite normalises `9998-02-30` to a real date (so the row CLEARS the horizon
+        # predicate and IS in the scan population); Python's `fromisoformat` rejects it.
+        # Far-future so the row cannot age out of the horizon and quietly stop testing.
+        conn.execute("UPDATE form4_transactions SET txn_date='9998-02-30' "
+                     "WHERE accession=?", (acc,))
+    conn.commit()
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert meta["scan"]["dropped_unparseable_date"] == 3, \
+        "three dropped transactions sharing one bad date string were counted as one"
+
+
+def test_a_date_NEITHER_engine_can_read_is_counted_in_its_OWN_population():
+    """`date(substr(...))` returns NULL for `'JULY 22, 2026'`, so the horizon predicate is
+    NULL and the row never enters the scan population — and the scan's own counter only
+    sees rows that CLEARED that predicate. It was counted NOWHERE, and the claim "any
+    genuinely unparseable date is counted" was false.
+
+    It gets its own population because horizon membership is exactly what cannot be
+    determined for these rows."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="1", value=1.0)
+    conn.execute("UPDATE form4_transactions SET txn_date='JULY 22, 2026'")
+    conn.commit()
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert meta["scan"]["transactions"] == 0, "an unreadable date entered the scan"
+    assert meta["buy_path_undatable"]["transactions"] == 1, \
+        "a date neither engine can read was counted nowhere"
+    assert "undeterminable" in meta["buy_path_undatable"]["population"]
+
+
+def test_the_untitled_drop_is_published_over_the_SCANS_population():
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="1", value=1.0, security=None)
+    _row(conn, "A2", 0, 0, cik="2", value=1.0, security="Common Stock")
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert meta["scan"]["dropped_no_security_title"] == 1
+
+
+def test_ENTITIES_12_13_the_router_PUBLISHES_identity_not_only_labels():
+    """The pipeline computed `person_id` and `issuer_cik` and the router threw both away:
+    two PROVABLY DISTINCT people with the same name rendered identically, and two
+    different issuers both published as `"ticker": "ACME"` with no field to key on."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routers import insider_clusters as router_mod
+
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="3001", name="SMITH JOHN", ticker="SMLC", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="3002", name="SMITH JOHN", ticker="SMLC", value=100_000.0)
+    conn.close()
+
+    app = FastAPI()
+    app.include_router(router_mod.router)
+    body = TestClient(app).get("/insider-clusters").json()
+    c = body["clusters"][0]
+    assert c["issuer_cik"] == _issuer_id("SMLC"), "the company is published as a label only"
+    ids = [tuple(i["person_id"]) for i in c["insiders"]]
+    assert len(set(ids)) == 2, f"two distinct people published indistinguishably: {ids}"
+    assert [i["name"] for i in c["insiders"]] == ["SMITH JOHN", "SMITH JOHN"], \
+        "the display name was dropped instead of kept alongside the id"

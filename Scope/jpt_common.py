@@ -623,6 +623,24 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m012_briefs')")
         conn.commit()
 
+    # m013: issuer_cap — market cap keyed on the SEC CIK rather than a typed symbol.
+    # The cluster surface's cap gate is its terminal filter and it fails closed, so a
+    # symbol that will not resolve silently deletes a cluster; `ticker_meta` cannot serve
+    # it because its PRIMARY KEY is the symbol. Created here rather than by a
+    # `CREATE TABLE IF NOT EXISTS` on every cap lookup, which is a DDL per read.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m013_issuer_cap'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS issuer_cap (
+                   cik          TEXT PRIMARY KEY,
+                   market_cap   INTEGER,
+                   cap_updated  TEXT
+               )"""
+        )
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m013_issuer_cap')")
+        conn.commit()
+
     conn.commit()
 
 

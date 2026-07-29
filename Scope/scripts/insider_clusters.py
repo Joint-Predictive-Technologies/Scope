@@ -393,7 +393,7 @@ def person_kind(conn, person_id: tuple[str, ...], store_kinds: dict[str, set],
 #  Everything below consumes person_id. None of it derives identity.
 # ════════════════════════════════════════════════════════════════════════════
 
-def _buy_predicate(horizon_days: int) -> str:
+def _buy_predicate(horizon_days: int, horizon: bool = True) -> str:
     """The buy-path WHERE clause. ONE definition, used by the scan AND by the diagnostics.
 
     They used to be written twice: `find_clusters` counted the rows it discarded and never
@@ -401,13 +401,20 @@ def _buy_predicate(horizon_days: int) -> str:
     and called it the same thing. Two populations, one name. Sharing the clause makes the
     published numbers the scan's actual numbers by construction, rather than by anyone
     remembering to keep them in step.
+
+    `horizon=False` drops ONLY the date clause, and exists for exactly one caller: the
+    diagnostic that counts rows the date clause itself excluded because neither engine
+    could read their date. Those rows cannot be counted by a predicate they cannot pass.
     """
+    clause = ("" if not horizon else
+              f"AND date(substr(txn_date, 1, 10)) >= "
+              f"date('now', '-{int(horizon_days)} days')")
     return f"""
         txn_code = 'P' AND acquired_disposed = 'A'
           AND is_derivative = 0
           AND UPPER(TRIM(ticker)) NOT IN ({','.join('?' * len(_SENTINEL_TICKERS))})
           AND COALESCE(is_10b5_1, 0) != 1
-          AND date(substr(txn_date, 1, 10)) >= date('now', '-{int(horizon_days)} days')
+          {clause}
     """
 
 
@@ -496,16 +503,35 @@ def issuer_labels(conn) -> dict[str, str]:
 
     The label is the ticker from the most recent filing, tie-broken by sort — never set
     order.
+
+    ⚠️ KEYED ON `_norm_cik`, NOT `str(issuer).strip()`. That is the module's own rule —
+    "the ONE place a CIK becomes comparable" — and this site broke it while `person_id`
+    obeyed it: `'0000012345'` and `'12345'` are one company, and keying on the raw string
+    made them two issuers with two labels, so `find_clusters` split their trades and could
+    publish ZERO clusters where one exists. K9 on the issuer axis. Latent on today's
+    corpus (523 distinct issuer CIKs, all 10-padded, 0 collapsing) — a property of the
+    ingest, not a guarantee of the key.
+
+    ⚠️ AND THE PICK NO LONGER DEPENDS ON THE SQL ORDER. `setdefault` over
+    `ORDER BY issuer_cik, filing_date DESC` took the first row of a RAW-string group, so
+    once two paddings collapse to one key the winner is whichever padding sorts first, not
+    the most recent filing. The comparison below is explicit, so the label is a function of
+    the data alone.
     """
-    out: dict[str, str] = {}
-    for issuer, ticker, _fd in conn.execute(
+    best: dict[str, tuple[str, str]] = {}
+    for issuer, ticker, fd in conn.execute(
             "SELECT DISTINCT issuer_cik, ticker, filing_date FROM form4_transactions "
             "WHERE TRIM(COALESCE(issuer_cik,'')) != '' "
             "ORDER BY issuer_cik, filing_date DESC, ticker"):
-        # First row per issuer is its most recent filing_date; the ORDER BY's trailing
-        # `ticker` makes a same-day tie deterministic rather than row-order.
-        out.setdefault(str(issuer).strip(), (ticker or "").strip())
-    return out
+        key = _norm_cik(issuer)
+        if not key:
+            continue          # unusable id -> absent, never a namespace
+        cand = ((fd or ""), (ticker or "").strip())
+        cur = best.get(key)
+        # Most recent filing_date wins; a same-day tie goes to the lower ticker string.
+        if cur is None or cand[0] > cur[0] or (cand[0] == cur[0] and cand[1] < cur[1]):
+            best[key] = cand
+    return {k: v[1] for k, v in best.items()}
 
 
 def _store_kinds(conn) -> dict[str, set]:
@@ -550,10 +576,40 @@ def corpus_meta(conn, horizon_days: int = SCAN_HORIZON_DAYS) -> dict:
     # A date SQLite reads but Python cannot. The offset-suffixed rows
     # (`2026-07-22-05:00`) are no longer in this bucket — both sides now take the first
     # ten characters — so this counts only what is genuinely unreadable.
+    #
+    # ⚠️ COUNTED IN TRANSACTIONS, WHICH IS WHAT ITS SIBLINGS COUNT. It counted DISTINCT
+    # date STRINGS, so three dropped transactions sharing one bad date reported as 1 —
+    # "two populations, one name", the exact defect this scan block exists to close,
+    # reappearing one field over INSIDE the fix for it.
     scan_bad_date = sum(
-        1 for (d,) in conn.execute(
-            f"SELECT DISTINCT txn_date FROM form4_transactions WHERE {pred}",
-            _SENTINEL_TICKERS) if _txn_date(d) is None)
+        1 for (_a, _i, d) in conn.execute(
+            f"SELECT DISTINCT accession, txn_index, txn_date FROM form4_transactions "
+            f"WHERE {pred}", _SENTINEL_TICKERS) if _txn_date(d) is None)
+    # ⚠️ AND A DATE **NEITHER** ENGINE CAN READ WAS COUNTED NOWHERE. `date(substr(...))`
+    # returns NULL for `'JULY 22, 2026'`, so the horizon predicate is NULL, so the row
+    # never enters the scan population — and `scan_bad_date` only ever sees rows that
+    # cleared that predicate. The claim "any genuinely unparseable date is counted, not
+    # silently dropped" was FALSE; only the `-05:00` shape was closed.
+    #
+    # It gets its OWN population rather than being folded into the scan's, because horizon
+    # membership is exactly what cannot be determined for these rows.
+    # Transactions the security guard fails closed on, over the SAME predicate — so the
+    # published number is the scan's own, not a corpus-wide count wearing its name.
+    scan_untitled = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT DISTINCT accession, txn_index "
+        f"FROM form4_transactions WHERE {pred} "
+        f"AND TRIM(COALESCE(security_title,'')) = '')", _SENTINEL_TICKERS).fetchone()[0]
+    undated_rows = conn.execute(
+        f"SELECT DISTINCT accession, txn_index, txn_date FROM form4_transactions "
+        f"WHERE {_buy_predicate(horizon_days, horizon=False)}",
+        _SENTINEL_TICKERS).fetchall()
+    unreadable = {d for (_a, _i, d) in undated_rows if _txn_date(d) is None}
+    # One query for the small distinct set: SQLite's own verdict on the same substring the
+    # predicate uses. NULL from both engines is what "undatable" means.
+    unreadable = {d for d in unreadable
+                  if conn.execute("SELECT date(substr(COALESCE(?,''), 1, 10))",
+                                  (d,)).fetchone()[0] is None}
+    undatable = sum(1 for (_a, _i, d) in undated_rows if d in unreadable)
     return {
         "corpus_start": row[0], "corpus_end": row[1], "accessions": row[2] or 0,
         "corpus_rows_without_issuer_cik": corpus_missing,
@@ -562,6 +618,17 @@ def corpus_meta(conn, horizon_days: int = SCAN_HORIZON_DAYS) -> dict:
             "transactions": scan_total,
             "dropped_no_issuer_cik": scan_missing,
             "dropped_unparseable_date": scan_bad_date,
+            "dropped_no_security_title": scan_untitled,
+        },
+        # A SEPARATE POPULATION, NAMED AS ONE. These rows are not "in the scan and
+        # dropped" — the date clause could not evaluate for them at all, so whether they
+        # fall inside the horizon is unknowable. Folding them into `scan` would put two
+        # populations under one name for the third time in this file's history.
+        "buy_path_undatable": {
+            "population": ("buy-path transactions excluded from the scan entirely because "
+                           "NEITHER SQLite nor Python could read txn_date; horizon "
+                           "membership is undeterminable"),
+            "transactions": undatable,
         },
         "horizon_start": (date.today() - timedelta(days=horizon_days)).isoformat(),
         "note": ("Identity is global over the INGESTED corpus only. A co-filing that "
@@ -604,7 +671,10 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     for r in rows:
         if _txn_date(r["txn_date"]) is None:
             continue
-        issuer = str(r["issuer_cik"] or "").strip()
+        # NORMALISED — the same rule `person_id` obeys and `issuer_labels` now keys on.
+        # `str(...).strip()` made `'0000012345'` and `'12345'` two issuers, splitting one
+        # company's trades across two groups and publishing zero clusters where one exists.
+        issuer = _norm_cik(r["issuer_cik"])
         if not issuer:
             # ⚠️ AN UNUSABLE ISSUER ID IS ABSENT, NOT A NAMESPACE — the same rule
             # `_norm_cik` applies to people, and the first draft of this rewrite broke it
@@ -636,7 +706,11 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
         for anchor_row in sorted(buys, key=lambda b: (b["txn_date"], b["accession"])):
             start = _txn_date(anchor_row["txn_date"])
             if start is None:
-                continue          # already counted in `dropped_bad_date` below
+                # Not a silent drop: `corpus_meta`'s `dropped_unparseable_date` counts
+                # these over the SAME predicate. The comment here used to name
+                # `dropped_bad_date`, a counter that was deleted — a promise of a
+                # guarantee that did not exist.
+                continue
             end = start + timedelta(days=window_days)   # half-open: exactly window_days
             window = [b for b in buys
                       if (_txn_date(b["txn_date"]) is not None
@@ -646,6 +720,7 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
             counted: set = set()
             total = 0.0
             dropped_unidentified = dropped_institution = dropped_unresolved = 0
+            dropped_unnamed_security = 0
             undisclosed_trades = zero_value_trades = 0
 
             for b in sorted(window, key=lambda b: (b["accession"], b["txn_index"])):
@@ -669,6 +744,19 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
                         dropped_institution += 1
                     continue
 
+                # ⚠️ AN ABSENT SECURITY TITLE IS NOT A SECURITY. `normalize_security(None)`
+                # and `normalize_security('')` both return `''`, and `''` used to enter the
+                # trade key unguarded — so every untitled transaction of one issuer shared
+                # ONE namespace and two genuinely different securities MERGED, publishing
+                # $90,000 where the honest figure is $140,000. That is the over-merge
+                # direction this module calls the worse one, and the exact pattern
+                # `_norm_cik`'s docstring names as catastrophic. Fail closed and COUNT it,
+                # like every other unidentifiable thing here.
+                security = normalize_security(b["security_title"])
+                if not security:
+                    dropped_unnamed_security += 1
+                    continue
+
                 for pid in live:
                     if pid not in members:
                         members[pid] = _member_record(pid, names)
@@ -686,8 +774,10 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
                 # under two symbols (`NYT`/`NYT.A`), so a 4/A retyping it double-counted
                 # $50,000. `issuer_cik` is included so the id is meaningful on its own
                 # rather than only inside this issuer's loop.
+                # `issuer` — the NORMALISED group key — not the row's raw `issuer_cik`,
+                # which would namespace the same company's securities by its padding.
                 key = (tuple(live),
-                       (b["issuer_cik"], normalize_security(b["security_title"])),
+                       (issuer, security),
                        b["txn_index"], b["txn_date"],
                        b["shares"], round(b["value"] or 0.0, 2))
                 if key in counted:
@@ -725,6 +815,7 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
                     "dropped_unidentified": dropped_unidentified,
                     "dropped_institution": dropped_institution,
                     "dropped_unresolved": dropped_unresolved,
+                    "dropped_unnamed_security": dropped_unnamed_security,
                     "provisional": dropped_unresolved > 0,
                 })
         if not best:

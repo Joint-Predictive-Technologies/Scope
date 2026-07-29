@@ -953,3 +953,248 @@ def test_LINT_the_page_binds_its_wording_to_cap_resolved():
     i = page.index("Market cap unknown — no reliable share count")
     assert "d.cap_resolved" in page[max(0, i - 400):i], \
         "the honest wording is not bound to cap_resolved"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  THE CIK-KEYED CAP PATH — the cluster surface's terminal gate
+#
+#  `market_cap_by_cik` and the whole `issuer_cap` cache shipped with ZERO tests.
+#  Everything below pins behaviour the previous pass left unpinned.
+# ════════════════════════════════════════════════════════════════════════════
+
+def _count_map(monkeypatch, mapping):
+    """`_ticker_map` with a call counter. `None` mapping = the fetch FAILED (a 429)."""
+    hits = []
+    monkeypatch.setattr(rc, "_ticker_map",
+                        lambda: (hits.append(1), mapping)[1])
+    return hits
+
+
+def test_the_TICKER_MAP_is_not_fetched_on_a_cache_hit(monkeypatch):
+    """THE EAGER-EVALUATION BUG, REINTRODUCED ONE LINE BELOW THE DOCSTRING EXPLAINING IT.
+
+    `_market_cap_core` takes CALLABLES precisely so a cache hit costs nothing; the
+    fallback was passed as an already-resolved value, so every lookup — including a pure
+    hit, where shares and price both cost zero — re-downloaded SEC's 796,475-byte map.
+    """
+    hits = _count_map(monkeypatch, {"1": ("SMLC",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == 50_000_000
+    before = len(hits)
+    calls = []
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: calls.append(cik) or (1_000_000, "2026-07-01"))
+    assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == 50_000_000
+    conn.close()
+    assert len(hits) == before, "the ticker map was fetched on a pure cache hit"
+    assert calls == [], "SEC was queried on a pure cache hit"
+
+
+def test_a_map_that_could_not_be_ASKED_is_NOT_cached_as_a_verdict(monkeypatch):
+    """A 429 IS NOT AN ANSWER. Returning `()` on a rate limit collapsed "could not ask"
+    into "no symbols exist" — so the fix silently reverted to the deletion it exists to
+    prevent AND cached that as a fact for seven days. The gate still fails closed on that
+    run; what must not happen is that it STICKS."""
+    _count_map(monkeypatch, None)                       # the fetch failed
+    _cap(monkeypatch, 1_000_000, None)                  # no hint prices
+    conn = db_connection()
+    assert rc.market_cap_by_cik(conn, "1", ("NOPRICE",)) is None
+    row = conn.execute("SELECT * FROM issuer_cap WHERE cik='1'").fetchone()
+    conn.close()
+    assert row is None, "a transport failure was written to the cache as a verdict"
+
+
+def test_a_genuine_absence_IS_cached(monkeypatch):
+    """The control. Without it the test above passes on a module that never caches."""
+    _count_map(monkeypatch, {})                         # asked; this CIK lists nothing
+    _cap(monkeypatch, 1_000_000, None)
+    conn = db_connection()
+    assert rc.market_cap_by_cik(conn, "1", ("NOPRICE",)) is None
+    row = conn.execute("SELECT market_cap FROM issuer_cap WHERE cik='1'").fetchone()
+    conn.close()
+    assert row is not None and row[0] is None, "a genuine absence was not cached"
+
+
+def test_a_CIK_listing_ONE_symbol_is_priced_by_it(monkeypatch):
+    """81.7% of CIKs (6,539 of 8,001, measured against SEC's map on 2026-07-29) list
+    exactly one symbol. This is what rescues `NYT.A`: the typed label does not price, and
+    the CIK's sole listed symbol does."""
+    _count_map(monkeypatch, {"71691": ("NYT",)})
+    monkeypatch.setattr(rc, "_shares_outstanding", lambda cik: (1_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: 50.0 if s == "NYT" else None)
+    conn = db_connection()
+    cap = rc.market_cap_by_cik(conn, "71691", ("NYT.A",))
+    conn.close()
+    assert cap == 50_000_000
+
+
+def test_a_MULTI_CLASS_cik_is_REFUSED_when_no_hint_prices(monkeypatch):
+    """THE WRONG-SECURITY GUARD. `_shares_outstanding` is CIK-scoped and CLASS-AGNOSTIC,
+    so pricing a COMMON share count against a PREFERRED quote lands inside every
+    plausibility bound: a delisted common with a live preferred published $1,004,000,000,
+    and a SPAC warrant published a $50.4M "micro-cap". 1,462 of 8,001 CIKs (18.3%) carry
+    more than one ticker."""
+    _count_map(monkeypatch, {"19617": ("JPM", "JPM-PC", "JPM-PD")})
+    monkeypatch.setattr(rc, "_shares_outstanding", lambda cik: (3_000_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: None if s == "JPM" else 25.10)
+    conn = db_connection()
+    cap = rc.market_cap_by_cik(conn, "19617", ("JPM",))
+    conn.close()
+    assert cap is None, f"a preferred's quote priced the common share count: {cap}"
+
+
+def test_a_SEPARATOR_variant_of_a_hint_IS_accepted(monkeypatch):
+    """`BRK.B` and `BRK-B` are the same security in two spellings — Scope canonicalises to
+    the dot form, SEC and Yahoo use the hyphen. That rescue must survive the guard above."""
+    _count_map(monkeypatch, {"1067983": ("BRK-A", "BRK-B")})
+    monkeypatch.setattr(rc, "_shares_outstanding", lambda cik: (1_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: 497.18 if s == "BRK-B" else None)
+    conn = db_connection()
+    cap = rc.market_cap_by_cik(conn, "1067983", ("BRK.B",))
+    conn.close()
+    assert cap == 497_180_000
+
+
+def test_issuer_cap_is_created_by_a_TRACKED_MIGRATION(monkeypatch):
+    """Not by `CREATE TABLE IF NOT EXISTS` on every lookup — that is a DDL and a commit
+    per cache READ, and it leaves the schema file silent about a table that exists."""
+    conn = db_connection()
+    tracked = conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m013_issuer_cap'").fetchone()
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='issuer_cap'").fetchone()
+    conn.close()
+    assert tracked and exists, "issuer_cap is not created by a tracked migration"
+    schema = open(os.path.join(os.path.dirname(__file__), "..",
+                               "schema_sqlite.sql")).read()
+    assert "issuer_cap" in schema, "the table is missing from schema_sqlite.sql"
+
+
+def test_the_CIK_cache_key_is_NORMALISED(monkeypatch):
+    """`'71691'` and `'0000071691'` are one company. Keying on the raw string made them two
+    cache rows and two different `data.sec.gov/.../CIK{cik}` URLs — K9, on the cache."""
+    _count_map(monkeypatch, {"71691": ("NYT",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    rc.market_cap_by_cik(conn, "0000071691", ("NYT",))
+    rc.market_cap_by_cik(conn, "71691", ("NYT",))
+    rows = conn.execute("SELECT cik FROM issuer_cap").fetchall()
+    conn.close()
+    assert [r[0] for r in rows] == ["71691"], f"one company, {len(rows)} cache rows: {rows}"
+
+
+def test_the_SEC_url_still_gets_the_PADDED_cik(monkeypatch):
+    """Normalising the KEY must not change what goes on the wire: `data.sec.gov` wants the
+    10-digit form, which is what `_cik_for` has always produced."""
+    seen = []
+    _count_map(monkeypatch, {"71691": ("NYT",)})
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: seen.append(cik) or (1_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: 50.0)
+    conn = db_connection()
+    rc.market_cap_by_cik(conn, "71691", ("NYT",))
+    conn.close()
+    assert seen == ["0000071691"], f"SEC was asked for {seen!r}"
+
+
+def test_THE_TWO_CACHES_CANNOT_DISAGREE_about_one_company(monkeypatch):
+    """One company, one COMPUTED cap. The symbol cache (`ticker_meta`, the collector's and
+    the ticker page's key) and the CIK cache (`issuer_cap`, the cluster surface's) held
+    independently computed values, so the two surfaces could publish different caps for
+    the same company."""
+    _count_map(monkeypatch, {"1": ("SMLC",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    by_symbol = rc.market_cap(conn, "SMLC")
+    row = conn.execute("SELECT market_cap FROM issuer_cap WHERE cik='1'").fetchone()
+    assert row is not None and row[0] == by_symbol, \
+        "the symbol path computed a cap the CIK cache never saw"
+    # ...and the cluster surface now READS that number rather than recomputing one.
+    calls = []
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: calls.append(cik) or (9, "2026-07-01"))
+    assert rc.market_cap_by_cik(conn, "1", ("SMLC",)) == by_symbol
+    conn.close()
+    assert calls == [], "the cluster surface recomputed a cap the symbol path had computed"
+
+
+def test_the_SHARED_layer_is_read_only_AFTER_the_symbols_own_cache(monkeypatch):
+    """The reconciliation must not cost a lookup. A `ticker_meta` hit still resolves no
+    CIK and touches no second table."""
+    _count_map(monkeypatch, {"1": ("SMLC",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    rc.market_cap(conn, "SMLC")
+    calls = []
+    monkeypatch.setattr(rc, "_cik_for", lambda s: calls.append(s) or "0000000001")
+    assert rc.market_cap(conn, "SMLC") == 50_000_000
+    conn.close()
+    assert calls == [], "a symbol cache HIT still resolved a CIK"
+
+
+def test_a_cached_NULL_is_RETRIED_by_the_repair_before_its_ttl_expires(monkeypatch):
+    """The cluster gate fails CLOSED, so a cached `NULL` does not downgrade a cluster — it
+    DELETES it. Leaving that to `UNKNOWN_TTL_DAYS` means one SEC blip removes a company
+    from a human-read surface for SEVEN DAYS with nothing able to revisit it."""
+    _count_map(monkeypatch, {"1": ("SMLC",)})
+    _cap(monkeypatch, 1_000_000, 50.0)
+    conn = db_connection()
+    stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=2)).isoformat()
+    conn.execute("INSERT INTO issuer_cap (cik, market_cap, cap_updated) VALUES ('1',NULL,?)",
+                 (stale,))
+    conn.commit()
+    out = rc._repair_issuer_caps(conn)
+    row = conn.execute("SELECT market_cap FROM issuer_cap WHERE cik='1'").fetchone()
+    conn.close()
+    assert out["cik_repaired"] == 1 and row[0] == 50_000_000
+
+
+def test_the_forced_retry_is_BOUNDED_by_the_failures_age(monkeypatch):
+    """Forcing on every run would re-fetch every permanently unpriceable CIK every 30
+    minutes — a fair-access violation dressed as a repair."""
+    _count_map(monkeypatch, {"1": ("SMLC",)})
+    calls = []
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: calls.append(cik) or (1_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: 50.0)
+    conn = db_connection()
+    conn.execute("INSERT INTO issuer_cap (cik, market_cap, cap_updated) VALUES ('1',NULL,?)",
+                 (_dt.datetime.now(_dt.timezone.utc).isoformat(),))
+    conn.commit()
+    out = rc._repair_issuer_caps(conn)
+    conn.close()
+    assert out == {"cik_repaired": 0, "cik_still_unknown": 0, "cik_unpriceable_no_hint": 0}
+    assert calls == [], "a failure cached seconds ago was retried immediately"
+
+
+def test_the_repair_does_NOT_price_a_multi_class_cik_it_has_no_hint_for(monkeypatch):
+    """The cache stores no price hint, so a retry has only SEC's symbols — and for a
+    multi-class CIK that is exactly the arbitrary-class pricing the guard refuses. Counted
+    under its own name rather than folded into the failures, and it spends no request."""
+    _count_map(monkeypatch, {"19617": ("JPM", "JPM-PC")})
+    calls = []
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: calls.append(cik) or (1_000_000, "2026-07-01"))
+    monkeypatch.setattr(rc, "_last_close", lambda s: 50.0)
+    conn = db_connection()
+    stale = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=2)).isoformat()
+    conn.execute("INSERT INTO issuer_cap (cik, market_cap, cap_updated) "
+                 "VALUES ('19617',NULL,?)", (stale,))
+    conn.commit()
+    out = rc._repair_issuer_caps(conn)
+    conn.close()
+    assert out["cik_unpriceable_no_hint"] == 1 and out["cik_repaired"] == 0
+    assert calls == [], "a SEC request was spent to rediscover a refusal"
+
+
+def test_the_repair_sweep_RUNS_from_repair_unknown_caps(monkeypatch):
+    """A repair the scheduler never calls is not a repair."""
+    seen = []
+    monkeypatch.setattr(rc, "_repair_issuer_caps",
+                        lambda conn, **k: seen.append(k) or {"cik_repaired": 0})
+    conn = db_connection()
+    rc.ensure_tables(conn)
+    out = rc.repair_unknown_caps(conn)
+    conn.close()
+    assert seen and "cik_repaired" in out

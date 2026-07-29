@@ -86,6 +86,16 @@ CREATE TABLE IF NOT EXISTS ticker_meta (
     social_at    TEXT
 );
 
+-- Market cap keyed on the SEC CIK, not a typed symbol. `ticker_meta` above is
+-- symbol-keyed by design (the collector and the ticker page start from a symbol); the
+-- cluster surface starts from a Form 4's own `issuer_cik` and must not be forced back
+-- through a free-text label to price a company.
+CREATE TABLE IF NOT EXISTS issuer_cap (
+    cik          TEXT PRIMARY KEY,
+    market_cap   INTEGER,
+    cap_updated  TEXT
+);
+
 CREATE TABLE IF NOT EXISTS price_action (
     symbol      TEXT NOT NULL,
     start_date  TEXT NOT NULL,

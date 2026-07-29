@@ -64,10 +64,19 @@ def insider_clusters(
         "count": len(clusters),
         "error": error,
         "corpus": meta,
+        # ⚠️ IDENTITY IS PUBLISHED, NOT DISCARDED. This block used to emit the company as
+        # free-text `ticker` and each insider as `{name, title}` while the pipeline held
+        # `issuer_cik` and `person_id` — so two PROVABLY DISTINCT people with the same
+        # name rendered identically, two different issuers both published as
+        # `"ticker": "ACME"`, and no consumer had a field to key on. That is the same
+        # label-for-an-id bug the pipeline below just closed five times over,
+        # reintroduced at the last step. The names and the ticker remain, as DISPLAY.
         "clusters": [{
             "ticker": c["ticker"],
+            "issuer_cik": c["issuer_cik"],
             "insider_count": len(c["insiders"]),
-            "insiders": [{"name": i["name"], "title": i["title"]}
+            "insiders": [{"person_id": i["person_id"], "cik": i["cik"],
+                          "name": i["name"], "title": i["title"]}
                          for i in c["insiders"]],
             "combined_value": c["total_value"],
             "accessions": c["accessions"],
@@ -88,6 +97,10 @@ def insider_clusters(
             "legs_dropped_unidentified": c["dropped_unidentified"],
             "legs_dropped_institution": c["dropped_institution"],
             "legs_dropped_unresolved": c["dropped_unresolved"],
+            # Legs whose security could not be NAMED. The trade key fails closed on an
+            # absent `security_title`, because `''` shared by two different securities is
+            # an over-merge, not a security.
+            "legs_dropped_unnamed_security": c["dropped_unnamed_security"],
             "provisional": c["provisional"],
         } for c in clusters],
     }
