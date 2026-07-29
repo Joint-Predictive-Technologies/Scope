@@ -98,43 +98,90 @@ def _source_type(rule: str) -> str | None:
 
 
 def _synthesize_headline(conn) -> dict:
-    """Build the hero from CONVERGENCE, not a single top signal.
+    """Build the hero, and only call it a CONVERGENCE when the gate would.
 
-    Scans the last 7 days, groups by ticker, and counts how many DISTINCT source
-    types touch each ticker. The winner is the most cross-corroborated ticker.
-    Returns a dict the renderer turns into a serif hero:
-      mode='converge'  ≥2 distinct source types on one ticker (the real signal)
-      mode='single'    only isolated signals — honestly says so, names the top one
-      mode='quiet'     nothing in the window
-    Never promotes one isolated signal as if it were a convergent picture."""
+    The hero used to rank tickers by `_SOURCE_TYPE` — a taxonomy local to this
+    file — and declare "X converges" at **2** distinct types. That contradicted
+    the engine in two ways at once, and the result was a headline that sat on one
+    ticker for days with nothing behind it:
+
+      * the threshold was 2, while a real convergence is
+        `RULE_10_MIN_INSTRUMENTS` (3) distinct INSTRUMENTS; and
+      * the taxonomy counted the very rules the gate throws out as noise.
+        Measured on the working DB: of the 71 alerts whose ticker is exactly
+        `LMT`, **66 are RULE_OSINT (62) and RULE_ANOMALY (2) plus RULE_09 (2)** —
+        with OSINT and ANOMALY both in `RULE_10_EXCLUDED`, and LMT hardcoded
+        into six OSINT region ticker-lists (`api/main.py`), so that stream never
+        stops and LMT won `max()` every single day.
+
+    So the hero is now counted in the GATE's units, imported read-only: noise
+    rules cannot manufacture a convergence, and "converges" is only ever printed
+    when the corroboration engine would agree. Anything short of the bar is
+    reported as coverage, named honestly, without the word.
+
+      mode='converge'  >= RULE_10_MIN_INSTRUMENTS gate instruments on one ticker
+      mode='coverage'  signals exist but no ticker meets the bar — says so
+      mode='quiet'     nothing ticker-linked in the window
+    """
     from collections import defaultdict
+    from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS,
+                            rule10_instruments)
+    from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
+
+    # The hero may only print "converges" where RULE_10 would actually fire, so
+    # it has to count the way the gate counts — same ticker key, same severity
+    # floor, same window (`_candidate_alerts`, rule_10_corroboration.py:158-170).
+    # An earlier pass of this fix diverged on all three at once (it split
+    # baskets, took every severity and looked back 7 days) and could therefore
+    # still announce a convergence the engine refused — which is the exact class
+    # of bug being fixed here, so the agreement is asserted by test.
     rows = conn.execute(
-        """SELECT REPLACE(REPLACE(ticker,'$',''),' ','') AS tk, rule, severity, headline
-           FROM alerts
-           WHERE ticker IS NOT NULL AND ticker != ''
-             AND created_at >= datetime('now','-7 days')"""
+        f"""SELECT ticker, rule, severity, headline FROM alerts
+            WHERE ticker IS NOT NULL AND ticker != ''
+              AND severity IN ('HIGH','CRITICAL')
+              AND created_at >= datetime('now','-{int(CONVERGENCE_WINDOW_DAYS)} days')"""
     ).fetchall()
-    agg: dict = defaultdict(lambda: {"types": set(), "n": 0, "hi": 0, "example": None})
+
+    agg: dict = defaultdict(lambda: {"rules": set(), "noise": set(), "n": 0,
+                                     "hi": 0, "example": None})
     for r in rows:
-        st = _source_type(r["rule"])
-        if not st or not r["tk"]:
+        rule = (r["rule"] or "").strip()
+        # The GATE groups on the raw ticker string, so a basket ("LMT RTX NOC")
+        # is its own key. Splitting it here would credit LMT with instruments the
+        # gate never gives it — the measured effect was promoting LMT from 2
+        # instruments to 3 and re-manufacturing the very hero this fix removes.
+        tk = str(r["ticker"]).strip()
+        if not tk:
             continue
-        a = agg[r["tk"]]
-        a["types"].add(st)
+        a = agg[tk]
         a["n"] += 1
-        if (r["severity"] or "").upper() in ("HIGH", "CRITICAL"):
-            a["hi"] += 1
+        if rule.upper() in RULE_10_EXCLUDED:
+            a["noise"].add(_source_type(rule) or rule)
+        else:
+            a["rules"].add(rule)
+        a["hi"] += 1
         if a["example"] is None:
             a["example"] = r["headline"]
     if not agg:
         return {"mode": "quiet"}
-    tk, top = max(agg.items(), key=lambda kv: (len(kv[1]["types"]), kv[1]["hi"], kv[1]["n"]))
-    types = sorted(top["types"])
-    if len(types) >= 2:
-        return {"mode": "converge", "ticker": tk, "types": types,
+
+    # Rank by gate instruments first — never by raw alert volume, which is what
+    # let a single noisy source dominate.
+    scored = {tk: (rule10_instruments(sorted(v["rules"])), v) for tk, v in agg.items()}
+    tk, (instruments, top) = max(
+        scored.items(), key=lambda kv: (len(kv[1][0]), kv[1][1]["hi"], kv[1][1]["n"]))
+
+    if len(instruments) >= RULE_10_MIN_INSTRUMENTS:
+        return {"mode": "converge", "ticker": tk, "types": sorted(instruments),
                 "n": top["n"], "example": top["example"]}
-    # No cross-source convergence — surface the single strongest signal honestly.
-    return {"mode": "single", "ticker": tk, "types": types,
+    if not instruments:
+        # Nothing has even ONE corroborating instrument. Naming a "leader" here
+        # would promote a ticker whose entire presence is excluded-as-noise —
+        # which is exactly how the stale hero got there. Say the true thing.
+        return {"mode": "quiet", "noise_only": True,
+                "noise": sorted(top["noise"]), "needed": RULE_10_MIN_INSTRUMENTS}
+    return {"mode": "coverage", "ticker": tk, "types": sorted(instruments),
+            "noise": sorted(top["noise"]), "needed": RULE_10_MIN_INSTRUMENTS,
             "n": top["n"], "example": top["example"]}
 
 
@@ -409,6 +456,7 @@ a.wr{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-
 # Full navigation for the main page (the brief IS the main page). The brand
 # links to `/` (this page); these cover the major routes so nothing is hidden.
 _FULL_NAV = (
+    '<a href="/home">Dashboard</a>'
     '<a href="/feed">Alerts</a><a href="/congress">Congress</a>'
     '<a href="/insiders">Insiders</a><a href="/contracts">Contracts</a>'
     '<a href="/lobbying">Lobbying</a><a href="/intelligence">Theses</a>'
@@ -465,14 +513,30 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
         types = hero["types"]
         tlist = (", ".join(types[:-1]) + " and " + types[-1]) if len(types) > 1 else types[0]
         headline_txt = (f'<span class="hero-accent">{_esc(hero["ticker"])}</span> '
-                        f'converges across {len(types)} source types')
+                        f'converges across {len(types)} instruments')
         context = (f'{_esc(tlist)} all point to {_esc(hero["ticker"])} in the last 7 days '
                    f'({hero["n"]} signals) — the day\'s strongest cross-source read.')
-    elif hero.get("mode") == "single":
+    elif hero.get("mode") == "coverage":
+        # Deliberately does NOT print the word "converges": nothing cleared the
+        # gate. Naming the leader is still useful, so long as the page does not
+        # dress coverage up as corroboration.
+        have = len(hero.get("types") or [])
         headline_txt = 'No cross-source convergence today'
-        context = (f'The strongest single signal is '
-                   f'<span class="hero-accent">{_esc(hero["ticker"])}</span> — '
-                   f'no other source type corroborates it yet.')
+        noise = hero.get("noise") or []
+        noise_txt = (f' Its other mentions come from {_esc(", ".join(noise))}, '
+                     f'which the corroboration engine excludes as noise.'
+                     if noise else '')
+        context = (f'The most-covered ticker is '
+                   f'<span class="hero-accent">{_esc(hero["ticker"])}</span>, on '
+                   f'{have} corroborating instrument{"" if have == 1 else "s"} — '
+                   f'{hero.get("needed", 3)} are needed to fire.{noise_txt}')
+    elif hero.get("noise_only"):
+        headline_txt = 'No corroborating signal today'
+        src = ", ".join(hero.get("noise") or []) or "excluded sources"
+        context = (f'Signals arrived, but none from an instrument the '
+                   f'corroboration engine counts — only {_esc(src)}, which it '
+                   f'excludes as noise. No ticker has a single corroborating '
+                   f'instrument, and {hero.get("needed", 3)} are needed to fire.')
     else:
         headline_txt = 'A quiet window'
         context = 'No ticker-linked signals in the last 7 days.'
@@ -579,6 +643,8 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/tokens.css"/>
+<script src="/rule-names.js"></script>
+<script src="/cmdk.js" defer></script>
 <style>{_CSS}</style></head><body>
 <nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">{_FULL_NAV}</div></nav>
 <div class="tape" aria-label="Live signal ticker"><div class="tape-inner" id="tape"></div></div>
@@ -657,7 +723,8 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "ui-restore-4"   # nav: + Universe (coverage ball pit)
+TEMPLATE_VERSION = "ui-restore-5"   # nav: + Dashboard(/home); shared ⌘K;
+                                    # hero counted in the gate's units
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
 # In-process de-dup so concurrent page loads trigger at most one async regen/date.

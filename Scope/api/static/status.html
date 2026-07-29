@@ -6,6 +6,7 @@
   <title>System Status — Scope</title>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
   <link rel="stylesheet" href="/tokens.css"/>
+  <script src="/rule-names.js"></script>
   <style>
 * { box-sizing:border-box; margin:0; padding:0; }
     body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; min-height:100vh; }
@@ -31,7 +32,7 @@
 <body>
 <nav>
   <a href="/" class="nav-brand">◈ SCOPE</a>
-  <a href="/">Dashboard</a><a href="/performance">Performance</a><a href="/feed">Alerts</a>
+  <a href="/">Brief</a><a href="/home">Dashboard</a><a href="/performance">Performance</a><a href="/feed">Alerts</a>
 </nav>
 <div class="page">
   <div class="page-title">System Status</div>
@@ -76,8 +77,8 @@
         <tbody>${rows.map(r=>`
           <tr class="${r.stale?'stale':''}">
             <td class="src">${UNIVERSE_LINKED.has(r.src)
-              ? `<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — the coverage list built from reddit mentions (currently a seeded demo; live wiring pending)">${r.src} ◍</a>`
-              : r.src}</td>
+              ? `<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — the coverage list built from reddit mentions (currently a seeded demo; live wiring pending)">${ruleName(r.src)} ◍</a>`
+              : `<span title="${r.src}">${ruleName(r.src)}</span>`}</td>
             <td>${fmtInt(r.exp)}</td>
             <td>${fmtAgo(r.sec)}</td>
             <td>${r.emitted!=null?r.emitted:'—'}</td>
@@ -89,5 +90,6 @@
       </div>`;
   }).catch(()=>{ document.getElementById('content').innerHTML = '<div class="loading">Status unavailable.</div>'; });
 </script>
+<script src="/cmdk.js" defer></script>
 </body>
 </html>

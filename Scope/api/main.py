@@ -783,6 +783,21 @@ def design_tokens():
     """Single source of truth for the design system (Fey/Slash synthesis)."""
     return FileResponse(STATIC_DIR / "tokens.css", media_type="text/css")
 
+@app.get("/rule-names.js", include_in_schema=False)
+def rule_names_js():
+    """Rule DISPLAY names. Presentation only — the programmatic ids that the
+    rules, the gate and activity_log share are never renamed."""
+    return FileResponse(STATIC_DIR / "rule-names.js",
+                        media_type="application/javascript")
+
+@app.get("/cmdk.js", include_in_schema=False)
+def cmdk_js():
+    """Single source of truth for the ⌘K control (button + palette).
+
+    The trigger used to be copy-pasted per page, so it was present on 17 pages
+    and missing on 13. Placement now lives in one file every page loads."""
+    return FileResponse(STATIC_DIR / "cmdk.js", media_type="application/javascript")
+
 @app.get("/ask", response_class=HTMLResponse, include_in_schema=False)
 def ask():
     return FileResponse(STATIC_DIR / "chat.html")
