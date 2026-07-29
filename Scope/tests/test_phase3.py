@@ -56,7 +56,9 @@ def test_rule10_creates_theme_and_links_signals():
     from scripts.rule_10_corroboration import run
     conn = db_connection()
     _cleanup(conn, "ZTHM")
-    for rule in ("RULE_01B", "RULE_06", "RULE_08", "RULE_11"):
+    # RULE_16 replaced RULE_08 on 2026-07-29 (basket-excluded, contributes no leg).
+    # Four rules, four instruments — the theme must link all of them.
+    for rule in ("RULE_01B", "RULE_06", "RULE_16", "RULE_11"):
         conn.execute(
             "INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
             "VALUES (?, 'ZTHM', 'HIGH', ?, datetime('now'))", (rule, f"{rule} ZTHM"))

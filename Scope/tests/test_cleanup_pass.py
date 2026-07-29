@@ -13,7 +13,11 @@ from jpt_common import RULE_10_EXCLUDED, RULE_10_INSTRUMENTS, rule10_instruments
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 RETIRED = ("RULE_12", "RULE_13", "RULE_14")
-LIVE = ("RULE_01B", "RULE_02", "RULE_CLUSTER", "RULE_06", "RULE_08",
+# Gate-eligible, not merely scheduled. RULE_08 left this tuple 2026-07-29 when it was
+# excluded as a basket rule (its ticker comes from SECTOR_MAP, not from the document); it
+# still runs and still emits. See tests/test_basket_rule_gate_class.py for the guarantee
+# and tests/test_exclusion_single_source.py for its positive exclusion assertion.
+LIVE = ("RULE_01B", "RULE_02", "RULE_CLUSTER", "RULE_06",
         "RULE_09", "RULE_11", "RULE_15", "RULE_16")
 
 

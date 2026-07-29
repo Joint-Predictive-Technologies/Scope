@@ -23,7 +23,10 @@ def test_two_eligible_rules_no_rule10():
     assert rule10_is_valid(["RULE_02", "RULE_06"]) is False
 
 def test_four_eligible_distinct_rules_fires():
-    assert rule10_is_valid(["RULE_01B", "RULE_02", "RULE_06", "RULE_08"]) is True
+    # RULE_16 (institutional) replaced RULE_08 here on 2026-07-29 when RULE_08 was
+    # excluded as a basket rule. Shape preserved: 4 rule names, 3 instruments
+    # (RULE_01B+RULE_02 are both congressional) — which is what must fire.
+    assert rule10_is_valid(["RULE_01B", "RULE_02", "RULE_06", "RULE_16"]) is True
 
 def test_four_raw_but_two_families_no_rule10():
     assert rule10_is_valid(["RULE_02", "RULE_02", "RULE_06", "RULE_06"]) is False
@@ -34,8 +37,10 @@ def test_excluded_rules_dont_count():
     assert rule10_eligible_rules(["RULE_02", "RULE_06", "RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_REDDIT"]) == ["RULE_02", "RULE_06"]
 
 def test_lmt_two_rule_case_is_invalid():
-    # The bad production card: RULE_07 + RULE_08 -> only 1 eligible (07 excluded)
+    # The bad production card: RULE_07 + RULE_08. It was 1 eligible (07 noise-excluded);
+    # since 2026-07-29 it is 0 — RULE_08 is basket-excluded too. Still invalid, now more so.
     assert rule10_is_valid(["RULE_07", "RULE_08"]) is False
+    assert rule10_eligible_rules(["RULE_07", "RULE_08"]) == []
 
 def test_rules_from_tags_parsing():
     assert rule10_rules_from_tags('{"rules": ["RULE_01B","RULE_06"]}') == ["RULE_01B", "RULE_06"]

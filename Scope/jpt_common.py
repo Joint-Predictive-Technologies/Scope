@@ -720,7 +720,37 @@ RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_RED
                               # verification pass on the commit that defanged ADSB, whose
                               # own test asserted a CLASS ("a basket-keyed rule cannot
                               # contribute an instrument") while checking one member of it.
-                              "RULE_TELEGRAM_OSINT"}
+                              "RULE_TELEGRAM_OSINT",
+                              # RULE_08 — the same disease, in the one member of the basket
+                              # class that was LIVE, SCHEDULED (240 min) and COUNTED at the
+                              # gate. `rule_08_federal_register.py:26` fans a KEYWORD match
+                              # in a Federal Register title/abstract out into a hardcoded
+                              # `SECTOR_MAP` basket ("bank" -> JPM/BAC/WFC/GS), and a prior
+                              # session split the composite ticker so each basket element
+                              # becomes its OWN alert — which is exactly what made
+                              # `fed-register` a real, matchable instrument. Measured before
+                              # this line existed:
+                              #
+                              #   ['RULE_01B','RULE_06']                 -> 2 instruments, FALSE
+                              #   ['RULE_01B','RULE_06','RULE_08']       -> 3 instruments, TRUE
+                              #
+                              # The word "bank" appearing in a proposed rule is not evidence
+                              # that JPMorgan is involved in anything, so it must not be able
+                              # to complete a convergence.
+                              #
+                              # ⚠️ THIS EXCLUSION HAS A REAL COST AND IT IS INTENTIONAL: it
+                              # removes a currently-counted leg, so convergences that would
+                              # have fired on RULE_08 no longer do. Human-gated decision
+                              # (CLAUDE.md: gate/scoring changes are human-gated). Forward-
+                              # only — themes RULE_08 already helped complete are NOT
+                              # retracted; the remediation query to find them by hand is in
+                              # 02_Sessions/SESSION-2026-07-29-rule08-exclude.md.
+                              #
+                              # `fed-register` earns its way back by REAL ISSUER ATTRIBUTION
+                              # (the entities actually named in the document), not by a
+                              # keyword->basket fan-out. Backlogged beside RULE_09/01B/02,
+                              # which have the same attribution-from-a-projection disease.
+                              "RULE_08"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.

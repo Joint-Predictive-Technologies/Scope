@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-WS3 — RULE_08 emits one alert per symbol, so `fed-register` becomes a real
-convergence leg.
+WS3 — RULE_08 emits one alert per symbol. The SHAPE is right; the gate leg is REVOKED.
 
 The defect: `process_document` emitted ONE alert whose `ticker` was every matched
 symbol space-joined — `"$LMT $RTX $NOC"`. `SECTOR_MAP`'s smallest entry has three
@@ -10,10 +9,21 @@ preserves multi-token strings. That value can never equal another instrument's
 single symbol, so although the gate maps RULE_08 to `fed-register`, it could never
 contribute a leg. All 72 historical RULE_08 rows are composite.
 
-The test that matters is `test_fed_register_completes_a_convergence_the_composite_blocked`
-— it runs the GATE's own `find_corroborated_tickers` twice on identical data, once
-with the split ticker and once with the composite, and shows the split fires while
-the composite does not. Everything else is scaffolding for that.
+⚠️ WHAT THIS FILE CLAIMED, AND WHAT CHANGED (2026-07-29). WS3's payoff was that the
+split makes `fed-register` a real convergence leg. It did — and that is the problem.
+The symbol it splits out is still a `SECTOR_MAP` entry: the word "defense" in a title
+becomes LMT/RTX/NOC. Splitting converted an unmatchable string into three matchable
+LOOKUP-TABLE tickers, so a keyword match could complete a convergence. RULE_08 is now
+in `RULE_10_EXCLUDED` (human-gated). The emission tests here are UNCHANGED — one alert
+per symbol is still the right shape and is the groundwork for real issuer attribution,
+which is how `fed-register` earns the leg back. See
+02_Sessions/SESSION-2026-07-29-rule08-exclude.md and tests/test_basket_rule_gate_class.py.
+
+The tests that matter are now
+`test_the_split_ticker_does_NOT_complete_a_convergence_because_RULE_08_is_EXCLUDED` and
+`test_the_EXCLUSION_is_the_only_thing_stopping_it_not_a_broken_split` — the second keeps
+WS3's original proof alive by showing the same data DOES fire once the exclusion is
+lifted, so the first cannot pass merely because the split regressed.
 
 Forward-only: the historical rows are frozen detection-time records and must not be
 rewritten. There is a test for that too.
@@ -233,7 +243,20 @@ def test_dry_run_emits_nothing():
 
 
 # ---------------------------------------------------------------------------
-# THE PAYOFF — fed-register can now complete a convergence
+# THE PAYOFF — REVOKED 2026-07-29. The split works; the LEG is gone.
+#
+# ⚠️ THIS SECTION ASSERTED THE OPPOSITE UNTIL 2026-07-29. WS3's payoff test proved that
+# splitting the composite made `fed-register` a real convergence leg — and it did, which
+# is precisely how it became a problem. The ticker RULE_08 splits out still comes from
+# `SECTOR_MAP`: the word "defense" in a Federal Register title fans out to LMT/RTX/NOC.
+# So the split turned a harmless unmatchable string into three matchable lookup-table
+# tickers, each able to complete a convergence. RULE_08 is now in `RULE_10_EXCLUDED`
+# (human-gated decision — it removes a counted leg from live convergences).
+#
+# The split itself is NOT reverted and this file's emission tests above are untouched:
+# one alert per symbol is the right SHAPE, and it is the groundwork the honest rewrite
+# needs. What is revoked is the claim that the shape alone earns a gate leg. `fed-register`
+# returns when the ticker comes from the entities the DOCUMENT names, not from a keyword.
 # ---------------------------------------------------------------------------
 
 def _seed_other_legs(ticker: str) -> None:
@@ -268,26 +291,72 @@ def _gate_fires(ticker: str) -> bool:
         conn.close()
 
 
-def test_fed_register_completes_a_convergence_the_composite_blocked():
-    """THE test. Same data, two ticker shapes, opposite outcomes.
+def test_the_split_ticker_does_NOT_complete_a_convergence_because_RULE_08_is_EXCLUDED():
+    """THE test, inverted by the 2026-07-29 decision.
 
     Uses the gate's real `find_corroborated_tickers` / `instruments_for` — not a
-    reimplementation — so this is the actual firing decision.
+    reimplementation — so this is the actual firing decision. The split alert is a clean
+    single-symbol `LMT` in-window beside a congressional and an insider leg: everything
+    the gate needs EXCEPT a ticker that came from the document. It must not fire.
     """
-    # --- SPLIT form: RULE_08 emits a single-symbol LMT alert ---
     conn = jpt_common.db_connection()
     r08.process_document(DEFENSE_DOC, emit_alerts=True, conn=conn)
     conn.close()
     _seed_other_legs("LMT")
 
+    # the split did its job — a matchable single symbol is present
+    assert "LMT" in [r["ticker"] for r in _rule08_rows()]
+
+    instruments = _gate_instruments("LMT")
+    assert "fed-register" not in instruments, (
+        "a SECTOR_MAP ticker is contributing a gate instrument again")
+    assert instruments == ["congressional", "insider"], instruments
+    assert len(instruments) < r10.MIN_DISTINCT_INSTRUMENTS
+    assert not _gate_fires("LMT"), "a keyword->basket ticker completed a convergence"
+
+
+def test_the_EXCLUSION_is_the_only_thing_stopping_it_not_a_broken_split(monkeypatch):
+    """The discriminator, and the reason the test above cannot pass for a lazy reason.
+
+    WS3's original payoff proof is preserved here rather than deleted: lift RULE_08 out
+    of `RULE_10_EXCLUDED` and the SAME data fires with `fed-register` as the third leg.
+    So the split is still mechanically sound and the exclusion is doing the work — as
+    opposed to the split having quietly regressed, which would make the assertion above
+    green for free.
+
+    Both the instrument set and the SQL candidate filter are lifted, because a RULE_08 row
+    is dropped by `_candidate_alerts` before counting ever happens. That they cannot
+    diverge in production is a separate guard
+    (tests/test_exclusion_single_source.py::test_divergence_is_impossible_not_merely_absent).
+    """
+    conn = jpt_common.db_connection()
+    r08.process_document(DEFENSE_DOC, emit_alerts=True, conn=conn)
+    conn.close()
+    _seed_other_legs("LMT")
+
+    assert "RULE_08" in jpt_common.RULE_10_EXCLUDED, "RULE_08 is no longer excluded"
+    assert "RULE_08" in r10.EXCLUDED_FROM_CORROBORATION
+
+    monkeypatch.setattr(jpt_common, "RULE_10_EXCLUDED",
+                        set(jpt_common.RULE_10_EXCLUDED) - {"RULE_08"})
+    monkeypatch.setattr(r10, "EXCLUDED_FROM_CORROBORATION",
+                        set(r10.EXCLUDED_FROM_CORROBORATION) - {"RULE_08"})
+
     instruments = _gate_instruments("LMT")
     assert instruments == ["congressional", "fed-register", "insider"], instruments
-    assert len(instruments) >= r10.MIN_DISTINCT_INSTRUMENTS
-    assert _gate_fires("LMT"), "3 instruments including fed-register should fire"
+    assert _gate_fires("LMT"), (
+        "with RULE_08 eligible the split STILL does not fire — the split itself has "
+        "regressed, so the exclusion is not what is protecting the gate")
 
 
 def test_the_old_composite_form_does_NOT_complete_the_same_convergence():
-    """The control. Identical legs, composite ticker — only 2 instruments."""
+    """The control. Identical legs, composite ticker — only 2 instruments.
+
+    ⚠️ SINCE 2026-07-29 THIS PASSES FOR TWO REASONS AT ONCE (the composite cannot match a
+    single symbol, AND RULE_08 is excluded), so it no longer discriminates on the ticker
+    shape by itself. Kept because it pins the historical defect;
+    `test_the_composite_ticker_matches_no_single_symbol` is the shape-only assertion.
+    """
     conn = jpt_common.db_connection()
     # exactly what the OLD code wrote: space-joined, normalised by enrich later
     conn.execute(
@@ -315,11 +384,15 @@ def test_the_composite_ticker_matches_no_single_symbol():
 
 
 def test_a_medium_severity_fed_register_alert_still_cannot_contribute():
-    """Honest limit: the split helps only `significant` documents.
+    """Honest limit: the split helped only `significant` documents.
 
     The gate requires HIGH/CRITICAL. 63 of the 72 historical RULE_08 rows are
-    MEDIUM, so splitting alone does not make every Federal Register document a
+    MEDIUM, so splitting alone did not make every Federal Register document a
     convergence leg — only the significant ones.
+
+    ⚠️ ALSO NOW DOUBLY TRUE (2026-07-29): no RULE_08 alert of any severity can
+    contribute, because the rule is excluded outright. Kept as the severity pin the
+    honest-attribution rewrite will still have to satisfy.
     """
     conn = jpt_common.db_connection()
     r08.process_document(dict(DEFENSE_DOC, significant=False),

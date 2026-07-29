@@ -251,7 +251,17 @@ def test_excluded_rules_are_still_excluded():
     # across 387 alerts. Unlike OSINT it was NOT already contained — it mapped to
     # the `flight` instrument, so a basket rule could complete a convergence on a
     # 5-minute cadence.
-    basket_keyed = {"RULE_ADSB", "RULE_TELEGRAM_OSINT"}
+    #
+    # RULE_08 joined this category 2026-07-29 and it is the one that MATTERED: live,
+    # scheduled every 240 min, and actually counted as `fed-register`. Its
+    # `SECTOR_MAP` fans a KEYWORD in a Federal Register title out into a basket
+    # ("bank" -> JPM/BAC/WFC/GS), and a prior session split the composite ticker so
+    # each element became its own matchable alert — which is what made the leg real.
+    # Measured: ['RULE_01B','RULE_06','RULE_08'] fired; it no longer does. Human-
+    # gated decision (it removes a counted leg from live convergences); `fed-register`
+    # returns only via real issuer attribution. Its SECTOR_MAP and emission are
+    # deliberately UNCHANGED — this is a gate exclusion, not a rule rewrite.
+    basket_keyed = {"RULE_ADSB", "RULE_TELEGRAM_OSINT", "RULE_08"}
     assert RULE_10_EXCLUDED == (noisy_or_self_referential | retired
                                 | candidate_generators | basket_keyed)
 

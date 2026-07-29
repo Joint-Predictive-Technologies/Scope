@@ -158,7 +158,9 @@ def test_rule10_evidence_exceeds_single_rule():
     import json as _j
     conn = db_connection()
     r10 = score_alert_fields(conn, "RULE_10", "TSM", "x",
-                             _j.dumps({"rules": ["RULE_01B", "RULE_02", "RULE_06", "RULE_08"]}))
+                             # RULE_11 replaced RULE_08 on 2026-07-29 (basket-excluded).
+                             # Still 4 names / 3 instruments, the shape under test.
+                             _j.dumps({"rules": ["RULE_01B", "RULE_02", "RULE_06", "RULE_11"]}))
     single = score_alert_fields(conn, "RULE_06", "TSM", "x", "")
     conn.close()
     assert r10["evidence_confidence"] > single["evidence_confidence"]

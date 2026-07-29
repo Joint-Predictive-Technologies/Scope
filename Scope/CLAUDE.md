@@ -124,9 +124,23 @@ do not interpret small per-rule samples early.
 
 **RULE_10 is the corroboration engine:** fires when **3+ distinct INSTRUMENTS**
 converge on the same ticker within **14 days** (ingestion time, `created_at`).
-Excluded from the eligible set: RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY (and
-RULE_10 itself) as **noise**, plus **RULE_12, RULE_13, RULE_14** as **retired**. That set
-is the single source of truth: `scripts/rule_10_corroboration.py`'s
+Excluded from the eligible set, in four categories kept apart on purpose (pinned
+exhaustively by `tests/test_gate_redesign.py::test_excluded_rules_are_still_excluded`):
+RULE_07, RULE_OSINT, RULE_REDDIT, RULE_ANOMALY (and RULE_10 itself) as **noise**;
+**RULE_12, RULE_13, RULE_14** as **retired**; RULE_DISCOVERY / RULE_COLLECTOR as
+**coverage collectors** (a collected name is "this name exists", not "watch this");
+and **RULE_ADSB, RULE_TELEGRAM_OSINT, RULE_08** as **basket-keyed** — their ticker comes
+from a hardcoded lookup table rather than from the event, so it must never complete a
+convergence. **RULE_08 is the one that mattered** (excluded 2026-07-29, human-gated):
+live, scheduled, and actually counted as `fed-register` until its `SECTOR_MAP`
+keyword→basket fan-out was closed. That exclusion **removed a real counted leg** — it is
+forward-only and does not retract themes RULE_08 already helped complete. `fed-register`
+returns only via real issuer attribution; see the rule-repair backlog in
+`vault/Scope/04_Known_Issues/Current Blockers.md`. Whether a rule is *excluded* is
+independent of whether it is *scheduled*: RULE_08/ADSB/TELEGRAM_OSINT all still run and
+still emit alerts. The class is closed by SHAPE, not by a list of names, in
+`tests/test_basket_rule_gate_class.py` (five exotic shapes remain open, encoded as strict
+xfails). That set is the single source of truth: `scripts/rule_10_corroboration.py`'s
 `EXCLUDED_FROM_CORROBORATION` is **derived from it**, so a retired rule is excluded from
 both instrument-counting and corroboration-candidacy. They had silently diverged, letting
 retired rules inflate a corroboration's `evidence_confidence` 6.0 -> 81.0. It also creates/evolves a `themes` row (Market Thesis) and

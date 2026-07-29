@@ -38,7 +38,10 @@ KNOWN = {
     "RULE_ADSB":           "excluded from RULE_10_EXCLUDED",
     "RULE_TELEGRAM_OSINT": "excluded from RULE_10_EXCLUDED",
     "RULE_12":             "retired and excluded",
-    "RULE_08":             "LIVE AND UNRESOLVED — awaiting a human gate/scoring decision",
+    # 2026-07-29, human-gated: excluded. Its SECTOR_MAP and its emission are UNCHANGED —
+    # the basket is still there, it just cannot reach the gate. `fed-register` returns as
+    # an instrument only via real issuer attribution (backlogged).
+    "RULE_08":             "excluded from RULE_10_EXCLUDED",
 }
 
 
@@ -48,16 +51,17 @@ def _found():
 
 # ── 1. the guarantee ────────────────────────────────────────────────────────
 
-@pytest.mark.xfail(strict=True, reason=(
-    "RULE_08's SECTOR_MAP is a LIVE basket reaching the gate as the 'fed-register' "
-    "instrument: ['RULE_01B','RULE_06','RULE_08'] fires a convergence on a ticker that "
-    "came from a keyword lookup. Resolving it is a human gate/scoring decision — exclude "
-    "it (removing a counted instrument from live convergences) or replace SECTOR_MAP with "
-    "real issuer attribution — and CLAUDE.md makes that human-gated. See "
-    "vault/Scope/02_Sessions/SESSION-2026-07-29-basket-rule-gate-class.md. "
-    "WHEN IT IS RESOLVED THIS XPASSES AND THE SUITE GOES RED: delete this marker."))
 def test_no_basket_shaped_rule_reaches_the_gate():
-    """The whole point, repo-wide. A lookup-table ticker cannot be a gate leg."""
+    """The whole point, repo-wide. A lookup-table ticker cannot be a gate leg.
+
+    ⚠️ THIS WAS AN `xfail(strict=True)` AND IS NOW LIVE. It failed for one reason:
+    RULE_08's `SECTOR_MAP` was a live basket reaching the gate as `fed-register`, so
+    `['RULE_01B','RULE_06','RULE_08']` fired a convergence on a keyword-lookup ticker.
+    The human decision was EXCLUDE (2026-07-29) — see
+    02_Sessions/SESSION-2026-07-29-rule08-exclude.md — so the marker is gone and this
+    is a normal assertion again. Delete RULE_08 from `RULE_10_EXCLUDED` and this test
+    goes red naming it; that is the guarantee, not a coincidence.
+    """
     violators = [(r["rule"], r["path"], r["baskets"]) for r in _found()
                  if r["rule"] and rule10_instruments([r["rule"]])]
     assert violators == [], (
@@ -90,10 +94,12 @@ def test_the_ambiguous_ones_are_never_treated_as_clean():
     assert ambiguous == [], f"basket rules with undeterminable identity: {ambiguous}"
 
 
-# ── 2. the two already-decided members ──────────────────────────────────────
+# ── 2. the decided members ──────────────────────────────────────────────────
 
 @pytest.mark.parametrize("rule,instrument", [("RULE_ADSB", "flight"),
-                                             ("RULE_TELEGRAM_OSINT", "telegram")])
+                                             ("RULE_TELEGRAM_OSINT", "telegram"),
+                                             # The live, scheduled, actually-counted one.
+                                             ("RULE_08", "fed-register")])
 def test_the_excluded_basket_rules_contribute_nothing(rule, instrument):
     assert rule in RULE_10_EXCLUDED
     assert rule10_instruments([rule]) == []
