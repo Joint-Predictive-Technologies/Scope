@@ -6,12 +6,13 @@
   <title>Congressional Digest — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
@@ -29,7 +30,7 @@
     table.dg { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
     table.dg th { text-align: left; font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); }
     table.dg td { padding: 0.55rem 0.7rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
-    table.dg tr:hover td { background: rgba(255,255,255,0.015); }
+    table.dg tr:hover td { background: color-mix(in srgb, var(--text-primary) 2%, transparent); }
     .tk { font-family: var(--font-mono); color: var(--amber); text-decoration: none; }
     .tk:hover { text-decoration: underline; }
     .mix .b { color: var(--green-light); } .mix .s { color: var(--red-light); }

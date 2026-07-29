@@ -6,12 +6,13 @@
   <title>Lobbying Activity — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
@@ -35,7 +36,7 @@
     .search::placeholder { color: var(--muted); }
     .chip { font-family: var(--font-mono); font-size: 0.64rem; letter-spacing: 0.04em; background: transparent; border: 1px solid var(--border2); color: var(--cream2); padding: 5px 11px; border-radius: 20px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
     .chip:hover { border-color: var(--amber); color: var(--amber); }
-    .chip.active { background: rgba(200,146,42,0.12); border-color: var(--amber); color: var(--amber); }
+    .chip.active { background: color-mix(in srgb, var(--amber) 12%, transparent); border-color: var(--amber); color: var(--amber); }
     .cat-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.4rem; }
 
     .section-label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin: 1.8rem 0 0.9rem; display: flex; align-items: center; gap: 0.6rem; }
@@ -48,9 +49,9 @@
     .lob-name { font-size: 0.9rem; color: var(--cream); font-weight: 500; }
     .lob-meta { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); margin-top: 0.25rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
     .cat-tag { color: var(--cream2); }
-    .foreign-tag { background: rgba(229,91,77,0.15); color: var(--red); border: 1px solid rgba(229,91,77,0.3); padding: 0px 6px; border-radius: 3px; }
-    .tkr { color: var(--amber); text-decoration: none; border: 1px solid rgba(200,146,42,0.25); padding: 0px 6px; border-radius: 3px; }
-    .tkr:hover { background: rgba(200,146,42,0.1); }
+    .foreign-tag { background: color-mix(in srgb, var(--severity-critical) 15%, transparent); color: var(--red); border: 1px solid color-mix(in srgb, var(--severity-critical) 30%, transparent); padding: 0px 6px; border-radius: 3px; }
+    .tkr { color: var(--amber); text-decoration: none; border: 1px solid color-mix(in srgb, var(--amber) 25%, transparent); padding: 0px 6px; border-radius: 3px; }
+    .tkr:hover { background: color-mix(in srgb, var(--amber) 10%, transparent); }
     .issues { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 340px; }
     .lob-amount { text-align: right; flex-shrink: 0; }
     .amt-val { font-family: var(--font-mono); font-size: 1.05rem; color: var(--green); font-weight: 500; }
@@ -60,7 +61,7 @@
 
     .spike-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 0.85rem 1.1rem; margin-bottom: 0.4rem; }
     .badge { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; padding: 1px 6px; border-radius: 3px; margin-right: 0.5rem; }
-    .badge-HIGH { background: rgba(200,146,42,0.15); color: var(--amber2); } .badge-MEDIUM { background: rgba(42,100,160,0.15); color: var(--blue); } .badge-CRITICAL { background: rgba(229,91,77,0.15); color: var(--red); }
+    .badge-HIGH { background: color-mix(in srgb, var(--amber) 15%, transparent); color: var(--amber2); } .badge-MEDIUM { background: color-mix(in srgb, var(--link) 15%, transparent); color: var(--blue); } .badge-CRITICAL { background: color-mix(in srgb, var(--severity-critical) 15%, transparent); color: var(--red); }
 
     .empty { padding: 2rem; text-align: center; font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); line-height: 1.7; }
     .loading { padding: 2.5rem; text-align: center; font-family: var(--font-mono); color: var(--muted); }

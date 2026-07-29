@@ -6,12 +6,13 @@
   <title>Cluster War Room — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
@@ -19,11 +20,11 @@
 
     .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
     .status-badge { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
-    .sev-critical { background: rgba(229,91,77,0.18); color: var(--red-light); }
-    .sev-high { background: rgba(200,146,42,0.18); color: var(--amber2); }
-    .dir-consensus_buy { background: rgba(77,196,122,0.16); color: var(--green-light); }
-    .dir-consensus_sell { background: rgba(229,91,77,0.16); color: var(--red-light); }
-    .dir-mixed { background: rgba(106,176,224,0.16); color: var(--blue); }
+    .sev-critical { background: color-mix(in srgb, var(--severity-critical) 18%, transparent); color: var(--red-light); }
+    .sev-high { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber2); }
+    .dir-consensus_buy { background: color-mix(in srgb, var(--direction-buy) 16%, transparent); color: var(--green-light); }
+    .dir-consensus_sell { background: color-mix(in srgb, var(--severity-critical) 16%, transparent); color: var(--red-light); }
+    .dir-mixed { background: color-mix(in srgb, var(--link) 16%, transparent); color: var(--blue); }
     .t-title { font-family: var(--font-sans); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
     .t-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
     .tick-chip { font-family: var(--font-mono); font-size: 0.72rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--amber); padding: 2px 9px; border-radius: 3px; text-decoration: none; }
@@ -52,9 +53,9 @@
     table.members th { text-align: left; font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
     table.members td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--cream2); }
     .dir-tag { font-family: var(--font-mono); font-size: 0.6rem; padding: 1px 6px; border-radius: 3px; }
-    .dir-tag.buy { background: rgba(77,196,122,0.14); color: var(--green-light); }
-    .dir-tag.sell { background: rgba(229,91,77,0.14); color: var(--red-light); }
-    .dir-tag.mixed { background: rgba(106,176,224,0.14); color: var(--blue); }
+    .dir-tag.buy { background: color-mix(in srgb, var(--direction-buy) 14%, transparent); color: var(--green-light); }
+    .dir-tag.sell { background: color-mix(in srgb, var(--severity-critical) 14%, transparent); color: var(--red-light); }
+    .dir-tag.mixed { background: color-mix(in srgb, var(--link) 14%, transparent); color: var(--blue); }
     .dir-tag.other { background: var(--bg3); color: var(--muted); }
 
     /* trade-proximity timeline viz */
@@ -77,11 +78,11 @@
 
     .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.66rem; line-height: 1; filter: grayscale(0.85); opacity: 0.5; transition: all 0.15s; }
     .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
-    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
+    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
     .annot { display: inline-flex; gap: 4px; margin-left: auto; }
 
-    .invalidation { background: rgba(229,91,77,0.06); border-left: 2px solid var(--red-light); padding: 0.8rem 1rem; font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
-    .conflict-box { background: rgba(229,91,77,0.08); border: 1px solid rgba(229,91,77,0.3); border-radius: 6px; padding: 0.8rem 1rem; }
+    .invalidation { background: color-mix(in srgb, var(--severity-critical) 6%, transparent); border-left: 2px solid var(--red-light); padding: 0.8rem 1rem; font-size: 0.82rem; color: var(--cream2); line-height: 1.6; }
+    .conflict-box { background: color-mix(in srgb, var(--severity-critical) 8%, transparent); border: 1px solid color-mix(in srgb, var(--severity-critical) 30%, transparent); border-radius: 6px; padding: 0.8rem 1rem; }
     .notes-area { width: 100%; min-height: 90px; background: var(--bg2); border: 1px solid var(--border2); border-radius: 6px; color: var(--cream); font-family: Inter, sans-serif; font-size: 0.82rem; padding: 0.7rem 0.9rem; resize: vertical; }
     .notes-save { font-family: var(--font-mono); font-size: 0.62rem; margin-top: 0.4rem; color: var(--muted); }
     .gen-label { font-family: var(--font-mono); font-size: 0.56rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }

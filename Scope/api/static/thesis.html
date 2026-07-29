@@ -6,12 +6,13 @@
   <title>Thesis War Room — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
@@ -19,12 +20,12 @@
 
     .page { max-width: 940px; margin: 0 auto; padding: 2.2rem 2rem; }
     .status-badge { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 9px; border-radius: 3px; }
-    .st-emerging { background: rgba(122,112,96,0.2); color: var(--cream2); }
-    .st-developing { background: rgba(106,176,224,0.15); color: var(--blue); }
-    .st-confirmed { background: rgba(200,146,42,0.18); color: var(--amber2); }
-    .st-saturated { background: rgba(122,112,96,0.15); color: var(--muted); }
-    .st-fading { background: rgba(122,112,96,0.15); color: var(--muted); }
-    .st-resolved { background: rgba(77,196,122,0.14); color: var(--green-light); }
+    .st-emerging { background: color-mix(in srgb, var(--muted) 20%, transparent); color: var(--cream2); }
+    .st-developing { background: color-mix(in srgb, var(--link) 15%, transparent); color: var(--blue); }
+    .st-confirmed { background: color-mix(in srgb, var(--amber) 18%, transparent); color: var(--amber2); }
+    .st-saturated { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+    .st-fading { background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+    .st-resolved { background: color-mix(in srgb, var(--direction-buy) 14%, transparent); color: var(--green-light); }
     .t-title { font-family: var(--font-sans); font-size: 1.9rem; font-weight: 700; color: var(--cream); margin: 0.5rem 0 0.3rem; }
     .t-meta { font-family: var(--font-mono); font-size: 0.66rem; color: var(--muted); }
     .tick-chip { font-family: var(--font-mono); font-size: 0.66rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--amber); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; text-decoration: none; }
@@ -49,11 +50,11 @@
 
     .section { margin-top: 1.8rem; }
     .section h3 { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.8rem; }
-    .what-changed { background: rgba(200,146,42,0.06); border-left: 2px solid var(--amber); padding: 0.8rem 1rem; font-size: 0.85rem; color: var(--cream2); line-height: 1.6; }
-    .invalidation { background: rgba(229,91,77,0.07); border-left: 3px solid var(--red-light); border-radius: 4px; padding: 0.9rem 1.1rem; }
+    .what-changed { background: color-mix(in srgb, var(--amber) 6%, transparent); border-left: 2px solid var(--amber); padding: 0.8rem 1rem; font-size: 0.85rem; color: var(--cream2); line-height: 1.6; }
+    .invalidation { background: color-mix(in srgb, var(--severity-critical) 7%, transparent); border-left: 3px solid var(--red-light); border-radius: 4px; padding: 0.9rem 1.1rem; }
     .invalidation h3 { color: var(--red-light); }
     .invalidation ul { color: var(--cream2); font-size: 0.84rem; line-height: 1.7; padding-left: 1.1rem; }
-    .invalidation.empty { background: rgba(122,112,96,0.06); border-left-color: var(--muted); }
+    .invalidation.empty { background: color-mix(in srgb, var(--muted) 6%, transparent); border-left-color: var(--muted); }
     .invalidation.empty .prompt { color: var(--muted); font-size: 0.82rem; font-style: italic; }
 
     .timeline-day { margin-bottom: 1rem; }
@@ -73,7 +74,7 @@
 
     .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.66rem; line-height: 1; filter: grayscale(0.85); opacity: 0.5; transition: all 0.15s; }
     .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
-    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: rgba(200,146,42,0.12); }
+    .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
     .annot { display: inline-flex; gap: 4px; margin-left: auto; }
 
     .chip { font-family: var(--font-mono); font-size: 0.62rem; background: var(--surface-2); border: 1px solid var(--border-default); color: var(--cream2); padding: 2px 8px; border-radius: 3px; margin: 0 4px 4px 0; display: inline-block; }

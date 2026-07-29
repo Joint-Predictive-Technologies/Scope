@@ -6,12 +6,13 @@
   <title>Rule Performance — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; white-space: nowrap; }
@@ -27,8 +28,8 @@
     .health-val { font-family: var(--font-sans); font-size: 1.7rem; font-weight: 700; color: var(--amber); }
     .health-label { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-top: 0.2rem; }
 
-    .stale-banner { background: rgba(192,57,43,0.1); border: 1px solid rgba(192,57,43,0.28); border-radius: 6px; padding: 0.7rem 1.2rem; margin-bottom: 1.8rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--red-light); line-height: 1.6; }
-    .stale-ok { background: rgba(42,138,74,0.08); border-color: rgba(42,138,74,0.28); color: var(--green-light); }
+    .stale-banner { background: color-mix(in srgb, var(--severity-critical) 10%, transparent); border: 1px solid color-mix(in srgb, var(--severity-critical) 28%, transparent); border-radius: 6px; padding: 0.7rem 1.2rem; margin-bottom: 1.8rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--red-light); line-height: 1.6; }
+    .stale-ok { background: color-mix(in srgb, var(--direction-buy) 8%, transparent); border-color: color-mix(in srgb, var(--direction-buy) 28%, transparent); color: var(--green-light); }
 
     .section-label { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.9rem; }
     table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
@@ -38,7 +39,7 @@
     tr:hover td { background: var(--bg2); }
     .rule-id { font-family: var(--font-mono); color: var(--amber2); font-size: 0.72rem; }
     .sev-bar { display: inline-flex; height: 8px; border-radius: 2px; overflow: hidden; width: 90px; background: var(--bg3); vertical-align: middle; }
-    .sev-c { background: var(--red-light); } .sev-h { background: var(--amber); } .sev-m { background: #6ab0e0; }
+    .sev-c { background: var(--red-light); } .sev-h { background: var(--amber); } .sev-m { background: var(--link); }
     .pill { font-family: var(--font-mono); font-size: 0.62rem; color: var(--cream2); background: var(--bg3); border: 1px solid var(--border2); border-radius: 3px; padding: 1px 6px; margin-right: 3px; }
     .num { font-family: var(--font-mono); }
     .corr-good { color: var(--green-light); } .corr-mid { color: var(--amber2); } .corr-low { color: var(--muted); }

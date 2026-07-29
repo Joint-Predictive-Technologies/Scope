@@ -11,7 +11,9 @@
   --surface-1:       #131317;
   --surface-2:       #1a1a1f;
   --surface-3:       #232329;
-  --surface-overlay: rgba(0,0,0,0.75);
+  --surface-overlay: rgba(0,0,0,0.65);     /* modal scrim (⌘K) — the alpha the pages already used */
+  --surface-scrim:   rgba(0,0,0,0.55);     /* drawer scrim — deliberately lighter than a modal's */
+  --surface-nav:     rgba(12,11,9,0.95);   /* sticky nav: translucent over content */
 
   /* ---- borders (hairlines only) ---- */
   --border-subtle:   #2a2a30;
@@ -109,6 +111,78 @@
   --green:      var(--direction-buy);
   --green-light: var(--direction-buy);
   --blue: var(--link);
+}
+
+/* ============================================================================
+   LIGHT THEME — additive. Dark above is the DEFAULT: no existing dark token
+   changed value, and nothing here runs unless `data-theme="light"` is set on
+   <html> (theme.js). Only the colour tokens are redefined — type, spacing,
+   radius and motion are shared, so a page that uses tokens adapts with no
+   page-level change.
+
+   HONEST CAVEAT, because "dark is unchanged" is easy to overclaim: the :root
+   block above gained two tokens (--surface-nav, --surface-scrim), and pages
+   that were still painting the PRE-token literals (#c8922a amber, #e55b4d red,
+   #6ab0e0 blue, #7a7060 muted …) now resolve through the tokens instead. Those
+   literals were already superseded by the aliases at the end of :root
+   (--amber: var(--accent) and friends) — the pages simply had not been
+   converted — so dark's RENDERED palette shifts on those declarations. That is
+   completed tokenisation, not a redesign, but it is a change and is recorded
+   as one. See SESSION-2026-07-29-light-theme.md for the measured list.
+
+   Values are chosen for CONTRAST, not by inverting the dark ones. The dark
+   accent (#c89664) sits at ~2.2:1 on white and would fail as text, so light
+   gets a deeper copper. Every text/surface pair below is checked in
+   tests/test_light_theme_contrast.py, which fails the build if a TOKEN
+   regresses — it reads tokens.css only and cannot see page-level colour.
+
+   Data-encoded colours (severity, direction) are re-tuned rather than reused:
+   they must stay both ACCESSIBLE and mutually DISTINCT on white, because they
+   carry meaning, not decoration.
+   ============================================================================ */
+:root[data-theme="light"] {
+  /* ---- surfaces (warm off-white, layered the same direction as dark) ---- */
+  --surface-canvas:  #faf9f7;
+  --surface-1:       #f2f0ec;
+  --surface-2:       #e9e6e0;
+  --surface-3:       #ddd9d1;
+  --surface-overlay: rgba(30,28,24,0.45);
+  --surface-scrim:   rgba(30,28,24,0.35);
+  --surface-nav:     rgba(250,249,247,0.93);
+
+  /* ---- borders (hairlines only) ---- */
+  --border-subtle:   #ddd8d0;
+  --border-default:  #c3bcb0;
+  --border-emphasis: #8f8779;
+
+  /* ---- text (same three-tier hierarchy, inverted polarity) ---- */
+  --text-primary:   #1c1b18;
+  --text-secondary: #4a4740;
+  --text-tertiary:  #635f56;   /* AA on canvas and on surface-1 */
+  --text-inverse:   #faf9f7;
+
+  /* ---- chromatic accent — deeper copper so it works as TEXT on light ---- */
+  --accent:     #8a5a24;
+  --accent-dim: #a97d4a;
+
+  /* ---- direction (functional) ---- */
+  --direction-buy:     #12704a;
+  --direction-sell:    #9e1f2d;
+  --direction-neutral: #635f56;
+
+  /* ---- severity (escalating) ----
+     Separated by SATURATION as much as hue, the way dark already is: a warm
+     ramp on paper collapses if you only rotate the hue. Neutral grey -> muted
+     amber -> saturated orange -> deep red. Every pair is at least as separable
+     here as it is in dark, and every value clears AA on canvas and surface-1 —
+     both asserted in tests/test_light_theme_contrast.py. */
+  --severity-low:      #635f56;
+  --severity-medium:   #8a6535;
+  --severity-high:     #905300;
+  --severity-critical: #9e1f2d;
+
+  /* ---- semantic ---- */
+  --link: #1f5691;
 }
 
 .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

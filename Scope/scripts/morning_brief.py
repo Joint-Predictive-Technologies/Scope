@@ -380,7 +380,7 @@ _CSS = """
 /* Morning brief — editorial register (Slash-inspired). The ONLY serif hero. */
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--surface-canvas);color:var(--text-primary);font-family:var(--font-sans);min-height:100vh}
-nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border-subtle);background:rgba(10,10,12,0.95);backdrop-filter:blur(12px);padding:0 var(--space-6);display:flex;align-items:center;gap:var(--space-4);height:56px}
+nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border-subtle);background:var(--surface-nav);backdrop-filter:blur(12px);padding:0 var(--space-6);display:flex;align-items:center;gap:var(--space-4);height:56px}
 .brand{font-family:var(--font-sans);font-weight:var(--weight-semibold);font-size:var(--text-lg);letter-spacing:0.01em;color:var(--accent);text-decoration:none}
 .nav-links{display:flex;align-items:center;gap:var(--space-4);overflow-x:auto;flex:1;scrollbar-width:none}
 .nav-links::-webkit-scrollbar{display:none}
@@ -642,6 +642,7 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 {_TEMPLATE_MARKER}
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="/theme.js"></script>
 <link rel="stylesheet" href="/tokens.css"/>
 <script src="/rule-names.js"></script>
 <script src="/cmdk.js" defer></script>
@@ -723,7 +724,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "ui-restore-5"   # nav: + Dashboard(/home); shared ⌘K;
+TEMPLATE_VERSION = "light-theme-2"   # nav: + Dashboard(/home); shared ⌘K;
                                     # hero counted in the gate's units
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 

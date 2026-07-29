@@ -21,24 +21,24 @@
   "use strict";
 
   var CSS = `
-#cmd-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:9000; backdrop-filter:blur(4px); }
+#cmd-backdrop { display:none; position:fixed; inset:0; background:var(--surface-overlay); z-index:9000; backdrop-filter:blur(4px); }
 #cmd-backdrop.open { display:flex; align-items:flex-start; justify-content:center; padding-top:12vh; }
-#cmd-box { background:#1a1814; border:1px solid #3a3428; border-radius:10px; width:min(640px,92vw); overflow:hidden; }
-#cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid #2a2620; outline:none; font-family:var(--font-mono); font-size:0.9rem; color:#e8e0cc; padding:1rem 1.2rem; }
+#cmd-box { background:var(--bg2); border:1px solid var(--border2); border-radius:10px; width:min(640px,92vw); overflow:hidden; }
+#cmd-input { width:100%; background:transparent; border:none; border-bottom:1px solid var(--border); outline:none; font-family:var(--font-mono); font-size:0.9rem; color:var(--cream); padding:1rem 1.2rem; }
 #cmd-results { max-height:360px; overflow-y:auto; }
-.cmd-group-label { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:#7a7060; padding:0.6rem 1.2rem 0.2rem; }
+.cmd-group-label { font-family:var(--font-mono); font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); padding:0.6rem 1.2rem 0.2rem; }
 .cmd-item { display:flex; align-items:center; gap:0.8rem; padding:0.65rem 1.2rem; cursor:pointer; text-decoration:none; border-left:2px solid transparent; }
-.cmd-item:hover,.cmd-item.active { background:#222018; border-left-color:#c8922a; }
+.cmd-item:hover,.cmd-item.active { background:var(--bg3); border-left-color:var(--amber); }
 .cmd-item-icon { font-size:0.9rem; opacity:0.6; width:18px; text-align:center; flex-shrink:0; }
-.cmd-item-main { font-family:var(--font-mono); font-size:0.75rem; color:#e8e0cc; }
-.cmd-item-sub  { font-size:0.68rem; color:#7a7060; margin-top:1px; }
+.cmd-item-main { font-family:var(--font-mono); font-size:0.75rem; color:var(--cream); }
+.cmd-item-sub  { font-size:0.68rem; color:var(--muted); margin-top:1px; }
 .cmd-badge { font-family:var(--font-mono); font-size:0.55rem; padding:1px 5px; border-radius:2px; margin-left:auto; flex-shrink:0; }
-.cmd-badge-CRITICAL { background:rgba(229,91,77,0.2); color:#e55b4d; }
-.cmd-badge-HIGH     { background:rgba(200,146,42,0.2); color:#c8922a; }
-.cmd-badge-MEDIUM   { background:rgba(106,176,224,0.2); color:#6ab0e0; }
-.cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
-.cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
-.cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
+.cmd-badge-CRITICAL { background:color-mix(in srgb, var(--severity-critical) 20%, transparent); color:var(--severity-critical); }
+.cmd-badge-HIGH     { background:color-mix(in srgb, var(--amber) 20%, transparent); color:var(--amber); }
+.cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
+.cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
+.cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
+.cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
 `;
 
   /* The trigger's own styling is SEPARATE from the palette's, because the
@@ -48,11 +48,11 @@
      correct button before. This block is always injected.
      margin-left:auto pins it to the right edge of any flex nav. */
   var BTN_CSS = `
-.cmdk-btn { font-family:var(--font-mono); font-size:0.65rem; color:#7a7060; background:#111009;
-            border:1px solid #2a2620; padding:4px 10px; border-radius:4px; cursor:pointer;
+.cmdk-btn { font-family:var(--font-mono); font-size:0.65rem; color:var(--muted); background:var(--bg2);
+            border:1px solid var(--border); padding:4px 10px; border-radius:4px; cursor:pointer;
             margin-left:auto; flex-shrink:0; white-space:nowrap; line-height:1.4; }
-.cmdk-btn:hover { color:var(--amber, #c8922a); border-color:var(--amber, #c8922a); }
-.cmdk-btn:focus-visible { outline:2px solid var(--amber, #c8922a); outline-offset:2px; }
+.cmdk-btn:hover { color:var(--amber, var(--amber)); border-color:var(--amber, var(--amber)); }
+.cmdk-btn:focus-visible { outline:2px solid var(--amber, var(--amber)); outline-offset:2px; }
 
 /* Nav overflow safety. Measured on /ticker/LMT at a 1150px viewport: the last
    link ("Ask Scope") ended at x=1080 and the "LIVE FEED" CTA began at x=1080 —

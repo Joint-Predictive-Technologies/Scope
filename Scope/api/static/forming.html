@@ -6,12 +6,13 @@
   <title>Forming — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
-    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: rgba(12,11,9,0.95); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
     .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
     .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
     .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
@@ -34,13 +35,13 @@
     .f-tick { font-family: var(--font-mono); font-size: 1rem; color: var(--amber); }
     .f-state { font-family: var(--font-mono); font-size: 0.58rem; letter-spacing: 0.06em;
                text-transform: uppercase; padding: 2px 8px; border-radius: 3px;
-               background: rgba(200,146,42,0.14); color: var(--amber); }
+               background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--amber); }
     .f-when { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-left: auto; }
     .f-row { font-family: var(--font-mono); font-size: 0.66rem; color: var(--cream2); margin-bottom: 0.3rem; }
     .f-row .k { color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-right: 0.4rem; }
     .chip { display: inline-block; font-family: var(--font-mono); font-size: 0.6rem;
             border: 1px solid var(--border2); border-radius: 3px; padding: 1px 7px; margin-right: 0.3rem; }
-    .chip.have { color: var(--green-light); border-color: rgba(77,196,122,0.4); }
+    .chip.have { color: var(--green-light); border-color: color-mix(in srgb, var(--direction-buy) 40%, transparent); }
     .chip.missing { color: var(--muted); border-style: dashed; }
     .f-alerts { margin-top: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
     .f-alert { font-size: 0.78rem; color: var(--cream2); margin-bottom: 0.25rem; }
