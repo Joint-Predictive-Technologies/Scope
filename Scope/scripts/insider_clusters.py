@@ -144,6 +144,55 @@ def _norm_cik(cik: str | None) -> str:
     return raw.lstrip("0") if _CIK_RE.fullmatch(raw) else ""
 
 
+def normalize_security(title: str | None) -> str:
+    """The ONE place a security becomes comparable. Case-fold + collapse whitespace.
+
+    ⚠️ THE FOURTH ENTITY. The trade key used to carry `normalize_ticker(ticker)` — the
+    free-text `issuerTradingSymbol` a filing agent types — as its security leg, while
+    `security_title` sat UNREAD in the same store (0 reads here, 5 in the writer). That is
+    the issuer bug one level down: the issuer was keyed on the typed ticker while
+    `issuer_cik` sat unused in the same table.
+
+    Measured both directions on the real corpus: two share classes under ONE ticker lost
+    **$50,000**; a 4/A retyping `NYT` -> `NYT.A` DOUBLE-COUNTED **$50,000**.
+
+    ⚠️ NORMALIZED, NEVER RAW. A raw key is a NEW over-split — the corpus carries
+    `Common stock`/`Common Stock`, `Class A Common Stock`/`Class A common stock`,
+    `CLASS A COMMON SHARES`/`Class A Common Shares`, and a `...Due`/`...due` pair. Those
+    four merge here.
+
+    ⚠️ AND NOTHING MORE THAN CASE + WHITESPACE. Seven residual pairs stay distinct that are
+    probably one security — HSY/PAYX/SOTK/WAB/PSMT/HTFL/LOOP, each `COMMON STOCK` against a
+    qualified variant (`, $1.00 PAR VALUE`, ` - FAMILY TRUST`, ` - DIRECT`, a trailing
+    period, a ticker prefix). **0 of them collide on a buy-path trade key.** A rule that
+    stripped those qualifiers would risk merging genuinely different securities — an
+    over-merge, the worse direction, bought for an unmeasured gain on a latent problem.
+    """
+    if not title:
+        return ""
+    return re.sub(r"\s+", " ", str(title).strip()).upper()
+
+
+def _txn_date(raw: str | None) -> date | None:
+    """The transaction date, or None. THE ONE PLACE a stored date is parsed.
+
+    ⚠️ 14 rows in the corpus carry an offset suffix — `2026-07-22-05:00` — which is not a
+    date SQLite's `date()` or Python's `fromisoformat` can read. SQLite returned NULL, the
+    horizon predicate became NULL, and those rows VANISHED UNCOUNTED from a surface whose
+    entire claim is that its zeros are honest. Two of them are qualifying open-market buys.
+
+    The first ten characters are the ISO date; anything after is an offset this module has
+    no use for. A date that still will not parse returns None and is COUNTED by the caller,
+    never silently dropped.
+    """
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(str(raw)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
 def person_partition(conn) -> dict[str, tuple[str, ...]]:
     """cik -> person_id, over the WHOLE corpus. THE definition of "one insider".
 
@@ -344,6 +393,24 @@ def person_kind(conn, person_id: tuple[str, ...], store_kinds: dict[str, set],
 #  Everything below consumes person_id. None of it derives identity.
 # ════════════════════════════════════════════════════════════════════════════
 
+def _buy_predicate(horizon_days: int) -> str:
+    """The buy-path WHERE clause. ONE definition, used by the scan AND by the diagnostics.
+
+    They used to be written twice: `find_clusters` counted the rows it discarded and never
+    published them, while `corpus_meta` published a corpus-wide `COUNT(*)` with NO filters
+    and called it the same thing. Two populations, one name. Sharing the clause makes the
+    published numbers the scan's actual numbers by construction, rather than by anyone
+    remembering to keep them in step.
+    """
+    return f"""
+        txn_code = 'P' AND acquired_disposed = 'A'
+          AND is_derivative = 0
+          AND UPPER(TRIM(ticker)) NOT IN ({','.join('?' * len(_SENTINEL_TICKERS))})
+          AND COALESCE(is_10b5_1, 0) != 1
+          AND date(substr(txn_date, 1, 10)) >= date('now', '-{int(horizon_days)} days')
+    """
+
+
 def _buy_rows(conn, horizon_days: int) -> list[dict]:
     """One row per (accession, txn_index) — a TRANSACTION, not an owner-row.
 
@@ -366,19 +433,30 @@ def _buy_rows(conn, horizon_days: int) -> list[dict]:
     `test_the_projection_yields_exactly_one_row_per_transaction`, not assumed.
     """
     sql = f"""
-        SELECT DISTINCT accession, txn_index, issuer_cik, ticker, txn_date, filing_date,
-               shares, value, COALESCE(is_10b5_1, -1) is_10b5_1
+        SELECT DISTINCT accession, txn_index, issuer_cik, ticker, security_title,
+               txn_date, filing_date, shares, value, COALESCE(is_10b5_1, -1) is_10b5_1
         FROM form4_transactions
-        WHERE txn_code = 'P' AND acquired_disposed = 'A'
-          AND is_derivative = 0
-          AND UPPER(TRIM(ticker)) NOT IN ({','.join('?' * len(_SENTINEL_TICKERS))})
-          AND COALESCE(is_10b5_1, 0) != 1
-          AND date(txn_date) >= date('now', '-{int(horizon_days)} days')
+        WHERE {_buy_predicate(horizon_days)}
         ORDER BY accession, txn_index
     """
-    return [dict(zip(("accession", "txn_index", "issuer_cik", "ticker", "txn_date",
-                      "filing_date", "shares", "value", "is_10b5_1"), r))
+    rows = [dict(zip(("accession", "txn_index", "issuer_cik", "ticker", "security_title",
+                      "txn_date", "filing_date", "shares", "value", "is_10b5_1"), r))
             for r in conn.execute(sql, _SENTINEL_TICKERS)]
+
+    # ⚠️ ASSERTED AT RUNTIME, NOT IN A COMMENT. `security_title` is transaction-scoped —
+    # `store_filing` writes it from the transaction — so DISTINCT must still collapse a
+    # multi-owner filing to ONE row per transaction. But in that writer `owner.title`
+    # (owner-scoped) sits ONE ARGUMENT away from `t.security_title`, so "I read it and it
+    # looked transaction-scoped" is exactly how an owner-scoped column would sneak in here
+    # — and an owner-scoped column would fan each transaction into N rows and silently
+    # multiply every dollar sum by N. Verified 2,990 rows / 2,990 transactions on the real
+    # corpus; this makes a regression LOUD instead of arithmetic.
+    keys = {(r["accession"], r["txn_index"]) for r in rows}
+    if len(keys) != len(rows):
+        raise ValueError(
+            f"_buy_rows projection fanned {len(keys)} transactions into {len(rows)} rows "
+            f"— a column in the SELECT is owner-scoped, and every dollar sum is now wrong")
+    return rows
 
 
 def _display_names(conn) -> dict[str, dict]:
@@ -454,12 +532,37 @@ def corpus_meta(conn, horizon_days: int = SCAN_HORIZON_DAYS) -> dict:
     row = conn.execute(
         "SELECT MIN(filing_date), MAX(filing_date), COUNT(DISTINCT accession) "
         "FROM form4_transactions").fetchone()
-    missing = conn.execute(
+    # ⚠️ TWO POPULATIONS, EACH NAMED. This used to publish the corpus-wide count under a
+    # name the reader would take for "rows this scan dropped" — and the scan's own count
+    # was incremented and thrown away. Now both are computed and both say which population
+    # they describe, and the scan block uses `_buy_predicate` so it IS the scan's numbers.
+    corpus_missing = conn.execute(
         "SELECT COUNT(*) FROM form4_transactions "
         "WHERE TRIM(COALESCE(issuer_cik,'')) = ''").fetchone()[0]
+    pred = _buy_predicate(horizon_days)
+    scan_total = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT DISTINCT accession, txn_index "
+        f"FROM form4_transactions WHERE {pred})", _SENTINEL_TICKERS).fetchone()[0]
+    scan_missing = conn.execute(
+        f"SELECT COUNT(*) FROM (SELECT DISTINCT accession, txn_index "
+        f"FROM form4_transactions WHERE {pred} "
+        f"AND TRIM(COALESCE(issuer_cik,'')) = '')", _SENTINEL_TICKERS).fetchone()[0]
+    # A date SQLite reads but Python cannot. The offset-suffixed rows
+    # (`2026-07-22-05:00`) are no longer in this bucket — both sides now take the first
+    # ten characters — so this counts only what is genuinely unreadable.
+    scan_bad_date = sum(
+        1 for (d,) in conn.execute(
+            f"SELECT DISTINCT txn_date FROM form4_transactions WHERE {pred}",
+            _SENTINEL_TICKERS) if _txn_date(d) is None)
     return {
         "corpus_start": row[0], "corpus_end": row[1], "accessions": row[2] or 0,
-        "rows_without_issuer_cik": missing,
+        "corpus_rows_without_issuer_cik": corpus_missing,
+        "scan": {
+            "population": "buy-path transactions inside the scan horizon",
+            "transactions": scan_total,
+            "dropped_no_issuer_cik": scan_missing,
+            "dropped_unparseable_date": scan_bad_date,
+        },
         "horizon_start": (date.today() - timedelta(days=horizon_days)).isoformat(),
         "note": ("Identity is global over the INGESTED corpus only. A co-filing that "
                  "predates corpus_start cannot link two filers, so a household may "
@@ -495,8 +598,12 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     # fallback is counted and published as `issuer_cik_missing`.
     labels = issuer_labels(conn)
     by_issuer: dict[str, list[dict]] = {}
-    dropped_no_issuer = 0
+    # The rows dropped here are PUBLISHED by `corpus_meta`, computed from the SAME
+    # predicate — so no counter is kept in this loop. A variable that is only ever
+    # incremented is precisely the defect this replaces.
     for r in rows:
+        if _txn_date(r["txn_date"]) is None:
+            continue
         issuer = str(r["issuer_cik"] or "").strip()
         if not issuer:
             # ⚠️ AN UNUSABLE ISSUER ID IS ABSENT, NOT A NAMESPACE — the same rule
@@ -510,8 +617,6 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
             #
             # Fail closed, like every other unidentifiable thing here, and COUNT it —
             # a silent drop is how a surface lies about its own coverage.
-            # Counted, and published by `corpus_meta` as `rows_without_issuer_cik`.
-            dropped_no_issuer += 1
             continue
         by_issuer.setdefault(issuer, []).append(r)
 
@@ -529,10 +634,13 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
 
         best = None
         for anchor_row in sorted(buys, key=lambda b: (b["txn_date"], b["accession"])):
-            start = date.fromisoformat(anchor_row["txn_date"])
+            start = _txn_date(anchor_row["txn_date"])
+            if start is None:
+                continue          # already counted in `dropped_bad_date` below
             end = start + timedelta(days=window_days)   # half-open: exactly window_days
             window = [b for b in buys
-                      if start <= date.fromisoformat(b["txn_date"]) < end]
+                      if (_txn_date(b["txn_date"]) is not None
+                          and start <= _txn_date(b["txn_date"]) < end)]
 
             members: dict[tuple, dict] = {}
             counted: set = set()
@@ -570,14 +678,16 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
                 # re-filing the same trade collapses. `txn_index` is REQUIRED: one filing
                 # can hold two legitimately distinct identical legs, and omitting it lost
                 # $19,995 of SCTX's $84,990 — the store's own schema comment warns of it.
-                # `ticker` IS IN THE KEY, and it has to be. Grouping widened from one
-                # ticker to one ISSUER (site fifteen), which put two share classes of the
-                # same company in one group — so without the security, a person buying
-                # the same size of FOOA and FOOB on the same day collapsed to one trade
-                # and $125,000 vanished. That is the SCTX regression one level up,
-                # created by the previous fix. A 4/A re-files under the same ticker, so
-                # this does not weaken the amendment dedupe.
-                key = (tuple(live), normalize_ticker(b["ticker"]) or b["ticker"],
+                # THE SECURITY LEG IS A CANONICAL ID, NOT THE TYPED SYMBOL. It used to
+                # be `normalize_ticker(ticker)` — free text an agent types — which is the
+                # issuer bug one level down, and it failed BOTH ways on real shapes:
+                # BFLY and DSP carry Class A and Class B under ONE ticker, so two distinct
+                # securities collapsed and $50,000 vanished; and NYT carries ONE security
+                # under two symbols (`NYT`/`NYT.A`), so a 4/A retyping it double-counted
+                # $50,000. `issuer_cik` is included so the id is meaningful on its own
+                # rather than only inside this issuer's loop.
+                key = (tuple(live),
+                       (b["issuer_cik"], normalize_security(b["security_title"])),
                        b["txn_index"], b["txn_date"],
                        b["shares"], round(b["value"] or 0.0, 2))
                 if key in counted:

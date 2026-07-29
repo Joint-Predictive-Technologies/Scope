@@ -47,21 +47,23 @@ def _db():
 
 def _row(conn, accession, owner_seq, txn_index, *, ticker="SMLC", cik="1",
          name="Doe Jane", kind="person", code="P", ad="A", value=100_000.0,
-         days_ago=1, plan=0, derivative=0, title="CFO", shares=100.0, issuer=None):
+         days_ago=1, plan=0, derivative=0, title="CFO", shares=100.0, issuer=None,
+         security="Common Stock"):
     """One store row. Mirrors the real writer: a filing with N owners and M transactions
     is N*M rows, transaction fields duplicated verbatim across owners."""
     conn.execute(
         "INSERT OR IGNORE INTO form4_transactions (accession, owner_seq, txn_index, "
-        "ticker, issuer_cik, insider_cik, insider_name, insider_name_norm, "
-        "insider_kind, officer_title, txn_code, acquired_disposed, shares, price, "
-        "value, txn_date, filing_date, is_derivative, is_10b5_1) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
+        "ticker, issuer_cik, security_title, insider_cik, insider_name, "
+        "insider_name_norm, insider_kind, officer_title, txn_code, acquired_disposed, "
+        "shares, price, value, txn_date, filing_date, is_derivative, is_10b5_1) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,"
         f"date('now','-{int(days_ago)} days'), date('now'),?,?)",
         (accession, owner_seq, txn_index, ticker,
          # Issuer identity defaults to the ticker so a test that does not care about
          # issuer identity behaves as it reads. Tests about ticker VARIANTS pass an
          # explicit shared issuer, which is what makes them a real K10 test.
          issuer if issuer is not None else f"ISS-{ticker.strip().upper()}",
+         security,
          cik, name, name.upper(), kind, title,
          code, ad, shares, value / max(shares, 1), value, derivative, plan))
     conn.commit()
@@ -677,12 +679,20 @@ def test_the_projection_yields_exactly_ONE_row_per_transaction():
     assert {r["txn_index"] for r in rows} == {0, 1}
 
 
-def test_no_OWNER_SCOPED_column_appears_in_the_buy_row_projection():
-    """`insider_kind` is the trap here: 'institution' < 'person', so MIN() over it would
+def test_LINT_no_OWNER_SCOPED_column_appears_in_the_buy_row_projection():
+    """A LINT, and now explicitly the WEAKER of two guards.
+
+    `insider_kind` is the trap: 'institution' < 'person', so an aggregate over it would
     read institution whenever ANY owner is one, and a 4/A adding a family trust would
-    silently drop the leg. K14 with a different column substituted in."""
-    rows_src = inspect.getsource(ic._buy_rows)
-    sql = rows_src[rows_src.index('sql = f"""'):rows_src.index('return [')]
+    silently drop the leg — K14 with a different column substituted in.
+
+    The REAL protection is the runtime assertion inside `_buy_rows`: an owner-scoped
+    column fans each transaction into N rows, and that now raises instead of quietly
+    multiplying every dollar sum. `test_the_projection_yields_exactly_ONE_row_per_transaction`
+    exercises it behaviourally. This only stops the column being typed in at all.
+    """
+    src = inspect.getsource(ic._buy_rows) + inspect.getsource(ic._buy_predicate)
+    sql = src[src.index('SELECT DISTINCT'):src.index('ORDER BY accession')]
     for owner_col in ("insider_cik", "insider_name", "insider_name_norm", "insider_kind",
                       "officer_title", "is_director", "is_officer", "owner_seq"):
         assert owner_col not in sql, f"{owner_col} is owner-scoped and must not project"
@@ -855,24 +865,63 @@ def test_SITE16_the_other_direction_one_company_is_not_SPLIT_by_a_missing_id():
     assert clusters == [], "the id-less leg formed a second company"
 
 
-def test_SITE17_the_trade_key_carries_the_SECURITY():
-    """Created by the fifteenth site's own fix. Grouping widened from one TICKER to one
-    ISSUER, which put two share classes in one group — so one person buying the same size
-    of FOOA and FOOB on the same day collapsed into a single trade and $125,000 vanished.
+def test_SITE17_two_share_classes_under_ONE_TICKER_do_not_collapse():
+    """⚠️ REWRITTEN — the old version passed for the wrong reason.
 
-    The SCTX regression one level up.
+    It used `FOOA`/`FOOB`, the one shape where the TYPED TICKER happens to discriminate,
+    and so it never tested two classes sharing a symbol — which is the shape that actually
+    occurs. **BFLY** and **DSP** each carry Class A and Class B Common Stock under a single
+    ticker string in the live corpus, and there the ticker is blind: $50,000 vanished.
+
+    The security is now `(issuer_cik, normalize_security(security_title))`, so the classes
+    stay distinct on the thing that actually distinguishes them.
     """
     conn = _db()
-    _row(conn, "A1", 0, 0, cik="100", ticker="FOOA", issuer="ISS-1", value=125_000.0,
-         days_ago=1)
-    _row(conn, "A2", 0, 0, cik="100", ticker="FOOB", issuer="ISS-1", value=125_000.0,
-         days_ago=1)
-    _row(conn, "A3", 0, 0, cik="900", ticker="FOOA", issuer="ISS-1", value=50_000.0,
-         days_ago=1)
+    _row(conn, "A1", 0, 0, cik="100", ticker="BFLY", issuer="ISS-1", value=50_000.0,
+         security="Class A Common Stock", days_ago=1)
+    _row(conn, "A2", 0, 0, cik="100", ticker="BFLY", issuer="ISS-1", value=50_000.0,
+         security="Class B Common Stock", days_ago=1)
+    _row(conn, "A3", 0, 0, cik="900", ticker="BFLY", issuer="ISS-1", value=40_000.0,
+         security="Class A Common Stock", days_ago=1)
     clusters = ic.find_clusters(conn)
     conn.close()
-    assert clusters[0]["total_value"] == 300_000.0, \
-        f"a share class collapsed: {clusters[0]['total_value']} (site 17)"
+    assert clusters[0]["total_value"] == 140_000.0, \
+        f"two share classes collapsed under one ticker: {clusters[0]['total_value']}"
+
+
+def test_SITE17_ONE_security_under_TWO_TICKERS_is_not_double_counted():
+    """The other direction, and the one the ticker key got wrong the opposite way. NYT
+    carries a single `Class A Common Stock` under both `NYT` and `NYT.A` in the live
+    corpus, so a 4/A that retypes the symbol used to re-file the same trade as a new one
+    and DOUBLE-COUNT $50,000."""
+    conn = _db()
+    _row(conn, "ORIG", 0, 0, cik="100", ticker="NYT", issuer="ISS-1", value=50_000.0,
+         security="Class A Common Stock", days_ago=3)
+    _row(conn, "AMEND", 0, 0, cik="100", ticker="NYT.A", issuer="ISS-1", value=50_000.0,
+         security="Class A Common Stock", days_ago=3)
+    _row(conn, "OTH", 0, 0, cik="900", ticker="NYT", issuer="ISS-1", value=40_000.0,
+         security="Class A Common Stock", days_ago=2)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters[0]["total_value"] == 90_000.0, \
+        f"a retyped symbol double-counted one trade: {clusters[0]['total_value']}"
+
+
+def test_a_CASE_VARIANT_of_one_security_title_is_ONE_security():
+    """BYRN files `Common stock` and `Common Stock`. A RAW key would split them — a new
+    over-split, traded for the one being fixed. Normalization is what makes the canonical
+    id safe to use."""
+    conn = _db()
+    _row(conn, "ORIG", 0, 0, cik="100", ticker="BYRN", issuer="ISS-1", value=50_000.0,
+         security="Common stock", days_ago=3)
+    _row(conn, "AMEND", 0, 0, cik="100", ticker="BYRN", issuer="ISS-1", value=50_000.0,
+         security="Common Stock", days_ago=3)
+    _row(conn, "OTH", 0, 0, cik="900", ticker="BYRN", issuer="ISS-1", value=40_000.0,
+         security="Common Stock", days_ago=2)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters[0]["total_value"] == 90_000.0, \
+        f"a case variant split one security: {clusters[0]['total_value']}"
 
 
 @pytest.mark.parametrize("kinds,expected", [
@@ -917,3 +966,157 @@ def test_the_lookup_tables_are_keyed_on_the_NORMALISED_cik(fn):
     conn.close()
     assert "100" in out, f"{fn} keyed on the RAW cik: {sorted(out)[:4]}"
     assert "0000000100" not in out
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  THE FOURTH ENTITY — the security, canonicalized
+# ════════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("a,b,same", [
+    ("Common stock", "Common Stock", True),            # BYRN, live
+    ("Class A Common Stock", "Class A common stock", True),
+    ("CLASS A COMMON SHARES", "Class A Common Shares", True),
+    ("Notes Due July 22, 2026", "Notes due July 22, 2026", True),
+    ("  Common   Stock  ", "Common Stock", True),      # whitespace only
+    ("Class A Common Stock", "Class B Common Stock", False),
+    ("Class A Ordinary Shares", "Class B Ordinary Shares", False),   # ZCMD, live
+    ("American Depositary Shares (TSM)", "Common Shares (2330.TW)", False),
+    ("Common Shares of Beneficial Interest", "Series A Preferred Shares", False),
+])
+def test_normalize_security_merges_variants_and_keeps_classes_apart(a, b, same):
+    """Every pair here is drawn from the live corpus. The `True` rows are the four raw
+    over-splits a RAW key would create; the `False` rows are the genuinely distinct
+    securities the typed ticker was blind to."""
+    assert (ic.normalize_security(a) == ic.normalize_security(b)) is same
+
+
+def test_the_RESIDUAL_variants_stay_distinct_and_that_is_the_measured_cost():
+    """Honest about what case+whitespace does NOT solve. Seven live pairs are probably one
+    security phrased two ways and will NOT merge — HSY/PAYX/SOTK/WAB/PSMT/HTFL/LOOP, each
+    `COMMON STOCK` against a qualified variant.
+
+    **0 of them collide on a buy-path trade key**, so the exposure is latent. A rule
+    stripping `, $X PAR VALUE` or ` - QUALIFIER` would risk merging genuinely different
+    securities — an over-merge, the worse direction, for an unmeasured gain.
+    """
+    for a, b in (("Common Stock", "Common Stock, $1.00 Par Value"),
+                 ("Common Stock", "Common Stock - Family Trust"),
+                 ("Common Stock", "Common Stock.")):
+        assert ic.normalize_security(a) != ic.normalize_security(b)
+
+
+def test_the_TICKER_is_no_longer_an_identity_component():
+    """The whole point. One issuer, one security, two typed symbols, and a third insider
+    so a cluster forms — the trade must dedupe on the security, not the string."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="ZZZZ", issuer="ISS-1", value=50_000.0,
+         security="Common Stock", days_ago=2)
+    _row(conn, "A2", 0, 0, cik="100", ticker="ZZZZ.A", issuer="ISS-1", value=50_000.0,
+         security="Common Stock", days_ago=2)
+    _row(conn, "A3", 0, 0, cik="200", ticker="ZZZZ", issuer="ISS-1", value=40_000.0,
+         security="Common Stock", days_ago=1)
+    clusters = ic.find_clusters(conn)
+    conn.close()
+    assert clusters[0]["total_value"] == 90_000.0
+
+
+def test_the_projection_yields_exactly_ONE_row_per_transaction():
+    """THE HARD GATE, behaviourally. `security_title` is transaction-scoped, so DISTINCT
+    must still collapse a multi-owner filing to one row per transaction. If a future edit
+    puts an OWNER-scoped column in that SELECT, each transaction fans into N rows and every
+    dollar sum silently multiplies by N — so `_buy_rows` raises instead."""
+    conn = _db()
+    _joint(conn, "A1", [("100", "A"), ("200", "B"), ("300", "C")], txn_index=0)
+    _joint(conn, "A1", [("100", "A"), ("200", "B"), ("300", "C")], txn_index=1)
+    rows = ic._buy_rows(conn, 45)
+    conn.close()
+    assert len(rows) == 2, f"3 owners x 2 transactions gave {len(rows)} rows"
+    assert {r["txn_index"] for r in rows} == {0, 1}
+    assert all("security_title" in r for r in rows)
+
+
+def test_the_projection_RAISES_rather_than_silently_multiplying(monkeypatch):
+    """The assertion must be load-bearing, not decorative: a fanned projection has to fail
+    LOUD. Simulated by handing `_buy_rows` a query that duplicates each transaction."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=100_000.0)
+
+    class _Fanning:
+        """A connection whose projection returns each transaction twice — what an
+        owner-scoped column in that SELECT would actually do."""
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def execute(self, sql, *a):
+            rows = list(self._inner.execute(sql, *a))
+            return rows + rows if "SELECT DISTINCT accession" in sql else rows
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+    with pytest.raises(ValueError, match="fanned"):
+        ic._buy_rows(_Fanning(conn), 45)
+    conn.close()
+
+
+# ── the two honest-drop findings ────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw,expected", [
+    ("2026-07-22", "2026-07-22"),
+    ("2026-07-22-05:00", "2026-07-22"),      # the live shape that was vanishing
+    ("2026-07-17-05:00", "2026-07-17"),
+    ("2026-07-22T00:00:00", "2026-07-22"),
+    ("", None), (None, None), ("not-a-date", None), ("2026-13-45", None),
+])
+def test_the_offset_suffixed_dates_parse(raw, expected):
+    got = ic._txn_date(raw)
+    assert (got.isoformat() if got else None) == expected
+
+
+def test_an_offset_suffixed_row_is_INCLUDED_not_silently_dropped():
+    """14 live rows carry `YYYY-MM-DD-05:00`. SQLite's `date()` returned NULL, the horizon
+    predicate became NULL, and they vanished UNCOUNTED — 2 were qualifying open-market
+    buys, on a surface whose whole claim is that its zeros are honest."""
+    conn = _db()
+    conn.execute(
+        "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
+        "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
+        "insider_kind, txn_code, acquired_disposed, shares, price, value, txn_date, "
+        "filing_date, is_derivative, is_10b5_1) VALUES ('OFF',0,0,'SMLC','ISS-1',"
+        "'Common Stock','100','N','N','person','P','A',100,1000.0,100000.0, "
+        "date('now','-1 days') || '-05:00', date('now'), 0, 0)")
+    conn.commit()
+    rows = ic._buy_rows(conn, 45)
+    conn.close()
+    assert any(r["accession"] == "OFF" for r in rows), \
+        "the offset-suffixed row is still being dropped by the horizon predicate"
+
+
+def test_the_scan_drops_are_PUBLISHED_and_name_their_population():
+    """The dead counter. `dropped_no_issuer` was incremented and never read, while
+    `corpus_meta` published a corpus-wide `COUNT(*)` under a name a reader would take for
+    the scan's own drops. Both are published now, each saying which population it is —
+    and the scan block shares `_buy_predicate` with the scan, so it cannot drift."""
+    conn = _db()
+    _row(conn, "GOOD", 0, 0, cik="100", issuer="ISS-1", value=100_000.0)
+    _row(conn, "NOISS", 0, 0, cik="200", issuer="", value=100_000.0)
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert "corpus_rows_without_issuer_cik" in meta
+    assert meta["scan"]["population"].startswith("buy-path")
+    assert meta["scan"]["transactions"] == 2
+    assert meta["scan"]["dropped_no_issuer_cik"] == 1, \
+        "the scan's OWN drop count is not published"
+
+
+def test_the_scan_block_uses_the_SAME_predicate_as_the_scan():
+    """Reconciliation by construction, not by remembering. A row excluded from the scan
+    (a sell) must not appear in the scan diagnostics either."""
+    conn = _db()
+    _row(conn, "BUY", 0, 0, cik="100", issuer="ISS-1", value=100_000.0)
+    _row(conn, "SELL", 0, 0, cik="200", issuer="", code="S", ad="D", value=100_000.0)
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert meta["scan"]["transactions"] == 1, "a sell leaked into the scan diagnostics"
+    assert meta["scan"]["dropped_no_issuer_cik"] == 0
