@@ -1359,12 +1359,35 @@ def search(q: str = ""):
     conn = _dbc()
     like = f"%{q}%"
 
-    ticker_rows = conn.execute(
+    # `alerts.ticker` is not always ONE symbol: ~500 rows hold space-separated
+    # baskets like "$USO $XLE $LMT $RTX $NOC" (one alert about several names).
+    # Returning those rows verbatim meant a search for "rtx" offered six
+    # near-identical basket strings instead of RTX, and each linked to a
+    # /ticker/<whole basket> page. Explode the baskets, keep the symbols that
+    # actually match, and return each symbol once.
+    basket_rows = conn.execute(
         """SELECT DISTINCT ticker FROM alerts
            WHERE ticker LIKE ? AND ticker != ''
-           LIMIT 6""",
+           LIMIT 200""",
         (like,),
     ).fetchall()
+    needle = q.upper().replace("$", "")
+    seen: set[str] = set()
+    ticker_rows: list[dict] = []
+    for row in basket_rows:
+        for sym in str(row["ticker"]).replace("$", "").split():
+            sym = sym.strip().upper()
+            if not sym or sym in seen or needle not in sym:
+                continue
+            seen.add(sym)
+            ticker_rows.append({"ticker": sym})
+        if len(ticker_rows) >= 6:
+            break
+    # Exact/prefix matches first — searching "RTX" should not rank "XRTXQ" above it.
+    ticker_rows.sort(key=lambda r: (r["ticker"] != needle,
+                                    not r["ticker"].startswith(needle),
+                                    r["ticker"]))
+    ticker_rows = ticker_rows[:6]
 
     member_rows = conn.execute(
         """SELECT bioguide_id, full_name, state, party FROM members
