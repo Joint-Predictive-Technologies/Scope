@@ -14,10 +14,12 @@ the behaviour breaks, and three of the five mutants that survived its final audi
 from __future__ import annotations
 
 import ast
+import datetime as _dt
 import inspect
 import os
 import subprocess
 import sys
+import tempfile
 import textwrap
 
 import zlib
@@ -1353,3 +1355,157 @@ def test_ENTITIES_12_13_the_router_PUBLISHES_identity_not_only_labels():
     assert len(set(ids)) == 2, f"two distinct people published indistinguishably: {ids}"
     assert [i["name"] for i in c["insiders"]] == ["SMITH JOHN", "SMITH JOHN"], \
         "the display name was dropped instead of kept alongside the id"
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  ENTITY 16 and the metadata-honesty fixes
+# ════════════════════════════════════════════════════════════════════════════
+
+def _horizon_in_tz(tz: str, repo: str | None = None) -> tuple[str, str]:
+    """`(published horizon_start, the predicate's own boundary)` from a SEPARATE PROCESS
+    under `TZ`, on ONE database at ONE instant.
+
+    A subprocess, not `monkeypatch`: `date.today()` reads the C library's timezone, which
+    is captured at first use and cannot be moved from inside a running interpreter. A test
+    that sets `os.environ['TZ']` in-process silently measures nothing.
+    """
+    repo = repo or os.path.join(os.path.dirname(__file__), "..")
+    src = textwrap.dedent("""
+        import os, sqlite3, sys
+        sys.path.insert(0, sys.argv[1])
+        from scripts.insider_clusters import corpus_meta, _horizon_expr
+        conn = sqlite3.connect(sys.argv[2])
+        conn.execute("CREATE TABLE IF NOT EXISTS form4_transactions ("
+                     "accession TEXT, owner_seq INT, txn_index INT, ticker TEXT,"
+                     "issuer_cik TEXT, security_title TEXT, insider_cik TEXT,"
+                     "insider_name TEXT, insider_name_norm TEXT, insider_kind TEXT,"
+                     "officer_title TEXT, txn_code TEXT, acquired_disposed TEXT,"
+                     "shares REAL, price REAL, value REAL, txn_date TEXT,"
+                     "filing_date TEXT, is_derivative INT, is_10b5_1 INT)")
+        published = corpus_meta(conn, 45)["horizon_start"]
+        predicate = conn.execute("SELECT " + _horizon_expr(45)).fetchone()[0]
+        print(published, predicate)
+    """)
+    env = dict(os.environ, TZ=tz)
+    with tempfile.TemporaryDirectory() as tmp:
+        db = os.path.join(tmp, "tz.db")
+        env["DATABASE_PATH"] = db
+        out = subprocess.run([sys.executable, "-c", src, repo, db],
+                             capture_output=True, text=True, env=env, check=True)
+    return tuple(out.stdout.split())
+
+
+@pytest.mark.parametrize("tz", ["Europe/Berlin", "Pacific/Auckland",
+                                "Pacific/Kiritimati", "Pacific/Midway"])
+def test_ENTITY_16_the_published_horizon_is_the_PREDICATES_boundary(tz):
+    """THE SIXTEENTH ENTITY. `horizon_start` was `date.today() - timedelta(days=N)` —
+    Python's LOCAL clock — while the predicate that defines the population has always used
+    SQLite's `date('now')`, which is UTC. The field's own docstring says its purpose is
+    making the scanned population RE-DERIVABLE, so a boundary on another clock describes a
+    population the scan did not use.
+
+    `Pacific/Auckland` and `Pacific/Kiritimati` are here because they are the zones a
+    certify pass measured DISAGREEING: published `2026-06-15` where the predicate used
+    `2026-06-14`. `Pacific/Midway` is the other side of UTC, and Berlin is the host's own.
+
+    ⚠️ THE ZONE SET IS CHOSEN SO THIS CAN NEVER BE VACUOUS. A local-clock revert is only
+    visible where the local DATE differs from UTC's, so a single zone would make this test
+    pass silently for part of every day. Kiritimati (UTC+14) differs whenever the UTC hour
+    is >= 10; Midway (UTC-11) differs whenever it is < 11. Checked across all 48
+    half-hours of a day: there is NO instant at which every zone here agrees with UTC.
+    """
+    published, predicate = _horizon_in_tz(tz)
+    assert published == predicate, (
+        f"TZ={tz}: published horizon_start {published} is not the boundary the predicate "
+        f"used ({predicate}) — the metadata describes a population the scan did not scan")
+
+
+def test_the_horizon_expression_has_exactly_ONE_definition():
+    """Not a source-string lint standing in for a test — the behavioural pin is above. This
+    holds the two consumers to one expression so they cannot drift apart again."""
+    conn = _db()
+    assert ic._buy_predicate(45).count(ic._horizon_expr(45)) == 1
+    assert ic._horizon_start(conn, 45) == conn.execute(
+        f"SELECT {ic._horizon_expr(45)}").fetchone()[0]
+    conn.close()
+
+
+def test_the_module_docstring_names_the_cache_a_scan_ACTUALLY_writes(monkeypatch):
+    """MEASURED, not read. The docstring said a scan warms `ticker_meta` via
+    `classify_cap`; the gate has been `classify_cap_by_cik` — which writes `issuer_cap` —
+    since the fifth entity was closed. A comment describing a cache the code stopped
+    writing is the same defect as one promising a counter that was deleted.
+
+    The REAL `classify_cap_by_cik` runs here (the autouse fixture stubs the module
+    attribute, so it is imported from the collector), with only its network legs replaced.
+    """
+    from scripts import rule_reddit_collector as rc
+    monkeypatch.setattr(rc, "_is_foreign_private_issuer", lambda cik: False)
+    monkeypatch.setattr(rc, "_shares_outstanding",
+                        lambda cik: (1_000_000, _dt.date.today().isoformat()))
+    monkeypatch.setattr(rc, "_last_close", lambda sym: 400.0)
+    monkeypatch.setattr(rc, "_ticker_map", lambda: {})
+
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", value=100_000.0)
+    conn.execute("CREATE TABLE IF NOT EXISTS ticker_meta (symbol TEXT PRIMARY KEY, "
+                 "market_cap INTEGER, cap_updated TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS issuer_cap (cik TEXT PRIMARY KEY, "
+                 "market_cap INTEGER, cap_updated TEXT)")
+    conn.commit()
+    before = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+              for t in ("ticker_meta", "issuer_cap")}
+    ic.find_clusters(conn, cap_fn=rc.classify_cap_by_cik,
+                     resolve=lambda conn, cik, **k: "person")
+    after = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+             for t in ("ticker_meta", "issuer_cap")}
+    conn.close()
+    assert after["ticker_meta"] == before["ticker_meta"], "the scan wrote ticker_meta"
+    assert after["issuer_cap"] > before["issuer_cap"], "the scan did not write issuer_cap"
+    assert "`issuer_cap` transitively" in ic.__doc__, \
+        "the docstring does not name the cache the scan writes"
+
+
+def test_no_comment_promises_the_removed_ISSUER_TICKER_FALLBACK():
+    """A filing with no usable issuer CIK is DROPPED, and a comment promised the opposite —
+    a ticker-namespace fallback published under a field name that existed nowhere. The
+    behavioural half: the drop happens and IS published, by the counter that exists."""
+    conn = _db()
+    _row(conn, "A1", 0, 0, cik="100", ticker="SAME", issuer="", value=100_000.0)
+    _row(conn, "A2", 0, 0, cik="200", ticker="SAME", issuer="", value=100_000.0)
+    clusters = ic.find_clusters(conn)
+    meta = ic.corpus_meta(conn)
+    conn.close()
+    assert clusters == [], "a ticker namespace stood in for a missing issuer CIK"
+    assert meta["scan"]["dropped_no_issuer_cik"] == 2, "the drop was not published"
+    # ⚠️ PRODUCTION SOURCE ONLY, and the needle is ASSEMBLED rather than written — a lint
+    # that greps for a literal it itself contains always finds itself.
+    root = os.path.join(os.path.dirname(__file__), "..")
+    needle = "issuer_cik" + "_missing"
+    hits = subprocess.run(["grep", "-rn", needle,
+                           os.path.join(root, "scripts"), os.path.join(root, "api")],
+                          capture_output=True, text=True).stdout.strip()
+    assert hits == "", f"a dead field name is still promised somewhere:\n{hits}"
+
+
+def test_the_DISPLAY_name_is_the_newest_filings_spelling():
+    """The recency asymmetry the certify found: the KEY was canonical while the rendered
+    name came from whichever PADDING sorted first. `issuer_labels` had recency; this did
+    not. Same rule now, so the two cannot describe one corpus differently."""
+    conn = _db()
+    for acc, cik, name, days in (("OLD", "0000741021", "EARLY NAME", 30),
+                                 ("NEW", "741021", "CURRENT NAME", 1)):
+        conn.execute(
+            "INSERT INTO form4_transactions (accession, owner_seq, txn_index, ticker, "
+            "issuer_cik, security_title, insider_cik, insider_name, insider_name_norm, "
+            "officer_title, txn_code, acquired_disposed, shares, price, value, txn_date, "
+            "filing_date, is_derivative, is_10b5_1) VALUES (?,0,0,'SMLC','740021',"
+            "'Common Stock',?,?,?,'CFO','P','A',1,1,1, date('now'), "
+            f"date('now','-{days} days'),0,0)", (acc, cik, name, name))
+    conn.commit()
+    names = ic._display_names(conn)
+    conn.close()
+    assert list(names) == ["741021"], f"the key is not normalised: {list(names)}"
+    assert names["741021"]["name"] == "CURRENT NAME", \
+        f"the older padding's spelling was rendered: {names['741021']['name']}"

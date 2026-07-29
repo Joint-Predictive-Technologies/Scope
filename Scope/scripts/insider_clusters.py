@@ -44,9 +44,15 @@ which filings are in the window, nor on which owners a filing happens to list.
 ⚠️ THIS MODULE READS `form4_transactions` READ-ONLY. It does not write to the store.
 
 ⚠️ "READ-ONLY" MEANS SCOPE'S DATA, NOT THE DATABASE. A scan warms two caches —
-`insider_meta` here, and `ticker_meta` transitively through `classify_cap`. It writes no
+`insider_meta` here, and `issuer_cap` transitively through the cap gate. It writes no
 alert, theme, or transaction. That distinction was got wrong before and is stated plainly
 rather than left to be rediscovered.
+
+⚠️ AND THIS SENTENCE ITSELF NAMED THE WRONG CACHE until 2026-07-29. It said `ticker_meta`
+via `classify_cap`, which was true only before the gate moved to `classify_cap_by_cik`.
+Measured cold on the real corpus: `insider_meta` 0->35, `issuer_cap` 0->7,
+`ticker_meta` 0->0. A comment that describes a cache the code stopped writing is the same
+defect class as a comment promising a counter that was deleted.
 """
 from __future__ import annotations
 
@@ -393,6 +399,35 @@ def person_kind(conn, person_id: tuple[str, ...], store_kinds: dict[str, set],
 #  Everything below consumes person_id. None of it derives identity.
 # ════════════════════════════════════════════════════════════════════════════
 
+def _horizon_expr(horizon_days: int) -> str:
+    """THE scan horizon boundary, as ONE SQL expression. The predicate and the published
+    `horizon_start` are both built from this string, so they cannot be on different clocks.
+
+    ⚠️ THE SIXTEENTH ENTITY, and it is the arc's shape once more with the noun swapped: the
+    published boundary was a RE-DERIVATION of the real one rather than the real one.
+    `corpus_meta` computed `date.today() - timedelta(days=N)` — Python's LOCAL clock — while
+    this predicate has always used SQLite's `date('now')`, which is UTC. Measured on one
+    instant: `TZ=Europe/Berlin` agreed, `TZ=Pacific/Auckland` published 2026-06-15 where the
+    predicate used 2026-06-14. On the host's own zone they differ for the two hours of every
+    day between 22:00 and 24:00 UTC.
+
+    That is wrong precisely in the case the field exists for. Its docstring says resolving
+    the horizon makes the scanned population RE-DERIVABLE by a reader — and a boundary on
+    another clock describes a population the scan did not use.
+
+    ⚠️ WHAT THIS DOES NOT CLOSE. The predicate evaluates `now` inside the scan query and
+    `_horizon_start` evaluates it again for the metadata, so a run straddling UTC midnight
+    can still see the two a day apart. Same clock and same expression is what is guaranteed
+    here; a single evaluation is not, because the boundary lives inside a WHERE clause.
+    """
+    return f"date('now', '-{int(horizon_days)} days')"
+
+
+def _horizon_start(conn, horizon_days: int) -> str:
+    """The boundary the PREDICATE used, asked of the same engine that evaluates it."""
+    return conn.execute(f"SELECT {_horizon_expr(horizon_days)}").fetchone()[0]
+
+
 def _buy_predicate(horizon_days: int, horizon: bool = True) -> str:
     """The buy-path WHERE clause. ONE definition, used by the scan AND by the diagnostics.
 
@@ -407,8 +442,7 @@ def _buy_predicate(horizon_days: int, horizon: bool = True) -> str:
     could read their date. Those rows cannot be counted by a predicate they cannot pass.
     """
     clause = ("" if not horizon else
-              f"AND date(substr(txn_date, 1, 10)) >= "
-              f"date('now', '-{int(horizon_days)} days')")
+              f"AND date(substr(txn_date, 1, 10)) >= {_horizon_expr(horizon_days)}")
     return f"""
         txn_code = 'P' AND acquired_disposed = 'A'
           AND is_derivative = 0
@@ -475,17 +509,34 @@ def _display_names(conn) -> dict[str, dict]:
     and K12 on the label axis. Ordering by `insider_cik, insider_name` makes the pick a
     function of the corpus alone; an earlier draft ordered by `owner_seq` first, which
     made the name depend on where the person happened to sit in a filing.
+
+    ⚠️ THE NEWEST FILING'S SPELLING WINS — the same recency rule `issuer_labels` uses, and
+    for the same reason. Taking the first row of a CIK-sorted scan meant that once two
+    PADDINGS of one CIK collapse to one key, the rendered name came from whichever padding
+    sorted first rather than from the most recent filing: the key was canonical while the
+    label was decided by string order. A certify pass measured it live — `0000741021` /
+    `741021` correctly key to `741021`, and rendered the OLDER name. The asymmetry is now
+    gone; the pick is still a function of the corpus alone, never of row order.
+
+    Ties on `filing_date` fall to `(name, title)` ascending, so the choice is deterministic
+    rather than a set-iteration artefact (K12).
     """
-    out: dict[str, dict] = {}
-    for cik, name, norm, title in conn.execute(
+    best: dict[str, tuple] = {}
+    for cik, name, norm, title, fd in conn.execute(
             "SELECT DISTINCT insider_cik, insider_name, insider_name_norm, "
-            "officer_title FROM form4_transactions "
-            "ORDER BY insider_cik, insider_name, officer_title"):
+            "officer_title, filing_date FROM form4_transactions "
+            "ORDER BY insider_cik, filing_date DESC, insider_name, officer_title"):
         key = _norm_cik(cik)
-        if key and key not in out:
-            out[key] = {"cik": key, "name": name or "", "norm": norm or "",
-                        "title": title or ""}
-    return out
+        if not key:
+            continue
+        cand = ((fd or ""), (name or ""), (title or ""), (norm or ""))
+        cur = best.get(key)
+        # Most recent filing_date wins; a tie goes to the lower (name, title).
+        if cur is None or cand[0] > cur[0] or (cand[0] == cur[0]
+                                               and cand[1:3] < cur[1:3]):
+            best[key] = cand
+    return {k: {"cik": k, "name": v[1], "norm": v[3], "title": v[2]}
+            for k, v in best.items()}
 
 
 def issuer_labels(conn) -> dict[str, str]:
@@ -552,7 +603,10 @@ def corpus_meta(conn, horizon_days: int = SCAN_HORIZON_DAYS) -> dict:
       bridging joint filing that predates ingestion is invisible, so a household can
       still over-split. The reader cannot judge a count without knowing this date.
     - `horizon_start` — the scan uses `date('now')`, so two runs either side of midnight
-      see different data. Resolving it here makes what a human read re-derivable.
+      see different data. Resolving it here makes what a human read re-derivable. It is
+      resolved BY SQLITE, from the same expression the predicate is built from, because a
+      boundary re-derived on Python's local clock describes a different population than the
+      one that was scanned (the sixteenth entity).
     - `rows_without_issuer_cik` — how often the issuer fell back to its ticker STRING.
     """
     row = conn.execute(
@@ -630,7 +684,10 @@ def corpus_meta(conn, horizon_days: int = SCAN_HORIZON_DAYS) -> dict:
                            "membership is undeterminable"),
             "transactions": undatable,
         },
-        "horizon_start": (date.today() - timedelta(days=horizon_days)).isoformat(),
+        # THE PREDICATE'S OWN BOUNDARY, on the predicate's own clock — not Python's local
+        # `date.today()`, which described a population the scan did not use. See
+        # `_horizon_expr`; both are built from that one string.
+        "horizon_start": _horizon_start(conn, horizon_days),
         "note": ("Identity is global over the INGESTED corpus only. A co-filing that "
                  "predates corpus_start cannot link two filers, so a household may "
                  "still appear as two insiders."),
@@ -660,9 +717,18 @@ def find_clusters(conn, window_days: int = WINDOW_DAYS,
     rows = _buy_rows(conn, horizon_days)
 
     # GROUPED ON `issuer_cik` — the issuer's IDENTITY — not on the ticker string, which
-    # is free text a filing agent types. See `issuer_labels`. A filing with no issuer CIK
-    # falls back to the normalised ticker rather than being silently dropped; that
-    # fallback is counted and published as `issuer_cik_missing`.
+    # is free text a filing agent types. See `issuer_labels`.
+    #
+    # ⚠️ A FILING WITH NO USABLE ISSUER CIK IS DROPPED, NOT NAMESPACED BY ITS TICKER.
+    # This comment used to promise the opposite — a ticker fallback, "counted and
+    # published" under a field name that appeared NOWHERE else in the codebase — describing
+    # behaviour deliberately removed twelve lines below, where it is explained as the
+    # sixteenth-site bug. (The dead name is not repeated here: a grep for it must return
+    # zero, and a comment quoting it would be the only hit.)
+    # That is the identical "promise of a guarantee that does not exist" this
+    # file flags further down, and it survived the commit that fixed the other instance.
+    # The drops ARE published, by `corpus_meta`'s `scan.dropped_no_issuer_cik`, computed
+    # from the SAME predicate.
     labels = issuer_labels(conn)
     by_issuer: dict[str, list[dict]] = {}
     # The rows dropped here are PUBLISHED by `corpus_meta`, computed from the SAME
