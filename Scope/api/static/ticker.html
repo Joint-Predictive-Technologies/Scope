@@ -103,7 +103,7 @@
     .graph-legend { display:flex; gap:1.2rem; flex-wrap:wrap; padding:0 1rem 0.6rem; font-family:var(--font-mono); font-size:0.6rem; color:var(--muted); }
     .lg-item { display:flex; align-items:center; gap:6px; }
     .lg-swatch { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
-    .lg-swatch.solid { background:#6ab0e0; }
+    .lg-swatch.solid { background:hsl(205 58% 60%); }
     .lg-swatch.ctx { background:transparent; border:1px dashed #6b6b73; }
     #rel-graph .rule-node { cursor:pointer; transition:opacity 150ms; }
     .rule-node { cursor: pointer; }
@@ -480,10 +480,18 @@ function renderReceipts(r){
 
   // One stable colour per INSTRUMENT (not per rule) — so rules the gate counts
   // once look like one thing. Context signals never get an instrument colour.
-  const INSTRUMENT_COLORS = ['#6ab0e0','#4dc47a','#c8922a','#b07cd6','#e88b4a','#4fb3a8','#d76b8a'];
+  // Hues are generated across however many instruments the model reports, so
+  // two DIFFERENT instruments can never share a colour. A fixed 7-colour list
+  // wrapped at the 8th instrument and painted `senate-lda` the same blue as
+  // `congressional` — which is precisely the confusion this graph exists to
+  // remove, since it made an unrelated leg look like part of the congressional
+  // group. Deterministic: the same instrument always gets the same hue.
   function instrumentColor(inst, model) {
-    const i = (model.instruments || []).indexOf(inst);
-    return i >= 0 ? INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length] : '#8a8a92';
+    const list = model.instruments || [];
+    const i = list.indexOf(inst);
+    if (i < 0) return '#8a8a92';
+    const hue = Math.round((360 / Math.max(1, list.length)) * i + 205) % 360;
+    return `hsl(${hue} 58% 60%)`;
   }
 
   function classifyRule(rule, model) {
