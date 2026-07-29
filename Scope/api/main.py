@@ -932,6 +932,13 @@ def intelligence_page():
 def status_page():
     return FileResponse(STATIC_DIR / "status.html")
 
+@app.get("/universe", response_class=HTMLResponse, include_in_schema=False)
+def universe_page():
+    """Coverage ball pit. Renders a SEEDED FIXTURE only — live wiring to
+    /api/universe is deferred until ticker_universe is populated and the cap
+    labels are corrected (the swap point is loadUniverse() in universe.html)."""
+    return FileResponse(STATIC_DIR / "universe.html")
+
 @app.get("/thesis/{theme_id}", response_class=HTMLResponse, include_in_schema=False)
 def thesis_page(theme_id: int):
     return FileResponse(STATIC_DIR / "thesis.html")

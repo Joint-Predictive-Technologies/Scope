@@ -21,22 +21,35 @@ _YF_HEADERS = {
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def _fetch_market_cap(symbol: str) -> int | None:
+def _fetch_market_cap(conn, symbol: str) -> int | None:
+    """The ticker page's market cap. REUSES the collector's resolver — never a copy.
+
+    ⚠️ WHY EVERY TICKER PAGE READ "Market cap unavailable". This called Yahoo's
+    `quoteSummary` endpoint, which now returns **HTTP 401 for every symbol** — verified
+    live against AAPL, NVDA and LMT. The `except Exception: return None` then turned a
+    dead endpoint into a silent `None`, and the page rendered "unavailable" as though the
+    company simply could not be priced. It was not a `ticker_meta` coverage gap; the
+    source had been dead and nothing said so.
+
+    `scripts.rule_reddit_collector.market_cap` is the working resolver — SEC shares x a
+    Yahoo chart close — and it is the one carrying the plausibility guards (magnitude
+    floor and ceiling, foreign-private-issuer units, share-count staleness). Importing it
+    means the page cannot drift from the guarded arithmetic, and a mis-scale can never
+    reach a human as a confident number: it resolves to `unknown` instead.
+    """
     try:
-        url = (
-            f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}"
-            "?modules=summaryDetail"
-        )
-        r = requests.get(url, headers=_YF_HEADERS, timeout=6)
-        data = r.json()
-        raw = (
-            data["quoteSummary"]["result"][0]["summaryDetail"]
-            .get("marketCap", {})
-            .get("raw")
-        )
-        return int(raw) if raw else None
+        from scripts.rule_reddit_collector import market_cap as _resolve
+        return _resolve(conn, symbol, cache=False)
     except Exception:
         return None
+
+
+def _with_cap_flags(d: dict) -> dict:
+    """The ONE place the cap flags are attached, so the cache-hit and cache-miss paths
+    cannot disagree — they already did, and the page silently lost its honest wording."""
+    d["cap_resolved"] = True
+    d["cap_status"] = "known" if d.get("market_cap") else "unknown"
+    return d
 
 
 def _fetch_social_spike(symbol: str) -> bool:
@@ -159,9 +172,18 @@ def get_ticker_meta(symbol: str):
 
     if row and not _stale(row["cap_updated"]):
         conn.close()
-        return dict(row)
+        # ⚠️ THE CACHE HIT MUST CARRY THE SAME FLAGS AS THE MISS. Returning a bare
+        # `dict(row)` here meant `cap_resolved` was absent on every request after the
+        # first, so the page fell back to "Market cap unavailable" — the exact dead-end
+        # string this change exists to remove. Since the endpoint stamps a fresh
+        # `cap_updated` on every resolve, the honest wording was reachable at most once
+        # per ticker per 24h, and in production — where the collector has already warmed
+        # `ticker_meta` — very likely never.
+        return _with_cap_flags(dict(row))
 
-    market_cap   = _fetch_market_cap(symbol)
+    # `cache=False` on the resolver: THIS endpoint owns the `ticker_meta` write below,
+    # and letting both write produced two upserts per request.
+    market_cap   = _fetch_market_cap(conn, symbol)
     social_spike = _fetch_social_spike(symbol)
 
     if row:
@@ -183,10 +205,15 @@ def get_ticker_meta(symbol: str):
         "SELECT * FROM ticker_meta WHERE symbol = ?", (symbol,)
     ).fetchone()
     conn.close()
-    return dict(result) if result else {
+    out = dict(result) if result else {
         "symbol": symbol, "market_cap": market_cap,
         "social_spike": int(social_spike), "cap_updated": now,
     }
+    # RESOLVED-AND-UNKNOWN is a different fact from NOT-YET-LOOKED-UP, and the page must
+    # be able to say so. Without this the frontend cannot tell "we asked SEC and Yahoo and
+    # genuinely cannot price this" from "this lookup never ran", and it rendered both as
+    # the same dead-end string.
+    return _with_cap_flags(out)
 
 
 # ── price action during disclosure window ─────────────────────────────────────

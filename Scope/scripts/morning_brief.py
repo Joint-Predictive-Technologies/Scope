@@ -413,6 +413,7 @@ _FULL_NAV = (
     '<a href="/insiders">Insiders</a><a href="/contracts">Contracts</a>'
     '<a href="/lobbying">Lobbying</a><a href="/intelligence">Theses</a>'
     '<a href="/clusters">Clusters</a><a href="/osint">OSINT</a>'
+    '<a href="/universe">Universe</a>'
     '<a href="/sectors">Sectors</a><a href="/ask">Ask</a>'
 )
 
@@ -656,7 +657,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "ui-restore-3"
+TEMPLATE_VERSION = "ui-restore-4"   # nav: + Universe (coverage ball pit)
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
 # In-process de-dup so concurrent page loads trigger at most one async regen/date.
