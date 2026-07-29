@@ -108,11 +108,11 @@ def _synthesize_headline(conn) -> dict:
       * the threshold was 2, while a real convergence is
         `RULE_10_MIN_INSTRUMENTS` (3) distinct INSTRUMENTS; and
       * the taxonomy counted the very rules the gate throws out as noise.
-        Measured on the working DB: of LMT's 116 alerts, **103 came from
-        RULE_OSINT (62), RULE_07 (39) and RULE_ANOMALY (2)** — all in
-        `RULE_10_EXCLUDED`. LMT is also hardcoded into six OSINT region
-        ticker-lists (`api/main.py`), so that stream never stops and LMT won
-        `max()` every single day.
+        Measured on the working DB: of the 71 alerts whose ticker is exactly
+        `LMT`, **66 are RULE_OSINT (62) and RULE_ANOMALY (2) plus RULE_09 (2)** —
+        with OSINT and ANOMALY both in `RULE_10_EXCLUDED`, and LMT hardcoded
+        into six OSINT region ticker-lists (`api/main.py`), so that stream never
+        stops and LMT won `max()` every single day.
 
     So the hero is now counted in the GATE's units, imported read-only: noise
     rules cannot manufacture a convergence, and "converges" is only ever printed
@@ -126,32 +126,42 @@ def _synthesize_headline(conn) -> dict:
     from collections import defaultdict
     from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS,
                             rule10_instruments)
+    from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
+
+    # The hero may only print "converges" where RULE_10 would actually fire, so
+    # it has to count the way the gate counts — same ticker key, same severity
+    # floor, same window (`_candidate_alerts`, rule_10_corroboration.py:158-170).
+    # An earlier pass of this fix diverged on all three at once (it split
+    # baskets, took every severity and looked back 7 days) and could therefore
+    # still announce a convergence the engine refused — which is the exact class
+    # of bug being fixed here, so the agreement is asserted by test.
     rows = conn.execute(
-        """SELECT ticker, rule, severity, headline FROM alerts
-           WHERE ticker IS NOT NULL AND ticker != ''
-             AND created_at >= datetime('now','-7 days')"""
+        f"""SELECT ticker, rule, severity, headline FROM alerts
+            WHERE ticker IS NOT NULL AND ticker != ''
+              AND severity IN ('HIGH','CRITICAL')
+              AND created_at >= datetime('now','-{int(CONVERGENCE_WINDOW_DAYS)} days')"""
     ).fetchall()
 
     agg: dict = defaultdict(lambda: {"rules": set(), "noise": set(), "n": 0,
                                      "hi": 0, "example": None})
     for r in rows:
         rule = (r["rule"] or "").strip()
-        # A basket ("LMT RTX NOC") names every symbol in it. The old key stripped
-        # the spaces out, inventing the single ticker "LMTRTXNOC" — a symbol that
-        # does not exist and could never be linked to.
-        for tk in str(r["ticker"]).replace("$", "").split():
-            if not tk:
-                continue
-            a = agg[tk]
-            a["n"] += 1
-            if rule.upper() in RULE_10_EXCLUDED:
-                a["noise"].add(_source_type(rule) or rule)
-            else:
-                a["rules"].add(rule)
-            if (r["severity"] or "").upper() in ("HIGH", "CRITICAL"):
-                a["hi"] += 1
-            if a["example"] is None:
-                a["example"] = r["headline"]
+        # The GATE groups on the raw ticker string, so a basket ("LMT RTX NOC")
+        # is its own key. Splitting it here would credit LMT with instruments the
+        # gate never gives it — the measured effect was promoting LMT from 2
+        # instruments to 3 and re-manufacturing the very hero this fix removes.
+        tk = str(r["ticker"]).strip()
+        if not tk:
+            continue
+        a = agg[tk]
+        a["n"] += 1
+        if rule.upper() in RULE_10_EXCLUDED:
+            a["noise"].add(_source_type(rule) or rule)
+        else:
+            a["rules"].add(rule)
+        a["hi"] += 1
+        if a["example"] is None:
+            a["example"] = r["headline"]
     if not agg:
         return {"mode": "quiet"}
 
@@ -446,6 +456,7 @@ a.wr{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-
 # Full navigation for the main page (the brief IS the main page). The brand
 # links to `/` (this page); these cover the major routes so nothing is hidden.
 _FULL_NAV = (
+    '<a href="/home">Dashboard</a>'
     '<a href="/feed">Alerts</a><a href="/congress">Congress</a>'
     '<a href="/insiders">Insiders</a><a href="/contracts">Contracts</a>'
     '<a href="/lobbying">Lobbying</a><a href="/intelligence">Theses</a>'
@@ -632,6 +643,8 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/tokens.css"/>
+<script src="/rule-names.js"></script>
+<script src="/cmdk.js" defer></script>
 <style>{_CSS}</style></head><body>
 <nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">{_FULL_NAV}</div></nav>
 <div class="tape" aria-label="Live signal ticker"><div class="tape-inner" id="tape"></div></div>
@@ -710,7 +723,8 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "ui-restore-4"   # nav: + Universe (coverage ball pit)
+TEMPLATE_VERSION = "ui-restore-5"   # nav: + Dashboard(/home); shared ⌘K;
+                                    # hero counted in the gate's units
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
 # In-process de-dup so concurrent page loads trigger at most one async regen/date.

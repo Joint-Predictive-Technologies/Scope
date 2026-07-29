@@ -316,7 +316,7 @@
         <div class="alert-card${enterClass}"${enterStyle}>
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
-            <span class="badge badge-rule">${a.rule}</span>
+            <span class="badge badge-rule" title="${a.rule}">${ruleName(a.rule)}</span>
             ${tickerBadge}
             <span class="alert-headline">${escHtml(a.headline)}</span>
             <span class="alert-time">${timeAgo(a.created_at)}</span>

@@ -172,11 +172,8 @@
     if (trend === 'down') return '<span class="heat-trend-down">↓</span>';
     return '<span class="heat-trend-flat">→</span>';
   }
-  const HEAT_RULE_LABELS = {
-    RULE_10:'Corroboration', RULE_01B:'Congress', RULE_06:'Insider', RULE_09:'Lobby',
-    RULE_12:'FARA', RULE_13:'FEC', RULE_07:'Prediction', RULE_08:'Fed Register',
-    RULE_11:'Contract', RULE_14:'Patent', RULE_15:'Earnings', RULE_OSINT:'Geopolitical',
-  };
+  // Heat labels come from the shared /rule-names.js map.
+  const HEAT_RULE_LABELS = new Proxy({}, { get: (_, k) => ruleName(String(k)) });
   async function loadHeat() {
     const days = document.getElementById('f-days')?.value || 30;
     const el = document.getElementById('heat-grid');
@@ -304,13 +301,8 @@
         return;
       }
 
-      const RULE_LABELS = {
-        RULE_01B: 'Congressional', RULE_02: 'Cluster', RULE_06: 'Insider',
-        RULE_07: 'Polymarket', RULE_08: 'Fed Register', RULE_09: 'Lobbying',
-        RULE_10: 'Corroboration', RULE_11: 'Gov Contract',
-        RULE_ANOMALY: 'Attention Spike', RULE_REDDIT: 'Reddit',
-        RULE_OSINT: 'Geopolitical',
-      };
+      // Shared /rule-names.js map — the last of the four local copies.
+      const RULE_LABELS = new Proxy({}, { get: (_, k) => ruleName(String(k)) });
       document.getElementById('grid').innerHTML = `<div class="sectors-grid">` + entries.map(([sector, d]) => {
         const col   = SECTOR_COLORS[sector] || '#888';
         const ticks = d.tickers.map(t => `<span class="ticker-chip">${t}</span>`).join('');

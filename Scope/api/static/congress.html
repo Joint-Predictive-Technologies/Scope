@@ -296,7 +296,7 @@
           <div class="alert-card${enterClass}"${enterStyle} onclick="this.classList.toggle('expanded')">
             <div class="alert-top">
               <span class="badge badge-${a.severity}">${a.severity}</span>
-              <span class="badge badge-rule">${a.rule}</span>
+              <span class="badge badge-rule" title="${a.rule}">${ruleName(a.rule)}</span>
               ${tChip}
               <span class="badge badge-source">SOURCE: House Clerk</span>
               <span class="alert-headline">${a.headline}</span>

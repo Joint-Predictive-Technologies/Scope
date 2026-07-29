@@ -39,10 +39,18 @@
 .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:#7a7060; padding:1.5rem 1.2rem; text-align:center; }
 .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:#7a7060; padding:0.5rem 1.2rem; border-top:1px solid #2a2620; display:flex; gap:1.2rem; }
 .cmd-hint kbd { background:#2a2620; border:1px solid #3a3428; border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:#c8bfa8; }
-/* The shared trigger. margin-left:auto pins it to the right edge of any flex nav. */
+`;
+
+  /* The trigger's own styling is SEPARATE from the palette's, because the
+     palette is skipped on pages that ship their own. When these rules lived in
+     the palette block they were skipped too, and the 17 legacy pages rendered a
+     white default OS button in a dark nav — a regression on pages that had a
+     correct button before. This block is always injected.
+     margin-left:auto pins it to the right edge of any flex nav. */
+  var BTN_CSS = `
 .cmdk-btn { font-family:var(--font-mono); font-size:0.65rem; color:#7a7060; background:#111009;
             border:1px solid #2a2620; padding:4px 10px; border-radius:4px; cursor:pointer;
-            margin-left:auto; flex-shrink:0; white-space:nowrap; }
+            margin-left:auto; flex-shrink:0; white-space:nowrap; line-height:1.4; }
 .cmdk-btn:hover { color:var(--amber, #c8922a); border-color:var(--amber, #c8922a); }
 .cmdk-btn:focus-visible { outline:2px solid var(--amber, #c8922a); outline-offset:2px; }
 `;
@@ -60,10 +68,19 @@
       function (c) { return "&#" + c.charCodeAt(0) + ";"; });
   }
 
+  function injectStyle(css, id) {
+    if (document.getElementById(id)) return;
+    var style = document.createElement("style");
+    style.id = id;
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
   /* ── the trigger: one definition, every page ── */
   function injectButton() {
     var nav = document.querySelector("nav");
     if (!nav) return;                                  // page has no nav bar
+    injectStyle(BTN_CSS, "cmdk-btn-style");            // ALWAYS — see BTN_CSS note
     if (nav.querySelector(".cmdk-btn")) return;        // already placed
     var btn = document.createElement("button");
     btn.className = "cmdk-btn";
@@ -81,9 +98,7 @@
     if (typeof window.openCmd === "function") return;  // legacy page owns it
     if (document.getElementById("cmd-backdrop")) return;
 
-    var style = document.createElement("style");
-    style.textContent = CSS;
-    document.head.appendChild(style);
+    injectStyle(CSS, "cmdk-palette-style");
 
     var back = document.createElement("div");
     back.id = "cmd-backdrop";
@@ -174,6 +189,8 @@
     }
   }
 
+  // Palette first so `window.openCmd` exists before the button binds to it;
+  // the button's own styling is injected regardless of that branch.
   function init() { injectPalette(); injectButton(); }
 
   if (document.readyState === "loading") {

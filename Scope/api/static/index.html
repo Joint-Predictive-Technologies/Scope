@@ -1087,10 +1087,8 @@
 
   // ── Signal Heat Map ───────────────────────────────────────────────────────
   const HM_RULES = ['RULE_01B','RULE_06','RULE_07','RULE_08','RULE_11','RULE_10'];
-  const HM_RULE_LABELS = {
-    RULE_01B:'Congressional', RULE_06:'Insider', RULE_07:'Polymarket',
-    RULE_08:'Fed Register', RULE_11:'Gov Contract', RULE_10:'Corroboration',
-  };
+  // Heat-map labels come from the shared /rule-names.js map.
+  const HM_RULE_LABELS = new Proxy({}, { get: (_, k) => ruleName(String(k)) });
   let _hmMode = 'signal';
   function setHeatMode(mode) {
     _hmMode = mode;
