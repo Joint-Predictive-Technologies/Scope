@@ -783,6 +783,37 @@ def design_tokens():
     """Single source of truth for the design system (Fey/Slash synthesis)."""
     return FileResponse(STATIC_DIR / "tokens.css", media_type="text/css")
 
+@app.get("/api/rule-model", tags=["Meta"])
+def rule_model():
+    """The corroboration model, READ from jpt_common — for display code only.
+
+    The relationship graph has to know which rules can actually corroborate, and
+    it must never learn that from a list copied into JavaScript: the moment the
+    gate's exclusions change, a copy silently starts drawing excluded signals as
+    corroborating legs. This endpoint derives everything from the same objects
+    the gate itself uses, so the two cannot drift.
+
+    `rule10_instruments([rule])` returning empty IS the exclusion test (the same
+    check `api/routers/forming.py:124` makes). RULE_10 is in RULE_10_EXCLUDED
+    too, but it is the GATE rather than noise, so it is reported separately —
+    a consumer must not draw it as a peer instrument.
+    """
+    from jpt_common import (RULE_10_EXCLUDED, RULE_10_INSTRUMENTS,
+                            RULE_10_MIN_INSTRUMENTS, rule10_instruments)
+    known = sorted(set(RULE_10_INSTRUMENTS) | set(RULE_10_EXCLUDED))
+    instrument_of = {}
+    for rule in known:
+        got = rule10_instruments([rule])
+        if got:
+            instrument_of[rule] = got[0]
+    return {
+        "gate_rule": "RULE_10",
+        "min_instruments": RULE_10_MIN_INSTRUMENTS,
+        "instrument_of": instrument_of,                      # eligible rules only
+        "excluded": sorted(r for r in RULE_10_EXCLUDED if r != "RULE_10"),
+        "instruments": sorted(set(instrument_of.values())),
+    }
+
 @app.get("/rule-names.js", include_in_schema=False)
 def rule_names_js():
     """Rule DISPLAY names. Presentation only — the programmatic ids that the

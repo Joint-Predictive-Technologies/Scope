@@ -100,6 +100,12 @@
     .graph-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0; overflow: hidden; }
     .graph-wrap svg { display: block; width: 100%; }
     .graph-filter-note { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); padding: 0.5rem 1rem; }
+    .graph-legend { display:flex; gap:1.2rem; flex-wrap:wrap; padding:0 1rem 0.6rem; font-family:var(--font-mono); font-size:0.6rem; color:var(--muted); }
+    .lg-item { display:flex; align-items:center; gap:6px; }
+    .lg-swatch { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .lg-swatch.solid { background:#6ab0e0; }
+    .lg-swatch.ctx { background:transparent; border:1px dashed #6b6b73; }
+    #rel-graph .rule-node { cursor:pointer; transition:opacity 150ms; }
     .rule-node { cursor: pointer; }
     .rule-node circle { transition: r 0.2s; }
     .rule-node:hover circle { filter: brightness(1.3); }
@@ -437,60 +443,233 @@ function renderReceipts(r){
 
   let _activeRuleFilter = null;
 
+  /* ── SIGNAL RELATIONSHIP GRAPH ───────────────────────────────────────────
+     An edge here means "this rule fired an alert on this ticker" — raw ACTIVITY.
+     It has never meant corroboration. But drawn as a hub-and-spoke around the
+     ticker, with RULE_07 / RULE_OSINT / RULE_ANOMALY on spokes beside RULE_06
+     and RULE_11, it reads as a convergence picture — and those three are in
+     RULE_10_EXCLUDED precisely because they cannot corroborate anything. It
+     also drew RULE_10, the GATE, as if it were a peer instrument.
+
+     So the graph now states which relationship it is showing, and shows the two
+     kinds differently:
+       · corroborating instruments — solid edge, instrument colour, counted
+       · context signals (excluded) — dashed, dimmed, uniform-weight edge,
+         explicitly labelled "context — cannot corroborate"
+       · the gate (RULE_10) — never a node; reported as the outcome line
+     The split comes from /api/rule-model, which derives it from the same
+     jpt_common objects the gate uses, so a change to RULE_10_EXCLUDED reaches
+     this graph automatically instead of drifting. Rules that share an
+     INSTRUMENT (the congressional trio) share a colour, because the gate counts
+     them once — three spokes of one colour, not three instruments.        */
+  let _ruleModel = null;
+  let _graphSim = null;
+
+  async function loadRuleModel() {
+    if (_ruleModel) return _ruleModel;
+    try {
+      _ruleModel = await (await fetch('/api/rule-model', { signal: withTimeout(6000) })).json();
+    } catch (_) {
+      // Without the model we cannot honestly claim anything corroborates, so
+      // everything degrades to "context" rather than being drawn as a leg.
+      _ruleModel = { gate_rule: 'RULE_10', min_instruments: 3,
+                     instrument_of: {}, excluded: [], instruments: [], _degraded: true };
+    }
+    return _ruleModel;
+  }
+
+  // One stable colour per INSTRUMENT (not per rule) — so rules the gate counts
+  // once look like one thing. Context signals never get an instrument colour.
+  const INSTRUMENT_COLORS = ['#6ab0e0','#4dc47a','#c8922a','#b07cd6','#e88b4a','#4fb3a8','#d76b8a'];
+  function instrumentColor(inst, model) {
+    const i = (model.instruments || []).indexOf(inst);
+    return i >= 0 ? INSTRUMENT_COLORS[i % INSTRUMENT_COLORS.length] : '#8a8a92';
+  }
+
+  function classifyRule(rule, model) {
+    if (rule === (model.gate_rule || 'RULE_10')) return 'gate';
+    return model.instrument_of && model.instrument_of[rule] ? 'instrument' : 'context';
+  }
+
   function renderRuleGraph(alerts) {
     const ruleCount = {};
     for (const a of alerts) ruleCount[a.rule] = (ruleCount[a.rule] || 0) + 1;
-    const rules = Object.keys(ruleCount);
-    if (rules.length < 2) return '';
-
-    const W = 680, H = 260, CX = W / 2, CY = H / 2;
-    const centerR = 22, ruleR = 14;
-    const angleStep = (2 * Math.PI) / rules.length;
-    const orbitR = Math.min(CX, CY) - 40;
-
-    const nodePositions = rules.map((r, i) => ({
-      rule: r, count: ruleCount[r],
-      x: CX + orbitR * Math.cos(angleStep * i - Math.PI / 2),
-      y: CY + orbitR * Math.sin(angleStep * i - Math.PI / 2),
-    }));
-    const maxCount = Math.max(...rules.map(r => ruleCount[r]));
-
-    const lines = nodePositions.map(n => {
-      const w = Math.max(1, Math.round((n.count / maxCount) * 4));
-      return `<line x1="${CX}" y1="${CY}" x2="${n.x}" y2="${n.y}" stroke="#3a3428" stroke-width="${w}" stroke-opacity="0.7"/>`;
-    }).join('');
-
-    const nodes = nodePositions.map((n, i) => {
-      const col = RULE_COLORS[n.rule] || '#7a7060';
-      const r = ruleR + Math.round((n.count / maxCount) * 6);
-      const shortRule = n.rule.replace('RULE_', '');
-      return `<g class="rule-node" id="rn-${i}" onclick="filterByRule('${n.rule}', ${i})" transform="translate(${n.x},${n.y})">
-        <circle r="${r}" fill="${col}" fill-opacity="0.85"/>
-        <text dy="0.35em" text-anchor="middle" fill="#e8e0cc" font-family="monospace" font-size="8">${shortRule}</text>
-        <title>${ruleName(n.rule)}: ${n.count} alerts — click to filter</title>
-      </g>`;
-    }).join('');
-
-    const center = `<g transform="translate(${CX},${CY})">
-      <circle r="${centerR}" fill="#c8922a" fill-opacity="0.9"/>
-      <text dy="0.35em" text-anchor="middle" fill="#0c0b09" font-family="sans-serif" font-size="11" font-weight="700">${symbols[0] || ''}</text>
-    </g>`;
-
+    if (Object.keys(ruleCount).length < 2) return '';
+    // Rendered after the model resolves (see hydrateRuleGraph).
+    window._graphCounts = ruleCount;
     return `
       <div class="section-label">Signal Relationship Graph</div>
       <div class="graph-wrap">
-        <svg viewBox="0 0 ${W} ${H}" height="${H}">
-          ${lines}${nodes}${center}
-        </svg>
-        <div class="graph-filter-note" id="graph-note">Click a rule node to filter the alert list below ·  <span id="clear-filter" style="color:var(--amber);cursor:pointer;display:none" onclick="clearRuleFilter()">Clear filter ×</span></div>
+        <div id="graph-head" class="graph-filter-note"></div>
+        <svg id="rel-graph" viewBox="0 0 680 340" height="340"></svg>
+        <div class="graph-legend" id="graph-legend"></div>
+        <div class="graph-filter-note" id="graph-note">Drag to rearrange · click a signal to filter the list below ·
+          <span id="clear-filter" style="color:var(--amber);cursor:pointer;display:none" onclick="clearRuleFilter()">Clear filter ×</span></div>
       </div>`;
   }
 
-  function filterByRule(rule, idx) {
+  async function hydrateRuleGraph() {
+    const svgEl = document.getElementById('rel-graph');
+    const counts = window._graphCounts;
+    if (!svgEl || !counts || typeof d3 === 'undefined') return;
+    const model = await loadRuleModel();
+
+    const W = 680, H = 340;
+    const rules = Object.keys(counts);
+    const maxCount = Math.max(...rules.map(r => counts[r]));
+
+    // The gate is NOT a peer: it is the outcome of the others, so it never
+    // becomes a node. Its presence is reported in the header line instead.
+    const gateFired = rules.includes(model.gate_rule || 'RULE_10');
+    const drawn = rules.filter(r => r !== (model.gate_rule || 'RULE_10'));
+
+    const nodes = drawn.map(r => {
+      const kind = classifyRule(r, model);
+      const inst = (model.instrument_of || {})[r] || null;
+      return {
+        id: r, kind, instrument: inst, count: counts[r],
+        color: kind === 'instrument' ? instrumentColor(inst, model) : '#6b6b73',
+        // NODE SIZE = alerts this rule fired on this ticker (real field).
+        radius: 11 + Math.round((counts[r] / maxCount) * 9),
+      };
+    });
+    nodes.unshift({ id: '__center__', kind: 'center', count: 0, radius: 24,
+                    color: '#c8922a', fx: W / 2, fy: H / 2 });
+
+    const links = nodes.filter(n => n.kind !== 'center')
+      .map(n => ({ source: '__center__', target: n.id, kind: n.kind, count: n.count }));
+
+    // Edge weight is drawn ONLY for corroborating legs, so it must be scaled
+    // among those legs. Scaling against the global max let a context signal set
+    // the ceiling — OSINT's 66 alerts pushed every real leg (5, 2, 6) to the
+    // minimum width, so the one channel that should separate them was flat.
+    const maxLegCount = Math.max(1, ...nodes.filter(n => n.kind === 'instrument')
+                                            .map(n => n.count));
+
+    // The instruments actually present — the gate counts INSTRUMENTS, so this,
+    // not the node count, is the honest measure of breadth.
+    const instrumentsPresent = [...new Set(nodes.filter(n => n.kind === 'instrument')
+                                                .map(n => n.instrument))];
+    const need = model.min_instruments || 3;
+
+    document.getElementById('graph-head').innerHTML = model._degraded
+      ? `<span style="color:var(--muted)">Signal model unavailable — every signal is shown as context, none as corroborating.</span>`
+      : `<b style="color:var(--cream)">${instrumentsPresent.length}</b> corroborating instrument${instrumentsPresent.length === 1 ? '' : 's'}
+         of <b style="color:var(--cream)">${need}</b> needed to converge${gateFired ? ' · <span style="color:var(--amber)">corroboration fired</span>' : ''}.
+         Edges show which signals fired on this ticker — not that they agree.`;
+
+    const svg = d3.select(svgEl);
+    svg.selectAll('*').remove();
+    const linkSel = svg.append('g').selectAll('path').data(links).join('path')
+      .attr('fill', 'none')
+      .attr('stroke', d => d.kind === 'instrument' ? '#5a5a62' : '#3a3a42')
+      // EDGE WEIGHT = alert count, but ONLY for legs that can corroborate.
+      // Context edges are deliberately UNIFORM and dashed: weighting a signal
+      // that cannot contribute would imply a strength it does not have.
+      .attr('stroke-width', d => d.kind === 'instrument'
+            ? 1.5 + (d.count / maxLegCount) * 3.5 : 1)
+      .attr('stroke-dasharray', d => d.kind === 'instrument' ? null : '3,4')
+      .attr('stroke-opacity', d => d.kind === 'instrument' ? 0.75 : 0.35);
+
+    const nodeSel = svg.append('g').selectAll('g')
+      .data(nodes.filter(n => n.kind !== 'center')).join('g')
+      .attr('class', 'rule-node')
+      .attr('data-rule', d => d.id)
+      .style('opacity', d => d.kind === 'instrument' ? 1 : 0.55)
+      .on('click', (e, d) => filterByRule(d.id))
+      .on('mouseenter', (e, d) => focusNode(d.id))
+      .on('mouseleave', () => focusNode(null));
+    nodeSel.append('circle')
+      .attr('r', d => d.radius)
+      .attr('fill', d => d.color)
+      .attr('fill-opacity', d => d.kind === 'instrument' ? 0.9 : 0.35)
+      .attr('stroke', d => d.kind === 'instrument' ? 'none' : '#6b6b73')
+      .attr('stroke-dasharray', d => d.kind === 'instrument' ? null : '2,3');
+    nodeSel.append('text')
+      .attr('dy', d => d.radius + 12).attr('text-anchor', 'middle')
+      .attr('fill', d => d.kind === 'instrument' ? 'var(--cream2)' : 'var(--muted)')
+      .attr('font-family', 'var(--font-mono)').attr('font-size', '9')
+      .text(d => ruleName(d.id));                       // shared display-name map
+    nodeSel.append('title')
+      .text(d => `${ruleName(d.id)} — ${d.count} alert${d.count === 1 ? '' : 's'} · `
+               + (d.kind === 'instrument'
+                  ? `corroborating instrument: ${d.instrument}`
+                  : 'context only — excluded from corroboration'));
+
+    const center = svg.append('g').attr('class', 'graph-center');
+    center.append('circle').attr('r', 24).attr('fill', '#c8922a').attr('fill-opacity', 0.9);
+    center.append('text').attr('dy', '0.35em').attr('text-anchor', 'middle')
+      .attr('fill', '#0c0b09').attr('font-size', 11).attr('font-weight', 700)
+      .text(symbols[0] || '');
+
+    document.getElementById('graph-legend').innerHTML =
+      `<span class="lg-item"><span class="lg-swatch solid"></span>corroborating instrument — counts toward convergence</span>
+       <span class="lg-item"><span class="lg-swatch ctx"></span>context — excluded, cannot corroborate</span>`;
+
+    _graphSim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id)
+        .distance(d => d.kind === 'instrument' ? 96 : 132).strength(0.6))
+      .force('charge', d3.forceManyBody().strength(-320))
+      .force('collide', d3.forceCollide().radius(d => d.radius + 16))
+      .force('center', d3.forceCenter(W / 2, H / 2))
+      .alphaDecay(0.045)
+      .on('tick', () => {
+        // Keep every node inside the frame. Without this the charge force pushes
+        // the outermost nodes past the viewBox and their labels get clipped —
+        // a node half outside the panel reads as broken, not as data.
+        for (const n of nodes) {
+          if (n.fx != null) continue;
+          const pad = n.radius + 22;                  // room for the label below
+          n.x = Math.max(pad, Math.min(W - pad, n.x));
+          n.y = Math.max(pad, Math.min(H - pad, n.y));
+        }
+        linkSel.attr('d', d => {
+          const dx = d.target.x - d.source.x, dy = d.target.y - d.source.y;
+          const dr = Math.hypot(dx, dy) * 2.2;           // gentle curve
+          return `M${d.source.x},${d.source.y}A${dr},${dr} 0 0,1 ${d.target.x},${d.target.y}`;
+        });
+        nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+        center.attr('transform', `translate(${nodes[0].x},${nodes[0].y})`);
+      });
+
+    nodeSel.call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) _graphSim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+      .on('end',   (e, d) => { if (!e.active) _graphSim.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (let i = 0; i < 220; i++) _graphSim.tick();
+      _graphSim.stop();
+      linkSel.attr('d', d => `M${d.source.x},${d.source.y}L${d.target.x},${d.target.y}`);
+      nodeSel.attr('transform', d => `translate(${d.x},${d.y})`);
+      center.attr('transform', `translate(${nodes[0].x},${nodes[0].y})`);
+    }
+  }
+
+  // Hover: highlight one signal, fade the others. Each node's resting opacity
+  // encodes its class (context signals sit at 0.55), so it is stored and
+  // restored rather than reset to 1 — otherwise hovering would silently
+  // promote a context signal to look like a corroborating one.
+  function focusNode(id) {
+    document.querySelectorAll('#rel-graph .rule-node').forEach(el => {
+      if (!el.dataset.base) el.dataset.base = el.style.opacity || '1';
+      el.style.opacity = (!id || el.getAttribute('data-rule') === id)
+        ? el.dataset.base : 0.12;
+    });
+    document.querySelectorAll('#rel-graph path').forEach(p => {
+      p.style.transition = 'stroke-opacity 150ms';
+    });
+  }
+
+  function filterByRule(rule) {
     _activeRuleFilter = _activeRuleFilter === rule ? null : rule;
     _alertsExpanded = false;
-    document.querySelectorAll('.rule-node').forEach((el, i) => {
-      el.classList.toggle('active-filter', i === idx && _activeRuleFilter);
+    // Identify by rule id — the force layout has no stable node ordering, so
+    // the old index-based lookup would highlight whichever node happened to
+    // land in that slot.
+    document.querySelectorAll('.rule-node').forEach(el => {
+      el.classList.toggle('active-filter',
+        el.getAttribute('data-rule') === rule && !!_activeRuleFilter);
     });
     document.getElementById('clear-filter').style.display = _activeRuleFilter ? 'inline' : 'none';
     applyAlertFilter();
@@ -574,6 +753,10 @@ function renderReceipts(r){
       <div class="section-label">All Alerts — <span class="alerts-count-label">${alerts.length} total</span></div>
       <div class="alerts-list">${renderAlerts(alerts)}</div>
     `;
+
+    // The graph markup is inserted above; the force layout and the honest
+    // eligible/context split need /api/rule-model, so they hydrate after paint.
+    hydrateRuleGraph();
 
     // Fetch market cap and update cap line
     fetch(`/tickers/${encodeURIComponent(queryKey)}/meta`, { signal: withTimeout(8000) })
