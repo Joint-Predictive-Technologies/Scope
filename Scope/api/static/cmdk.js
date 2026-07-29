@@ -53,6 +53,18 @@
             margin-left:auto; flex-shrink:0; white-space:nowrap; line-height:1.4; }
 .cmdk-btn:hover { color:var(--amber, #c8922a); border-color:var(--amber, #c8922a); }
 .cmdk-btn:focus-visible { outline:2px solid var(--amber, #c8922a); outline-offset:2px; }
+
+/* Nav overflow safety. Measured on /ticker/LMT at a 1150px viewport: the last
+   link ("Ask Scope") ended at x=1080 and the "LIVE FEED" CTA began at x=1080 —
+   zero gap, so the CTA's solid background painted straight over the link text —
+   and this button was pushed to x=1176, outside the 1150px viewport entirely.
+   The nav is a flex row on every page, so these rules fix it once for all of
+   them: nothing may butt against its neighbour, the fixed-size controls never
+   shrink or get pushed off, and the link list scrolls instead of spilling. */
+nav { gap: 10px; }
+nav .nav-links { min-width: 0; overflow-x: auto; scrollbar-width: none; }
+nav .nav-links::-webkit-scrollbar { display: none; }
+nav .nav-cta, nav .cmdk-btn { flex-shrink: 0; }
 `;
 
   var PALETTE_HTML =

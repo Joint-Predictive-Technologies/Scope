@@ -265,7 +265,19 @@ function renderReceipts(r){
     const opSpark = spark(chron.map(s=>s.opportunity_score||0), 'var(--green-light)');
 
     const rules = (t.supporting_rules||[]).map(r => `<span class="chip">${esc(r)}</span>`).join('') || '<span class="muted">—</span>';
-    const affected = (t.affected_tickers||[]).map(x => `<a class="tick-chip" href="/ticker/${esc(tk(x))}">${esc(x)}</a>`).join('');
+    // RULE_10 writes affected_tickers = [primary_ticker] at creation
+    // (rule_10_corroboration.py:114), so rendering primary + affected printed the
+    // SAME symbol twice on every theme. De-duplicate on the normalised symbol and
+    // let the primary lead.
+    const _seenTk = new Set();
+    const _tkChip = x => {
+      const key = (tk(x) || '').toUpperCase();
+      if (!key || _seenTk.has(key)) return '';
+      _seenTk.add(key);
+      return `<a class="tick-chip" href="/ticker/${encodeURIComponent(tk(x))}">${esc(x)}</a>`;
+    };
+    const primaryChip = t.primary_ticker ? _tkChip(t.primary_ticker) : '';
+    const affected = (t.affected_tickers||[]).map(_tkChip).join('');
     const related = (d.related||[]).map(r => `
       <a class="related-card" href="/thesis/${r.id}">
         <span class="status-badge st-${(r.status||'emerging').toLowerCase()}">${esc(r.status)}</span>
@@ -284,7 +296,7 @@ function renderReceipts(r){
       </div>
       <div class="t-title">${esc(t.title)}</div>
       <div class="t-meta">${[t.region, t.sector].filter(Boolean).map(esc).join(' · ')} · active since ${ago(t.first_signal_at)} · ${d.signals.length} signals</div>
-      <div style="margin-top:0.6rem">${t.primary_ticker?`<a class="tick-chip" href="/ticker/${esc(tk(t.primary_ticker))}">${esc(t.primary_ticker)}</a>`:''}${affected}</div>
+      <div style="margin-top:0.6rem">${primaryChip}${affected}</div>
       ${t.historical_analogue ? `<div class="t-meta" style="margin-top:0.5rem;font-style:italic">Analogue: ${esc(t.historical_analogue)}</div>` : ''}
 
       <div class="score-row">
