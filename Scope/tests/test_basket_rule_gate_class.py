@@ -109,32 +109,121 @@ def test_the_excluded_basket_rules_contribute_nothing(rule, instrument):
 
 def test_the_detector_names_no_table_and_no_file():
     """If any basket's NAME or any rule FILE appears in the detector, the guarantee has
-    quietly reverted to an enumeration — which is the defect being fixed."""
-    src = open(os.path.join(os.path.dirname(__file__), "basket_shape.py")).read()
-    code = "\n".join(ln for ln in src.splitlines()
-                     if not ln.lstrip().startswith(("#", '"', "*")))
-    for name in ("REGION_TICKERS", "EVENT_TICKER_MAP", "SECTOR_MAP",
-                 "PRINCIPAL_SECTOR_MAP", "TRACKED_ASSIGNEES"):
+    quietly reverted to an enumeration — which is the defect being fixed.
+
+    ⚠️ STRIPS DOCSTRINGS VIA THE AST, NOT BY LINE PREFIX. The first version filtered out
+    every line starting with a quote, so a live `_KNOWN_BASKET_TABLES = ["REGION_TICKERS",
+    …]` list — one name per line, each line starting with a quote — passed it. A
+    verification pass planted exactly that and the guard stayed green. The names are also
+    HARVESTED from the repo rather than typed here, so a sixth table is covered the day it
+    is written.
+    """
+    import ast as _ast
+
+    detector = os.path.join(os.path.dirname(__file__), "basket_shape.py")
+    tree = _ast.parse(open(detector).read())
+    for node in _ast.walk(tree):
+        if isinstance(node, (_ast.Module, _ast.FunctionDef, _ast.AsyncFunctionDef,
+                             _ast.ClassDef)) and node.body:
+            first = node.body[0]
+            if (isinstance(first, _ast.Expr) and isinstance(first.value, _ast.Constant)
+                    and isinstance(first.value.value, str)):
+                node.body.pop(0)
+    code = _ast.unparse(tree)
+
+    # Every basket name in the repo, and every rule module's stem — derived, not typed.
+    names, stems = set(), set()
+    for root, dirs, files in os.walk(repo_root()):
+        dirs[:] = [d for d in dirs if d not in {".git", ".venv", "__pycache__", "data"}
+                   and not d.startswith(".")]
+        for fn in files:
+            if not fn.endswith(".py"):
+                continue
+            stems.add(fn[:-3])
+            try:
+                t = _ast.parse(open(os.path.join(root, fn), encoding="utf-8").read())
+            except (SyntaxError, OSError, UnicodeDecodeError):
+                continue
+            for n in t.body:
+                tgt = None
+                if isinstance(n, _ast.AnnAssign) and isinstance(n.target, _ast.Name):
+                    tgt = n.target.id
+                elif (isinstance(n, _ast.Assign) and len(n.targets) == 1
+                      and isinstance(n.targets[0], _ast.Name)):
+                    tgt = n.targets[0].id
+                if tgt and isinstance(n.value, _ast.Dict) and n.value.values:
+                    if all(isinstance(v, (_ast.List, _ast.Tuple, _ast.Set)) and v.elts
+                           for v in n.value.values):
+                        names.add(tgt)
+    assert names, "the harvest found no baskets at all — this test is not testing anything"
+    for name in names:
         assert name not in code, f"the detector hardcodes the table name {name}"
-    for fn in ("rule_osint", "rule_adsb", "rule_telegram", "rule_08", "rule_12"):
-        assert fn not in code, f"the detector hardcodes the file {fn}"
+    for stem in stems:
+        if stem.startswith("rule_"):
+            assert stem not in code, f"the detector hardcodes the file {stem}"
 
 
-@pytest.mark.parametrize("path", [
-    "jpt_common.py",                     # basket-shaped maps that never reach a ticker
-    "rule_06_form4.py",                  # issuer attribution from the filing itself
-    os.path.join("scripts", "rule_11_contracts.py"),   # attribution from the award
-    os.path.join("scripts", "rule_14_patents.py"),     # INVERTED: ticker is the KEY
+@pytest.mark.parametrize("path,discriminating", [
+    ("jpt_common.py", True),                  # HAS baskets; none reaches a ticker
+    (os.path.join("scripts", "rule_14_patents.py"), True),   # HAS baskets; INVERTED map
+    ("rule_06_form4.py", False),              # no basket at all — a weaker control
+    (os.path.join("scripts", "rule_11_contracts.py"), False),
 ])
-def test_real_attribution_is_NOT_flagged(path):
+def test_real_attribution_is_NOT_flagged(path, discriminating):
     """The false-positive controls, all real code.
 
-    `rule_14` is the sharpest: its map is `ticker -> [company names]`, so the ticker comes
-    from the KEY and the values are evidence. That is the correct direction, and an
-    earlier draft of the detector accused it — `.items()` was taken to taint both halves
-    of the pair.
+    ⚠️ ONLY TWO OF THESE DISCRIMINATE, AND THE FLAG SAYS WHICH. `rule_06` and `rule_11`
+    contain no basket at all, so they short-circuit before any precision logic runs —
+    they would pass against a detector that flagged every module containing a basket. A
+    verification pass pointed that out; rather than drop them (they do check the detector
+    is not flagging every rule) the weaker ones are now labelled as weaker.
     """
-    assert path not in {r["path"] for r in _found()}
+    scanned = {r["path"] for r in _found()}
+    assert path not in scanned
+    if discriminating:
+        from basket_shape import _ModuleScan
+        assert _ModuleScan(os.path.join(repo_root(), path), repo_root()).baskets, (
+            "this control was supposed to CONTAIN a basket and no longer does — it has "
+            "become vacuous")
+
+
+def test_the_INVERTED_map_is_cleared_because_of_its_DIRECTION(tmp_path):
+    """The sharpest control, made active rather than incidental.
+
+    A real rule maps `ticker -> [company names]` and returns the KEY after matching a
+    value against the document — correct attribution. Flip it to return a VALUE and the
+    same file must be flagged. Without this, "we do not accuse the inverted map" could be
+    true for the wrong reason.
+    """
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "jpt_common.py").write_text("X = 1\n")
+    tmpl = textwrap.dedent('''\
+        RULE = "RULE_INV"
+        ASSIGNEES = {{"LMT": ["Lockheed Martin"], "RTX": ["Raytheon"]}}
+
+
+        def _ticker_for(assignee):
+            for ticker, names in ASSIGNEES.items():
+                for n in names:
+                    if n.lower() in assignee.lower():
+                        return {returned}
+            return None
+
+
+        def run(conn, patent):
+            t = _ticker_for(patent["assignee"])
+            conn.execute(
+                "INSERT INTO alerts (rule, ticker, severity) VALUES (?,?,?)",
+                (RULE, t, "HIGH"),
+            )
+    ''')
+    (repo / "scripts" / "rule_inv.py").write_text(tmpl.format(returned="ticker"))
+    assert scan_repo(str(repo)) == [], "the KEY direction — real attribution — was accused"
+    (repo / "scripts" / "rule_inv.py").write_text(tmpl.format(returned="names[0]"))
+    assert [r["rule"] for r in scan_repo(str(repo))] == ["RULE_INV"], (
+        "flipping it to publish a VALUE was not flagged — the direction carve-out is an "
+        "escape hatch, not a discriminator")
 
 
 # ── 4. the planted members — the recheck's five, which the old sweep let through ──
@@ -279,3 +368,150 @@ def test_every_mapped_region_HAS_coordinates():
     assert not (want - have), (
         f"regions with no coordinates: {sorted(want - have)} — every located event in "
         f"them is silently dropped by /api/osint-hotspots")
+
+
+# ── 6. the evasions a verification pass found, now pinned ───────────────────
+#
+# ⚠️ EVERY SHAPE BELOW WAS A SILENT MISS, and every one of them reached a FIRING gate —
+# because `RULE_10_INSTRUMENTS.get(rule, rule)` makes an unmapped, non-excluded rule its
+# own instrument. A verification pass planted 38 variants and 24 got through; these are
+# the ones that were closed. The first is the worst: `insert_alert(conn, RULE, sym, ...)`
+# is the writer this project's own conventions call PREFERRED, and four production rules
+# call it positionally today, so the next basket rule written in house style was invisible.
+
+_EVASIONS = {
+    "positional shared writer": '''
+        from jpt_common import db_connection, insert_alert
+        RULE = "RULE_EV1"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(s="defense"):
+            conn = db_connection()
+            for sym in B.get(s, []):
+                insert_alert(conn, RULE, sym, "HIGH", "h")
+    ''',
+    "sorted() in the loop": '''
+        RULE = "RULE_EV2"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            for sym in sorted(B.get(s, [])):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "a method on the element": '''
+        RULE = "RULE_EV3"
+        B = {"defense": ["lmt"]}
+        def run(conn, s="defense"):
+            for sym in B.get(s, []):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)",
+                             (RULE, sym.upper()))
+    ''',
+    "tuple values": '''
+        RULE = "RULE_EV4"
+        B = {"defense": ("LMT", "RTX")}
+        def run(conn, s="defense"):
+            for sym in B.get(s, ()):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "a basket in a class body": '''
+        RULE = "RULE_EV5"
+        class Cfg:
+            B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            for sym in Cfg.B.get(s, []):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "one element pulled out": '''
+        import random
+        RULE = "RULE_EV6"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            sym = random.choice(B.get(s, []))
+            conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "a flattening comprehension": '''
+        RULE = "RULE_EV7"
+        B = {"defense": ["LMT"], "energy": ["XOM"]}
+        def run(conn):
+            for sym in [x for lst in B.values() for x in lst]:
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+}
+
+
+@pytest.mark.parametrize("label", sorted(_EVASIONS))
+def test_the_known_EVASIONS_are_caught(tmp_path, label):
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    shutil.copy(os.path.join(repo_root(), "jpt_common.py"), repo / "jpt_common.py")
+    (repo / "scripts" / "rule_ev.py").write_text(textwrap.dedent(_EVASIONS[label]))
+    found = [r["rule"] for r in scan_repo(str(repo)) if "rule_ev" in r["path"]]
+    assert found, f"a basket rule using '{label}' reaches the gate unflagged"
+
+
+# ── 7. the limits that REMAIN, encoded rather than described ─────────────────
+#
+# ⚠️ THESE SHAPES ARE NOT CAUGHT, AND EACH ONE COULD REACH THE GATE. They are recorded
+# here as strict xfails for the same reason RULE_08 is: a limit written only in a note
+# gets forgotten, while a limit written as a test announces itself the day someone closes
+# it — the marker XPASSes, the suite goes red, and this list has to be updated.
+#
+# The honest scope of the guarantee, therefore: a basket rule whose table is a LITERAL
+# dict of string collections, and whose ticker reaches either a literal `INSERT INTO
+# alerts` statement with a column list, a `ticker=` keyword, a same-module wrapper, or an
+# imported writer whose own signature names the ticker column. Baskets COMPUTED at import
+# time, and SQL that cannot be read as a literal, are outside it.
+
+_LIMITS = {
+    "a basket built by a helper call": '''
+        RULE = "RULE_LIM1"
+        def _mk():
+            return {"defense": ["LMT", "RTX"]}
+        B = _mk()
+        def run(conn, s="defense"):
+            for sym in B.get(s, []):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "a basket built by dict(zip(...))": '''
+        RULE = "RULE_LIM2"
+        B = dict(zip(["defense"], [["LMT", "RTX"]]))
+        def run(conn, s="defense"):
+            for sym in B.get(s, []):
+                conn.execute("INSERT INTO alerts (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "SQL assembled in an f-string": '''
+        RULE = "RULE_LIM3"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            t = "alerts"
+            for sym in B.get(s, []):
+                conn.execute(f"INSERT INTO {t} (rule, ticker) VALUES (?,?)", (RULE, sym))
+    ''',
+    "an INSERT with no column list": '''
+        RULE = "RULE_LIM4"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            for sym in B.get(s, []):
+                conn.execute("INSERT INTO alerts VALUES (NULL,?,?)", (RULE, sym))
+    ''',
+    "executemany over built rows": '''
+        RULE = "RULE_LIM5"
+        B = {"defense": ["LMT", "RTX"]}
+        def run(conn, s="defense"):
+            rows = [(RULE, sym) for sym in B.get(s, [])]
+            conn.executemany("INSERT INTO alerts (rule, ticker) VALUES (?,?)", rows)
+    ''',
+}
+
+
+@pytest.mark.parametrize("label", sorted(_LIMITS))
+@pytest.mark.xfail(strict=True, reason=(
+    "A KNOWN LIMIT of the structural detector, measured not assumed: this shape is not "
+    "flagged and could reach the gate. Recorded as a strict xfail so that closing it "
+    "turns the suite red and forces this list to be updated, instead of the limit living "
+    "only in a session note. See SESSION-2026-07-29-basket-rule-gate-class.md."))
+def test_the_KNOWN_LIMITS_are_still_limits(tmp_path, label):
+    repo = tmp_path / "repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "jpt_common.py").write_text("X = 1\n")
+    (repo / "scripts" / "rule_lim.py").write_text(textwrap.dedent(_LIMITS[label]))
+    found = [r["rule"] for r in scan_repo(str(repo)) if "rule_lim" in r["path"]]
+    assert found, f"'{label}' is not caught"

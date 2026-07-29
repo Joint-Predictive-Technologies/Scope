@@ -61,6 +61,15 @@ _ALERTS_TABLE = "alerts"
 # Methods that put a value INTO a container, so the container inherits its taint.
 _MUTATORS = {"append", "add", "extend", "insert", "update"}
 
+# ⚠️ CALLS THAT DO NOT LAUNDER A BASKET. Adding `sorted()` to an emit loop — which a
+# developer adds for deterministic ordering — was the entire difference between the guard
+# going red and going silent, because taint crossed an opaque call only at element grade.
+# These re-wrap the same strings, so the grade must survive them.
+_LIST_PRESERVING = {"sorted", "list", "set", "tuple", "frozenset", "reversed",
+                    "enumerate", "iter", "filter", "shuffle", "copy", "deepcopy"}
+# ...and these take ONE element out of a list.
+_ELEM_EXTRACTING = {"next", "choice", "pop", "first", "sample", "min", "max"}
+
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -73,7 +82,7 @@ def _is_basket_literal(node: ast.AST) -> bool:
     if not isinstance(node, ast.Dict) or not node.values:
         return False
     return all(
-        isinstance(v, ast.List) and v.elts
+        isinstance(v, (ast.List, ast.Tuple, ast.Set)) and v.elts
         and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in v.elts)
         for v in node.values
     )
@@ -82,7 +91,13 @@ def _is_basket_literal(node: ast.AST) -> bool:
 def _module_baskets(tree: ast.Module) -> set[str]:
     """Names bound at module level to a basket literal."""
     out: set[str] = set()
-    for node in tree.body:
+    body = list(tree.body)
+    # A basket declared in a CLASS BODY is still a hardcoded table; only the namespace
+    # differs, so class bodies are walked as well as the module's own.
+    for node in list(body):
+        if isinstance(node, ast.ClassDef):
+            body.extend(node.body)
+    for node in body:
         target = None
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             target = node.target.id
@@ -114,6 +129,69 @@ def _imported_baskets(tree: ast.Module, repo: str) -> set[str]:
         for alias in node.names:
             if alias.name in defined:
                 out.add(alias.asname or alias.name)
+    return out
+
+
+_SINK_CACHE: dict[str, dict[str, set[str]]] = {}
+
+
+def _imported_sinks(tree: ast.Module, repo: str) -> dict[str, set[str]]:
+    """Imported functions that write a ticker, and WHICH PARAMETER they write.
+
+    ⚠️ THE GAP THIS CLOSES WAS THE WHOLE HOLE. The first version resolved wrappers only
+    inside the module in front of it, and recognised a shared writer only when the ticker
+    was passed as a KEYWORD. But this project's own conventions document the shared writer
+    as the preferred path, and four production rules call it POSITIONALLY today — so a new
+    basket rule written in house style was seen, named, and cleared, with its gate firing
+    and the suite green. Measured on a planted rule: basket found, `reaches a ticker` False,
+    three instruments, gate TRUE.
+
+    Nothing is hardcoded: the writer's own definition is parsed and the position of its
+    parameter named after the ticker column is read off its signature, so a rename or a
+    reordering is followed rather than assumed.
+    """
+    out: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or not node.module or node.level:
+            continue
+        src = os.path.join(repo, node.module.replace(".", os.sep) + ".py")
+        if not os.path.exists(src):
+            continue
+        if src not in _SINK_CACHE:
+            try:
+                _SINK_CACHE[src] = _ticker_writers(
+                    ast.parse(open(src, encoding="utf-8").read()))
+            except (SyntaxError, OSError):
+                _SINK_CACHE[src] = {}
+        defined = _SINK_CACHE[src]
+        for alias in node.names:
+            if alias.name in defined:
+                out[alias.asname or alias.name] = defined[alias.name]
+    return out
+
+
+def _ticker_writers(tree: ast.Module) -> dict[str, set[str]]:
+    """Functions in this module whose PARAMETER is written to the ticker column."""
+    out: dict[str, set[str]] = {}
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [a.arg for a in fn.args.args] + [a.arg for a in fn.args.kwonlyargs]
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Call):
+                continue
+            idx = None
+            for arg in node.args:
+                idx = _sql_param_index(arg, _TICKER_COLUMN)
+                if idx is not None:
+                    break
+            if idx is None:
+                continue
+            for arg in node.args:
+                if isinstance(arg, (ast.Tuple, ast.List)) and len(arg.elts) > idx:
+                    e = arg.elts[idx]
+                    if isinstance(e, ast.Name) and e.id in params:
+                        out.setdefault(fn.name, set()).add(e.id)
     return out
 
 
@@ -210,10 +288,12 @@ class _ModuleScan:
     """One module: where baskets are, where tickers are written, and whether they meet."""
 
     def __init__(self, path: str, repo: str):
+        self.repo = repo
         self.path = path
         self.src = open(path, encoding="utf-8").read()
         self.tree = ast.parse(self.src)
         self.baskets = _module_baskets(self.tree) | _imported_baskets(self.tree, repo)
+        self.imported_sinks = _imported_sinks(self.tree, repo)
         self.funcs = {n.name: n for n in ast.walk(self.tree)
                       if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         # function name -> parameter names that end up written as a ticker. Seeded from
@@ -250,9 +330,14 @@ class _ModuleScan:
             if g is None:
                 return None
             if isinstance(node.slice, ast.Slice):
-                return "LIST" if g in ("LIST", "BASKET") else g
-            return "LIST" if g == "BASKET" else "ELEM"
+                return "LIST" if g in ("LIST", "BASKET", "VALUES") else g
+            return "LIST" if g in ("BASKET", "VALUES") else "ELEM"
         if isinstance(node, ast.Attribute):
+            # A basket declared in a class body is reached as `Cfg.BASKET`, so the
+            # ATTRIBUTE name has to be checked too — registering the declaration was not
+            # enough on its own.
+            if node.attr in self.baskets:
+                return "BASKET"
             return self._grade(node.value, local)
         if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
             grades = [self._grade(e, local) for e in node.elts]
@@ -268,8 +353,11 @@ class _ModuleScan:
         if isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp)):
             inner = dict(local)
             for gen in node.generators:
-                g = self._grade(gen.iter, local)
-                if g in ("LIST", "BASKET"):
+                g = self._grade(gen.iter, inner)
+                if g == "VALUES":
+                    for n in _bound_names(gen.target):
+                        inner[n] = "LIST"
+                elif g in ("LIST", "BASKET"):
                     for n in _bound_names(gen.target):
                         inner[n] = "ELEM"
             return "LIST" if self._grade(node.elt, inner) else None
@@ -279,13 +367,29 @@ class _ModuleScan:
             if name in ("get", "pop") and self._grade(recv, local) == "BASKET":
                 return "LIST"                      # basket.get(key) -> the value list
             if name == "values" and self._grade(recv, local) == "BASKET":
-                return "LIST"
+                # ⚠️ A COLLECTION OF VALUE LISTS, NOT A LIST OF SYMBOLS. Grading it as a
+                # plain LIST made iterating it yield an element, so a flattening
+                # comprehension — `[x for lst in basket.values() for x in lst]` — lost the
+                # taint at its second generator and the rule went unflagged.
+                return "VALUES"
             if name == "items" and self._grade(recv, local) == "BASKET":
                 return "LIST"                      # refined per-half at the for-loop
             if name in self.tainted_funcs:
                 return self.tainted_funcs[name]    # a local function returning basket data
-            # An opaque call carries a SYMBOL onward (normalise, upper, strip) but does
-            # not turn a list of basket strings into basket tickers.
+            if name in _LIST_PRESERVING:
+                inner = [self._grade(a, local) for a in node.args]
+                g = next((x for x in inner if x), None)
+                return "LIST" if g in ("LIST", "BASKET") else g
+            if name in _ELEM_EXTRACTING:
+                if any(self._grade(a, local) in ("LIST", "BASKET", "VALUES")
+                       for a in node.args):
+                    return "ELEM"
+            # A METHOD ON an element is still that element — `sym.upper()`, `.strip()`,
+            # `.replace()`. The receiver has to be inspected, not just the arguments; the
+            # docstring above claimed "a transform of it is still that symbol" while the
+            # code only ever looked at args.
+            if self._grade(recv, local) == "ELEM":
+                return "ELEM"
             if any(self._grade(a, local) == "ELEM" for a in node.args):
                 return "ELEM"
             return None
@@ -334,7 +438,10 @@ class _ModuleScan:
                             local[n] = "LIST"
                     else:
                         g = self._grade(node.iter, local)
-                        if g in ("LIST", "BASKET"):
+                        if g == "VALUES":
+                            for n in _bound_names(node.target):
+                                local[n] = "LIST"
+                        elif g in ("LIST", "BASKET"):
                             for n in _bound_names(node.target):
                                 local[n] = "ELEM"
                 elif isinstance(node, ast.Call) and _call_name(node) in _MUTATORS:
@@ -399,8 +506,37 @@ class _ModuleScan:
                 break
 
     def _wrapped_args(self, call: ast.Call) -> list[ast.AST]:
-        """Arguments this call passes into a known wrapper's ticker parameter."""
+        """Arguments this call passes into a known writer's ticker parameter — a wrapper
+        defined here, OR a writer imported from another module."""
         name = _call_name(call)
+        if name in self.imported_sinks:
+            src = None
+            for node in ast.walk(self.tree):
+                if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                    if any((a.asname or a.name) == name for a in node.names):
+                        src = os.path.join(self.repo,
+                                           node.module.replace(".", os.sep) + ".py")
+            out = []
+            if src and os.path.exists(src):
+                try:
+                    tree = ast.parse(open(src, encoding="utf-8").read())
+                except (SyntaxError, OSError):
+                    tree = None
+                if tree is not None:
+                    for fn in ast.walk(tree):
+                        if (isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                                and fn.name == name):
+                            names = ([a.arg for a in fn.args.args]
+                                     + [a.arg for a in fn.args.kwonlyargs])
+                            want = self.imported_sinks[name]
+                            for i, arg in enumerate(call.args):
+                                if i < len(names) and names[i] in want:
+                                    out.append(arg)
+                            for kw in call.keywords:
+                                if kw.arg in want:
+                                    out.append(kw.value)
+            if out:
+                return out
         if name not in self.sink_params:
             return []
         fn = self.funcs.get(name)
