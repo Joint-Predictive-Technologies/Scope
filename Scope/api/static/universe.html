@@ -40,9 +40,9 @@
     #tooltip .tt-dim { color:var(--muted); }
 
     /* Empty universe = early, not broken. */
-    #empty { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:0.6rem; text-align:center; padding:2rem; }
-    #empty .e-title { font-family:var(--font-sans); font-size:1.3rem; font-weight:600; color:var(--cream); }
-    #empty .e-sub { font-family:var(--font-mono); font-size:0.7rem; color:var(--muted); max-width:52ch; line-height:1.7; }
+    #empty, #error { position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center; gap:0.6rem; text-align:center; padding:2rem; }
+    #empty .e-title, #error .e-title { font-family:var(--font-sans); font-size:1.3rem; font-weight:600; color:var(--cream); }
+    #empty .e-sub, #error .e-sub { font-family:var(--font-mono); font-size:0.7rem; color:var(--muted); max-width:52ch; line-height:1.7; }
 
     .zoom-ctl { position:absolute; right:1.2rem; bottom:1.2rem; display:flex; flex-direction:column; gap:1px; z-index:10; }
     .zoom-ctl button { width:32px; height:32px; background:var(--bg2); border:1px solid var(--border2); color:var(--cream2); font-family:var(--font-mono); font-size:0.85rem; cursor:pointer; }
@@ -59,7 +59,7 @@
 
 <header class="strip">
   <span class="page-title">Ticker Universe</span>
-  <span class="fixture-chip" title="This page renders a seeded fixture — it is not connected to the live database.">SEEDED FIXTURE — NOT LIVE</span>
+  <span class="fixture-chip" id="fixture-chip" style="display:none" title="This field is INVENTED demo data, not collected coverage. Drop the ?fixture= parameter to see the real universe."></span>
   <span class="count-chip" id="count-chip"></span>
   <span class="coverage-note" id="coverage-note"></span>
 </header>
@@ -76,6 +76,14 @@
 <div class="stage" id="stage">
   <canvas id="pit"></canvas>
   <div id="tooltip"></div>
+  <div id="error">
+    <div class="e-title">Coverage is unavailable — this is a fault, not an empty universe.</div>
+    <div class="e-sub">The page could not read the coverage list, so it does not know
+      how many names have been collected. That is different from knowing the answer is
+      zero, and it is shown differently on purpose.</div>
+    <div class="e-sub" id="err-reason" style="margin-top:0.6rem"></div>
+    <div class="e-sub" style="margin-top:0.8rem"><a href="/universe" style="color:var(--link)">Retry</a></div>
+  </div>
   <div id="empty">
     <div class="e-title">The universe is empty — early, not broken.</div>
     <div class="e-sub">The coverage collector hasn't accumulated any ticker names yet.
@@ -115,29 +123,39 @@
    ============================================================================ */
 
 /* ── THE SEEDED FIXTURE ──────────────────────────────────────────────────────
-   LIVE WIRING: deferred until ticker_universe is populated and caps are
-   corrected (the CLBK cap-label fix is on a parallel branch). This function is
-   the single seam: to go live, replace its body with
+   NOW LIVE. This reads GET /api/universe (api/routers/universe.py), payload
+   { kind, disclaimer, count, tickers: [{ ticker, first_collected_at,
+     last_seen_at, times_seen, market_cap, cap_status, source }] }.
 
-       const r = await fetch('/api/universe?limit=1000');
-       return await r.json();
+   ?fixture=few|hundred|swarm still selects a deterministic INVENTED scenario
+   for visual work. It is opt-in, it never loads by default, and while one is
+   active the header says so — a demo field must not be mistakable for
+   collected coverage.
 
-   Everything below loadUniverse() consumes only the payload shape of
-   GET /api/universe (api/routers/universe.py): { kind, disclaimer, count,
-   tickers: [{ ticker, first_collected_at, last_seen_at, times_seen,
-               market_cap, cap_status, source }] }.
-   Until then the page has ZERO network/DB dependency: ?fixture=few|hundred|
-   swarm picks a deterministic seeded demo scenario. The DEFAULT is the honest
-   state — empty — because in every current environment the real universe IS
-   empty; the invented scenarios are opt-in for visual work only.
-   At wiring time, also: (1) remove the "SEEDED FIXTURE — NOT LIVE" chip and
-   the "(seeded fixture)" count suffix; (2) note the endpoint filters
-   cap_status='excluded' by default (and its cap_status param accepts only
-   small|unknown), so excluded balls are unreachable live — the excluded
-   legend entry already hides itself when no such rows arrive.               */
+   The endpoint filters cap_status='excluded' server-side (and its cap_status
+   param accepts only small|unknown), so excluded balls are unreachable live;
+   the excluded legend entry hides itself when no such rows arrive.
+
+   FAILURE IS NOT EMPTINESS. This page's whole point is that an empty universe
+   is early, not broken — which only means anything if a BROKEN one looks
+   different. A failed or malformed fetch therefore returns kind:'error' and
+   renders its own state; it must never fall through to the empty copy and
+   quietly report "no names collected yet" when the truth is "I could not
+   ask".                                                                     */
 async function loadUniverse() {
-  const scenario = new URLSearchParams(location.search).get('fixture') || 'empty';
-  return buildFixture(scenario);
+  const scenario = new URLSearchParams(location.search).get('fixture');
+  if (scenario) return buildFixture(scenario);
+  try {
+    const r = await fetch('/api/universe?limit=1000', { headers: { 'Accept': 'application/json' } });
+    if (!r.ok) return { kind:'error', reason:`the coverage endpoint answered ${r.status}`, tickers:[] };
+    const payload = await r.json();
+    if (!payload || !Array.isArray(payload.tickers)) {
+      return { kind:'error', reason:'the coverage endpoint returned an unexpected shape', tickers:[] };
+    }
+    return payload;
+  } catch (e) {
+    return { kind:'error', reason:'the coverage endpoint could not be reached', tickers:[] };
+  }
 }
 
 /* Deterministic PRNG (mulberry32) + string hash — the fixture and the layout
@@ -520,12 +538,27 @@ document.addEventListener('visibilitychange', () => {
 /* ── BOOT ── */
 function setData(payload) {
   const rows = payload.tickers || [];
-  // "(seeded fixture)" is load-bearing honesty: the count must never read as a
-  // live collection tally. Remove the suffix only at live-wiring time.
-  document.getElementById('count-chip').textContent =
-    rows.length + ' name' + (rows.length === 1 ? '' : 's') + ' (seeded fixture)';
-  document.getElementById('coverage-note').textContent = payload.disclaimer || '';
-  document.getElementById('empty').style.display = rows.length ? 'none' : 'flex';
+  const fixture = new URLSearchParams(location.search).get('fixture');
+  const failed = payload.kind === 'error';
+
+  // The chip only appears when the field really is invented. Leaving it up
+  // permanently was the honest choice while nothing was wired; leaving it up
+  // NOW would be the dishonest one, because it would label real collected
+  // coverage as a demo.
+  const chip = document.getElementById('fixture-chip');
+  chip.style.display = fixture ? 'inline' : 'none';
+  if (fixture) chip.textContent = 'INVENTED DEMO DATA — NOT COLLECTED';
+
+  // The count says what it counted. "names" is a coverage tally, never a score.
+  document.getElementById('count-chip').textContent = failed ? ''
+    : rows.length + ' name' + (rows.length === 1 ? '' : 's') + (fixture ? ' (invented)' : '');
+  document.getElementById('coverage-note').textContent =
+    failed ? '' : (payload.disclaimer || '');
+
+  // Empty and broken are DIFFERENT states and must never share a screen.
+  document.getElementById('error').style.display = failed ? 'flex' : 'none';
+  document.getElementById('err-reason').textContent = payload.reason || '';
+  document.getElementById('empty').style.display = (!failed && !rows.length) ? 'flex' : 'none';
   document.getElementById('legend').style.visibility = rows.length ? 'visible' : 'hidden';
   // The live endpoint never returns excluded rows (filtered server-side), so
   // the legend entry only exists when the data actually contains them.
