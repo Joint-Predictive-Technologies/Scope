@@ -88,7 +88,7 @@
     .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
   
     /* --- unified nav mobile (injected) --- */
     .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 9px 13px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
@@ -162,11 +162,14 @@
   function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
 
   /* ── HEAT INDEX ── */
+  // The score is TEXT, so it must clear AA in whichever theme is active. The
+  // severity tokens are already tuned and asserted for both; a hardcoded ramp
+  // is not (the old one sat at 1.94:1 on paper).
   function heatColor(score) {
-    if (score >= 60) return '#e55b4d';
-    if (score >= 35) return '#e67e22';
-    if (score >= 15) return '#c8922a';
-    return '#4dc47a';
+    if (score >= 60) return 'var(--severity-critical)';
+    if (score >= 35) return 'var(--severity-high)';
+    if (score >= 15) return 'var(--severity-medium)';
+    return 'var(--direction-buy)';
   }
   function heatTrendHtml(trend) {
     if (trend === 'up')   return '<span class="heat-trend-up">↑</span>';

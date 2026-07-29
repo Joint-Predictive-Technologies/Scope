@@ -20,7 +20,20 @@
   function systemPrefersLight() {
     return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
   }
+  /* A page may pin itself to one theme by setting `data-theme-lock` on <html>
+     BEFORE this script runs. That is for a surface whose colour is not a token
+     swap — /osint is a WebGL globe whose clear colour, earth tint, lighting and
+     severity markers were tuned together for a dark field, and the chrome sits
+     over the canvas, so a light nav on a black stage would be worse than an
+     honest dark page. The lock is a stated design decision, not a holdout: it
+     is declared in the page and read here, so it cannot drift silently. */
+  function locked() {
+    var l = document.documentElement.getAttribute("data-theme-lock");
+    return l === "light" || l === "dark" ? l : null;
+  }
   function resolve() {
+    var lock = locked();
+    if (lock) return lock;
     var s = stored();
     if (s === "light" || s === "dark") return s;
     return systemPrefersLight() ? "light" : "dark";
@@ -68,6 +81,19 @@
   function injectToggle() {
     var nav = document.querySelector("nav");
     if (!nav || nav.querySelector(".theme-btn")) return;
+    // On a locked page the control would lie — it cannot change this page. Say
+    // so instead of shipping a dead button; the choice still applies elsewhere.
+    if (locked()) {
+      var note = document.createElement("span");
+      note.className = "theme-locked-note";
+      note.style.cssText = "font-family:var(--font-mono);font-size:0.62rem;color:var(--text-tertiary);" +
+                           "flex-shrink:0;margin-left:8px;letter-spacing:0.04em";
+      note.textContent = "DARK STAGE";
+      note.title = "This view stays dark by design — the globe's severity markers, " +
+                   "earth tint and lighting are tuned as one system for a dark field.";
+      nav.appendChild(note);
+      return;
+    }
     var style = document.getElementById("scope-theme-style");
     if (!style) {
       style = document.createElement("style");

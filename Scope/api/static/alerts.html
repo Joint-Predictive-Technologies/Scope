@@ -79,7 +79,7 @@
     .badge-score { background: color-mix(in srgb, var(--direction-buy) 15%, transparent); color: var(--direction-buy); border: 1px solid color-mix(in srgb, var(--direction-buy) 30%, transparent); }
     .badge-lifecycle { font-size: 0.58rem; letter-spacing: 0.06em; }
     .badge-lc-corroborated { background: color-mix(in srgb, var(--amber) 15%, transparent); color: var(--amber2); border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent); }
-    .badge-lc-featured { background: rgba(100,160,200,0.15); color: var(--link); border: 1px solid rgba(100,160,200,0.25); }
+    .badge-lc-featured { background: color-mix(in srgb, var(--link) 15%, transparent); color: var(--link); border: 1px solid color-mix(in srgb, var(--link) 25%, transparent); }
     .badge-lc-backtested { background: color-mix(in srgb, var(--direction-buy) 15%, transparent); color: var(--direction-buy); border: 1px solid color-mix(in srgb, var(--direction-buy) 30%, transparent); }
     .delay-ok      { background: rgba(100,100,100,0.15); color: var(--cream2); border: 1px solid rgba(100,100,100,0.25); }
     .delay-late    { background: color-mix(in srgb, var(--severity-high) 15%, transparent);  color: var(--severity-high); border: 1px solid color-mix(in srgb, var(--severity-high) 30%, transparent); }
@@ -166,7 +166,7 @@
     .pg-jump:focus { border-color: var(--amber); }
 
     /* NAV BADGE */
-    .nav-badge { background: var(--red); color: #fff; font-size: 0.52rem; font-family: var(--font-mono); padding: 1px 5px; border-radius: 10px; margin-left: 3px; vertical-align: middle; line-height: 1; }
+    .nav-badge { background: var(--red); color: #fff;   /* theme-ok: ink on a filled severity badge, not on the page */ font-size: 0.52rem; font-family: var(--font-mono); padding: 1px 5px; border-radius: 10px; margin-left: 3px; vertical-align: middle; line-height: 1; }
 
     @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
 
@@ -194,7 +194,7 @@
     .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
   </style>
 <style>
 /* --- alert receipts (provenance block) --- */
@@ -535,7 +535,7 @@ function renderReceipts(r){
     const parts  = [`Showing ${sevLabel}`, `Last ${days} days`];
     if (rule)   parts.push(rule);
     if (ticker) parts.push(`Ticker: ${ticker}`);
-    if (sinceFilter) parts.push('<a href="#" onclick="clearSince();return false" style="color:#e55b4d">New only ✕</a>');
+    if (sinceFilter) parts.push('<a href="#" onclick="clearSince();return false" style="color:var(--severity-critical)">New only ✕</a>');
     if (watchlistOnly) parts.push('Watchlist');
     const isDefault = sev === 'HIGH+' && days === '7' && !rule && !ticker && !watchlistOnly && !sinceFilter;
     const reset = isDefault ? '' : ' &nbsp;·&nbsp; <a href="#" onclick="resetFilters();return false" style="color:var(--amber)">Reset</a>';
@@ -803,7 +803,7 @@ function renderReceipts(r){
       if (d.pct_change != null) {
         const pct = d.pct_change.toFixed(1);
         const arrow = d.pct_change >= 0 ? '📈' : '📉';
-        const color = d.pct_change >= 0 ? '#4dc47a' : '#e55b4d';
+        const color = d.pct_change >= 0 ? 'var(--direction-buy)' : 'var(--direction-sell)';
         el.innerHTML = `<span style="color:${color}">${arrow} ${d.pct_change>=0?'+':''}${pct}% during disclosure window</span>`;
       } else { el.innerHTML = '<span style="color:var(--muted)">Price data unavailable</span>'; }
     } catch { el.innerHTML = ''; }
@@ -818,7 +818,7 @@ function renderReceipts(r){
       const r = await fetch(`/tickers/${sym}/meta`);
       const d = await r.json();
       capCache[sym] = d.market_cap;
-      if (d.social_spike) el.innerHTML = '<span style="color:#e67e22">⚡ High social activity on Stocktwits</span>';
+      if (d.social_spike) el.innerHTML = '<span style="color:var(--severity-high)">⚡ High social activity on Stocktwits</span>';
     } catch {}
   }
 
@@ -883,7 +883,7 @@ function renderReceipts(r){
 
       if (a.relevance_score != null)
         detailHtml += `<div class="detail-label">Thesis Relevance</div>
-          <div style="color:#4dc47a;font-family:var(--font-mono);font-size:0.8rem">${a.relevance_score}/10</div>`;
+          <div style="color:var(--direction-buy);font-family:var(--font-mono);font-size:0.8rem">${a.relevance_score}/10</div>`;
 
       // AI-analysis block removed (vault: 2026-07-23-remove-war-room-ai-analysis).
       // a.detail (stored LLM narrative) is no longer surfaced; the factual blocks
@@ -1195,7 +1195,7 @@ function renderReceipts(r){
   var p = new URLSearchParams(location.search);
   if (p.get('notice') === 'nobrief') {
     var d = document.createElement('div');
-    d.style.cssText = "background:#181610;border-bottom:1px solid #2a2620;color:#c8bfa8;font-family:var(--font-mono);font-size:.72rem;padding:8px 16px;text-align:center";
+    d.style.cssText = "background:var(--surface-1);border-bottom:1px solid var(--border-subtle);color:var(--text-primary);font-family:var(--font-mono);font-size:.72rem;padding:8px 16px;text-align:center";
     d.textContent = "No morning brief has been generated yet — showing the live feed. Today's brief runs at 06:30 UTC.";
     document.body.insertBefore(d, document.body.firstChild);
   }

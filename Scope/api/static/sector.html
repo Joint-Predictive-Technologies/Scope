@@ -82,7 +82,9 @@
 
 <script>
   const slug = decodeURIComponent(location.pathname.split('/sector/')[1] || '').toLowerCase();
-  const heatCol = s => s >= 60 ? '#e55b4d' : s >= 35 ? '#e67e22' : s >= 15 ? '#c8922a' : '#4dc47a';
+  // Text, so it follows the tokens (asserted for both themes) — see sectors.html.
+  const heatCol = s => s >= 60 ? 'var(--severity-critical)' : s >= 35 ? 'var(--severity-high)'
+                     : s >= 15 ? 'var(--severity-medium)' : 'var(--direction-buy)';
   const esc = s => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const tkr = t => (t||'').replace(/\$/g,'').split(' ')[0];
 

@@ -124,7 +124,7 @@
     /* ── RULES GRID ──────────────────────────────────────── */
     .rules-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
     .rule-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem 1.2rem; }
-    .rule-card.featured { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--amber) 30%, transparent); background: linear-gradient(135deg, var(--bg2) 0%, var(--bg2) 100%); }
+    .rule-card.featured { grid-column: 1 / -1; border-color: color-mix(in srgb, var(--amber) 30%, transparent); background: linear-gradient(135deg, var(--bg2) 0%, color-mix(in srgb, var(--amber) 8%, var(--bg2)) 100%); }
     .rule-id { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.1em; color: var(--amber); margin-bottom: 0.35rem; }
     .rule-name { font-family: var(--font-sans); font-size: 0.95rem; font-weight: 600; color: var(--cream); margin-bottom: 0.4rem; }
     .rule-desc { font-size: 0.78rem; color: var(--cream2); line-height: 1.5; }
@@ -210,7 +210,9 @@
     .hm-cell { width: 28px; height: 22px; border-radius: 3px; border: 1px solid var(--border); cursor: pointer; transition: transform 0.1s; display: flex; align-items: center; justify-content: center; }
     .hm-cell:hover { transform: scale(1.15); z-index: 1; position: relative; }
     .hm-cell:focus { outline: 2px solid var(--amber2); outline-offset: 1px; }
-    .hm-cnt { font-family: var(--font-mono); font-size: 0.5rem; color: var(--bg); font-weight: 600; }
+    /* No `color` here: the ink is computed per cell against the COMPOSITED
+       cell (see hmInk) — a fixed colour is unreadable at one end of the ramp. */
+    .hm-cnt { font-family: var(--font-mono); font-size: 0.5rem; font-weight: 600; }
     .hm-legend { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; font-family: var(--font-mono); font-size: 0.6rem; color: var(--cream2); flex-wrap: wrap; }
     .hm-legend .hm-key { width: 16px; height: 12px; border-radius: 2px; border: 1px solid var(--border); }
     .hm-cell.hm-backfill { background-image: repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.25) 3px, rgba(0,0,0,0.25) 4px); }
@@ -221,7 +223,7 @@
     .rail-chip.active { background: color-mix(in srgb, var(--amber) 15%, transparent); border-color: var(--amber); color: var(--amber); }
     .rail-chip:focus { outline: 2px solid var(--amber2); outline-offset: 1px; }
     .rail-corr { margin-top: 0.5rem; }
-    .rail-chip.corr { background: linear-gradient(135deg, var(--bg2), var(--bg2)); border-color: color-mix(in srgb, var(--amber) 35%, transparent); color: var(--amber2); font-size: 0.72rem; padding: 9px 16px; }
+    .rail-chip.corr { background: linear-gradient(135deg, var(--bg2), color-mix(in srgb, var(--amber) 8%, var(--bg2))); border-color: color-mix(in srgb, var(--amber) 35%, transparent); color: var(--amber2); font-size: 0.72rem; padding: 9px 16px; }
     .rail-detail { margin-top: 0.8rem; }
     .rail-detail-inner { background: var(--bg2); border: 1px solid var(--border2); border-radius: 10px; padding: 1.1rem 1.3rem; animation: railIn 0.15s ease; }
     @keyframes railIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
@@ -286,9 +288,9 @@
     .today-retry { font-family: var(--font-mono); font-size: 0.68rem; color: var(--amber); background: transparent; border: 1px solid var(--border2); padding: 5px 14px; border-radius: 4px; cursor: pointer; margin-top: 0.8rem; }
 
     /* ── EVIDENCE DRAWER ── */
-    #ev-backdrop { display: none; position: fixed; inset: 0; background: var(--surface-overlay); z-index: 8000; backdrop-filter: blur(3px); }
+    #ev-backdrop { display: none; position: fixed; inset: 0; background: var(--surface-scrim); z-index: 8000; backdrop-filter: blur(3px); }
     #ev-backdrop.open { display: block; }
-    #ev-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(460px, 94vw); background: var(--bg); border-left: 1px solid var(--border2); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; }
+    #ev-drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(460px, 94vw); background: var(--bg2); border-left: 1px solid var(--border2); transform: translateX(100%); transition: transform 0.22s ease; display: flex; flex-direction: column; }
     #ev-backdrop.open #ev-drawer { transform: translateX(0); }
     .ev-head { display: flex; align-items: flex-start; gap: 0.6rem; padding: 1.1rem 1.2rem; border-bottom: 1px solid var(--border); }
     .ev-head-main { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; flex: 1; }
@@ -345,7 +347,7 @@
     .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
 
     @media (max-width: 900px) {
       .hero { grid-template-columns: 1fr; gap: 2.4rem; }
@@ -481,7 +483,7 @@
       <a href="/thesis/${t.id}" style="display:block;text-decoration:none;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1.1rem">
         <div style="font-family:var(--font-mono);font-size:0.56rem;letter-spacing:0.06em;text-transform:uppercase;color:var(--amber2)">${esc(t.status||'')} · ${esc(t.primary_ticker||'')}</div>
         <div style="font-family:var(--font-sans);font-size:0.95rem;color:var(--cream);font-weight:600;margin:0.3rem 0">${esc(t.title)}</div>
-        <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--muted)">Opportunity <span style="color:var(--green-light)">${t.opportunity_score ?? 0}</span> · Evidence <span style="color:#6ab0e0">${t.evidence_confidence ?? 0}</span> · ${t.signal_count ?? 0} signals</div>
+        <div style="font-family:var(--font-mono);font-size:0.62rem;color:var(--muted)">Opportunity <span style="color:var(--green-light)">${t.opportunity_score ?? 0}</span> · Evidence <span style="color:var(--link)">${t.evidence_confidence ?? 0}</span> · ${t.signal_count ?? 0} signals</div>
       </a>`).join('');
   }).catch(()=>{});
 </script>
@@ -1122,6 +1124,19 @@
         return `<td class="hm-day-label">${label}</td>`;
       }).join('')}</tr>`;
 
+      /* The count sits ON the cell, and the cell is a translucent hue over the
+         page: at low intensity it is nearly the page, at full intensity nearly
+         the hue. So no single ink works — `color:var(--bg)` inverted with the
+         theme and put white numerals on pale amber (1.09:1). Composite the cell
+         for real and pick the ink that wins against it. */
+      const HM_LIVE = [200, 146, 42], HM_BACKFILL = [106, 176, 224];
+      function hmInk(hue, alpha) {
+        const page = getTheme() === 'light' ? [250, 249, 247] : [10, 10, 12];
+        const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+        const ch = i => lin(hue[i] * alpha + page[i] * (1 - alpha));
+        const L = 0.2126 * ch(0) + 0.7152 * ch(1) + 0.0722 * ch(2);
+        return L > 0.28 ? '#141310' : '#f2f0ec';   // theme-ok: ink chosen against the composited CELL
+      }
       const dataRows = HM_RULES.map(rule => {
         const label = HM_RULE_LABELS[rule] || rule;
         const cells = days.map(day => {
@@ -1143,7 +1158,7 @@
             aria-label="${aria}" title="${aria}"
             onclick="location.href='${feed}'"
             onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${feed}'}"
-            >${cnt ? `<span class="hm-cnt">${cnt}</span>` : ''}</div></td>`;
+            >${cnt ? `<span class="hm-cnt" style="color:${hmInk(isBackfill ? HM_BACKFILL : HM_LIVE, intensity)}">${cnt}</span>` : ''}</div></td>`;
         }).join('');
         return `<tr><td class="hm-rule-label">${label}</td>${cells}</tr>`;
       }).join('');
@@ -1165,6 +1180,10 @@
     });
   }
   loadHeatMap();
+  // The cell ink is computed against the COMPOSITED cell, which depends on the
+  // page background — so unlike everything token-driven it cannot follow the
+  // cascade, and the heatmap has to be rebuilt when the theme flips.
+  document.addEventListener('scope:themechange', () => loadHeatMap());
 
   // ── 8s fallback for stuck loading states ─────────────────────────────────
   setTimeout(() => {

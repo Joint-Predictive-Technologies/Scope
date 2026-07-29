@@ -9,6 +9,17 @@
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
+  <style>
+    /* Timeline rule-identity dots — see RULE_COLORS in the script below.
+       Light values are deeper: the dark ones are 2.1-2.4:1 as marks on paper. */
+    :root { --rc-RULE_01B:#e67e22; --rc-RULE_02:#c8922a; --rc-RULE_06:#6ab0e0;
+            --rc-RULE_07:#2a8a4a; --rc-RULE_08:#9b59b6; --rc-RULE_09:#e67e22;
+            --rc-RULE_10:#e55b4d; }
+    :root[data-theme="light"] {
+            --rc-RULE_01B:#8a4a10; --rc-RULE_02:#7a5410; --rc-RULE_06:#1f5691;
+            --rc-RULE_07:#15653c; --rc-RULE_08:#6b3a86; --rc-RULE_09:#8a4a10;
+            --rc-RULE_10:#9e1f2d; }
+  </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
   <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -130,7 +141,7 @@
     .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
   
     /* --- unified nav mobile (injected) --- */
     .hamburger { display: none; margin-left: auto; background: none; border: 1px solid var(--border2); color: var(--cream2); padding: 9px 13px; border-radius: 4px; cursor: pointer; font-size: 1rem; line-height: 1; }
@@ -222,10 +233,15 @@ function renderReceipts(r){
 
   function withTimeout(ms) { const c = new AbortController(); setTimeout(() => c.abort(), ms); return c.signal; }
 
-  const RULE_COLORS = {
-    RULE_01B: '#e67e22', RULE_02: '#c8922a', RULE_06: '#6ab0e0',
-    RULE_07: '#2a8a4a', RULE_08: '#9b59b6', RULE_09: '#e67e22', RULE_10: '#e55b4d',
-  };
+  /* Timeline identity dots. These are MARKS (3:1 floor) and the dark set sits
+     at 2.1-2.4:1 on paper, so light needs its own — same hue order, deeper.
+     Emitted as var() rather than a resolved hex so the CSS cascade swaps them
+     on toggle; a JS map would need the timeline re-rendered to follow. */
+  const RULE_DOT_HUES = new Set(['RULE_01B','RULE_02','RULE_06','RULE_07','RULE_08','RULE_09','RULE_10']);
+  const RULE_COLORS = new Proxy({}, {
+    get: (_, k) => (RULE_DOT_HUES.has(String(k)) ? `var(--rc-${String(k)})` : '#888'),
+  });
+  const isLightTheme = () => document.documentElement.getAttribute('data-theme') === 'light';
 
   /* The path segment is URL-ENCODED and may hold a multi-symbol basket.
      `alerts.ticker` is not always one symbol: 511 rows carry space-separated
@@ -320,7 +336,7 @@ function renderReceipts(r){
       const d = await r.json();
       if (d.pct_change != null) {
         const pct   = d.pct_change.toFixed(1);
-        const color = d.pct_change >= 0 ? '#4dc47a' : '#e55b4d';
+        const color = d.pct_change >= 0 ? 'var(--direction-buy)' : 'var(--direction-sell)';
         td.innerHTML = `<span style="color:${color}">${d.pct_change >= 0 ? '+' : ''}${pct}%</span>`;
       } else { td.textContent = '—'; }
     } catch { td.textContent = '—'; }
@@ -498,7 +514,7 @@ function renderReceipts(r){
     // re-tuned. 60% lightness is right against near-black and washes out to
     // ~2.4:1 on paper, below the 3:1 UI threshold, so light drops to 38%.
     const light = document.documentElement.getAttribute('data-theme') === 'light';
-    return light ? `hsl(${hue} 62% 38%)` : `hsl(${hue} 58% 60%)`;
+    return light ? `hsl(${hue} 62% 32%)` : `hsl(${hue} 58% 60%)`;
   }
 
   function classifyRule(rule, model) {
@@ -664,7 +680,8 @@ function renderReceipts(r){
     center.append('circle').attr('r', 24)
       .attr('fill', themeColor('--amber', '#c8922a')).attr('fill-opacity', 0.9);
     center.append('text').attr('dy', '0.35em').attr('text-anchor', 'middle')
-      .attr('fill', '#0c0b09').attr('font-size', 11).attr('font-weight', 700)
+      .attr('fill', isLightTheme() ? '#faf9f7' : '#0c0b09')   // theme-ok: ink on the hub disc — 5.6:1 / 12.6:1
+      .attr('font-size', 11).attr('font-weight', 700)
       .text(symbols[0] || '');
 
     document.getElementById('graph-legend').innerHTML =
@@ -783,7 +800,8 @@ function renderReceipts(r){
     const ruleSet = new Set(last30.map(a => a.rule));
     const topSev  = last30.find(a => a.severity === 'CRITICAL') ? 'CRITICAL'
                   : last30.find(a => a.severity === 'HIGH')     ? 'HIGH' : 'MEDIUM';
-    const sevColor = { CRITICAL: '#e55b4d', HIGH: 'var(--amber2)', MEDIUM: '#6ab0e0' }[topSev] || 'var(--amber)';
+    const sevColor = { CRITICAL: 'var(--severity-critical)', HIGH: 'var(--severity-high)',
+                       MEDIUM: 'var(--link)' }[topSev] || 'var(--accent)';
 
     const membersSection = members.length ? `
       <div class="section-label">Related Congressional Members</div>

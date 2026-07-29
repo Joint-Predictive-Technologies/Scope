@@ -6,6 +6,14 @@
   <title>OSINT Globe — Scope</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <!-- KEEP-DARK, DECLARED. This page is a full-viewport WebGL globe with the
+       chrome floating over it. Its clear colour, earth tint, ambient lighting
+       and severity markers are one calibrated system for a dark field, and the
+       markers read against the GLOBE, not the page — re-tuning them for white
+       is a design job, not a token swap, and I could not verify it here (this
+       machine rasterises WebGL in software). So the stage stays dark and says
+       so, rather than half-adapting. theme.js reads this before first paint. -->
+  <script>document.documentElement.setAttribute('data-theme-lock', 'dark');</script>
   <script src="/theme.js"></script>
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
@@ -135,7 +143,7 @@
     .cmd-badge-MEDIUM   { background:color-mix(in srgb, var(--link) 20%, transparent); color:var(--link); }
     .cmd-empty { font-family:var(--font-mono); font-size:0.75rem; color:var(--muted); padding:1.5rem 1.2rem; text-align:center; }
     .cmd-hint { font-family:var(--font-mono); font-size:0.58rem; color:var(--muted); padding:0.5rem 1.2rem; border-top:1px solid var(--border); display:flex; gap:1.2rem; }
-    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream2); }
+    .cmd-hint kbd { background:var(--border); border:1px solid var(--border2); border-radius:3px; padding:1px 5px; font-family:inherit; font-size:0.58rem; color:var(--cream); }
   </style>
 </head>
 <body>
@@ -238,6 +246,8 @@
   // ── Severity helpers ────────────────────────────────────────────────────────
   // Severity → design severity tokens (hex mirrors tokens.css; WebGL can't read
   // CSS vars). Copper/orange/red instead of the old uniform bright-red noise.
+  // theme-ok: declared keep-dark stage — these read against the GLOBE, and the
+  // page pins data-theme-lock="dark" so the legend beside them matches.
   const SEV_COLOR = { CRITICAL: 0xe06868, HIGH: 0xe88b4a, MEDIUM: 0xc89664 };
   // Dot size is driven by SIGNAL COUNT (below), not severity — bigger = busier.
   const dotSize = (count) => Math.max(1.8, Math.min(7.5, 1.8 + Math.sqrt(count || 1) * 1.1));
@@ -255,7 +265,7 @@
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setClearColor(0x0a0a0c, 1);   // ocean/void == --surface-canvas
+    renderer.setClearColor(0x0a0a0c, 1);   // theme-ok: declared keep-dark stage (== dark --surface-canvas)
 
     scene = new THREE.Scene();
 
@@ -265,8 +275,8 @@
 
     // Lights — sun-like for satellite look
     // Neutral, dim lighting — a dark instrument globe, not a bright satellite photo.
-    scene.add(new THREE.AmbientLight(0x2a2a30, 0.75));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.85);
+    scene.add(new THREE.AmbientLight(0x2a2a30, 0.75));   // theme-ok: declared keep-dark stage
+    const sun = new THREE.DirectionalLight(0xffffff, 0.85);   // theme-ok: declared keep-dark stage
     sun.position.set(5, 3, 5);
     scene.add(sun);
 
@@ -276,7 +286,8 @@
     const texLoader = new THREE.TextureLoader();
     const earthTex  = texLoader.load('https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg');
     const sphereGeo = new THREE.SphereGeometry(GLOBE_R, 64, 64);
-    const sphereMat = new THREE.MeshPhongMaterial({ map: earthTex, color: 0x3a3a42, shininess: 2 });
+    // theme-ok: declared keep-dark stage — earth tint calibrated against the dark clear colour
+    const sphereMat = new THREE.MeshPhongMaterial({ map: earthTex, color: 0x3a3a42, shininess: 2 });   // theme-ok: declared keep-dark stage
     const sphere    = new THREE.Mesh(sphereGeo, sphereMat);
     scene.add(sphere);
 
@@ -320,7 +331,7 @@
 
   function addHotspot(hs) {
     const pos  = latLonToVec3(hs.lat, hs.lng, GLOBE_R + 2);
-    const color = SEV_COLOR[hs.severity] || 0xc89664;
+    const color = SEV_COLOR[hs.severity] || 0xc89664;   // theme-ok: declared keep-dark stage
     const size  = dotSize(hs.count);   // size by signal count, not severity
 
     // Dot
