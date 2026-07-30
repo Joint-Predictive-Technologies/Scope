@@ -30,14 +30,24 @@ from scripts.rule_10_corroboration import (  # noqa: E402
 
 
 def _seed(conn, rows):
-    """rows: (ticker, rule, severity[, days_ago])"""
+    """rows: (ticker, rule, severity[, days_ago[, corroborates]])
+
+    ⚠️ A SIGNED RULE'S LEG DEFAULTS TO A GENUINE BUY. Since 2026-07-30 the gate asks a
+    per-alert question as well as a per-rule one, and a NULL verdict fails closed — so
+    leaving it unset would silently remove the insider leg from these fixtures and the
+    two-way agreement below would be asserted over a different population than intended.
+    The rejected direction is exercised explicitly by
+    `test_the_hero_refuses_a_convergence_whose_insider_leg_is_a_SALE`.
+    """
     for row in rows:
         ticker, rule, sev = row[0], row[1], row[2]
         days = row[3] if len(row) > 3 else 1
+        corroborates = row[4] if len(row) > 4 else (
+            1 if rule.upper() in jpt_common.SIGNED_RULES else None)
         conn.execute(
-            "INSERT INTO alerts (rule, headline, severity, ticker, created_at) "
-            f"VALUES (?,?,?,?,datetime('now','-{int(days)} days'))",
-            (rule, f"{rule} on {ticker}", sev, ticker))
+            "INSERT INTO alerts (rule, headline, severity, ticker, created_at, "
+            f"corroborates) VALUES (?,?,?,?,datetime('now','-{int(days)} days'),?)",
+            (rule, f"{rule} on {ticker}", sev, ticker, corroborates))
     conn.commit()
 
 
@@ -95,6 +105,28 @@ def test_hero_does_claim_a_convergence_the_gate_accepts():
     assert "ACME" in fires, "precondition: the gate should fire here"
     assert hero["mode"] == "converge" and hero["ticker"] == "ACME", hero
     assert len(hero["types"]) >= 3, hero
+
+
+def test_the_hero_refuses_a_convergence_whose_insider_leg_is_a_SALE():
+    """THE SIGNED LEG, on the brief. Same three rules as the test above, but the insider
+    SOLD — so the gate refuses, and the hero must refuse with it.
+
+    ⚠️ `morning_brief` INLINES ITS OWN COPY of the gate's severity floor and window, which
+    is why this pair of tests exists at all. It is therefore exactly where a per-alert
+    decision goes stale: if the brief stopped consulting the verdict it would announce
+    "RTX converges" on the strength of an executive selling $1.8M of stock, which is the
+    real headline this whole change exists to prevent.
+    """
+    conn = jpt_common.db_connection()
+    _seed(conn, [("SELLCO", "RULE_06", "HIGH", 1, 0),   # insider, but a SALE
+                 ("SELLCO", "RULE_09", "HIGH"),
+                 ("SELLCO", "RULE_11", "HIGH")])
+    hero = mb._synthesize_headline(conn)
+    fires = _gate_fires_on(conn)
+    conn.close()
+    assert "SELLCO" not in fires, "precondition: the gate must refuse this"
+    assert not (hero.get("mode") == "converge" and hero.get("ticker") == "SELLCO"), (
+        "the hero announced a convergence the gate refuses — on an insider SALE")
 
 
 def test_the_hero_reads_the_same_window_and_floor_as_the_gate():

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from starlette.testclient import TestClient  # noqa: E402
 from api.main import app  # noqa: E402
-from jpt_common import db_connection  # noqa: E402
+from jpt_common import SIGNED_RULES, db_connection  # noqa: E402
 
 _c = TestClient(app)
 
@@ -56,10 +56,16 @@ def test_rule10_creates_theme_and_links_signals():
     from scripts.rule_10_corroboration import run
     conn = db_connection()
     _cleanup(conn, "ZTHM")
+    # ⚠️ The insider leg carries an explicit GENUINE-BUY verdict. Since 2026-07-30 the gate
+    # decides per alert as well as per rule, a NULL verdict fails closed, and only
+    # CORROBORATING legs are linked into `theme_signals` — so without this the `n >= 5`
+    # assertion below (RULE_10 + its 4 contributing signals) would silently be counting 4.
     for rule in ("RULE_01B", "RULE_06", "RULE_08", "RULE_11"):
         conn.execute(
-            "INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
-            "VALUES (?, 'ZTHM', 'HIGH', ?, datetime('now'))", (rule, f"{rule} ZTHM"))
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
+            "corroborates) VALUES (?, 'ZTHM', 'HIGH', ?, datetime('now'), ?)",
+            (rule, f"{rule} ZTHM",
+             1 if rule in SIGNED_RULES else None))
     conn.commit(); conn.close()
 
     run(dry_run=False, window_hours=24)

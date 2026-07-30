@@ -126,7 +126,8 @@ def _synthesize_headline(conn) -> dict:
     from collections import defaultdict
     from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS,
                             rule10_instruments)
-    from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS
+    from scripts.rule_10_corroboration import (CONVERGENCE_WINDOW_DAYS,
+                                               alert_corroborates)
 
     # The hero may only print "converges" where RULE_10 would actually fire, so
     # it has to count the way the gate counts — same ticker key, same severity
@@ -135,15 +136,20 @@ def _synthesize_headline(conn) -> dict:
     # baskets, took every severity and looked back 7 days) and could therefore
     # still announce a convergence the engine refused — which is the exact class
     # of bug being fixed here, so the agreement is asserted by test.
+    # ⚠️ `corroborates` IS SELECTED FOR THE SAME REASON THE OTHER THREE COLUMNS ARE
+    # MATCHED: since 2026-07-30 the gate also decides per ALERT (an insider leg counts
+    # only on a genuine open-market buy). Without it this hero would keep announcing a
+    # convergence built on an insider SELL that the engine now refuses to fire — the exact
+    # class of bug the agreement test exists to prevent, one field further in.
     rows = conn.execute(
-        f"""SELECT ticker, rule, severity, headline FROM alerts
+        f"""SELECT ticker, rule, severity, headline, corroborates FROM alerts
             WHERE ticker IS NOT NULL AND ticker != ''
               AND severity IN ('HIGH','CRITICAL')
               AND created_at >= datetime('now','-{int(CONVERGENCE_WINDOW_DAYS)} days')"""
     ).fetchall()
 
     agg: dict = defaultdict(lambda: {"rules": set(), "noise": set(), "n": 0,
-                                     "hi": 0, "example": None})
+                                     "hi": 0, "example": None, "dropped": set()})
     for r in rows:
         rule = (r["rule"] or "").strip()
         # The GATE groups on the raw ticker string, so a basket ("LMT RTX NOC")
@@ -157,6 +163,11 @@ def _synthesize_headline(conn) -> dict:
         a["n"] += 1
         if rule.upper() in RULE_10_EXCLUDED:
             a["noise"].add(_source_type(rule) or rule)
+        elif not alert_corroborates(r)[0]:
+            # Present, eligible by name, but it does not say the bullish thing. It is not
+            # noise either — record it separately so the brief can be honest about it
+            # rather than counting it or silently discarding it.
+            a["dropped"].add(rule)
         else:
             a["rules"].add(rule)
         a["hi"] += 1

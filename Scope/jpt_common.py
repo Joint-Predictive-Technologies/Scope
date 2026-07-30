@@ -641,6 +641,46 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m013_issuer_cap')")
         conn.commit()
 
+    # m014: per-ALERT corroboration verdict. Until now the gate asked only whether a rule
+    # NAME was eligible, so an insider SELL corroborated a bullish theme exactly as well as
+    # a buy — which is how the RTX false convergence fired.
+    #
+    # ⚠️ COLUMNS, NOT `tags`, AND THAT IS THE POINT. RULE_06's `tags` is a bare positional
+    # comma string (`f"{owner},{action},{multiple}x"`), so an owner name containing a comma
+    # shifts the direction out of index 1 — a verdict the gate must trust cannot live behind
+    # that. Typed columns also let `_candidate_alerts` widen its SELECT instead of parsing
+    # text, and generalise to the rules that get signed later.
+    #
+    # `corroborates` is deliberately NULLABLE and NULL means UNKNOWN, not False. Only rules
+    # in SIGNED_RULES are read this way, and for them NULL fails closed; for every other
+    # rule the column is ignored entirely, which is what keeps the untouched instruments
+    # behaving identically. Forward-only: historical alerts keep NULL and are not backfilled
+    # — a verdict cannot be invented for a filing that was never re-read.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m014_alert_corroborates'"
+    ).fetchone():
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(alerts)")}
+        if "corroborates" not in cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN corroborates INTEGER")
+        if "corroboration_note" not in cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN corroboration_note TEXT")
+        # ⚠️ `award_key` MOVES HERE, and that is a correctness fix, not tidying.
+        # `scripts/rule_11_contracts.py:344` adds it with a lazy ALTER on its own first
+        # run, so on a DB where RULE_11 has never run the column simply does not exist —
+        # and the gate now SELECTs it to reach the award amount for the contracts weight.
+        # A gate that raises "no such column" until an unrelated rule has run once is not
+        # acceptable, so the ordered migration path owns it. RULE_11's add is guarded by
+        # the same `PRAGMA table_info` check, so the two are idempotent in either order.
+        # The partial index comes along because RULE_11 creates it INSIDE its
+        # column-missing branch — without it here, that branch stops firing and RULE_11
+        # silently loses its dedup index.
+        if "award_key" not in cols:
+            conn.execute("ALTER TABLE alerts ADD COLUMN award_key TEXT")
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_alerts_award_key
+                        ON alerts(award_key) WHERE award_key IS NOT NULL""")
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m014_alert_corroborates')")
+        conn.commit()
+
     conn.commit()
 
 
@@ -733,6 +773,110 @@ RULE_10_INSTRUMENTS: dict[str, str] = {
 RULE_10_MIN_INSTRUMENTS = 3
 
 
+# ── SIGNED SIGNALS — per-ALERT eligibility, not just per-rule ─────────────────
+#
+# Until now the gate asked one question: is this rule NAME eligible. That made every
+# leg equally and directionlessly corroborating, and it shipped a false convergence:
+# RTX fired at exactly 3 instruments where the insider leg was an EXERCISE-AND-SELL —
+# an officer REDUCING exposure, counted as bullish confirmation. `_candidate_alerts`
+# selected ticker/rule/severity/window and never loaded `tags`; RULE_06 computed the
+# direction, persisted it, and the gate discarded it.
+#
+# The idea is SURPRISE RELATIVE TO THE ENTITY'S OWN BASELINE: the same event means
+# opposite things depending on who it happens to. An insider selling into an option
+# exercise is compensation mechanics. A $50M award is a Tuesday for Lockheed and
+# transformative for a defence micro-cap.
+#
+# ⚠️ SIGNED_RULES IS THE BLAST RADIUS, AND IT IS DELIBERATELY TINY. Per-alert
+# eligibility applies ONLY to these rules. For every other rule an absent verdict
+# means "corroborates", exactly as before — which is what makes "the untouched
+# instruments behave identically" provable rather than hoped for.
+#
+# It holds only the instruments whose direction is unambiguous AND whose attribution
+# is trusted. Earnings (RULE_15) and RULE_01B are deliberately ABSENT: RULE_15
+# misattributed *rituximab* to RTX, and ~46% of RULE_01B's sales are mislabelled as
+# opens. Signing a leg whose attribution is known-broken puts a CONFIDENT SIGN ON
+# DATA KNOWN TO BE WRONG, which makes a future false convergence look more credible,
+# not less. They join once their attribution repairs land. Lobbying/13F are parked:
+# "which lobby implies which ticker" is a thematic association, the basket disease in
+# disguise.
+SIGNED_RULES: frozenset[str] = frozenset({"RULE_06"})
+
+# A present-but-meaningless symbol; mirrors `_SENTINEL_TICKERS` in
+# scripts/insider_clusters.py, whose equivalence to this module is asserted by
+# tests/test_signed_insider_leg.py::test_the_two_buy_definitions_are_EQUIVALENT.
+FORM4_SENTINEL_TICKERS: tuple[str, ...] = ("NA", "N/A", "NONE", "NULL", "-")
+
+
+def is_genuine_open_market_buy(txn_code, acquired_disposed, is_derivative,
+                              is_10b5_1, ticker) -> bool:
+    """Is this Form 4 transaction an insider BUYING, on the open market, by choice?
+
+    ⚠️ THIS DEFINITION IS NOT NEW AND MUST NOT BE RE-DERIVED. It is the Python twin of
+    `scripts/insider_clusters.py::_buy_predicate`, which is already certified by
+    `test_insider_clusters.py::test_what_is_NOT_a_qualifying_buy` (8 rejections,
+    including `M/A` "an option exercise" and `P/D` "code P but DISPOSED"). A twin only
+    exists because that one is SQL over `form4_transactions` — a table that exists
+    neither locally nor in prod and that RULE_06 does not write — so the gate cannot
+    join to it. Equivalence is PROVEN over an exhaustive matrix, not asserted.
+
+    The four parts, and why each is load-bearing:
+      txn_code == 'P'          an open-market purchase. Note this ALSO excludes an
+                               option exercise structurally: `M` is not `P`. There is
+                               deliberately no separate exercise detector — the
+                               whitelist-of-one IS the discipline. `A` (grant),
+                               `G` (gift), `F` (tax withholding) fall out the same way.
+      acquired_disposed == 'A' BOTH halves are required. `P`/`D` — code P but disposed —
+                               is a real shape and is not a buy.
+      is_derivative == 0       a derivative right is not the security.
+      is_10b5_1 != 1           a pre-scheduled plan trade carries no timing conviction.
+                               ⚠️ TRI-STATE: NULL means NOT DISCLOSED (pre-2022 filings)
+                               and is KEPT, never coerced to "planned". Undisclosed is
+                               surfaced separately; it is not evidence of a plan.
+
+    ⚠️ MIRRORS SQL'S NULL SEMANTICS EXACTLY, which is stricter than Python's instinct.
+    In SQLite `NULL = 'P'` is NULL, i.e. NOT TRUE, so the row is dropped. Hence a None
+    code, direction, derivative flag or ticker returns False here — fail closed. Only
+    `is_10b5_1` is COALESCEd, because that column's NULL carries meaning.
+
+    ⚠️ CASE IS NOT NORMALISED, deliberately. The SQL twin compares with SQLite's binary
+    collation, so a lower-case 'p' does not match there either. `parse_transactions`
+    upper-cases both fields at parse time, so the canonical domain is upper-case and
+    anything else fails closed. Normalising here would be a silent divergence from the
+    predicate this claims to mirror.
+
+    ⚠️ EQUIVALENCE IS PROVEN OVER THE CANONICAL DOMAIN, WHICH IS NOT THE SAME AS "ALWAYS".
+    A verification pass swept 390,390 rows including type and whitespace variants and found
+    two places this is *stricter* than the SQL: SQLite's `TRIM` strips only spaces, so a
+    sentinel ticker padded with `\\t` or `\\n` survives there and is rejected here; and
+    `int()` on a non-numeric `is_10b5_1` used to RAISE where SQL's `COALESCE(…) != 1`
+    returned true. The raise is fixed below — failing closed beats crashing — and both
+    divergences are in the safe direction. Neither is reachable from RULE_06 today
+    (`is_10b5_1 ∈ {None,0,1}`, ticker already `.strip()`ped by `_xml_text`), but the
+    docstring should not claim more than the proof covers.
+    """
+    if txn_code is None or acquired_disposed is None or is_derivative is None:
+        return False
+    if ticker is None:                      # UPPER(TRIM(NULL)) NOT IN (...) is NULL
+        return False
+    if txn_code != "P" or acquired_disposed != "A":
+        return False
+    try:
+        if int(is_derivative) != 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+    if ticker.strip().upper() in FORM4_SENTINEL_TICKERS:
+        return False
+    # Guarded for the same reason `is_derivative` is: a non-numeric value must FAIL CLOSED,
+    # not raise. An uncaught ValueError here would propagate out of the gate's counting loop
+    # and abort the whole run — turning one malformed row into zero convergences.
+    try:
+        return (0 if is_10b5_1 is None else int(is_10b5_1)) != 1
+    except (TypeError, ValueError):
+        return False
+
+
 def rule10_eligible_rules(rules) -> list[str]:
     """Distinct, sorted eligible rule families from an arbitrary rule iterable.
 
@@ -780,6 +924,44 @@ def rule10_rules_from_tags(tags: str) -> list[str]:
         if t.get("rules_fired"):
             return [s for s in str(t["rules_fired"]).split(",") if s]
     return []
+
+
+def _leg_weights_from_tags(tags: str) -> dict[str, float]:
+    """Per-leg weights a RULE_10 alert recorded at detection time. Missing => no opinion.
+
+    Returns `{}` for every alert emitted before leg weights existed, and for anything
+    unparseable — so an absent or malformed weight can only ever mean 1.0. A weight is
+    never invented, and it is never re-derived from today's market cap: detection-time
+    scores are immutable in this project, and recomputing a ratio against a later price
+    would silently rewrite history.
+    """
+    import json as _json
+    try:
+        t = _json.loads(tags or "{}")
+    except Exception:
+        return {}
+    raw = t.get("leg_weights") if isinstance(t, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, float] = {}
+    for k, v in raw.items():
+        try:
+            w = float(v)
+        except (TypeError, ValueError):
+            continue
+        # ⚠️ NON-FINITE VALUES FAIL TO NEUTRAL, NOT TO THE CEILING. Python's `json` accepts
+        # bare `NaN` / `Infinity`, and clamping those with `min(CEILING, inf)` handed a
+        # hand-edited tag the MAXIMUM boost — the exact opposite of "malformed means no
+        # opinion". `nan` is worse: every comparison with it is False, so it slipped through
+        # clamps silently. Found by a verification pass.
+        if w != w or w in (float("inf"), float("-inf")):
+            continue
+        # Hard-clamped to the declared ceiling at the point of USE, not merely where the
+        # weight is computed. A hand-edited or corrupted tag cannot lift a leg past
+        # `CONTRACT_WEIGHT_MATERIAL`, so the bound on how much any single leg can move a
+        # score does not depend on the writer having behaved.
+        out[str(k).strip().upper()] = max(0.0, min(CONTRACT_WEIGHT_MATERIAL, w))
+    return out
 
 
 # ── Influence-organization entity resolution (lobbying / AIPAC etc.) ─────────
@@ -991,7 +1173,15 @@ def _distinct_rule_count(rule: str, tags: str) -> tuple:
     """
     if rule == "RULE_10":
         elig = rule10_eligible_rules(rule10_rules_from_tags(tags or ""))
+        # ⚠️ PER-LEG WEIGHTS, read from the tags the emitter FROZE at detection time.
+        # A contracts leg whose award is routine relative to its recipient's market cap
+        # contributes less confidence while still counting as the `contracts` instrument —
+        # the weight moves this average, never the integer count, because the tier table
+        # steps on an int and a fractional count would score base 0.
+        # Absent for every unweighted rule, which reads as 1.0, so nothing else moves.
+        legs = _leg_weights_from_tags(tags or "")
         weights = [_SOURCE_QUALITY_WEIGHT.get(RULE_SOURCE_QUALITY.get(x, "Secondary"), 0.6)
+                   * legs.get(x, 1.0)
                    for x in elig] or [0.3]
         # rule10_instruments is the gate's own authority — imported, never copied, so
         # the evidence count and the firing count cannot diverge.
@@ -1185,6 +1375,27 @@ def insert_alert(conn, rule, ticker, severity, headline, why_matters=None,
         distinct_rule_count, sq_scores = _distinct_rule_count(rule, tags if isinstance(tags, str) else "")
     else:
         sq_scores = [_SOURCE_QUALITY_WEIGHT.get(quality, 0.6)]
+        # ⚠️ THE CALLER'S COUNT IS AUTHORITATIVE; THE PER-LEG WEIGHTS STILL APPLY. RULE_10
+        # passes the gate's own instrument count explicitly (pinned by
+        # test_evidence_confidence_instruments.py, written after a mutation swapped it back
+        # to the rule count), and this branch used to discard `tags.leg_weights` entirely —
+        # so a routine mega-cap contract quietly moved the THEME's score while the ALERT's
+        # stayed at 46.0. The alert and its own theme scored the same convergence
+        # differently, and `mode=overwatch` sorts by the alert.
+        #
+        # Applied as a MULTIPLIER on the existing quality term rather than by adopting
+        # `_distinct_rule_count`'s per-leg list, deliberately: adopting the list would move
+        # RULE_10's *baseline* from 46.0 to 60.0 for every new corroboration and re-rank the
+        # whole backlog, which is a formula-shape change needing its own sign-off. With no
+        # weights recorded the mean is 1.0 and the score is bit-for-bit what it was.
+        _legs = _leg_weights_from_tags(tags if isinstance(tags, str)
+                                       else _json.dumps(tags) if isinstance(tags, dict) else "")
+        if _legs:
+            _elig = rule10_eligible_rules(rule10_rules_from_tags(
+                tags if isinstance(tags, str)
+                else _json.dumps(tags) if isinstance(tags, dict) else ""))
+            _per_leg = [_legs.get(r, 1.0) for r in _elig] or [1.0]
+            sq_scores = [sq_scores[0] * (sum(_per_leg) / len(_per_leg))]
     evidence = calculate_evidence_confidence(distinct_rule_count, sq_scores, has_conflict)
     opportunity = calculate_opportunity_score(novelty, absorption_pct, horizon)
     tags_str = _json.dumps(tags) if isinstance(tags, dict) else tags
@@ -1349,6 +1560,143 @@ def resolve_contractor(name: str, ticker_map: "list[tuple[str, str]] | None" = N
                 return best
 
     return (None, None, 0)
+
+
+def contractor_attribution_is_exact(name: str) -> bool:
+    """Did this recipient name resolve via the CURATED table, rather than token matching?
+
+    ⚠️ THE CONFIDENCE NUMBER CANNOT ANSWER THIS, which is exactly why the helper exists.
+    `resolve_contractor`'s token-containment fallback hardcodes `conf = 90`
+    (:1473) while the curated overrides carry 80-99 — so the two paths are
+    indistinguishable by confidence, and no threshold can separate them.
+
+    The token path is genuinely unreliable and has a LIVE false positive: `SPCX` →
+    "SPACE EXPLORATION TECHNOLOGIES CORP". SpaceX is private; the ticker belongs to an
+    unrelated listed vehicle whose `tickers.company_name` happens to read the same way,
+    and all four SEC share concepts 404 for its CIK. The same path mapped RAYTHEON to
+    HNST once before, which is why migrations m003/m004 exist.
+
+    That matters for the cap-relative contract weight and nowhere else: a wrong ticker
+    plus a perfectly plausible market cap yields a confident, wrong ratio, and no
+    plausibility check can catch it because both inputs are individually fine. So the
+    weight may only be RAISED when this returns True. Returning a bare bool rather than
+    extending `resolve_contractor`'s return shape is deliberate — `test_trust_fixes.py`
+    asserts that tuple exactly.
+    """
+    low = _norm_company(name)
+    if not low:
+        return False
+    return any(key in low for key in CONTRACTOR_OVERRIDES)
+
+
+# Award-value-to-market-cap bands. The idea is SURPRISE RELATIVE TO THE ENTITY'S OWN
+# SIZE: a $50M award is a Tuesday for Lockheed and transformative for a micro-cap.
+CONTRACT_RATIO_ROUTINE = 0.01     # <1% of market cap — routine for this recipient
+CONTRACT_RATIO_MATERIAL = 0.10    # >=10% — materially large relative to the company
+CONTRACT_WEIGHT_ROUTINE = 0.35    # still counts as the `contracts` instrument, quietly
+CONTRACT_WEIGHT_NEUTRAL = 1.0     # "no opinion" — every fail-closed path lands here
+CONTRACT_WEIGHT_MATERIAL = 1.25   # the ONLY value above neutral, and the hard ceiling
+
+
+def contract_leg_weight(conn, ticker: str, award_key: str) -> float:
+    """How much should a contracts leg actually COUNT for? 1.0 = neutral / no opinion.
+
+    ⚠️ THIS MOVES THE SCORE AND NEVER THE INSTRUMENT COUNT. `calculate_evidence_confidence`
+    steps on an INTEGER (>=3 -> 40, >=4 -> 60, >=5 -> 75), so a fractional count of 2.7
+    would fall below the first tier and score base 0 — the 6.0-vs-20.0 regression this
+    project already fixed once. The weight therefore enters through the per-leg quality
+    average instead, and a routine mega-cap award still counts as the `contracts`
+    instrument. Mega-cap awards are NOT dropped.
+
+    ⚠️ ASYMMETRIC BY DESIGN — this is the integrity property. The weight may fall freely,
+    because calling an award routine is a CONSERVATIVE claim that is safe even on a
+    mis-attributed ticker. It may never rise above neutral, and the ceiling is enforced
+    here rather than trusted to the bands: a mis-attributed small-cap must not be able to
+    make a bogus signal look STRONGER. See `contractor_attribution_is_exact`.
+
+    ⚠️ FAILS CLOSED TO NEUTRAL, NOT TO ZERO. An unknown cap must not fabricate a ratio,
+    and must not silently delete a leg's contribution either. Unknown means "no opinion".
+
+    Caveat on the numerator, recorded rather than hidden: `contracts.amount` is the award's
+    TOTAL OBLIGATED VALUE TO DATE across all modifications of the PIID
+    (`scripts/rule_11_contracts.py:35-42`), not strictly the new-award value, so the ratio
+    can overstate. The sweep uses `new_awards_only`, which keeps the two close but does not
+    make them identical.
+    """
+    if not ticker or not award_key:
+        return 1.0
+    try:
+        row = conn.execute(
+            "SELECT amount, recipient_name FROM contracts WHERE award_id = ? "
+            "ORDER BY amount DESC LIMIT 1", (award_key,)).fetchone()
+    except Exception:
+        return 1.0
+    if not row or not row[0]:
+        return 1.0
+    amount, recipient = float(row[0]), (row[1] or "")
+    if amount <= 0:
+        return 1.0
+
+    # ⚠️ A CAP IS USED ONLY IF SOMETHING ELSE HAS ALREADY RESOLVED ONE. The gate is the
+    # caller here, and before this feature RULE_10 made ZERO network requests. Calling
+    # `market_cap` on a cold cache resolves live (SEC shares outstanding + a Yahoo close),
+    # so a cold run of up to `MAX_PER_RUN` convergences could have fired dozens of requests
+    # inside the scheduler's 300s budget — the failure class `scheduler-reliability` exists
+    # for. Requiring an existing cache row means the gate can only ever REUSE a cap warmed
+    # by the collector (4x daily) or by `/api/tickers/{sym}/meta`; a name nobody has priced
+    # yet is simply "no opinion", which is what every other unknown here means. TTL and the
+    # plausibility self-heal stay inside `market_cap` rather than being reimplemented — the
+    # divergence this codebase keeps being bitten by.
+    try:
+        if not conn.execute(
+            "SELECT 1 FROM ticker_meta WHERE symbol = ? AND market_cap IS NOT NULL",
+            (ticker,),
+        ).fetchone():
+            return 1.0
+    except Exception:
+        return 1.0
+
+    try:
+        # The RAW INTEGER, not `classify_cap`. `_band` answers "should the collector skip
+        # this name" and returns only small|excluded|unknown, so a $131B Lockheed and a
+        # $4.9T Apple are both "excluded" — the wrong shape for a ratio.
+        #
+        # ⚠️ `sys.path` IS MUTATED AT MOST ONCE, not on every call. The first version did an
+        # unconditional `sys.path.insert` inside this function; a verification pass measured
+        # `sys.path` growing 6 → 207 entries over 200 calls. Bounded today only because the
+        # gate runs as a short-lived subprocess capped at 10 emissions — unbounded the moment
+        # the FastAPI process calls this.
+        _scripts = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts")
+        if _scripts not in sys.path:
+            sys.path.insert(0, _scripts)
+        from rule_reddit_collector import market_cap
+        cap = market_cap(conn, ticker)
+    except Exception:
+        return 1.0
+    if not cap or cap <= 0:
+        return 1.0
+
+    ratio = amount / cap
+    if ratio < CONTRACT_RATIO_ROUTINE:
+        # Routine for this recipient. Allowed on ANY resolved ticker: under-weighting a
+        # mis-attributed award is harmless, so the conservative direction needs no proof.
+        return CONTRACT_WEIGHT_ROUTINE
+    if ratio >= CONTRACT_RATIO_MATERIAL:
+        # ⚠️ THE ONLY PATH THAT RISES ABOVE NEUTRAL, AND THE ONLY ONE THAT NEEDS PROOF OF
+        # WHO THE RECIPIENT IS. A wrong ticker plus a plausible cap gives a confident wrong
+        # ratio that no plausibility check can catch, so a token-matched recipient gets
+        # neutral — it may fail to be boosted, it may never be boosted wrongly. This is
+        # what stops the live `SPCX` -> "SPACE EXPLORATION TECHNOLOGIES CORP" false positive
+        # from turning a $3B award against a private company into extra confidence.
+        return (CONTRACT_WEIGHT_MATERIAL if contractor_attribution_is_exact(recipient)
+                else CONTRACT_WEIGHT_NEUTRAL)
+    # In between: linear from routine up to NEUTRAL — never past it. Only the explicit
+    # material band above can exceed neutral, so the interpolation needs no attribution
+    # proof either.
+    span = CONTRACT_RATIO_MATERIAL - CONTRACT_RATIO_ROUTINE
+    frac = (ratio - CONTRACT_RATIO_ROUTINE) / span
+    return round(CONTRACT_WEIGHT_ROUTINE
+                 + frac * (CONTRACT_WEIGHT_NEUTRAL - CONTRACT_WEIGHT_ROUTINE), 4)
 
 
 _SECTOR_FUNDING_KEYS: dict[str, str] = {

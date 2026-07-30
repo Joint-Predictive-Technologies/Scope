@@ -1287,3 +1287,88 @@ def test_a_SUCCESSFUL_map_fetch_IS_memoised_the_control(monkeypatch):
     assert rc._ticker_map() == {"71691": ("NYT",)}
     assert rc._ticker_map() == {"71691": ("NYT",)}
     assert calls == [1], f"the map was re-downloaded {len(calls)} times"
+
+
+# ── the companyfacts fallback (added 2026-07-30) ─────────────────────────────
+#
+# ⚠️ THIS SECTION EXISTS BECAUSE THE FALLBACK SHIPPED WITH ZERO COVERAGE. A verification pass
+# showed that a FULL REVERT of it (`units_by_concept = {}`), firing it for every filer
+# (`if True:`), and reverting `_units_rows` to "whatever key comes first" ALL passed the
+# entire suite green. That is precisely the failure mode this file's own docstrings record —
+# a mutation harness deleting four protections while the file stayed green — so the fallback
+# gets the same isolation treatment as the guards around it.
+
+def _facts(units):
+    """A `companyfacts` payload holding one dei share concept."""
+    return {"facts": {"dei": {"EntityCommonStockSharesOutstanding": {"units": units}}}}
+
+
+def test_the_fallback_recovers_a_filer_whose_companyconcept_is_EMPTY(monkeypatch):
+    """The PSN/HUM shape: `companyconcept` answers HTTP 200 with an empty array while
+    `companyfacts` holds the fact. Silent, one-sided, and it disproportionately hides SMALL
+    caps — Parsons (~$4.3B) is exactly the population the cap-relative weight exists for."""
+    fresh = _dt.date.today().isoformat()
+    monkeypatch.setattr(rc, "_concept_fact", lambda cik, tax, con: None)
+    monkeypatch.setattr(rc, "_companyfacts_units",
+                        lambda cik: {("dei", "EntityCommonStockSharesOutstanding"):
+                                     {"shares": [{"val": 106978521, "end": fresh}]}})
+    assert rc._shares_outstanding("0000275880") == (106978521.0, fresh)
+
+
+def test_the_fallback_does_NOT_fire_when_companyconcept_ANSWERED(monkeypatch):
+    """The ~90%-of-filers path must pay no extra request. Measured, not assumed: the stub
+    raises if it is consulted at all."""
+    fresh = _dt.date.today().isoformat()
+    monkeypatch.setattr(rc, "_concept_fact",
+                        lambda cik, tax, con: (1_000_000.0, fresh) if tax == "dei" else None)
+
+    def _boom(cik):
+        raise AssertionError("companyfacts was requested even though a concept answered")
+
+    monkeypatch.setattr(rc, "_companyfacts_units", _boom)
+    assert rc._shares_outstanding("0000320193") == (1_000_000.0, fresh)
+
+
+def test_a_fallback_recovered_fact_STILL_faces_every_guard(monkeypatch):
+    """⚠️ THE POINT OF THE WHOLE SECTION. The fallback returns a fact in the same shape, so
+    the plausibility floor/ceiling, the two-sided staleness rule and the FPI check must all
+    still apply to it. A fact that only `companyfacts` knows about is not a trusted fact."""
+    def _use(shares, as_of, price=100.0):
+        monkeypatch.setattr(rc, "_concept_fact", lambda c, t, n: None)
+        monkeypatch.setattr(rc, "_companyfacts_units",
+                            lambda cik: {("dei", "EntityCommonStockSharesOutstanding"):
+                                         {"shares": [{"val": shares, "end": as_of}]}})
+        monkeypatch.setattr(rc, "_last_close", lambda s: price)
+        conn = db_connection()
+        try:
+            return rc.market_cap(conn, "ZFB", cache=False)
+        finally:
+            conn.close()
+
+    fresh = _dt.date.today().isoformat()
+    assert _use(48_000_000, fresh) == 4_800_000_000       # the discriminating control
+    assert _use(99_999, fresh) is None                    # share floor
+    assert _use(1_000_000, "2019-01-01") is None           # stale AND small -> unknown
+    assert _use(2_000_000_000, "2019-01-01") == 200_000_000_000   # stale but LARGE -> kept
+    assert _use(1_000_000, "2033-10-31") is None           # bogus FUTURE end date
+    monkeypatch.setattr(rc, "_is_foreign_private_issuer", lambda cik: True)
+    assert _use(48_000_000, fresh) is None                 # foreign private issuer
+
+
+def test_the_fallback_prefers_the_SHARES_unit_not_an_arbitrary_key():
+    """`units[list(units)[0]]` is a single-projection assumption: right with one unit, and
+    an arbitrary pick with more. Reverting to it passed the whole suite."""
+    got = rc._best_fact({"USD": [{"val": 999, "end": "2026-01-01"}],
+                         "shares": [{"val": 106978521, "end": "2026-04-21"}]})
+    assert got == (106978521.0, "2026-04-21"), got
+
+
+def test_the_two_fact_sources_RANK_facts_identically():
+    """Both paths go through `_best_fact`, so the documented sort key — `(end, filed, start,
+    val)`, where `start` is load-bearing for weighted-average concepts — cannot differ
+    between them. The MOBX shape from `_concept_fact`'s docstring."""
+    mobx = {"shares": [
+        {"val": 8_058_263, "start": "2025-10-01", "end": "2026-03-31", "filed": "2026-07-09"},
+        {"val": 9_838_724, "start": "2026-01-01", "end": "2026-03-31", "filed": "2026-07-09"},
+    ]}
+    assert rc._best_fact(mobx) == (9_838_724.0, "2026-03-31"), "the later `start` must win"

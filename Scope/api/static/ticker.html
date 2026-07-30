@@ -611,9 +611,17 @@ function renderReceipts(r){
     // inside the window. Without the severity floor the header claimed
     // instruments the gate refuses — /ticker/MSFT read "2 instruments" off
     // eleven MEDIUM Federal Register rows.
+    // `corroborates_gate` is computed SERVER-SIDE by the gate's own `alert_corroborates`
+    // (api/routers/tickers.py) — never re-derived here. Since 2026-07-30 a leg must also
+    // SAY the bullish thing: an insider who sold, or one whose direction is not on record,
+    // is not corroboration. Re-expressing that rule in JavaScript would be a fifth copy of
+    // a decision this codebase has already let diverge twice. Older payloads have no such
+    // field, so `!== false` keeps them counted exactly as before rather than blanking the
+    // header on a stale cache.
+    const corroborates = a => a.corroborates_gate !== false;
     const inWindowRules = new Set(
       alertsForGraph.filter(a => {
-        if (!isExact(a) || !gateSev(a)) return false;
+        if (!isExact(a) || !gateSev(a) || !corroborates(a)) return false;
         const t = Date.parse(String(a.created_at || '').replace(' ', 'T') + 'Z');
         return !isNaN(t) && t >= winCut;
       }).map(a => a.rule));

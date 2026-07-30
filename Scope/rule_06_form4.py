@@ -17,7 +17,7 @@ from datetime import date, timedelta
 
 import requests
 
-from jpt_common import db_connection
+from jpt_common import db_connection, is_genuine_open_market_buy
 
 
 RULE = "RULE_06"
@@ -90,12 +90,42 @@ class Transaction:
 
 
 @dataclass
+class SignedTxn:
+    """EVERY transaction in the filing, both tables, no code whitelist.
+
+    ⚠️ SEPARATE FROM `Transaction` ON PURPOSE. `Transaction` is the P/S-only list that
+    drives `ps_value`, `majority_action`, the severity ladder and — critically — the
+    HEADLINE, which is RULE_06's dedup key. Widening that list would change every
+    headline and silently re-emit the whole corpus. So the new fields arrive alongside
+    it and feed only the corroboration verdict.
+
+    This is why RULE_06 could not see the RTX exercise-and-sell: `parse_form4` drops
+    anything that is not P or S, so the `M` exercise that supplied 87% of the disposed
+    shares, and the `D` net-settlement back to the issuer, were both invisible — and the
+    remaining S rows read as a discretionary $1.8M sale.
+    """
+    code: str                    # P S A D M F G C ... — upper-cased, never filtered
+    acquired_disposed: str       # A | D, PER TRANSACTION (was never read at all)
+    shares: float
+    price: float
+    is_derivative: int           # the derivative table was never walked
+
+    @property
+    def value(self) -> float:
+        return self.shares * self.price
+
+
+@dataclass
 class ParsedFiling:
     owner_name: str
     owner_title: str
     ticker: str
     company: str
     transactions: list[Transaction] = field(default_factory=list)
+    # ── added for the signed insider leg; nothing above changes behaviour ──
+    all_transactions: list[SignedTxn] = field(default_factory=list)
+    is_10b5_1: int | None = None   # DOCUMENT level. Tri-state: None = not disclosed
+    issuer_cik: str = ""
 
     @property
     def ps_value(self) -> float:
@@ -103,11 +133,62 @@ class ParsedFiling:
 
     @property
     def majority_action(self) -> str:
-        buys = sum(t.value for t in self.transactions if t.code == "P")
-        sells = sum(t.value for t in self.transactions if t.code == "S")
-        if sells >= buys:
-            return "sold"
-        return "bought"
+        return "sold" if self._sells >= self._buys else "bought"
+
+    @property
+    def _buys(self) -> float:
+        return sum(t.value for t in self.transactions if t.code == "P")
+
+    @property
+    def _sells(self) -> float:
+        return sum(t.value for t in self.transactions if t.code == "S")
+
+    @property
+    def qualifying_buy_value(self) -> float:
+        """Dollars acquired by a GENUINE open-market buy — the only bullish evidence."""
+        return sum(t.value for t in self.all_transactions
+                   if is_genuine_open_market_buy(t.code, t.acquired_disposed,
+                                                 t.is_derivative, self.is_10b5_1,
+                                                 self.ticker))
+
+    @property
+    def disposed_value(self) -> float:
+        """Dollars of ACTUAL SHARES disposed, by any mechanism — sale, net settlement,
+        tax withholding, gift.
+
+        ⚠️ NON-DERIVATIVE ONLY, and the reason is not cosmetic. An exercise books a
+        derivative `M`/`D` (the option is consumed) beside a non-derivative `M`/`A` (the
+        shares arrive) — that pair is a CONVERSION, not exposure leaving. Counting the
+        derivative half as a disposal would let a routine exercise outweigh, and so veto,
+        a genuine open-market buy sitting in the same filing. The RTX verdict is unchanged
+        by this either way: all three of its disposals are non-derivative.
+        """
+        return sum(t.value for t in self.all_transactions
+                   if t.acquired_disposed == "D" and not t.is_derivative)
+
+    def corroboration_verdict(self) -> tuple[bool, str]:
+        """Does this filing corroborate a BULLISH thesis? Returns (verdict, reason).
+
+        ⚠️ A JUDGMENT CALL, PINNED BY TEST: genuine-buy dollars must EXCEED disposed
+        dollars. A small buy beside a larger sale is not conviction, and `majority_action`
+        cannot answer this because it only ever saw P and S — it scores an
+        exercise-and-sell as a plain sale and an exercise-and-hold as nothing at all.
+
+        The reason string is persisted so a human can see WHY a leg was dropped rather
+        than having to re-derive it from the filing.
+        """
+        if not self.all_transactions:
+            return False, "no transactions parsed"
+        buy, disposed = self.qualifying_buy_value, self.disposed_value
+        if buy <= 0:
+            codes = sorted({t.code for t in self.all_transactions})
+            if self.is_10b5_1 == 1:
+                return False, f"10b5-1 planned trade (codes {','.join(codes)})"
+            return False, f"no genuine open-market buy (codes {','.join(codes)})"
+        if buy <= disposed:
+            return False, (f"net disposal: bought ${buy:,.0f} vs disposed "
+                           f"${disposed:,.0f}")
+        return True, f"open-market buy ${buy:,.0f} vs disposed ${disposed:,.0f}"
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +312,40 @@ def parse_form4(xml_text: str) -> ParsedFiling | None:
     owner_name = _xml_text(root, "reportingOwner/reportingOwnerId/rptOwnerName")
     owner_title = _xml_text(root, "reportingOwner/reportingOwnerRelationship/officerTitle")
 
+    # ── added: the fields the gate needs, from XML this function already parses ──
+    # Element paths are NOT guessed — they are the ones verified against real SEC XML in
+    # scripts/ingest_form4_transactions.py:33-43.
+    issuer_cik = _xml_text(root, "issuer/issuerCik")
+    aff = root.find("aff10b5One")                    # DOCUMENT level, not per-transaction
+    is_10b5_1: int | None = None
+    if aff is not None and (aff.text or "").strip():
+        # Tri-state: absent stays None ("not disclosed", pre-2022), never coerced to 0.
+        is_10b5_1 = 1 if (aff.text or "").strip().lower() in ("1", "true") else 0
+
+    all_transactions: list[SignedTxn] = []
+    for table, derivative in ((".//nonDerivativeTable/nonDerivativeTransaction", 0),
+                              (".//derivativeTable/derivativeTransaction", 1)):
+        for txn in root.findall(table):
+            code_el = txn.find("transactionCoding/transactionCode")
+            if code_el is None:
+                continue
+            ad_el = txn.find("transactionAmounts/transactionAcquiredDisposedCode/value")
+            sh_el = txn.find("transactionAmounts/transactionShares/value")
+            pr_el = txn.find("transactionAmounts/transactionPricePerShare/value")
+            try:
+                # A footnoted-empty price is REAL (exercises, gifts) and must not drop the
+                # row — unlike the `price > 0` filter the P/S list below applies. Its value
+                # is then 0, so it cannot outweigh a priced leg either way.
+                sh = float(sh_el.text or 0) if sh_el is not None else 0.0
+                pr = float(pr_el.text or 0) if pr_el is not None else 0.0
+            except (ValueError, TypeError):
+                continue
+            all_transactions.append(SignedTxn(
+                code=(code_el.text or "").strip().upper(),
+                acquired_disposed=((ad_el.text or "").strip().upper()
+                                   if ad_el is not None else ""),
+                shares=sh, price=pr, is_derivative=derivative))
+
     transactions: list[Transaction] = []
     for txn in root.findall(".//nonDerivativeTable/nonDerivativeTransaction"):
         code_el = txn.find("transactionCoding/transactionCode")
@@ -257,6 +372,9 @@ def parse_form4(xml_text: str) -> ParsedFiling | None:
         ticker=ticker,
         company=company,
         transactions=transactions,
+        all_transactions=all_transactions,
+        is_10b5_1=is_10b5_1,
+        issuer_cik=issuer_cik,
     )
 
 
@@ -419,10 +537,22 @@ def alert_exists(conn, ticker: str, headline: str) -> bool:
     return row is not None
 
 
-def insert_alert(conn, ticker: str, headline: str, severity: str, tags: str) -> None:
+def insert_alert(conn, ticker: str, headline: str, severity: str, tags: str,
+                 corroborates: bool | None = None, note: str | None = None) -> None:
+    """Raw INSERT (write path b); `enrich_scores` backfills the scores afterwards.
+
+    ⚠️ `corroborates` / `note` are the SIGNED verdict and they are the reason this
+    signature grew. They go in typed columns rather than into `tags`, because `tags` here
+    is a bare positional comma string — an owner name containing a comma shifts the
+    direction out of index 1, and the gate must not trust a verdict behind that. Default
+    None keeps every existing caller (and any alert whose filing was never re-read)
+    at UNKNOWN, which the gate treats as fail-closed for a signed rule.
+    """
     conn.execute(
-        "INSERT INTO alerts (rule, headline, severity, tags, ticker) VALUES (?,?,?,?,?)",
-        (RULE, headline, severity, tags, ticker),
+        "INSERT INTO alerts (rule, headline, severity, tags, ticker, corroborates, "
+        "corroboration_note) VALUES (?,?,?,?,?,?,?)",
+        (RULE, headline, severity, tags, ticker,
+         None if corroborates is None else int(corroborates), note),
     )
     conn.commit()
 
@@ -594,15 +724,23 @@ def run(
             action_tag = "sale" if action == "sold" else "purchase"
             tags = f"{parsed.owner_name},{action_tag},{multiple:.1f}x"
 
+            # THE SIGNED VERDICT. Note it is deliberately NOT derived from `action_tag`
+            # above: that word comes from `majority_action`, which only ever saw P and S,
+            # so it calls the RTX exercise-and-sell a plain "sale" and would call an
+            # exercise-and-hold nothing at all. The verdict reads the full transaction set.
+            corroborates, note = parsed.corroboration_verdict()
+
             print(
                 f"  [{severity}] {parsed.ticker} | {parsed.owner_name} "
                 f"({parsed.owner_title}) | {_fmt_dollars(current_value)} | "
-                f"{multiple:.1f}× avg | {headline}"
+                f"{multiple:.1f}× avg | {'corroborates' if corroborates else 'NO LEG'}"
+                f" ({note}) | {headline}"
             )
 
             if emit_alerts and conn is not None:
                 if not alert_exists(conn, parsed.ticker, headline):
-                    insert_alert(conn, parsed.ticker, headline, severity, tags)
+                    insert_alert(conn, parsed.ticker, headline, severity, tags,
+                                 corroborates=corroborates, note=note)
                     emitted += 1
 
         # Every filing was offered but none could be fetched — that is EDGAR

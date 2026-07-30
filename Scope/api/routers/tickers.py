@@ -292,7 +292,8 @@ def get_ticker_alerts(
     alerts = conn.execute(
         """
         SELECT id, rule, severity, headline, detail, tags, ticker, member_id, created_at,
-               lifecycle_stage, source_url, verify_url, theme_id
+               lifecycle_stage, source_url, verify_url, theme_id,
+               corroborates, corroboration_note
         FROM alerts
         WHERE ticker LIKE ?
           AND datetime(created_at) >= datetime('now', ?)
@@ -332,9 +333,21 @@ def get_ticker_alerts(
         (f"%{sym}%",),
     ).fetchall()
 
+    # ⚠️ THE VERDICT IS COMPUTED SERVER-SIDE, ON PURPOSE. `ticker.html` already rebuilds
+    # the gate's ticker/severity/window predicates in JavaScript to draw its
+    # "N corroborating instruments of 3 needed" header — a fourth copy of the gate's
+    # candidate logic. Since 2026-07-30 the gate also decides per ALERT (an insider leg
+    # counts only on a genuine open-market buy), and re-expressing THAT in the browser
+    # would be a fifth copy of a rule that has already diverged twice in this codebase.
+    # So the page is handed the answer instead: `corroborates_gate` is the gate's own
+    # `alert_corroborates`, and the client only has to filter on it.
+    from scripts.rule_10_corroboration import alert_corroborates
     alert_dicts = []
     for r in alerts:
         d = dict(r)
+        ok, why = alert_corroborates(r)
+        d["corroborates_gate"] = ok
+        d["corroborates_reason"] = why
         d["receipts"] = build_receipts(d, conn)
         alert_dicts.append(d)
     conn.close()

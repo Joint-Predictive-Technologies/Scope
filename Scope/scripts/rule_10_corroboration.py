@@ -49,8 +49,9 @@ from collections import defaultdict
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, db_connection,
-                        insert_alert, rule10_instruments, score_alert_fields)
+from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS, SIGNED_RULES,
+                        contract_leg_weight, db_connection, insert_alert,
+                        rule10_instruments, score_alert_fields)
 
 
 def theme_instrument_count(supporting_rules_json: str) -> int:
@@ -156,10 +157,26 @@ MIN_DISTINCT_INSTRUMENTS = RULE_10_MIN_INSTRUMENTS
 
 
 def _candidate_alerts(conn, window_hours: int) -> list:
+    """Gate candidates: non-empty ticker, eligible rule, severity floor, inside the window.
+
+    ⚠️ THE SELECT LIST WAS WIDENED, AND THE WHERE CLAUSE DELIBERATELY WAS NOT. `tags`,
+    `corroborates` and `award_key` are now loaded because the gate could not previously SEE
+    what a leg said — it selected ticker/rule/severity/created_at and nothing else, so
+    RULE_06's direction, which RULE_06 computes and persists, was discarded. That is how
+    the RTX exercise-and-sell counted as a bullish insider leg.
+
+    A widening is safe; a filter here would not be. Every consumer indexes these rows by
+    name, and the per-alert decision belongs in `instruments_for` — the one choke point
+    that reaches the fire decision, the emitted tags, the severity tier and
+    `check_convergence` all at once. Filtering in the SQL would leave the three OTHER
+    copies of this predicate (`api/routers/forming.py`, `scripts/morning_brief.py`,
+    `api/static/ticker.html`) silently disagreeing with the gate.
+    """
     excluded = ",".join(f"'{r}'" for r in EXCLUDED_FROM_CORROBORATION)
     return conn.execute(
         f"""
-        SELECT id, ticker, rule, severity, headline, created_at
+        SELECT id, ticker, rule, severity, headline, created_at,
+               tags, corroborates, corroboration_note, award_key
         FROM alerts
         WHERE ticker IS NOT NULL AND ticker != ''
           AND rule NOT IN ({excluded})
@@ -184,14 +201,118 @@ def _already_corroborated(conn, ticker: str) -> bool:
     return row is not None
 
 
+def alert_corroborates(alert) -> tuple[bool, str]:
+    """Does THIS ALERT corroborate, or is it merely present? Returns (verdict, reason).
+
+    ⚠️ THE SECOND QUESTION THE GATE NOW ASKS. Rule-name eligibility (`RULE_10_EXCLUDED`)
+    answers "can this KIND of signal ever corroborate". This answers "does this PARTICULAR
+    signal actually say the thing we are counting it as saying". Without it, an insider
+    SELL corroborated a bullish thesis exactly as well as a buy — which is how RTX fired
+    at exactly 3 instruments on an exercise-and-sell.
+
+    ⚠️ THE BLAST RADIUS IS `SIGNED_RULES` AND IT IS TINY BY DESIGN. Only those rules are
+    interrogated. Every other rule returns True unconditionally, so the congressional,
+    earnings, 13F and senate-lda legs behave EXACTLY as before — that is what makes the
+    "untouched instruments are unchanged" claim provable rather than hopeful.
+
+    ⚠️ FAILS CLOSED, and it has to. A signed rule whose verdict is NULL — every alert
+    written before this shipped, and any alert whose filing could not be re-read — does
+    NOT corroborate. Falling back to RULE_06's stored `sale`/`purchase` tag would be worse
+    than useless: that tag comes from `majority_action`, which only ever saw codes P and S,
+    so it reads the RTX exercise-and-sell as a plain "sale" and would read an
+    exercise-and-HOLD as a purchase. The disclosed cost is that historical insider legs go
+    dark until re-parsed. Absence of evidence is not evidence of a buy.
+    """
+    rule = (_row_value(alert, "rule") or "").strip().upper()
+    if rule not in SIGNED_RULES:
+        return True, ""
+    verdict = _row_value(alert, "corroborates")
+    if verdict is None:
+        return False, "no direction on record (pre-signing alert, or filing not re-read)"
+    if int(verdict) == 1:
+        return True, ""
+    return False, (_row_value(alert, "corroboration_note")
+                   or "the rule recorded this as non-corroborating")
+
+
+def _row_value(row, key, default=None):
+    """Read a column that may not be in the projection at all.
+
+    `sqlite3.Row` has no `.get()` and raises IndexError on an unknown key, while callers
+    also pass plain dicts (`instruments_for([{"rule": r} for r in ...])` is used by tests
+    and diagnostics). This tolerates a MISSING COLUMN without ever softening the verdict:
+    an absent `corroborates` reads as None, which `alert_corroborates` fails closed on.
+    """
+    try:
+        return row[key]
+    except (IndexError, KeyError, TypeError):
+        return default
+
+
 def instruments_for(alerts) -> list[str]:
     """Distinct instruments represented by a group of alerts.
 
     The single most important line in this file: rules that read the same source
     collapse to one entry, so the congressional trio cannot satisfy the gate by
     itself.
+
+    ⚠️ NOW ALSO DROPS ALERTS THAT DO NOT CORROBORATE, and it is modified IN PLACE rather
+    than wrapped: `tests/test_check_convergence.py` asserts `cc.instruments_for is
+    r10.instruments_for` by OBJECT IDENTITY, and this is the one choke point every
+    consumer of the gate's decision reaches by import — `find_corroborated_tickers`, the
+    ranking, the emitter, and `check_convergence`. Putting the per-alert filter anywhere
+    else would let the fire decision and the recorded instrument count disagree.
     """
-    return rule10_instruments({a["rule"] for a in alerts})
+    return rule10_instruments({a["rule"] for a in alerts
+                               if alert_corroborates(a)[0]})
+
+
+def _leg_weights(conn, alerts) -> dict[str, float]:
+    """Per-rule weight for the corroborating legs. 1.0 means "no opinion".
+
+    Computed HERE, at gate time, rather than in RULE_11's emit loop: only a converging
+    ticker needs a market cap, so the lookups are bounded by the handful of tickers that
+    actually reach the gate instead of every award in a 25-page sweep against a cold
+    cache. It also leaves RULE_11's emission untouched.
+
+    Only the contracts leg has a weight today. Every other rule is absent from the dict,
+    which readers treat as 1.0 — so this cannot quietly change an untouched instrument.
+    """
+    weights: dict[str, float] = {}
+    for a in alerts:
+        if (_row_value(a, "rule") or "").strip().upper() != "RULE_11":
+            continue
+        w = contract_leg_weight(conn, _row_value(a, "ticker"),
+                                _row_value(a, "award_key"))
+        # Several awards can back one contracts leg; the most conservative wins, so a
+        # single routine mega-cap award cannot be outvoted into looking surprising.
+        #
+        # ⚠️ SEEDED FROM `w`, NOT FROM A 1.0 DEFAULT, AND THAT IS THE WHOLE BUG THIS LINE
+        # ONCE HAD. `min(weights.get("RULE_11", 1.0), w)` looks like the same thing and is
+        # not: on the FIRST award the default 1.0 is one of the operands, so any weight
+        # above neutral was clamped straight back to 1.0. `CONTRACT_WEIGHT_MATERIAL` could
+        # therefore never be written, and since this function is the only writer of
+        # `tags.leg_weights`, the entire above-neutral path — and with it the whole point of
+        # gating a boost on `contractor_attribution_is_exact` — was dead in the product
+        # while passing every unit test. A curated 18%-of-cap award and the token-matched
+        # SPCX false positive emitted byte-identical output. Found by a verification pass;
+        # pinned now by `test_the_emitter_WRITES_the_weight_it_computed`.
+        weights["RULE_11"] = w if "RULE_11" not in weights else min(weights["RULE_11"], w)
+    return weights
+
+
+def non_corroborating(alerts) -> list[dict]:
+    """The legs that were PRESENT but did not corroborate, with the reason.
+
+    Recorded on the emitted alert so a dropped leg is visible rather than merely absent —
+    the gate must not quietly hide that an insider sold.
+    """
+    out = []
+    for a in alerts:
+        ok, why = alert_corroborates(a)
+        if not ok:
+            out.append({"rule": _row_value(a, "rule"), "reason": why})
+    return out
 
 
 def find_corroborated_tickers(conn, window_hours: int) -> dict[str, list]:
@@ -276,14 +397,27 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
         print(f"  [{len(clusters)} qualified — capped at {MAX_PER_RUN} per run]")
 
     for ticker, alerts in ranked:
-        rules_fired = ",".join(sorted({a["rule"] for a in alerts}))
-        rule_count = len({a["rule"] for a in alerts})
+        # ⚠️ CORROBORATING vs MERELY PRESENT — the distinction this whole change adds.
+        # `corroborating` is what the count, the tags and the confidence are built from;
+        # `present` is kept only for provenance, so a dropped leg is VISIBLE rather than
+        # silently absent.
+        corroborating = [a for a in alerts if alert_corroborates(a)[0]]
+        dropped = non_corroborating(alerts)
+        rules_present = sorted({a["rule"] for a in alerts})
+        rules_fired = ",".join(sorted({a["rule"] for a in corroborating}))
+        rule_count = len({a["rule"] for a in corroborating})
         instruments = instruments_for(alerts)
         instrument_count = len(instruments)
-        severities = {a["severity"] for a in alerts}
+        severities = {a["severity"] for a in corroborating} or {a["severity"] for a in alerts}
+        leg_weights = _leg_weights(conn, corroborating)
 
         print(f"  [{instrument_count} instruments / {rule_count} rules] {ticker}  "
               f"instruments={','.join(instruments)}  rules={rules_fired}")
+        for d in dropped:
+            print(f"    dropped {d['rule']}: {d['reason']}")
+        for rule, w in sorted(leg_weights.items()):
+            if w != 1.0:
+                print(f"    weight  {rule}: {w:.2f}")
 
         if dry_run:
             continue
@@ -303,7 +437,19 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
             f"[CORROBORATION] {ticker}: {instrument_count} independent instruments "
             f"in {window_hours // 24}d ({','.join(instruments)})"
         )
-        distinct_rules = sorted({a["rule"] for a in alerts})
+        # ⚠️ `rules` IS NOW THE CORROBORATING SET, AND THAT CHOICE IS LOAD-BEARING.
+        # Five consumers re-derive an instrument count from this stored list of rule NAMES
+        # rather than from live rows — `jpt_common._distinct_rule_count` (which feeds
+        # `evidence_confidence`), `api/routers/evidence.py`, `theme_instrument_count`,
+        # `api/receipts.py` and `scripts/generate_brief.py`. If `rules` still held every
+        # PRESENT rule, each of them would re-derive the pre-filter count and a re-score
+        # would silently re-inflate confidence to include the insider sell the gate just
+        # rejected. Making this the filtered set means all five agree with the gate for
+        # free, with no second predicate to keep in step.
+        #
+        # `rules_present` and `non_corroborating` carry the provenance that would otherwise
+        # be lost: we must not hide that a leg was there and was rejected.
+        distinct_rules = sorted({a["rule"] for a in corroborating})
         tags = json.dumps({
             "rules": distinct_rules,
             "rule_count": rule_count,
@@ -312,6 +458,12 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
             # candidate/strong tier needs no recomputation and no schema change.
             "instruments": instruments,
             "instrument_count": instrument_count,
+            "rules_present": rules_present,
+            "non_corroborating": dropped,
+            # Per-leg weights, FROZEN at detection time. Detection-time scores are
+            # immutable in this project, and a cap ratio recomputed later against a
+            # different price would silently rewrite history.
+            "leg_weights": leg_weights,
         })
 
         # Insert via the scoring wrapper so the corroboration carries real
@@ -337,9 +489,21 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
         theme_id = upsert_theme(conn, ticker, distinct_rules, scores)
         conn.execute("UPDATE alerts SET theme_id = ? WHERE id = ?", (theme_id, alert_id))
         # Link this corroboration + its contributing signals to the theme.
+        #
+        # ⚠️ `corroborating`, NOT `alerts`. This linked every PRESENT alert, so a theme
+        # whose summary read "3 independent signals converged" listed FOUR items in its
+        # receipt — the fourth being the insider sell the gate had just rejected, shown
+        # unlabelled alongside the legs that actually counted. Measured by a verification
+        # pass. `themes.supporting_rules` was already the corroborating set, so the receipt
+        # list was the only place that disagreed with the count printed above it.
+        #
+        # The rejected leg is NOT thereby hidden: it is recorded on the corroboration itself
+        # in `tags.non_corroborating`, with the reason, which is where a reader can see that
+        # an insider filed and what they did. `theme_signals` is the EVIDENCE list, and a
+        # sell is not evidence for a bullish thesis.
         conn.execute("INSERT INTO theme_signals (theme_id, alert_id) VALUES (?, ?)",
                      (theme_id, alert_id))
-        for a in alerts:
+        for a in corroborating:
             if a["id"] is not None:
                 conn.execute(
                     "INSERT INTO theme_signals (theme_id, alert_id) VALUES (?, ?)",

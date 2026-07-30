@@ -15,7 +15,7 @@ for conventions — keep it in sync when they change.
 ## Database
 - SQLite. Path resolution (`jpt_common._get_db_path`): explicit arg → `DATABASE_PATH` env → Railway volume `/app/data/jpt.db` if present → local `./data/jpt.db`.
 - **Always** connect via `jpt_common.db_connection()` in app/rule code (runs schema init + idempotent migrations; it does **not** take backups — see below). For **read-only diagnostics**, connect directly with `sqlite3.connect('file:data/jpt.db?mode=ro', uri=True)` to avoid triggering migrations/backups.
-- Migrations: additive only, tracked in `scope_migrations` (m001…m009). Never drop tables. Guard column adds with `PRAGMA table_info`.
+- Migrations: additive only, tracked in `scope_migrations` (m001…m014). Never drop tables. Guard column adds with `PRAGMA table_info`. **m014** adds `alerts.corroborates` / `corroboration_note` (the signed-leg verdict — NULL means *unknown*, which fails closed for a signed rule) and **moves `alerts.award_key` into the ordered path**: it was previously created by a lazy `ALTER` inside `rule_11_contracts.py`, so on a DB where RULE_11 had never run the gate's own SELECT would have raised `no such column`. Both adds stay `PRAGMA`-guarded, so the two are idempotent in either order.
 - **Backups:** `scripts/db_backup.py` runs **hourly at :05** — SQLite online backup API,
   `PRAGMA integrity_check` *before* the snapshot is kept, gzip, tiered retention
   (24h hourly → 30d daily → 90d weekly → monthly), and an env-gated S3 upload that is
@@ -52,6 +52,14 @@ opportunity_score, evidence_confidence, time_horizon and source_quality afterwar
   `scripts/rule_12_fara.py`, `scripts/rule_13_fec.py`, `scripts/rule_14_patents.py`,
   `scripts/rule_15_earnings_nlp.py`, `scripts/rule_anomaly.py`,
   `scripts/rule_adsb.py`, `scripts/rule_telegram_osint.py`, `ingest_senate.py`.
+- ⚠️ `rule_06_form4.py` has its **own local `insert_alert`** (same name, different function
+  — 7 columns, not `jpt_common`'s). It carries the signed verdict in
+  `corroborates` / `corroboration_note`. Its `tags` is a bare positional comma string
+  (`owner,action,multiplier`), which is exactly why the verdict lives in typed columns: an
+  owner name containing a comma shifts the direction out of index 1. **RULE_06's dedup key
+  is its HEADLINE** (`alert_exists` on `(rule, ticker, headline)`), so any change to the
+  headline text silently re-emits the whole corpus — the parse may be widened, that string
+  may not.
 
 **Detection-time scores are immutable.** `enrich_scores` populates *missing*
 scores but never overwrites existing ones (`enrich_alert_scores(only_unscored=True)`
@@ -131,6 +139,60 @@ is the single source of truth: `scripts/rule_10_corroboration.py`'s
 both instrument-counting and corroboration-candidacy. They had silently diverged, letting
 retired rules inflate a corroboration's `evidence_confidence` 6.0 -> 81.0. It also creates/evolves a `themes` row (Market Thesis) and
 links evidence in `theme_signals`.
+
+**SIGNED LEGS — the gate asks a SECOND question, per ALERT** (added 2026-07-30,
+human-gated). Rule-name eligibility answers *can this kind of signal ever corroborate*;
+per-alert eligibility answers *does this particular signal actually say the thing we are
+counting it as saying*. Without it an insider **sell** corroborated a bullish thesis exactly
+as well as a buy, and that shipped: prod theme 1 fired on RTX at exactly 3 instruments where
+the insider leg was an **exercise-and-sell**.
+
+- `jpt_common.SIGNED_RULES` is the entire blast radius and is currently **`{"RULE_06"}`**.
+  For every other rule an absent verdict means "corroborates", exactly as before — that is
+  what makes "the untouched instruments are unchanged" provable
+  (`test_gate_redesign.py::test_the_UNSIGNED_instruments_are_completely_untouched`).
+- **A rule may only be signed once its ATTRIBUTION is repaired.** RULE_15 (misattributed
+  *rituximab* to RTX) and RULE_01B (~46% of sales mislabelled as opens) are deliberately
+  unsigned: a confident sign on known-wrong data makes a future false convergence look
+  *more* credible. See `vault/Scope/01_Architecture/signed-signal-engine.md`.
+- **Insider bar = a genuine open-market buy**: code `P`, acquired, non-derivative,
+  non-10b5-1. Do NOT re-derive this — it is `insider_clusters.py::_buy_predicate`, with a
+  Python twin `jpt_common.is_genuine_open_market_buy` whose equivalence is proven over an
+  exhaustive matrix. `M` (exercise) is excluded *structurally* by the whitelist-of-one;
+  `is_10b5_1` is **tri-state** (NULL = undisclosed, kept).
+- **Fails closed.** `alerts.corroborates` NULL ⇒ no corroboration for a signed rule.
+  Forward-only, no backfill — historical insider legs go dark until re-parsed. The stored
+  `sale`/`purchase` tag is **not** an acceptable fallback: it classifies on the code letter
+  alone over a P/S-only list, so it reads a `P`/*disposed* row as a purchase.
+- **`tags.rules` on a RULE_10 alert is the CORROBORATING set**, not every rule present.
+  Five consumers re-derive the count from it (`_distinct_rule_count`, `evidence.py`,
+  `theme_instrument_count`, `receipts.py`, `generate_brief.py`), so this keeps them agreeing
+  with the gate for free. `tags.rules_present` and `tags.non_corroborating` carry the
+  provenance — a rejected leg is **disclosed, never hidden**.
+- **Per-leg weights** (`tags.leg_weights`, frozen at detection time) move the **score, never
+  the count**: `calculate_evidence_confidence` steps on an integer, so a fractional count
+  would fall below the first tier and score base 0. Contracts is weighted by
+  award ÷ market cap; it may fall on any resolved ticker but may only **rise** where
+  `contractor_attribution_is_exact` — a mis-attributed ticker must never inflate anything.
+  Unknown cap ⇒ **neutral 1.0**, never 0. Non-finite stored weights also read as neutral
+  (`json` accepts bare `NaN`/`Infinity`, and `min(CEILING, inf)` is the *ceiling*).
+- ⚠️ **`contract_leg_weight` will NOT resolve a cap that isn't already cached.** Before this
+  feature RULE_10 made **zero network requests**; a cold `market_cap` call resolves live via
+  SEC + Yahoo, so a cold run could have fired dozens of requests inside the scheduler's 300s
+  budget. It therefore requires an existing `ticker_meta` row and otherwise returns neutral —
+  caps are warmed by `rule_reddit_collector` (4×/day) and `/api/tickers/{sym}/meta`.
+- **`theme_signals` links only CORROBORATING legs.** Linking every present alert made a theme
+  whose summary read "3 independent signals" list four items in its receipt, the fourth being
+  the rejected leg, unlabelled. The rejection is disclosed on the corroboration itself in
+  `tags.non_corroborating`; `theme_signals` is the *evidence* list, and a sell is not evidence
+  for a bullish thesis.
+- ⚠️ **There are FOUR other places that re-express the gate's candidate predicates** and all
+  of them must move together: `api/routers/forming.py` (its own SQL copy; resolves the gate's
+  functions at **call** time, because import-bound references go stale after a module
+  reload), `scripts/morning_brief.py` (inlined predicates; two-way agreement is tested),
+  and `api/routers/tickers.py` → `api/static/ticker.html` (the browser counter, which is
+  handed a **server-computed** `corroborates_gate` flag rather than re-implementing the rule
+  in JS). `scripts/check_convergence.py` is the only consumer coupled purely by import.
 
 **Instruments, not rule names** (`jpt_common.RULE_10_INSTRUMENTS`). Rules that read
 the same underlying source count once: `RULE_01`/`RULE_01B`/`RULE_02`/`RULE_CLUSTER`
