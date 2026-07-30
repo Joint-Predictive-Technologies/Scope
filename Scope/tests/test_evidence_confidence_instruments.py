@@ -210,12 +210,18 @@ def test_rule_cluster_no_longer_passes_a_member_count_as_corroborators():
 # the real code paths end to end so those mutations go red.
 
 def _seed_trio_plus(conn, ticker="TRIOPLUS"):
-    """5 rule names / 3 instruments, inside the convergence window."""
+    """5 rule names / 3 instruments, inside the convergence window.
+
+    ⚠️ The insider leg carries an explicit GENUINE-BUY verdict. The gate has decided per
+    alert since 2026-07-30 and NULL fails closed, so without it this seeds 2 instruments
+    and the emitter assertions below would pin the wrong number — while still passing.
+    """
     for rule in TRIO_PLUS:
         conn.execute(
-            "INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
-            "VALUES (?, ?, 'HIGH', ?, datetime('now','-1 hours'))",
-            (rule, ticker, f"{rule} on {ticker}"))
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
+            "corroborates) VALUES (?, ?, 'HIGH', ?, datetime('now','-1 hours'), ?)",
+            (rule, ticker, f"{rule} on {ticker}",
+             1 if rule.upper() in jpt_common.SIGNED_RULES else None))
     conn.commit()
 
 

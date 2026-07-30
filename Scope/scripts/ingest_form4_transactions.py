@@ -26,9 +26,14 @@ not a signal, but it IS insider activity, and a store that silently drops it can
 answer "who transacted in this name". Note also that an empty price is legitimate and
 footnoted, so `price > 0` is a real filter, not a sanity check.
 
-⚠️ RULE_06 IS NOT TOUCHED. Its alert emission, dedup and watermark are byte-unchanged.
-This module has its own watermark under its own `filings` source, so the two cannot
-interfere — and a failure here can never suppress a RULE_06 alert.
+⚠️ THIS MODULE DOES NOT TOUCH RULE_06. It has its own watermark under its own `filings`
+source, so the two cannot interfere — and a failure here can never suppress a RULE_06 alert.
+(The original wording said RULE_06 was "byte-unchanged". That stopped being true on
+2026-07-30, when the signed-insider-leg session widened `parse_form4` to read the
+acquired/disposed code, `aff10b5One` and `issuerCik` — the fields THIS module already read
+and RULE_06 discarded. RULE_06's emission, dedup key and watermark are still unchanged, and
+`tests/test_form4_transaction_store.py::test_RULE_06s_ALERTING_IDENTITY_is_unchanged` proves
+it against `main` rather than asserting it here.)
 
 VERIFIED ELEMENT NAMES, read off real SEC XML rather than assumed:
     issuer/issuerCik | issuerName | issuerTradingSymbol

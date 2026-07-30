@@ -36,13 +36,28 @@ STATIC = pathlib.Path(__file__).resolve().parent.parent / "api" / "static"
 
 
 def _seed(rows) -> None:
-    """rows: [(ticker, rule, age_expression)]"""
+    """rows: [(ticker, rule, age_expression)] or [(ticker, rule, age, corroborates)]
+
+    ⚠️ A SIGNED RULE'S LEG IS SEEDED AS A GENUINE BUY UNLESS THE ROW SAYS OTHERWISE, and
+    that default is deliberate rather than convenient. Since 2026-07-30 the gate asks a
+    second question per alert — an insider leg counts only on a genuine open-market buy —
+    and a NULL verdict fails closed. Every fixture here predates that column, so leaving
+    it NULL would silently drop the insider leg from every scenario below and these tests
+    would then be measuring a different arithmetic than the one they were written for.
+    Spelling the direction out in each row instead would bury what they actually test.
+    The rejected direction is covered explicitly by
+    `test_a_non_corroborating_insider_leg_does_not_count_toward_the_band`.
+    """
     conn = jpt_common.db_connection()
-    for ticker, rule, age in rows:
+    for row in rows:
+        ticker, rule, age = row[0], row[1], row[2]
+        corroborates = row[3] if len(row) > 3 else (
+            1 if rule.upper() in jpt_common.SIGNED_RULES else None)
         conn.execute(
-            """INSERT INTO alerts (rule, ticker, severity, headline, created_at)
-               VALUES (?, ?, 'HIGH', ?, datetime('now', ?))""",
-            (rule, ticker, f"{rule} fired on {ticker}", age),
+            """INSERT INTO alerts (rule, ticker, severity, headline, created_at,
+                                   corroborates)
+               VALUES (?, ?, 'HIGH', ?, datetime('now', ?), ?)""",
+            (rule, ticker, f"{rule} fired on {ticker}", age, corroborates),
         )
     conn.commit()
     conn.close()
@@ -71,6 +86,43 @@ def test_a_three_instrument_convergence_does_NOT_appear():
            ("FIRED", "RULE_06", "-3 days")])      # insider
 
     assert "FIRED" not in _tickers(), "a fired convergence leaked into the near-miss list"
+
+
+def test_a_non_corroborating_insider_leg_does_not_count_toward_the_band():
+    """THE SIGNED LEG, on this surface. Same three rules as the test above — but the
+    insider SOLD, so it is not corroboration and the ticker is two legs, not three.
+
+    ⚠️ THIS SURFACE HAS ITS OWN COPY OF THE GATE'S CANDIDATE QUERY, so it is exactly where
+    a per-alert decision goes stale unnoticed. If `find_near_misses` stopped importing
+    `instruments_for` and went back to counting rule names, this ticker would vanish from
+    the list (counted as fired at 3) while the gate correctly refused to fire it — a
+    convergence that is invisible on both surfaces.
+    """
+    _seed([("SOLD", "RULE_01B", "-1 days"),
+           ("SOLD", "RULE_11", "-2 days"),
+           ("SOLD", "RULE_06", "-3 days", 0)])       # insider, but a SALE
+
+    items = {f["ticker"]: f for f in _near()}
+    assert "SOLD" in items, (
+        "a ticker whose third leg does not corroborate must appear as FORMING — the gate "
+        "will not fire it, so hiding it here loses it from every surface at once")
+    assert items["SOLD"]["instrument_count"] == 2
+    assert "insider" not in items["SOLD"]["instruments"]
+    # and the rejected leg is disclosed rather than silently absent
+    assert [d["rule"] for d in items["SOLD"]["non_corroborating"]] == ["RULE_06"]
+    assert "RULE_06" not in [a["rule"] for a in items["SOLD"]["alerts"]]
+
+
+def test_an_insider_leg_with_NO_verdict_also_does_not_count():
+    """Forward-only: every alert written before the verdict column existed carries NULL,
+    and NULL fails closed. Pinned so a later "convenience" default to 1 is visible."""
+    _seed([("NOVERDICT", "RULE_01B", "-1 days"),
+           ("NOVERDICT", "RULE_11", "-2 days"),
+           ("NOVERDICT", "RULE_06", "-3 days", None)])
+
+    items = {f["ticker"]: f for f in _near()}
+    assert items["NOVERDICT"]["instrument_count"] == 2
+    assert "insider" not in items["NOVERDICT"]["instruments"]
 
 
 def test_exactly_two_instruments_appears():
@@ -178,6 +230,33 @@ def test_it_imports_the_gate_symbols_rather_than_redefining_them():
 
     assert forming.rule10_instruments is jpt_common.rule10_instruments
     assert forming.RULE_10_EXCLUDED is jpt_common.RULE_10_EXCLUDED
+
+    # ⚠️ THE PER-ALERT DECISION IS COUPLED TOO, AND LATE BINDING IS THE ACTUAL PROPERTY.
+    # `find_near_misses` used to carry a hand-written copy of `instruments_for`'s body,
+    # harmless while the gate counted only rule names and a silent divergence the moment it
+    # began reading each alert. Asserting `forming.instruments_for is r10.instruments_for`
+    # is NOT enough: with `from ... import instruments_for` that holds at import and then
+    # goes stale the moment anything reloads the gate module — which
+    # `test_divergence_is_impossible_not_merely_absent` does deliberately. Measured: the
+    # import form passed alone and failed in the full suite.
+    #
+    # So this asserts the surface RESOLVES THE FUNCTION AT CALL TIME, by swapping the gate's
+    # implementation and checking the surface follows.
+    from scripts import rule_10_corroboration as _r10
+    assert forming._gate is _r10, "forming no longer resolves the gate through its module"
+
+    _seed([("LATEBIND", "RULE_01B", "-1 days"), ("LATEBIND", "RULE_11", "-2 days")])
+    assert "LATEBIND" in _tickers(), "precondition: it should be a near-miss at 2"
+
+    real = _r10.instruments_for
+    try:
+        _r10.instruments_for = lambda alerts: []      # the gate now counts nothing
+        assert "LATEBIND" not in _tickers(), (
+            "the surface did not follow the gate's own function — it is holding a stale "
+            "or private copy, so the two can report different instrument counts")
+    finally:
+        _r10.instruments_for = real
+    assert "LATEBIND" in _tickers(), "restore leaked"
     assert forming.RULE_10_MIN_INSTRUMENTS == jpt_common.RULE_10_MIN_INSTRUMENTS
     assert forming.CONVERGENCE_WINDOW_DAYS == CONVERGENCE_WINDOW_DAYS
     # The UPPER bound must be the gate's threshold, not a copy of it: the filter
@@ -271,7 +350,10 @@ def test_the_api_labels_these_as_not_confirmed():
 # stricter and stable.
 ALLOWED_TOP_KEYS = {"status", "label", "window_days", "threshold", "count", "forming"}
 ALLOWED_ITEM_KEYS = {"ticker", "instruments", "instrument_count", "needed",
-                     "missing_legs", "latest_at", "alerts"}
+                     # A leg that fired but does not corroborate, with the reason. Not
+                     # score-shaped — it is the honest counterpart to `missing_legs`: the
+                     # difference between "no insider filed" and "an insider sold".
+                     "missing_legs", "latest_at", "alerts", "non_corroborating"}
 ALLOWED_ALERT_KEYS = {"id", "rule", "severity", "headline", "created_at"}
 
 

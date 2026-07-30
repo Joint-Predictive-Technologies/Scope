@@ -250,24 +250,136 @@ def test_the_store_uses_its_OWN_watermark_source():
     assert f4.FILING_SOURCE == "sec_form4_txn" != r6.FILING_SOURCE
 
 
-def test_RULE_06_is_byte_unchanged():
-    """This store is additive. RULE_06's alerting, dedup and watermark must not move."""
-    import ast, subprocess
-    head = open(os.path.join(os.path.dirname(__file__), "..",
-                             "rule_06_form4.py"), encoding="utf-8").read()
-    base = subprocess.run(["git", "show", "main:Scope/rule_06_form4.py"],
-                          capture_output=True, text=True,
-                          cwd=os.path.join(os.path.dirname(__file__), "..", "..")).stdout
-    if not base:
+def test_RULE_06s_ALERTING_IDENTITY_is_unchanged():
+    """RULE_06's alerting, dedup and watermark must not move.
+
+    ⚠️ THIS TEST WAS `test_RULE_06_is_byte_unchanged` AND IT ASSERTED AST EQUALITY, which
+    is no longer the right question. The signed-insider-leg session (2026-07-30) changes
+    `rule_06_form4.py` deliberately and with human sign-off: the RTX audit found it leaves
+    `transactionAcquiredDisposedCode`, the `M` exercise code, `aff10b5One` and `issuerCik`
+    unread in XML it already parses, so an exercise-and-sell reached the gate as a bullish
+    insider leg. The file HAS to change.
+
+    What must still be true is the thing the old test was really protecting, and asserting
+    it directly is strictly stronger than file equality — a byte-identical file can still
+    be broken by a change in `jpt_common`, and an edited file can be perfectly additive:
+
+      * the HEADLINE is unchanged — it is RULE_06's DEDUP KEY (`alert_exists` matches on
+        `(rule, ticker, headline)`), so any drift silently re-emits the whole corpus;
+      * `majority_action`, `ps_value` and the P/S transaction list are unchanged — the
+        severity ladder and the historical-average comparison are computed from them;
+      * the watermark source is unchanged.
+
+    Proven by SHADOW-IMPORTING `main`'s own module and comparing computed values on real
+    filing shapes, rather than by trusting either file's text.
+    """
+    import importlib.util
+    import subprocess
+    import tempfile
+
+    repo = os.path.join(os.path.dirname(__file__), "..", "..")
+    base_src = subprocess.run(["git", "show", "main:Scope/rule_06_form4.py"],
+                              capture_output=True, text=True, cwd=repo).stdout
+    if not base_src:
         # LOUD. This silently skipped from a clean `git archive` export (no .git, no
         # `main` ref) — and it is the guard for the entire "purely additive" claim, so a
-        # green suite there proved less than it looked. A verifier confirmed the
-        # underlying fact by blob hash instead.
-        pytest.skip("NO GIT BASELINE — the purely-additive guard did NOT run. Verify "
-                    "with: git rev-parse main:Scope/rule_06_form4.py "
-                    "HEAD:Scope/rule_06_form4.py (the blobs must match).")
-    assert ast.dump(ast.parse(head)) == ast.dump(ast.parse(base)), \
-        "rule_06_form4.py changed — the store must be purely additive"
+        # green suite there proved less than it looked.
+        pytest.skip("NO GIT BASELINE — the additive guard did NOT run. Verify by hand "
+                    "that the headline/dedup/watermark behaviour is unchanged.")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "r6_main.py")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(base_src)
+        spec = importlib.util.spec_from_file_location("r6_main", path)
+        base = importlib.util.module_from_spec(spec)
+        sys.modules["r6_main"] = base
+        spec.loader.exec_module(base)
+
+    # Real shapes: the RTX exercise-and-sell, a plain buy, a plain sale, a mixed filing,
+    # and the real captured Apple filing.
+    cases = {
+        "rtx_exercise_and_sell": _xml(_owner(), (
+            _txn("M", "A", "12600", "97.65") + _txn("S", "D", "1811", "210.6450")
+            + _txn("D", "D", "5854", "210.1700") + _txn("S", "D", "6746", "210.2000"))),
+        "plain_buy":  _xml(_owner(), _txn("P", "A", "1000", "50.00")),
+        "plain_sale": _xml(_owner(), _txn("S", "D", "1000", "50.00")),
+        "mixed":      _xml(_owner(), _txn("P", "A", "100", "50.00")
+                           + _txn("S", "D", "900", "50.00")),
+        "footnoted_price": _xml(_owner(), _txn("M", "A", "12600", "")),
+        "real_aapl": open(REAL, encoding="utf-8").read(),
+    }
+    import rule_06_form4 as r6
+    for label, xml in cases.items():
+        new, old = r6.parse_form4(xml), base.parse_form4(xml)
+        assert (new is None) == (old is None), label
+        if new is None:
+            continue
+        assert new.majority_action == old.majority_action, (
+            f"{label}: majority_action moved — the HEADLINE and its dedup key change with it")
+        assert new.ps_value == old.ps_value, f"{label}: ps_value moved — severity shifts"
+        assert ([(t.code, t.shares, t.price) for t in new.transactions]
+                == [(t.code, t.shares, t.price) for t in old.transactions]), (
+            f"{label}: the P/S transaction list moved")
+        for f in ("owner_name", "owner_title", "ticker", "company"):
+            assert getattr(new, f) == getattr(old, f), f"{label}: {f} moved"
+
+    assert r6.FILING_SOURCE == base.FILING_SOURCE, "RULE_06's watermark source moved"
+    assert r6.MIN_MULTIPLE == base.MIN_MULTIPLE, "the historical-average bar moved"
+
+    # The dedup key itself. Compared from SOURCE TEXT via the AST — `inspect.getsource`
+    # cannot be used on the shadow module because its file is a temporary that is gone by
+    # the time this runs, and a shadow import whose source has vanished is exactly the
+    # sort of thing that silently degrades a guard to a no-op.
+    import ast
+
+    def _fn_src(src: str, name: str) -> str:
+        tree = ast.parse(src)
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return ast.get_source_segment(src, node) or ""
+        raise AssertionError(f"{name} not found — it was renamed or deleted")
+
+    head_src = open(os.path.join(os.path.dirname(__file__), "..", "rule_06_form4.py"),
+                    encoding="utf-8").read()
+    # ⚠️ NO `try/except AssertionError: continue` HERE. An earlier version of this loop
+    # named `_historical_average`, which does not exist — the function is `historical_avg` —
+    # and the swallow turned that half of the guard into a silent no-op. A verification pass
+    # caught it. If a name goes missing now, that is a failure, not a skip.
+    for fn in ("alert_exists", "historical_avg"):
+        assert _fn_src(head_src, fn) == _fn_src(base_src, fn), (
+            f"{fn} changed — it decides which filings are NEW and how the multiple is "
+            f"computed, so moving it changes what RULE_06 emits")
+
+    # ⚠️⚠️ THE HEADLINE ITSELF, AND THIS IS THE PROPERTY THE DOCSTRING CALLS LOAD-BEARING.
+    # The first version of this test asserted everything EXCEPT the headline, because the
+    # headline is built inside `run()` rather than in `parse_form4` — so a verification pass
+    # mutated the f-string to `"{multiple:.1f}x vs historical average"` and the ENTIRE SUITE
+    # stayed green at 1058/1. That mutation silently re-emits every historical alert, since
+    # `alert_exists` matches on `(rule, ticker, headline)`. The deleted AST-equality guard
+    # caught it trivially; this one has to earn that back.
+    #
+    # Compared as AST rather than as text so reformatting is tolerated, and per-assignment
+    # rather than over all of `run()` — `run()` legitimately changed (it now computes the
+    # signed verdict), while these three persisted values must not have.
+    def _assigned_value(src: str, fn: str, target: str) -> str:
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == fn:
+                for stmt in ast.walk(node):
+                    if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                            and isinstance(stmt.targets[0], ast.Name)
+                            and stmt.targets[0].id == target):
+                        return ast.dump(stmt.value)
+        raise AssertionError(f"no `{target} = ...` found in {fn}() — it was renamed or moved")
+
+    for target, why in (
+            ("headline", "the headline IS RULE_06's dedup key — changing it re-emits the "
+                         "entire historical corpus"),
+            ("severity", "the severity ladder decides gate eligibility"),
+            ("tags", "tags is a positional comma string other code indexes into")):
+        assert _assigned_value(head_src, "run", target) == \
+               _assigned_value(base_src, "run", target), f"{target} moved: {why}"
 
 
 def test_the_ingest_survives_the_scheduler_flag():

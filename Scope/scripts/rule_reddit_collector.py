@@ -308,15 +308,71 @@ def _concept_fact(cik: str, taxonomy: str, concept: str) -> tuple[float, str] | 
             f"/{taxonomy}/{concept}.json", headers=_SEC_HEADERS, timeout=15)
         if not r.ok:
             return None
-        units = r.json().get("units") or {}
-        rows = units[list(units)[0]] if units else []
-        if not rows:
-            return None
-        best = max(rows, key=lambda x: (x["end"], x.get("filed") or "",
-                                        x.get("start") or "", x.get("val") or 0))
-        return float(best["val"]), best["end"]
+        return _best_fact((r.json().get("units") or {}))
     except Exception:
         return None
+
+
+def _units_rows(units: dict) -> list:
+    """The fact rows out of an XBRL `units` map.
+
+    Prefers the `shares` unit rather than taking whatever key happens to come first.
+    `units[list(units)[0]]` was a single-projection assumption: it is right whenever
+    there is exactly one unit, and silently picks an arbitrary one when there is not.
+    """
+    if not units:
+        return []
+    for key in ("shares", "pure"):
+        if isinstance(units.get(key), list) and units[key]:
+            return units[key]
+    return units[list(units)[0]] or []
+
+
+def _best_fact(units: dict) -> tuple[float, str] | None:
+    """The newest (value, as_of) from an XBRL `units` map, or None.
+
+    Extracted so the `companyconcept` and `companyfacts` paths cannot rank facts
+    differently — the sort key below is load-bearing (see `_concept_fact`) and having two
+    copies of it is precisely how the two sources would start disagreeing.
+    """
+    rows = _units_rows(units)
+    if not rows:
+        return None
+    best = max(rows, key=lambda x: (x["end"], x.get("filed") or "",
+                                    x.get("start") or "", x.get("val") or 0))
+    return float(best["val"]), best["end"]
+
+
+def _companyfacts_units(cik: str) -> dict:
+    """Every fact SEC holds for one filer, as `{(taxonomy, concept): units}`.
+
+    ⚠️ THIS EXISTS BECAUSE `companyconcept` LIES BY OMISSION FOR SOME FILERS. It answers
+    HTTP 200 with an EMPTY `units.shares` array — not a 404, not an error — while
+    `companyfacts` for the SAME CIK holds the fact. Measured on two of thirteen federal
+    contract recipients:
+
+        HUM  CIK 49071   dei:EntityCommonStockSharesOutstanding  n=68  end=2026-03-31
+        PSN  CIK 275880  dei:EntityCommonStockSharesOutstanding  n=29  end=2026-04-21
+
+    Parsons (PSN) is the case that matters: ~$4.31B, i.e. exactly the sub-$10B name the
+    cap-relative contract weight exists to catch, and it resolved as `unknown`. Because
+    the failure is silent and one-sided, it disproportionately hides SMALL caps — so the
+    weighting would have demonstrated only on mega-caps, where the answer is uninteresting.
+
+    One request for all four concepts, and only when every `companyconcept` lookup came
+    back empty — so the ~90% of filers whose cover-page tag is fresh pay nothing.
+    """
+    try:
+        r = requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+                         headers=_SEC_HEADERS, timeout=20)
+        if not r.ok:
+            return {}
+        facts = r.json().get("facts") or {}
+        return {(tax, concept): (body.get("units") or {})
+                for tax, concepts in facts.items()
+                for concept, body in (concepts or {}).items()}
+    except Exception:
+        return {}
 
 
 def _shares_outstanding(cik: str) -> tuple[float, str] | None:
@@ -357,6 +413,19 @@ def _shares_outstanding(cik: str) -> tuple[float, str] | None:
             _a = _fact_age_days(fact[1])
             if i == 0 and _a is not None and abs(_a) <= MAX_SHARES_AGE_DAYS:
                 break
+    if not facts:
+        # LAST RESORT — `companyconcept` can answer 200-with-empty-units for a filer whose
+        # fact `companyfacts` does hold (HUM, PSN). Same concept priority, same ranking, so
+        # this can only ADD a filer that would otherwise be `unknown`; it cannot change the
+        # answer for one that already resolved. Every downstream guard — plausibility floor
+        # and ceiling, the two-sided staleness rule, the FPI check — still applies, because
+        # this returns a fact in exactly the same shape and decides nothing itself.
+        units_by_concept = _companyfacts_units(cik)
+        if units_by_concept:
+            for taxonomy, concept in _SHARE_CONCEPTS:
+                fact = _best_fact(units_by_concept.get((taxonomy, concept), {}))
+                if fact:
+                    facts.append(fact)
     if not facts:
         return None
 

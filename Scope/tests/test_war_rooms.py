@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from starlette.testclient import TestClient  # noqa: E402
 from api.main import app  # noqa: E402
-from jpt_common import db_connection, opportunity_score_breakdown  # noqa: E402
+from jpt_common import (SIGNED_RULES, db_connection,  # noqa: E402
+                        opportunity_score_breakdown)
 
 _c = TestClient(app)
 
@@ -158,10 +159,22 @@ def test_thesis_detail_for_real_theme():
     from scripts.rule_10_corroboration import run as run_r10
     conn = db_connection()
     conn.execute("DELETE FROM alerts WHERE ticker='ZWAR'")
-    for rule in ("RULE_01B", "RULE_06", "RULE_08", "RULE_11"):
+    # ⚠️ THIS FIXTURE BROKE ONLY WHEN TWO BRANCHES MET, WHICH IS WHY IT READS LIKE THIS.
+    # It seeded RULE_01B + RULE_06 + RULE_08 + RULE_11 and relied on 3 instruments to make
+    # the gate fire. Two independent changes each removed one leg:
+    #   * RULE_08 became basket-excluded (its ticker comes from a keyword lookup), and
+    #   * RULE_06 now corroborates only on a genuine open-market buy, failing closed on a
+    #     NULL verdict.
+    # Either alone still left three instruments and this test passed on both branches
+    # separately. TOGETHER they left two, the gate correctly refused, no theme was created,
+    # and the assertion below failed for a reason that has nothing to do with war rooms.
+    # RULE_16 supplies a live fourth instrument and the verdict is explicit, so this now
+    # holds whether or not RULE_08 is excluded.
+    for rule in ("RULE_01B", "RULE_06", "RULE_16", "RULE_11"):
         conn.execute(
-            "INSERT INTO alerts (rule, ticker, severity, headline, created_at) "
-            "VALUES (?, 'ZWAR', 'HIGH', ?, datetime('now'))", (rule, f"{rule} ZWAR"))
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
+            "corroborates) VALUES (?, 'ZWAR', 'HIGH', ?, datetime('now'), ?)",
+            (rule, f"{rule} ZWAR", 1 if rule in SIGNED_RULES else None))
     conn.commit(); conn.close()
     run_r10(dry_run=False, window_hours=24)
 

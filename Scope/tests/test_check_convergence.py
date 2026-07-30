@@ -24,7 +24,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from jpt_common import db_connection, RULE_10_MIN_INSTRUMENTS  # noqa: E402
+from jpt_common import (SIGNED_RULES, db_connection,  # noqa: E402
+                        RULE_10_MIN_INSTRUMENTS)
 from scripts import check_convergence as cc  # noqa: E402
 from scripts import rule_10_corroboration as r10  # noqa: E402
 
@@ -32,10 +33,15 @@ TRIO_PLUS = ["RULE_01B", "RULE_11", "RULE_06"]      # 3 DISTINCT instruments
 
 
 def _seed_three_instruments(conn, ticker):
+    """⚠️ The insider leg is seeded as a GENUINE OPEN-MARKET BUY. Since 2026-07-30 the gate
+    decides per alert as well as per rule, and a NULL verdict fails closed — so without
+    this the "three instruments" in the name would be two, and every dedup assertion below
+    would be measured against a gate that never fires."""
     for rule in TRIO_PLUS:
         conn.execute(
-            "INSERT INTO alerts (rule, ticker, severity, headline, created_at) VALUES "
-            "(?, ?, 'HIGH', 'x', datetime('now','-1 days'))", (rule, ticker))
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
+            "corroborates) VALUES (?, ?, 'HIGH', 'x', datetime('now','-1 days'), ?)",
+            (rule, ticker, 1 if rule.upper() in SIGNED_RULES else None))
     conn.commit()
 
 
@@ -235,3 +241,29 @@ def test_a_change_to_the_gates_dedup_window_is_visible_here():
     # 30 days > 7, so under the CURRENT window this is not suppressed. Under a 99-day
     # window it would be — which is exactly the drift this test exists to surface.
     assert rows["THIRTYD"][4] is False
+
+
+def test_the_diagnostic_agrees_with_the_gate_on_a_REJECTED_insider_leg():
+    """⚠️ THE ONE PROPERTY THIS FILE COULD NOT SEE. Every fixture above seeds a genuine buy,
+    so the whole file exercised only the corroborating direction — a verification pass noted
+    it as the one of six edited fixtures with no local rejected case.
+
+    `check_convergence` is the only consumer coupled to the gate purely by import, which is
+    exactly why it must be shown to inherit the per-alert verdict rather than assumed to.
+    """
+    conn = db_connection()
+    for rule, verdict in (("RULE_01B", None), ("RULE_11", None), ("RULE_06", 0)):
+        conn.execute(
+            "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
+            "corroborates) VALUES (?, 'SOLDX', 'HIGH', 'x', datetime('now','-1 days'), ?)",
+            (rule, verdict))
+    conn.commit()
+
+    rows = [r for r in cc._candidate_alerts(conn, cc.CONVERGENCE_WINDOW_DAYS * 24)
+            if r["ticker"] == "SOLDX"]
+    gate_fires = "SOLDX" in r10.find_corroborated_tickers(
+        conn, cc.CONVERGENCE_WINDOW_DAYS * 24)
+    conn.close()
+
+    assert cc.instruments_for(rows) == ["congressional", "contracts"], cc.instruments_for(rows)
+    assert not gate_fires, "an insider SALE completed a convergence"

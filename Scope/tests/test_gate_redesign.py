@@ -48,13 +48,29 @@ TICKER = "ZWAR"
 # ---------------------------------------------------------------------------
 
 def _seed(rules_with_age, ticker: str = TICKER) -> None:
-    """rules_with_age: [(rule, age_expression)] e.g. [("RULE_06", "-2 days")]."""
+    """rules_with_age: [(rule, age_expression)] or [(rule, age, corroborates)].
+
+    ⚠️ A SIGNED RULE'S LEG DEFAULTS TO A GENUINE OPEN-MARKET BUY, and the default is a
+    considered choice rather than a shortcut. From 2026-07-30 the gate asks a second
+    question per ALERT — does this leg actually say the bullish thing — and a NULL verdict
+    fails closed. Every fixture in this file predates that column, so leaving it unset
+    would silently delete the insider leg from D1's own test cases and they would then be
+    measuring 2-instrument arithmetic while claiming to measure 3.
+
+    The direction itself is tested where it belongs — `tests/test_signed_insider_leg.py`
+    for the rule, and `test_a_non_corroborating_insider_leg_cannot_complete_the_gate`
+    below for the gate.
+    """
     conn = jpt_common.db_connection()
-    for rule, age in rules_with_age:
+    for row in rules_with_age:
+        rule, age = row[0], row[1]
+        corroborates = row[2] if len(row) > 2 else (
+            1 if rule.upper() in jpt_common.SIGNED_RULES else None)
         conn.execute(
-            """INSERT INTO alerts (rule, ticker, severity, headline, created_at)
-               VALUES (?, ?, 'HIGH', ?, datetime('now', ?))""",
-            (rule, ticker, f"{rule} fired on {ticker}", age),
+            """INSERT INTO alerts (rule, ticker, severity, headline, created_at,
+                                   corroborates)
+               VALUES (?, ?, 'HIGH', ?, datetime('now', ?), ?)""",
+            (rule, ticker, f"{rule} fired on {ticker}", age, corroborates),
         )
     conn.commit()
     conn.close()
@@ -69,11 +85,22 @@ def _fires(window_hours: int | None = None) -> bool:
 
 
 def _instruments(window_hours: int | None = None) -> list[str]:
+    """What the GATE counts for this ticker.
+
+    ⚠️ THIS HELPER USED TO BE A COPY OF `instruments_for`'s BODY —
+    `rule10_instruments({r["rule"] for r in rows ...})` — and that made it a fifth
+    hand-written copy of the gate's counting rule, alongside the gate itself,
+    `api/routers/forming.py`, `scripts/morning_brief.py` and `api/static/ticker.html`.
+    It was correct only while the gate counted nothing but rule names; the moment the gate
+    began deciding per alert, this helper started reporting a number the gate does not use,
+    inside the very file that exists to pin the gate's counting. It now calls the gate's
+    own function, so it cannot drift again.
+    """
     conn = jpt_common.db_connection()
     hours = window_hours if window_hours is not None else r10.CONVERGENCE_WINDOW_DAYS * 24
     rows = r10._candidate_alerts(conn, hours)
     conn.close()
-    return rule10_instruments({r["rule"] for r in rows if r["ticker"] == TICKER})
+    return r10.instruments_for([r for r in rows if r["ticker"] == TICKER])
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +133,66 @@ def test_three_distinct_instruments_count_as_three():
     _seed([("RULE_01B", "-1 days"), ("RULE_11", "-2 days"), ("RULE_06", "-3 days")])
     assert len(_instruments()) == 3
     assert _fires()
+
+
+# ── D3 (2026-07-30): a leg must SAY the thing, not merely be present ─────────
+#
+# The gate used to count presence alone, so an insider REDUCING exposure corroborated a
+# bullish thesis exactly as well as one buying. That shipped: prod theme 1 fired on RTX at
+# exactly 3 instruments where the insider leg was an exercise-and-sell.
+
+def test_a_non_corroborating_insider_leg_cannot_complete_the_gate():
+    """THE REGRESSION, at the gate. Identical to the test above except the insider SOLD."""
+    _seed([("RULE_01B", "-1 days"), ("RULE_11", "-2 days"), ("RULE_06", "-3 days", 0)])
+    assert _instruments() == ["congressional", "contracts"], _instruments()
+    assert not _fires(), "an insider SALE completed a bullish convergence"
+
+
+def test_an_insider_leg_with_no_verdict_on_record_fails_closed():
+    """Forward-only. Every RULE_06 alert written before this shipped carries NULL, and the
+    stored `sale`/`purchase` tag is NOT an acceptable fallback: it comes from
+    `majority_action`, which only ever saw codes P and S, so it reads the RTX
+    exercise-and-sell as a plain sale and an exercise-and-HOLD as a purchase."""
+    _seed([("RULE_01B", "-1 days"), ("RULE_11", "-2 days"), ("RULE_06", "-3 days", None)])
+    assert _instruments() == ["congressional", "contracts"], _instruments()
+    assert not _fires()
+
+
+def test_a_genuine_buy_still_completes_the_gate():
+    """The positive control — without it the two tests above pass on a dead gate."""
+    _seed([("RULE_01B", "-1 days"), ("RULE_11", "-2 days"), ("RULE_06", "-3 days", 1)])
+    assert _instruments() == ["congressional", "contracts", "insider"], _instruments()
+    assert _fires()
+
+
+@pytest.mark.parametrize("rule,instrument", [
+    ("RULE_01B", "congressional"), ("RULE_09", "senate-lda"),
+    ("RULE_11", "contracts"), ("RULE_15", "earnings"), ("RULE_16", "institutional"),
+])
+def test_the_UNSIGNED_instruments_are_completely_untouched(rule, instrument):
+    """⚠️ THE BLAST-RADIUS PROOF, and the reason `SIGNED_RULES` exists as a set rather than
+    as scattered `if rule == "RULE_06"` checks.
+
+    Only a signed rule is interrogated per alert. Every other rule contributes its
+    instrument on presence alone — with a NULL verdict, with an explicit 0, with anything —
+    exactly as it did before this change. If a future session signs one of these WITHOUT
+    repairing its attribution first, this test fails and names it. That matters most for
+    RULE_15 (which misattributed *rituximab* to RTX) and RULE_01B (~46% of sales
+    mislabelled as opens): a confident sign on known-wrong data makes a false convergence
+    look MORE credible, not less.
+    """
+    assert rule not in jpt_common.SIGNED_RULES, (
+        f"{rule} has been signed — its ATTRIBUTION must be repaired first, and this test "
+        f"and tests/test_signed_insider_leg.py both need updating deliberately")
+    for verdict in (None, 0, 1):
+        conn = jpt_common.db_connection()
+        conn.execute("DELETE FROM alerts WHERE ticker = ?", (TICKER,))
+        conn.commit()
+        conn.close()
+        _seed([(rule, "-1 days", verdict)])
+        assert _instruments() == [instrument], (
+            f"{rule} with corroborates={verdict!r} resolved to {_instruments()} — an "
+            f"unsigned rule must not be affected by the per-alert verdict at all")
 
 
 def test_same_source_rules_collapse_even_under_different_names():

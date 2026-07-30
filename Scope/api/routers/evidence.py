@@ -96,8 +96,15 @@ def _confidence_breakdown(alert: dict, related: list) -> dict:
     # This branch scored a lone alert's support by distinct rule NAME, so the
     # congressional trio paid three times for one source (24/24, the cap, off a single
     # instrument). rule10_instruments is the gate's authority, imported, never copied.
+    # ⚠️ AND THE LEG MUST ALSO CORROBORATE, not merely be present. This branch counted
+    # instruments off rule NAMES alone, so it awarded confidence points for an insider SELL
+    # — a verification pass measured 8 points handed to a rejected exercise-and-sell. It is
+    # the sixth place the gate's counting is re-expressed; the verdict comes from the gate's
+    # own `alert_corroborates`, never re-derived here.
+    from scripts.rule_10_corroboration import alert_corroborates as _corroborates
     corrob = min(len(rule10_instruments(
-        rule10_eligible_rules({r.get("rule") for r in related if r.get("rule")}))) * 8, 24)
+        rule10_eligible_rules({r.get("rule") for r in related
+                               if r.get("rule") and _corroborates(r)[0]}))) * 8, 24)
     total = min(sev_pts + freshness + corrob, 100)
     return {
         "total": total,
@@ -122,7 +129,8 @@ def alert_evidence(alert_id: int):
         related = [
             dict(r) for r in conn.execute(
                 """
-                SELECT id, rule, ticker, severity, headline, created_at
+                SELECT id, rule, ticker, severity, headline, created_at,
+                       corroborates, corroboration_note
                 FROM alerts
                 WHERE ticker LIKE ? AND id != ?
                   AND datetime(created_at) >= datetime('now', '-30 days')
@@ -178,7 +186,8 @@ def ticker_evidence(symbol: str, days: int = 90):
     rows = [
         dict(r) for r in conn.execute(
             """
-            SELECT id, rule, ticker, severity, headline, created_at
+            SELECT id, rule, ticker, severity, headline, created_at,
+                       corroborates, corroboration_note
             FROM alerts
             WHERE ticker LIKE ? AND datetime(created_at) >= datetime('now', ?)
             ORDER BY datetime(created_at) DESC LIMIT 40

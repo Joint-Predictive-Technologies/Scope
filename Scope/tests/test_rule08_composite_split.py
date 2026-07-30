@@ -260,13 +260,21 @@ def test_dry_run_emits_nothing():
 # ---------------------------------------------------------------------------
 
 def _seed_other_legs(ticker: str) -> None:
-    """An insider leg and a congressional leg, both in-window and gate-eligible."""
+    """An insider leg and a congressional leg, both in-window and gate-eligible.
+
+    ⚠️ The insider leg carries an explicit GENUINE-BUY verdict. Since 2026-07-30 the gate
+    also asks per alert whether a leg corroborates, and NULL fails closed — so without it
+    these two "other legs" would be one, and this file's whole argument (that the SPLIT
+    ticker is what completes the convergence) would be untestable for an unrelated reason.
+    """
     conn = jpt_common.db_connection()
     for rule, age in (("RULE_06", "-2 days"), ("RULE_01B", "-3 days")):
         conn.execute(
-            """INSERT INTO alerts (rule, ticker, severity, headline, created_at)
-               VALUES (?, ?, 'HIGH', ?, datetime('now', ?))""",
-            (rule, ticker, f"{rule} on {ticker}", age),
+            """INSERT INTO alerts (rule, ticker, severity, headline, created_at,
+                                   corroborates)
+               VALUES (?, ?, 'HIGH', ?, datetime('now', ?), ?)""",
+            (rule, ticker, f"{rule} on {ticker}", age,
+             1 if rule.upper() in jpt_common.SIGNED_RULES else None),
         )
     conn.commit()
     conn.close()
