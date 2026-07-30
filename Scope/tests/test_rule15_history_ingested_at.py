@@ -9,9 +9,15 @@ shipped, comparing a real Boeing Item 2.02 8-K against a **BA Credit Card Trust*
 filing (`0000929638-26-001846`, CIK 936988, SIC 6189 asset-backed securities,
 items 8.01/9.01 — not an earnings release).
 
-Every row seeded below is prod's real stored row — accession, score and
-`ingested_at` as captured 2026-07-30 (see
-`vault/Scope/02_Sessions/SESSION-2026-07-30-rtx-remediation.md`).
+Provenance of the seeded rows, stated per-field rather than blanket-claimed:
+accessions and `ingested_at` are prod's, from the read-only capture of 2026-07-30
+(`vault/Scope/02_Sessions/SESSION-2026-07-30-rtx-remediation.md`). The two decisive
+Boeing scores (0.7673, 0.8328) were re-derived from the source documents. The
+pre-epoch scores are the local snapshot's stored values at full precision; prod's
+capture records them to 2dp and they agree there. Rows that only need to exist
+(RTX's, and the wholly synthetic LMT no-regression case) carry representative
+`keyword_counts`, since the code path reads only ticker/filing_date/
+political_score/keyword_counts/ingested_at.
 
 The control (`test_..._reproduces_the_fabrication`) neutralises the epoch instead of
 editing the query, so the pre-fix denominator selection runs through the *real* code
@@ -33,21 +39,26 @@ from jpt_common import db_connection  # noqa: E402
 import scripts.rule_15_earnings_nlp as r15  # noqa: E402
 
 
-# Prod's real BA rows (2026-07-30 capture). Two post-epoch Boeing Item 2.02 8-Ks,
-# four pre-epoch rows — three of which are not Boeing at all.
+# Prod's BA rows. Two post-epoch Boeing Item 2.02 8-Ks — and ALL FOUR pre-epoch rows
+# are a different issuer entirely, every one confirmed against EDGAR:
+#   05-14 `...001846` BA Master Credit Card Trust II  CIK 936988   SIC 6189
+#   05-11 `...001791` same trust family                            SIC 6189
+#   05-01 `...029094` Affiliated Managers Group, Inc.  CIK 1004434 SIC 6282
+#   03-30 `...001253` same trust family                            SIC 6189
+# Not one of them is a Boeing earnings release.
 BA_ROWS = [
     ("BA", "2026-07-28", "0001628280-26-049929", 0.7673, "2026-07-28 14:35:05"),
-    ("BA", "2026-05-14", "0000929638-26-001846", 0.0761, "2026-07-11 12:49:50"),
-    ("BA", "2026-05-11", "0000929638-26-001791", 0.2580, "2026-07-11 12:49:50"),
-    ("BA", "2026-05-01", "0001628280-26-029094", 0.0400, "2026-07-11 12:49:49"),
+    ("BA", "2026-05-14", "0000929638-26-001846", 0.0760977094589453, "2026-07-11 12:49:50"),
+    ("BA", "2026-05-11", "0000929638-26-001791", 0.258471400139575, "2026-07-11 12:49:50"),
+    ("BA", "2026-05-01", "0001628280-26-029094", 0.0398851308232291, "2026-07-11 12:49:49"),
     ("BA", "2026-04-22", "0001628280-26-026391", 0.8328, "2026-07-28 01:39:40"),
-    ("BA", "2026-03-30", "0000929638-26-001253", 0.0360, "2026-07-11 12:49:49"),
+    ("BA", "2026-03-30", "0000929638-26-001253", 0.0364876945250214, "2026-07-11 12:49:49"),
 ]
 
-# Prod's real RTX rows — every one pre-epoch. `0001193125-26-213239` is the Artiva
+# Prod's RTX rows — every one pre-epoch. `0001193125-26-213239` is the Artiva
 # Biotherapeutics 8-K, stored under ticker RTX; the misattribution is in the DB.
 RTX_ROWS = [
-    ("RTX", "2026-07-23", "0000101829-26-000021", 0.1160, "2026-07-23 22:26:15"),
+    ("RTX", "2026-07-23", "0000101829-26-000025", 0.1160, "2026-07-23 22:26:15"),
     ("RTX", "2026-05-08", "0001193125-26-213239", 0.0040, "2026-07-11 03:48:59"),
     ("RTX", "2026-04-30", "0001140361-26-018932", 0.0780, "2026-07-11 03:49:00"),
     ("RTX", "2026-04-21", "0000101829-26-000009", 0.1790, "2026-07-11 03:48:59"),
@@ -171,6 +182,35 @@ def test_RTX_cannot_emit_all_four_rows_are_pre_epoch(monkeypatch):
         "SELECT COUNT(*) c FROM earnings_sentiment WHERE ticker='RTX' "
         "AND political_score>0 AND ingested_at >= ?", (r15.REPAIR_EPOCH,)).fetchone()["c"]
     assert hist == 0, "and none may serve as a denominator"
+
+
+def test_the_predicate_RESCUES_a_signal_that_LIMIT_8_was_dropping(monkeypatch):
+    """The filter can only ADD candidates to the window, never remove one.
+
+    Formally: main's window is the 8 newest rows overall, so any post-epoch row in it
+    is also among the 8 newest POST-epoch rows — `W_main ∩ post ⊆ W_wt`. The
+    interesting direction is the reverse. Here a valid post-epoch prior (04-01) sits
+    behind eight pre-epoch rows that are all inside MIN_GAP_DAYS, so unfiltered
+    `LIMIT 8` crowds it out of the window entirely and NO alert is possible. With the
+    predicate the noise is gone, the real prior is visible, and a true +200% emits.
+
+    So the predicate is not purely suppressive — it also recovers legitimate signal
+    the unfiltered query was silently losing.
+    """
+    rows = [("NOC", "2026-07-28", "0001133421-26-000901", 0.9000, "2026-07-28 15:00:00"),
+            ("NOC", "2026-04-01", "0001133421-26-000902", 0.3000, "2026-07-28 01:00:00")]
+    # Eight pre-epoch rows, all within 45 days of 07-28: individually unusable as a
+    # prior, but on main they still consume every remaining LIMIT 8 slot.
+    for i in range(8):
+        rows.append(("NOC", f"2026-07-{10 + i:02d}", f"0000000000-26-0000{i:02d}",
+                     0.5000, "2026-07-11 12:00:00"))
+    _seed(rows, "NOC", "0001133421")
+    _run_isolated(monkeypatch, "NOC")
+
+    got = _alerts("NOC")
+    assert len(got) == 1, "the real 04-01 prior must be reachable once noise is filtered"
+    import json
+    assert json.loads(got[0]["tags"])["trend_pct"] == 200.0
 
 
 def test_a_genuine_post_repair_comparison_still_emits(monkeypatch):
