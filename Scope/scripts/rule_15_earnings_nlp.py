@@ -294,13 +294,22 @@ def run(emit: bool = False) -> None:
             continue
 
         # ── Signal: QoQ keyword density surge ─────────────────────────────────
+        # The `ingested_at` predicate is NOT redundant with the `usable` gate above. The
+        # gate only counts post-repair rows; this query SELECTS the denominator, and
+        # without the same filter it reached past the clean rows into the quarantined set
+        # — so a ticker could pass the gate on two genuine rows and still be compared
+        # against a pre-repair one. That is exactly how "BA +908%" was emitted 2026-07-28,
+        # a real Boeing 8-K over a BA Credit Card Trust filing (CIK 936988, asset-backed
+        # securities, items 8.01/9.01 — not an earnings release). Both queries must read
+        # the epoch on the same basis or the comment above ("BOTH sides post-repair") is
+        # not actually enforced.
         history = conn.execute("""
             SELECT political_score, keyword_counts, filing_date
             FROM earnings_sentiment
-            WHERE ticker = ? AND political_score > 0
+            WHERE ticker = ? AND political_score > 0 AND ingested_at >= ?
             ORDER BY filing_date DESC
             LIMIT 8
-        """, (ticker,)).fetchall()
+        """, (ticker, REPAIR_EPOCH)).fetchall()
 
         if len(history) < 2:
             continue
