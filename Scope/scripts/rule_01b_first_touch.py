@@ -209,12 +209,46 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
         WHERE t.raw_ticker_string IS NOT NULL
           AND trim(t.raw_ticker_string) != ''
           AND t.member_id IS NOT NULL
-          AND date(t.transaction_date) >= date('now', '-90 days')
+          -- THE WINDOW IS WHEN THE TRADE BECAME PUBLIC, NOT WHEN IT HAPPENED.
+          -- This filtered `transaction_date`, so a PTR filed late was stale on
+          -- arrival and never revisited. 932 of 9967 transactions (9.4%) are
+          -- filed >90d after the trade and 582 of those are genuine first
+          -- touches, none of which ever alerted as itself. Late filers — a trade
+          -- that was hidden and has just become public — are precisely this
+          -- rule's target population, and it was structurally blind to them.
+          --
+          -- ⚠️ COALESCE IS LOAD-BEARING, NOT DEFENSIVE PADDING. 441 rows have a
+          -- NULL `filing_date`, concentrated in the recent House batch this rule
+          -- currently lives on, and `date(NULL)` drops a row out of the
+          -- comparison with no trace. A BARE `filing_date` window scores 104
+          -- candidates against today's 109 — which looks harmless and is not: it
+          -- keeps only 21 of them, silently discarding 88 currently-visible
+          -- first touches while adding the late filers. Falling back to
+          -- `transaction_date` means a missing filing date can never quietly
+          -- delete a disclosure.
+          --
+          -- Trade age is deliberately UNBOUNDED (human decision): the signal is
+          -- the disclosure becoming public, so a 541-day-old trade newly filed
+          -- still fires. Such an alert is newly PUBLIC but not newly INFORMED —
+          -- a framing the direction copy may want to reflect later.
+          --
+          -- ⚠️ THE OPPOSITE-DIRECTION HAZARD, DISCLOSED. Preferring `filing_date`
+          -- also means a filing date EARLIER than its own transaction date drags
+          -- a recent trade OUT of the window. Three such rows exist (ids 40730,
+          -- 41888, 47544 — the impossible-delay rows the direction session
+          -- flagged), and none changes verdict today because their deltas are
+          -- only -10/-6/-2 days; it would take a backwards delta big enough to
+          -- push the row past 90 days. Latent, and worth knowing before anyone
+          -- widens the tolerance on filing dates upstream.
+          AND date(COALESCE(t.filing_date, t.transaction_date)) >= date('now', '-90 days')
           -- A trade whose own date is unknown CANNOT be proven first, so it is
-          -- not eligible to carry the "no prior disclosed trade" claim. The
-          -- window above already excludes NULLs today; this is stated
-          -- separately because the window basis is a queued change and the
-          -- honesty guarantee must not depend on it.
+          -- not eligible to carry the "no prior disclosed trade" claim.
+          -- ⚠️ THIS GUARD IS NOW LOAD-BEARING. It used to be redundant — the old
+          -- `transaction_date` window already excluded NULLs — and the comment
+          -- here said so, flagging that the honesty guarantee must not depend on
+          -- a window basis that was a queued change. That change is this one: a
+          -- row with a NULL `transaction_date` and a present `filing_date` now
+          -- passes the window, and only this line stops it claiming first touch.
           AND date(t.transaction_date) IS NOT NULL
           -- FIRST = CHRONOLOGICALLY EARLIEST, NOT LOWEST id.
           -- This was `t2.id < t.id`, and ingestion batches do not arrive in
@@ -246,7 +280,15 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
                         AND t2.id < t.id)
                 )
           )
-        ORDER BY t.transaction_date DESC
+        -- Sorted on the SAME basis as the window: most recently DISCLOSED first.
+        -- Ordering by `transaction_date` while windowing on the filing date puts
+        -- late filers — the exact population this window exists to surface — at
+        -- the bottom of the list (the contiguous tail: positions 175-192 of 192,
+        -- one-indexed, on the current snapshot), so they would be the first rows
+        -- cut by the LIMIT. Under this sort they sit at 51-134. Harmless
+        -- today at 192 candidates; a latent, silent truncation of the target
+        -- population the moment the set passes 500.
+        ORDER BY date(COALESCE(t.filing_date, t.transaction_date)) DESC
         LIMIT 500
     """).fetchall()
 

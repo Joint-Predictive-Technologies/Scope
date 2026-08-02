@@ -79,14 +79,23 @@ def temp_db(monkeypatch, tmp_path):
 
 
 def _tx(tx_id, ticker, when, ttype="purchase", band=BIG):
-    """Seed one transaction at an EXPLICIT id. `when=None` seeds a NULL date."""
+    """Seed one transaction at an EXPLICIT id. `when=None` seeds a NULL date.
+
+    The filing date TRACKS the transaction date (+7d, the real ABT case's delay) rather
+    than always being today. That matters since the window basis moved to `filing_date`
+    (audit defect #2): with a hardcoded `filed today`, an ANCIENT trade becomes a
+    late-filed first touch that correctly emits, and these chronology fixtures would be
+    asserting against the wrong scenario. Keeping the delay realistic keeps every case
+    here window-independent, so they go on testing chronology and nothing else.
+    """
+    filed = (when + timedelta(days=7)).isoformat() if when else TODAY.isoformat()
     conn = jpt_common.db_connection()
     conn.execute(
         "INSERT INTO transactions (id, member_id, raw_ticker_string, transaction_type, "
         "amount_band, transaction_date, filing_date) VALUES (?,?,?,?,?,?,?)",
         (tx_id, MEMBER, ticker, ttype, band,
          when.isoformat() if when else None,
-         TODAY.isoformat()),
+         filed),
     )
     conn.commit()
     conn.close()
