@@ -21,6 +21,113 @@ def _is_above_15k(band: str) -> bool:
     return bool(band) and band not in {"$1,001 - $15,000", "$1k–15k", "$1,001-$15,000"}
 
 
+# ── DIRECTION IS READ FROM THE TRANSACTION, NEVER ASSUMED ────────────────────
+# The headline used to be the hardcoded string "opens new position" on EVERY alert,
+# while the stored corpus was purchase 104 / sale 52 / sale_partial 31 / exchange 5 —
+# so 88 of 192 (45.8%) described a DISPOSAL as opening a position. ABT #706 headlined
+# "opens new position in ABT" over a detail reading "Transaction: sale partial": a
+# single alert contradicting itself. The rule already read `transaction_type` and
+# printed it in the detail; it simply never let it reach the headline.
+#
+# A first-touch SALE is not "exiting a position we watched them open" — by definition
+# there is no prior disclosed trade, so the holding predates the disclosure record.
+# The wording says exactly that.
+#
+# ⚠️ `corroborates` / `corroboration_note` ARE WRITTEN BUT INERT TODAY, DELIBERATELY.
+# They are the typed signed-leg columns (m014). `alert_corroborates` returns True for
+# any rule outside `SIGNED_RULES` — currently `{"RULE_06"}` — BEFORE it reads them, so
+# nothing about corroboration changes here. This session makes the direction HONEST so
+# that a later, separate, human-gated signing session has a real sign to switch on.
+# Adding RULE_01B to SIGNED_RULES is NOT part of this change.
+#
+# key: raw `transactions.transaction_type`. The full distinct set is exactly these four
+# (9967 rows, 0 NULL, 0 empty, verified) — but an unrecognised value must still fail
+# honestly rather than fall back to "opens".
+_DIRECTIONS: dict[str, tuple] = {
+    #                 headline verb phrase                            corr  note
+    "purchase":     ("opens new position in",                          1,
+                     "opening buy — first disclosed acquisition",
+                     "A first-ever disclosed BUY signals conviction — members rarely open "
+                     "brand-new names without a thesis."),
+    # ⚠️ The disposal copy deliberately avoids the words "open"/"new position"/
+    # "conviction" ENTIRELY, rather than negating them ("...not an opening position").
+    # A negated mention still trips any naive substring reader — including this rule's
+    # own property tests, and any downstream summariser — so the honest phrasing is to
+    # describe what happened and never name what didn't.
+    "sale":         ("exits a previously undisclosed position in",     0,
+                     "disposal — bearish direction",
+                     "A member's FIRST disclosed trade in this name is a sale, which means "
+                     "the holding predates the disclosure record. The member is selling."),
+    # `sale_full` is a FULL disposal and behaves exactly as `sale`. It is absent from
+    # `transactions` today (0 rows) but the SCHEDULED House parser produces it:
+    # `parse_house_pdfs.normalize_transaction_type` maps the PTR code "S (full)" to it
+    # (:262-263), and that job runs every four hours (api/main.py:124). Without this arm
+    # the least ambiguous disposal there is would emit as "the transaction type was not
+    # recognised" — fail-safe, but a lie by omission about a real, named category.
+    # Found by a verification pass; the earlier claim that the four observed values were
+    # "the complete set" was true of the DATA and false of the WRITER.
+    "sale_full":    ("exits a previously undisclosed position in",     0,
+                     "full disposal — bearish direction",
+                     "A member's FIRST disclosed trade in this name is a full sale, which "
+                     "means the holding predates the disclosure record. The member is "
+                     "selling the entire holding."),
+    "sale_partial": ("reduces a previously undisclosed position in",   0,
+                     "partial disposal — bearish direction",
+                     "A member's FIRST disclosed trade in this name is a partial sale, so "
+                     "the holding predates the disclosure record. The member is reducing an "
+                     "existing holding."),
+    "exchange":     ("discloses an exchange in",                       0,
+                     "exchange — directionally neutral",
+                     "A member disclosed an exchange in this security. An exchange is a "
+                     "swap of holdings and is directionally neutral."),
+}
+
+# Unrecognised or blank: say what is true and nothing more. `corroborates=None` is the
+# UNKNOWN verdict, which fails closed the day RULE_01B is signed — the same semantic
+# RULE_06's pre-signing alerts already have.
+_DIRECTION_UNKNOWN = (
+    "first disclosed trade in", None,
+    "unrecognised transaction type — direction unknown",
+    "A member's first disclosed trade in this name. The transaction type was not "
+    "recognised, so no direction is claimed.",
+)
+
+
+# ⚠️ TWO WRITERS FEED `transactions.transaction_type` AND THEY DISAGREE ON SHAPE.
+#   parse_house_pdfs.normalize_transaction_type (:249-270) — canonical snake_case, but
+#     falls through to `value.strip().lower()` for anything it does not recognise, and
+#     the table path hands it a whole cell, so free text can land in the column.
+#   ingest_senate.py:94 — stores the API's raw `Transaction` string with NO
+#     normalisation at all. `transaction_verb` (:129-137) shows the shapes it expects:
+#     "Purchase", "Sale (Full)", "Sale (Partial)".
+# So the alias map below is not defensive padding; it is the second writer's vocabulary.
+# Anything still unmatched falls to the UNKNOWN branch, which claims no direction.
+_TX_ALIASES: dict[str, str] = {
+    "p": "purchase",     "purchase": "purchase",
+    "s": "sale",         "sale": "sale",
+    "e": "exchange",     "exchange": "exchange",
+    "s (full)": "sale_full",       "sale (full)": "sale_full",
+    "s (partial)": "sale_partial", "sale (partial)": "sale_partial",
+}
+
+
+def _direction_for(raw_tx_type):
+    """(verb phrase, corroborates, note, why_matters) for a raw transaction_type.
+
+    Canonicalises case, surrounding and internal whitespace before the lookup, then
+    resolves the second writer's vocabulary through `_TX_ALIASES`. An unrecognised value
+    returns the UNKNOWN tuple — never a guess, and never the old "opens" default.
+    """
+    key = " ".join((raw_tx_type or "").split()).lower()
+    key = _TX_ALIASES.get(key, key)
+    if key in _DIRECTIONS:
+        return _DIRECTIONS[key]
+    # The DISPLAY form ("sale partial") is what the rule writes into tags field 1 and what
+    # the remap round-trips, so accept the spaced spelling of a canonical key too. Tried
+    # only after the exact key, so it can never shadow a real value.
+    return _DIRECTIONS.get(key.replace(" ", "_"), _DIRECTION_UNKNOWN)
+
+
 def _validity_set(conn) -> set:
     """The authoritative symbol set, CANONICALISED — `tickers.symbol` and nothing else.
 
@@ -199,7 +306,9 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             continue
 
         severity = "HIGH" if _is_above_15k(amount) else "MEDIUM"
-        headline = f"First Touch — {name} opens new position in {ticker}"
+        # Branch on the RAW type, not the display form built at the top of the loop.
+        verb, corroborates, corr_note, why_matters = _direction_for(r["transaction_type"])
+        headline = f"First Touch — {name} {verb} {ticker}"
         detail = (
             f"{name} ({party}-{state}) has no prior disclosed trade in {ticker}. "
             f"Transaction: {tx_type}, {amount}"
@@ -229,12 +338,23 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             unvalidated += 1
 
         if not dry_run and emit:
+            # `why_matters` is written EXPLICITLY on every alert, and that is the whole
+            # mechanism for gating the conviction framing. It is not decoration:
+            # `api/routers/evidence.py:172` renders
+            #     alert.get("why_matters") or _WHY.get(alert["rule"], "")
+            # and `_WHY["RULE_01B"]` says "A member OPENED a brand-new disclosed position
+            # in this security." Zero of the 192 stored alerts set `why_matters`, so that
+            # by-rule fallback fired on all of them — including every sale. Setting it
+            # per-alert short-circuits the fallback, so no edit to evidence.py is needed
+            # and no disposal can inherit an opening/conviction claim.
             conn.execute(
                 """INSERT INTO alerts (rule, headline, severity, tags, ticker, member_id,
-                                       detail, lifecycle_stage)
-                   VALUES ('RULE_01B', ?, ?, ?, ?, ?, ?, ?)""",
+                                       detail, lifecycle_stage, why_matters,
+                                       corroborates, corroboration_note)
+                   VALUES ('RULE_01B', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (headline, severity, tags, stored_ticker, member_id, detail,
-                 "created" if is_valid else "review"),
+                 "created" if is_valid else "review", why_matters,
+                 corroborates, corr_note),
             )
             conn.commit()
             emitted += 1
