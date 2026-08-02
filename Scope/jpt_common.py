@@ -790,7 +790,33 @@ RULE_10_EXCLUDED: set[str] = {"RULE_07", "RULE_OSINT", "RULE_ANOMALY", "RULE_RED
                               # (the entities actually named in the document), not by a
                               # keyword->basket fan-out. Backlogged beside RULE_09/01B/02,
                               # which have the same attribution-from-a-projection disease.
-                              "RULE_08"}
+                              "RULE_08",
+                              # RULE_09 — A FOURTH CATEGORY: CONTEXT. Not noisy, not retired,
+                              # not a coverage collector, and NOT basket-keyed. Lobbying spend
+                              # measures influence on GOVERNMENT; it is not a claim about a
+                              # company's securities, so it is context around a thesis rather
+                              # than an independent instrument confirming one. Human decision
+                              # (Q20). Measured before this line existed:
+                              #
+                              #   ['RULE_01B','RULE_06']            -> 2 instruments, FALSE
+                              #   ['RULE_01B','RULE_06','RULE_09']  -> 3 instruments, TRUE
+                              #
+                              # So this removes a leg that really did complete convergences.
+                              #
+                              # ⚠️ `senate-lda` NOW HAS NO ELIGIBLE MEMBER. RULE_12 (retired)
+                              # was the only other rule mapped to it, so the instrument becomes
+                              # unreachable. The mapping is KEPT rather than deleted: an
+                              # eligible-but-unmapped rule falls back to its own name and
+                              # becomes its own phantom instrument (`rule10_instruments` does
+                              # `.get(rule, rule)`), which is the trap that made RULE_12/13/14
+                              # count as three legs after they were "retired".
+                              #
+                              # Forward-only: themes RULE_09 already helped complete are NOT
+                              # retracted. Verified on prod 2026-08-02 — the single existing
+                              # corroboration (RTX, legs RULE_06/RULE_11/RULE_15) has no
+                              # RULE_09 leg, so nothing is owed. RULE_09 still runs and still
+                              # emits; resurfacing it AS context is a separate follow-up.
+                              "RULE_09"}
 
 # Rule -> instrument. Every mapping below was derived by reading the rule's own
 # source, not from the design note; the citation is the source it actually reads.

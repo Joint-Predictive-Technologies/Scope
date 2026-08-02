@@ -23,7 +23,13 @@ from jpt_common import (_distinct_rule_count, calculate_evidence_confidence,
                         rule10_instruments)
 
 TRIO_PLUS = ["RULE_01B", "RULE_02", "RULE_CLUSTER", "RULE_11", "RULE_06"]
-GENUINE_3 = ["RULE_06", "RULE_11", "RULE_09"]
+# RULE_09 stood here until it was excluded as CONTEXT (2026-08-02). RULE_16 replaces it
+# rather than RULE_15: the substitute must be a distinct instrument AND the same source
+# quality, because `test_a_genuine_three_instrument_fire_is_unchanged` compares against
+# `[1.0] * 3` — an all-Primary average. RULE_09 and RULE_16 are Primary; RULE_15 is
+# Secondary and silently dropped the score to 57.3. RULE_16 also keeps `earnings` free for
+# the "+1 instrument" list in the gradient test below.
+GENUINE_3 = ["RULE_06", "RULE_11", "RULE_16"]
 
 
 def _tags(rules): return json.dumps({"rules": rules})

@@ -9,7 +9,7 @@ year-over-year using the Senate LDA (Lobbying Disclosure Act) API.
 from __future__ import annotations
 
 import argparse
-import difflib
+import re
 import time
 from collections import defaultdict
 from datetime import date
@@ -17,7 +17,7 @@ from typing import NamedTuple
 
 import requests
 
-from jpt_common import db_connection
+from jpt_common import CONTRACTOR_OVERRIDES, db_connection
 
 
 RULE = "RULE_09"
@@ -44,8 +44,9 @@ MIN_YOY_PCT = 50.0
 HIGH_PCT = 100.0
 HIGH_SPEND = 500_000.0
 
-# Fuzzy match cutoff against tickers.company_name
-TICKER_CUTOFF = 0.7
+# ⚠️ REMOVED: `TICKER_CUTOFF = 0.7`, the difflib similarity cutoff. It is gone rather than
+# retuned on purpose — no threshold makes name similarity a sound basis for identity. See
+# `match_ticker`.
 
 
 def current_quarter() -> tuple[str, int]:
@@ -147,14 +148,142 @@ def load_ticker_names(conn) -> list[tuple[str, str]]:
     return [(row["symbol"], (row["company_name"] or "").upper()) for row in rows]
 
 
-def match_ticker(client_name: str, ticker_names: list[tuple[str, str]]) -> str | None:
-    needle = client_name.upper()
-    names = [tn[1] for tn in ticker_names]
-    matches = difflib.get_close_matches(needle, names, n=1, cutoff=TICKER_CUTOFF)
-    if not matches:
+# Legal-form suffixes stripped before comparison, and SEC's `/DE/` state-of-incorporation
+# marker. The marker matters on its own: `tickers.company_name` for HXL is
+# "HEXCEL CORP /DE/", which is why an otherwise-exact "HEXCEL CORPORATION" did not match.
+_LEGAL_SUFFIX = (
+    r"(?:\s+(?:INC|INCORPORATED|CORP|CORPORATION|COMPANY|CO|LLC|LLP|LP|LTD|LIMITED"
+    r"|PLC|PBC|SA|NV|AG|SE|AB|ASA|OYJ|HOLDINGS?|GROUP))+$"
+)
+
+
+def normalize_company(name: str) -> str:
+    """Canonical form for company-name equality. Deterministic; no similarity anywhere."""
+    s = (name or "").upper()
+    s = re.sub(r"/[A-Z]{2}/", " ", s)          # SEC state marker: "HEXCEL CORP /DE/"
+    s = s.replace("&", " AND ")
+    s = re.sub(r"[^A-Z0-9 ]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"^THE\s+", "", s)
+    previous = None
+    while previous != s:                       # "FOO CORP INC" -> "FOO"
+        previous = s
+        s = re.sub(_LEGAL_SUFFIX, "", s).strip()
+    return s
+
+
+# Tokens that carry no identity: legal forms, corporate scaffolding, and the LDA's own
+# renaming noise ("FKA" = formerly known as). A curated key is accepted only when everything
+# ELSE in the client's name is one of these — see `_curated_symbol`.
+_NOISE_TOKENS = frozenset({
+    "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LLC", "LLP", "LP",
+    "LTD", "LIMITED", "PLC", "PBC", "SA", "NV", "AG", "SE", "AB", "ASA", "OYJ",
+    "THE", "AND", "OF", "AFFILIATES", "AFFILIATE", "SUBSIDIARIES", "FKA", "FNA",
+    "FORMERLY", "KNOWN", "AS", "GROUP", "HOLDINGS", "HOLDING", "US", "USA",
+})
+
+
+def _is_token_run(haystack: list[str], needle: list[str]) -> bool:
+    """Do `needle`'s tokens appear as a contiguous run in `haystack`? Token-level only.
+
+    This is what stops `caci` matching CACIQUE and `boeing` matching BOEINGTON — a
+    character-level `in` test matched both.
+    """
+    if not needle or len(needle) > len(haystack):
+        return False
+    return any(haystack[i:i + len(needle)] == needle
+               for i in range(len(haystack) - len(needle) + 1))
+
+
+def _curated_symbol(normalized_name: str) -> str | None:
+    """Curated-table lookup. Longest key wins; ANY leftover identity token refuses.
+
+    ⚠️ THE LEFTOVER RULE IS THE WHOLE POINT, AND THE FIRST VERSION OF THIS FIX LACKED IT.
+    A plain containment test resolved `BOEING EMPLOYEES' CREDIT UNION` to $BA. BECU is a
+    member-owned credit union, not Boeing and not listed — and it is a REAL client in this
+    corpus with real filings (2024 Q1 $20K -> 2025 Q1 $40K, +100% YoY). It clears
+    `MIN_YOY_PCT` and is held back from emitting only by `MIN_SPEND`, i.e. by a spend floor
+    rather than by anything about attribution. Found by a verification pass.
+
+    So a curated key is accepted only when it accounts for every identity-bearing token in
+    the name. "RTX CORPORATION AND AFFILIATES" resolves (leftovers are all scaffolding);
+    "BOEING EMPLOYEES CREDIT UNION" does not (EMPLOYEES / CREDIT / UNION are identity).
+
+    This is set containment over a 45-key CURATED table with an enumerated stopword list —
+    deterministic, no score, no threshold. It is deliberately NOT the shape of
+    `resolve_contractor`'s tier 2, which runs the same idea against all 10,619 rows of
+    `tickers`, where any row can collide by accident.
+    """
+    tokens = normalized_name.split()
+    if not tokens:
         return None
-    idx = names.index(matches[0])
-    return ticker_names[idx][0]
+    best_length = 0
+    best_symbol: str | None = None
+    for key, value in CONTRACTOR_OVERRIDES.items():
+        key_tokens = normalize_company(key).split()
+        if not _is_token_run(tokens, key_tokens):
+            continue
+        leftover = [t for t in tokens
+                    if t not in key_tokens and t not in _NOISE_TOKENS]
+        if leftover:
+            continue
+        if len(key_tokens) > best_length:
+            best_length, best_symbol = len(key_tokens), value[0]
+    return best_symbol
+
+
+def match_ticker(client_name: str, ticker_names: list[tuple[str, str]]) -> str | None:
+    """Resolve a lobbying client to a ticker AUTHORITATIVELY, or return None.
+
+    ⚠️ THIS USED TO BE `difflib.get_close_matches(..., cutoff=0.7)` AND IT WAS WRONG ON
+    ROUGHLY A THIRD TO A HALF OF THE ROWS IT ATTRIBUTED. Every reasonable ground truth lands
+    in a band — 31.0% to 45.8% of the 216 stored alerts, depending on how generic a token has
+    to be to count as identity — and the true rate is higher still, because sharing a token
+    does not make an attribution right (`COHERUS BIOSCIENCES` -> `$RCUS` is *Arcus*
+    Biosciences). Authority can confirm only 35.6%. Measured examples, all live in the DB:
+
+        IBM CORPORATION        -> $VIRC   (VIRCO MFG CORPORATION)
+        HEXCEL CORPORATION     -> $HBIA   (HILLS BANCORPORATION)
+        RELX INC               -> $ARDX   (ARDELYX, INC.)
+        WIKIMEDIA FOUNDATION   -> $IVDA   (Iveda Solutions, Inc.)
+        SAMSUNG SDI AMERICA    -> $LMFA   (LM FUNDING AMERICA, INC.)
+
+    RULE_09 is corroboration-eligible, so a fabricated ticker is not cosmetic — it can build a
+    FALSE convergence on the wrong company. This is the same defect class RULE_11 had
+    (`resolve_contractor` + migrations m003/m004); RULE_09 had never been repaired.
+
+    ⛔ THE BAR IS AUTHORITATIVE, AND THERE IS DELIBERATELY NO FALLBACK. A name that does not
+    resolve returns None, and the caller already renders that honestly — `ticker_label` falls
+    back to the client's own name. A fabricated-but-plausible ticker is worse than a blank.
+
+    ⛔ AND THE TOKEN-CONTAINMENT TIER OF `resolve_contractor` IS DELIBERATELY NOT REUSED HERE.
+    That tier resolves on PARTIAL token containment at a hardcoded conf=90, so a name that
+    merely contains a company's distinctive tokens is attributed to it — and the confidence
+    number cannot tell that apart from a curated match. Swapping one similarity heuristic for
+    another would not be a fix. Only the CURATED tier is used.
+
+    Two tiers, both exact:
+      1. `jpt_common.CONTRACTOR_OVERRIDES` — curated; longest normalized key wins.
+      2. Unique normalized-name equality against `tickers.company_name`.
+    Ambiguity refuses: 1541 normalized names map to 2+ symbols in the live tickers table
+    (GOOG/GOOGL, BRK-A/BRK-B, ASML/ASMLF), and picking one would be a guess.
+    """
+    normalized = normalize_company(client_name)
+    if not normalized:
+        return None
+
+    curated = _curated_symbol(normalized)
+    if curated:
+        return curated
+
+    # 2. Exact normalized equality, and only when it is UNIQUE.
+    candidates = {symbol for symbol, company in ticker_names
+                  if normalize_company(company) == normalized}
+    if len(candidates) == 1:
+        return next(iter(candidates))
+
+    # 3. There is no step 3. An unresolved client gets NO ticker.
+    return None
 
 
 # ---------------------------------------------------------------------------

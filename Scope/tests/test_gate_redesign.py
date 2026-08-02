@@ -30,7 +30,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import jpt_common                                                   # noqa: E402
-from jpt_common import (RULE_10_EXCLUDED, RULE_10_MIN_INSTRUMENTS,  # noqa: E402
+from jpt_common import (RULE_10_EXCLUDED, RULE_10_INSTRUMENTS,  # noqa: E402
+                        RULE_10_MIN_INSTRUMENTS,
                         rule10_instruments, rule10_is_valid)
 
 _spec = importlib.util.spec_from_file_location(
@@ -166,7 +167,7 @@ def test_a_genuine_buy_still_completes_the_gate():
 
 
 @pytest.mark.parametrize("rule,instrument", [
-    ("RULE_01B", "congressional"), ("RULE_09", "senate-lda"),
+    ("RULE_01B", "congressional"), ("RULE_02", "congressional"),
     ("RULE_11", "contracts"), ("RULE_15", "earnings"), ("RULE_16", "institutional"),
 ])
 def test_the_UNSIGNED_instruments_are_completely_untouched(rule, instrument):
@@ -196,15 +197,34 @@ def test_the_UNSIGNED_instruments_are_completely_untouched(rule, instrument):
 
 
 def test_same_source_rules_collapse_even_under_different_names():
-    """RULE_09 and RULE_12 both read lda.senate.gov — one instrument.
+    """Rules reading the SAME underlying feed count once, however they are named.
 
-    Derived from code, and a deliberate deviation from the design note (which
-    lists lobbying and foreign-agents separately): rule_12_fara.py's docstring
-    claims DOJ FARA, but its LDA_API_URL is the same endpoint rule_09 uses.
+    ⚠️ This used to be demonstrated with RULE_09 + RULE_12 (both read lda.senate.gov,
+    a deliberate deviation from the design note — rule_12_fara.py's docstring claims DOJ
+    FARA but its LDA_API_URL is rule_09's endpoint; the code wins). Both are now EXCLUDED
+    — RULE_12 as retired, RULE_09 as context (2026-08-02) — so that pair can no longer
+    demonstrate a collapse: it yields nothing at all. The property is re-expressed on the
+    congressional feed, which is still eligible, and the old pair is asserted below in its
+    new form so no coverage is lost.
+    """
+    _seed([("RULE_01B", "-1 days"), ("RULE_02", "-2 days"), ("RULE_CLUSTER", "-3 days")])
+    assert _instruments() == ["congressional"]      # three rule names, one instrument
+    assert not _fires()
+
+
+def test_the_senate_lda_pair_now_yields_NOTHING_rather_than_one_instrument():
+    """The former collapse pair, in its post-exclusion form — the coverage that
+    `test_same_source_rules_collapse_even_under_different_names` used to carry.
+
+    RULE_09 (context) and RULE_12 (retired) are both excluded, so `senate-lda` has no
+    eligible member and the pair contributes zero instruments — not one, and emphatically
+    not two phantom legs.
     """
     _seed([("RULE_09", "-1 days"), ("RULE_12", "-2 days")])
-    assert _instruments() == ["senate-lda"]
+    assert _instruments() == []
     assert not _fires()
+    assert RULE_10_INSTRUMENTS.get("RULE_09") == "senate-lda"   # mapping kept on purpose
+    assert RULE_10_INSTRUMENTS.get("RULE_12") == "senate-lda"
 
 
 def test_edgar_rules_reading_different_forms_stay_separate():
@@ -349,8 +369,22 @@ def test_excluded_rules_are_still_excluded():
     # returns only via real issuer attribution. Its SECTOR_MAP and emission are
     # deliberately UNCHANGED — this is a gate exclusion, not a rule rewrite.
     basket_keyed = {"RULE_ADSB", "RULE_TELEGRAM_OSINT", "RULE_08"}
+    # A FIFTH CATEGORY, added 2026-08-02: CONTEXT. RULE_09 is none of the above — not
+    # noisy, not retired, not a collector, and NOT basket-keyed (its ticker comes from a
+    # real name resolution, and `basket_shape.scan_repo()` does not flag it). It is
+    # excluded because lobbying spend measures influence on GOVERNMENT rather than making
+    # a claim about a company's securities, so it is context around a thesis rather than
+    # an instrument confirming one. Human decision (Q20).
+    #
+    # Measured before the exclusion: ['RULE_01B','RULE_06','RULE_09'] -> 3 instruments and
+    # FIRED; ['RULE_01B','RULE_06'] -> 2 and did not. So a real leg was removed.
+    #
+    # `senate-lda` now has no eligible member (RULE_12 was the only other one and is
+    # retired), so the instrument is unreachable. The MAPPING is kept — an eligible-but-
+    # unmapped rule becomes its own phantom instrument via `.get(rule, rule)`.
+    context = {"RULE_09"}
     assert RULE_10_EXCLUDED == (noisy_or_self_referential | retired
-                                | candidate_generators | basket_keyed)
+                                | candidate_generators | basket_keyed | context)
 
 
 def test_noisy_rules_cannot_contribute_an_instrument():

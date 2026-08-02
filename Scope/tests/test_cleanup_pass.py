@@ -17,8 +17,12 @@ RETIRED = ("RULE_12", "RULE_13", "RULE_14")
 # excluded as a basket rule (its ticker comes from SECTOR_MAP, not from the document); it
 # still runs and still emits. See tests/test_basket_rule_gate_class.py for the guarantee
 # and tests/test_exclusion_single_source.py for its positive exclusion assertion.
+# RULE_09 left this tuple 2026-08-02 when it was excluded as CONTEXT — lobbying measures
+# influence on government, not a claim about a company's securities. Like RULE_08 it still
+# runs and still emits; only its gate eligibility changed. Positive assertion lives in
+# tests/test_exclusion_single_source.py::test_context_rules_are_excluded_from_BOTH_...
 LIVE = ("RULE_01B", "RULE_02", "RULE_CLUSTER", "RULE_06",
-        "RULE_09", "RULE_11", "RULE_15", "RULE_16")
+        "RULE_11", "RULE_15", "RULE_16")
 
 
 # --- Stage 1: every scheduled script must resolve -------------------------

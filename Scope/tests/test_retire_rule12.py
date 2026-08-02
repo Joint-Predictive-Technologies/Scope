@@ -56,19 +56,23 @@ def test_rule12_is_MAPPED_and_EXCLUDED_belt_and_braces():
     """
     assert RULE_10_INSTRUMENTS.get("RULE_12") == "senate-lda", (
         "RULE_12 lost its map entry — without it, dropping the exclusion promotes it to "
-        "its own instrument instead of collapsing it into RULE_09's")
+        "its own instrument instead of collapsing it into the senate-lda instrument")
     assert "RULE_12" in RULE_10_EXCLUDED
     assert rule10_instruments(["RULE_12"]) == []
 
 
 def test_rule12_is_dropped_from_eligible_rules():
-    assert rule10_eligible_rules(["RULE_09", "RULE_12", "RULE_06"]) == ["RULE_06", "RULE_09"]
+    # RULE_09 used to stand here as the eligible co-member of `senate-lda`. It was excluded
+    # as CONTEXT on 2026-08-02, so an eligible rule now carries the property; RULE_09's own
+    # exclusion is asserted alongside, which is strictly more than this test used to check.
+    assert rule10_eligible_rules(["RULE_11", "RULE_12", "RULE_06"]) == ["RULE_06", "RULE_11"]
+    assert rule10_eligible_rules(["RULE_09", "RULE_12", "RULE_06"]) == ["RULE_06"]
 
 
 def test_rule12_contributes_no_instrument():
     """The load-bearing one: RULE_12 must add nothing to the count."""
-    without = rule10_instruments(["RULE_09", "RULE_06"])
-    with_12 = rule10_instruments(["RULE_09", "RULE_06", "RULE_12"])
+    without = rule10_instruments(["RULE_11", "RULE_06"])
+    with_12 = rule10_instruments(["RULE_11", "RULE_06", "RULE_12"])
     assert with_12 == without
     assert "foreign-agents" not in with_12
     assert "RULE_12" not in with_12          # the unmapped-fallback failure mode
@@ -81,17 +85,19 @@ def test_rule12_alone_yields_no_instruments():
 
 def test_rule12_cannot_complete_a_convergence():
     """Two real instruments + RULE_12 must NOT reach the threshold of 3."""
-    assert not rule10_is_valid(["RULE_09", "RULE_06", "RULE_12"])
+    assert not rule10_is_valid(["RULE_01B", "RULE_06", "RULE_12"])
     # ...while a genuine third instrument does, proving the pair was otherwise ready.
-    assert rule10_is_valid(["RULE_09", "RULE_06", "RULE_11"])
+    assert rule10_is_valid(["RULE_01B", "RULE_06", "RULE_11"])
+    # RULE_09 now fails the same way RULE_12 does — it too cannot complete a convergence.
+    assert not rule10_is_valid(["RULE_01B", "RULE_06", "RULE_09"])
 
 
 def test_rule12_exclusion_survives_casing():
     """The gate case-folds rule names; a lowercase RULE_12 must not sneak back in."""
     for variant in ("rule_12", "Rule_12", "rUlE_12"):
-        assert rule10_instruments(["RULE_09", "RULE_06", variant]) == \
-               rule10_instruments(["RULE_09", "RULE_06"])
-        assert not rule10_is_valid(["RULE_09", "RULE_06", variant])
+        assert rule10_instruments(["RULE_11", "RULE_06", variant]) == \
+               rule10_instruments(["RULE_11", "RULE_06"])
+        assert not rule10_is_valid(["RULE_11", "RULE_06", variant])
 
 
 # ---------------------------------------------------------------------------

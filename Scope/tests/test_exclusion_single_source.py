@@ -31,8 +31,14 @@ NOISE = ("RULE_07", "RULE_OSINT", "RULE_REDDIT", "RULE_ANOMALY", "RULE_10")
 # convergence). Its exclusion is asserted positively below, so dropping it here is not a
 # silent loss of coverage.
 LIVE = ("RULE_01B", "RULE_02", "RULE_CLUSTER", "RULE_06",
-        "RULE_09", "RULE_11", "RULE_15", "RULE_16")
+        "RULE_11", "RULE_15", "RULE_16")
 BASKET_EXCLUDED = ("RULE_08", "RULE_ADSB", "RULE_TELEGRAM_OSINT")
+# A FOURTH REASON, kept apart from the other three exactly as they are kept apart from each
+# other. RULE_09 is not noisy, not retired and not basket-keyed — its ticker comes from a real
+# name resolution. It is CONTEXT: lobbying spend measures influence on government, not a claim
+# about a company's securities. Human decision (Q20), 2026-08-02. Like RULE_08 it left LIVE
+# while still running and still emitting, and its exclusion is asserted positively below.
+CONTEXT_EXCLUDED = ("RULE_09",)
 
 
 def test_the_two_sets_are_the_same_object_of_truth():
@@ -71,6 +77,21 @@ def test_retired_rules_appear_in_the_generated_sql_filter():
 @pytest.mark.parametrize("rule", NOISE)
 def test_noise_rules_stay_excluded(rule):
     assert rule in RULE_10_EXCLUDED and rule in r10.EXCLUDED_FROM_CORROBORATION
+
+
+@pytest.mark.parametrize("rule", CONTEXT_EXCLUDED)
+def test_context_rules_are_excluded_from_BOTH_counting_and_candidacy(rule):
+    """The same both-sets property, for the context class.
+
+    RULE_09 was live AND counted: `['RULE_01B','RULE_06','RULE_09']` reached 3 instruments
+    and fired, while `['RULE_01B','RULE_06']` did not. Excluding it must reach the SQL
+    candidate filter too, not just the instrument count.
+    """
+    assert rule in RULE_10_EXCLUDED, f"{rule} can still be counted as an instrument"
+    assert rule in r10.EXCLUDED_FROM_CORROBORATION, f"{rule} is still a SQL candidate"
+    assert jpt_common.rule10_instruments([rule]) == []
+    # The mapping must SURVIVE the exclusion — see the basket case below for why.
+    assert jpt_common.RULE_10_INSTRUMENTS.get(rule), f"{rule} lost its mapping"
 
 
 @pytest.mark.parametrize("rule", BASKET_EXCLUDED)
