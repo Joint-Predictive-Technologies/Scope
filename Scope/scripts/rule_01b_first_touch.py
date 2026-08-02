@@ -15,10 +15,46 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from jpt_common import db_connection, normalize_ticker
+from ingest_senate import amount_band_floor
+
+
+# RULE_01B calls a trade HIGH above this. RULE_01 uses $50,000
+# (`ingest_senate.HIGH_AMOUNT_THRESHOLD`) and the two are DELIBERATELY NOT harmonised here:
+# moving this number changes how many congressional legs clear RULE_10's HIGH/CRITICAL
+# candidate floor, which is a gate change and its own decision. `instrument-definitions-and-
+# tiers.md` redefines RULE_01B conceptually but states no severity threshold, so there is no
+# documented target to move toward. Pinned by
+# test_rule01b_severity_band.py::test_the_two_thresholds_are_not_harmonised.
+RULE_01B_HIGH_THRESHOLD = 15_000
 
 
 def _is_above_15k(band: str) -> bool:
-    return bool(band) and band not in {"$1,001 - $15,000", "$1k–15k", "$1,001-$15,000"}
+    """Is this amount band provably above the HIGH threshold?
+
+    ⚠️ THIS WAS A THREE-LITERAL DENYLIST AND THEREFORE FAILED UNSAFE:
+        band not in {"$1,001 - $15,000", "$1k–15k", "$1,001-$15,000"}
+    Anything it did not recognise was HIGH. On the 2026-07-28 snapshot that is **37 of 9967**
+    transactions — 15 carrying `$1,001- $15,000` (the same band, missing one space), 15 raw
+    dollar-and-cents values like `$823.45`, 5 bare `$1,001`, plus `$1,001 - $35,000` and `$1,`.
+    The call site also passes `amount_band or "undisclosed amount"`, so an ABSENT amount was
+    HIGH too. Severity is gate-relevant — only HIGH/CRITICAL clear RULE_10's candidate floor —
+    so an unparseable string became a gate-eligible leg.
+
+    Two deliberate properties:
+
+    * FAILS SAFE. Unparseable or absent -> MEDIUM, where the denylist said HIGH. A severity we
+      cannot justify must not be the one that clears the gate floor.
+    * FLOOR, NOT CEILING. `$1,001 - $35,000` straddles the threshold; its floor is 1001, so it
+      resolves MEDIUM. HIGH is a claim about magnitude, and it is made only when the band's
+      MINIMUM clears the threshold. That is also `amount_band_floor`'s existing semantic — not
+      a new convention invented here.
+
+    The parse is `ingest_senate.amount_band_floor` (:114-126), reused rather than reimplemented
+    so a second copy cannot drift. That module is import-safe: its `load_dotenv()` calls are
+    inside functions, not at module scope.
+    """
+    floor = amount_band_floor(band)
+    return floor is not None and floor > RULE_01B_HIGH_THRESHOLD
 
 
 # ── DIRECTION IS READ FROM THE TRANSACTION, NEVER ASSUMED ────────────────────
@@ -217,6 +253,7 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     print(f"[RULE_01B] {len(rows)} first-touch transactions found")
     emitted = 0
     unvalidated = 0
+    unparseable_amounts = 0
     valid_symbols = _validity_set(conn)
     # ⚠️ AN EMPTY VALIDITY SET IS AN INFRASTRUCTURE FAILURE, NOT 100% ARTIFACTS.
     # If `tickers` is empty or unreadable, every symbol fails validation and RULE_01B
@@ -306,6 +343,14 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
             continue
 
         severity = "HIGH" if _is_above_15k(amount) else "MEDIUM"
+        # ⚠️ MEDIUM-BECAUSE-SMALL AND MEDIUM-BECAUSE-UNPARSEABLE LOOK IDENTICAL DOWNSTREAM.
+        # The severity fix fails SAFE, which is right, but silence about WHY is not: an
+        # upstream format change that made every band unparseable would quietly drop the
+        # whole rule below the gate's candidate floor and look exactly like a quiet market.
+        # This file already alarms on the ticker-validity ratio for the same reason, so
+        # severity gets the symmetric counter rather than being the one that stays quiet.
+        if amount_band_floor(amount) is None:
+            unparseable_amounts += 1
         # Branch on the RAW type, not the display form built at the top of the loop.
         verb, corroborates, corr_note, why_matters = _direction_for(r["transaction_type"])
         headline = f"First Touch — {name} {verb} {ticker}"
@@ -369,7 +414,14 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
     # exactly like a run in which every symbol genuinely was an artifact. So alarm on the
     # RATIO too: a healthy run is a few percent unverified (41/192 = 21% on the worst
     # stored snapshot), never most of it.
-    note = f"unverified_symbols={unvalidated}/{len(rows)} validity_set={len(valid_symbols)}"
+    note = (f"unverified_symbols={unvalidated}/{len(rows)} validity_set={len(valid_symbols)} "
+            f"unparseable_amounts={unparseable_amounts}")
+    if rows and unparseable_amounts / len(rows) > 0.5:
+        note += " CRITICAL:majority_of_amounts_unparseable_severity_defaulting_to_medium"
+        print(f"[RULE_01B] ⚠️  CRITICAL: {unparseable_amounts}/{len(rows)} amount bands could "
+              f"not be parsed, so their severity fell back to MEDIUM. That is the safe "
+              f"direction, but at this rate suspect an upstream amount-format change — the "
+              f"rule is silently below the gate's candidate floor.")
     if not valid_symbols:
         note += " CRITICAL:tickers_table_empty_validity_set_unavailable"
     elif rows and unvalidated / len(rows) > 0.5:
