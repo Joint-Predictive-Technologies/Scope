@@ -45,11 +45,41 @@ def run(emit: bool = False, dry_run: bool = False) -> None:
           AND trim(t.raw_ticker_string) != ''
           AND t.member_id IS NOT NULL
           AND date(t.transaction_date) >= date('now', '-90 days')
+          -- A trade whose own date is unknown CANNOT be proven first, so it is
+          -- not eligible to carry the "no prior disclosed trade" claim. The
+          -- window above already excludes NULLs today; this is stated
+          -- separately because the window basis is a queued change and the
+          -- honesty guarantee must not depend on it.
+          AND date(t.transaction_date) IS NOT NULL
+          -- FIRST = CHRONOLOGICALLY EARLIEST, NOT LOWEST id.
+          -- This was `t2.id < t.id`, and ingestion batches do not arrive in
+          -- trade-date order: a later batch routinely carries older trades. On
+          -- the 2026-07-28 snapshot 780 member+ticker pairs had a lowest-id row
+          -- that was not the earliest, and 39/192 stored RULE_01B alerts (20.3%)
+          -- therefore asserted "no prior disclosed trade" about a member who had
+          -- one — Gottheimer/ABT cited 2026-05-27 (id 40206) against a true
+          -- earliest of 2025-01-28 (id 43602). RULE_01B is a live gate leg (the
+          -- `congressional` instrument), so that is a false corroborating leg,
+          -- not a cosmetic headline error.
           AND NOT EXISTS (
               SELECT 1 FROM transactions t2
               WHERE t2.member_id = t.member_id
                 AND t2.raw_ticker_string = t.raw_ticker_string
-                AND t2.id < t.id
+                AND t2.id <> t.id
+                AND (
+                    -- An undated SIBLING is the live hazard: NULL fails every
+                    -- `<` comparison silently, so without these two arms a
+                    -- later trade would still claim first-touch whenever the
+                    -- genuinely-earlier row happens to have no date. Unknown
+                    -- order cannot be ruled out, so it blocks the claim.
+                       t2.transaction_date IS NULL
+                    OR date(t2.transaction_date) IS NULL
+                    OR date(t2.transaction_date) <  date(t.transaction_date)
+                    -- Same date: deterministic tiebreak on the lower id, so
+                    -- exactly one row of a same-day pair can ever be "first".
+                    OR (date(t2.transaction_date) = date(t.transaction_date)
+                        AND t2.id < t.id)
+                )
           )
         ORDER BY t.transaction_date DESC
         LIMIT 500
