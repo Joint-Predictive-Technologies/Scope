@@ -96,8 +96,10 @@ def test_hero_never_claims_a_convergence_the_gate_refuses(label, rows):
 def test_hero_does_claim_a_convergence_the_gate_accepts():
     """The other direction — the honest heading must not be unconditional."""
     conn = jpt_common.db_connection()
+    # RULE_09 was the third leg here until it was excluded as CONTEXT (2026-08-02).
+    # RULE_15 is an eligible instrument, so this is still a genuine 3-instrument fire.
     _seed(conn, [("ACME", "RULE_06", "HIGH"),
-                 ("ACME", "RULE_09", "HIGH"),
+                 ("ACME", "RULE_15", "HIGH"),
                  ("ACME", "RULE_11", "HIGH")])
     hero = mb._synthesize_headline(conn)
     fires = _gate_fires_on(conn)

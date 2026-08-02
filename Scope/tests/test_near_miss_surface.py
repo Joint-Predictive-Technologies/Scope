@@ -506,7 +506,9 @@ def test_the_already_fired_guard_uses_the_gates_dedup_window():
 
 def test_the_count_endpoint_matches_the_list():
     _seed([("A1", "RULE_01B", "-1 days"), ("A1", "RULE_11", "-2 days"),
-           ("B1", "RULE_06", "-1 days"), ("B1", "RULE_09", "-2 days"),
+           # B1 needs TWO instruments to be "forming"; RULE_09 supplied the second
+           # until it was excluded as CONTEXT (2026-08-02). RULE_15 is eligible.
+           ("B1", "RULE_06", "-1 days"), ("B1", "RULE_15", "-2 days"),
            ("C1", "RULE_01B", "-1 days")])                       # 1 instrument
 
     assert _get("/forming/count")["count"] == 2
