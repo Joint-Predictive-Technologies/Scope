@@ -134,5 +134,76 @@ def test_dedup_same_identity_then_upgrade_on_new_member():
     assert "expanded to 4" in second["headline"]
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# THE DISPOSAL SET — a missing sale type is SILENT
+# ─────────────────────────────────────────────────────────────────────────────
+# `sale_full` was absent from `_member_direction`'s disposal set. A member whose only
+# trade was a full sale therefore classified as "other" and was dropped from consensus,
+# so a genuine 3-member sell cluster containing one full-seller silently became a
+# 2-member near-miss and never fired. Zero rows carry it today — prophylaxis, not a
+# repair — but the scheduled House parser emits it for PTR code "S (full)".
+
+def test_a_full_sale_is_a_disposal_not_other():
+    assert rc._member_direction({"sale_full"}) == "sell"
+
+
+@pytest.mark.parametrize("t,expected", [
+    ("purchase", "buy"), ("sale", "sell"), ("sale_partial", "sell"),
+    ("sale_full", "sell"), ("exchange", "other"),
+])
+def test_every_type_the_parser_emits_is_classified(t, expected):
+    assert rc._member_direction({t}) == expected
+
+
+def test_the_disposal_set_covers_every_type_the_parser_emits():
+    """Closes the CLASS, not just the sale_full instance.
+
+    `parse_house_pdfs.normalize_transaction_type` is the authority — it is what the
+    scheduled parser writes into `transaction_type`. If a future disposal variant is added
+    there and not here, that variant silently stops counting toward consensus and no other
+    test notices. This reads the parser's own returns and requires each to be classified.
+    """
+    import re
+    src = open(os.path.join(_REPO, "parse_house_pdfs.py")).read()
+    body = src[src.index("def normalize_transaction_type"):]
+    body = body[:body.index("\ndef ", 1)]
+    emitted = set(re.findall(r'return "([a-z_]+)"', body))
+    assert emitted, "could not read the parser's vocabulary — this guard has gone stale"
+    assert "sale_full" in emitted, "fixture assumption broken: parser no longer emits sale_full"
+    for t in emitted:
+        d = rc._member_direction({t})
+        if t.startswith("sale"):
+            assert d == "sell", f"parser emits {t!r} but RULE_CLUSTER calls it {d!r}"
+        elif t == "purchase":
+            assert d == "buy"
+        else:
+            assert d == "other", f"{t!r} classified {d!r} — unexpected direction"
+
+
+def test_a_full_seller_completes_a_three_member_sell_cluster():
+    """End to end: the behaviour the missing type actually cost."""
+    _tx("A000001", "FULLS", "sale", D0)
+    _tx("B000002", "FULLS", "sale_partial", D1)
+    _tx("C000003", "FULLS", "sale_full", D2)      # would have been "other" before
+
+    rc.run()
+
+    alerts = _cluster_alerts("FULLS")
+    assert len(alerts) == 1, "a full seller did not complete the cluster"
+    assert json.loads(alerts[0]["tags"])["distinct_members"] == 3
+
+
+def test_an_exchange_still_does_NOT_count_toward_consensus():
+    """The control — without it the above could pass by counting everything."""
+    _tx("A000001", "EXCH", "sale", D0)
+    _tx("B000002", "EXCH", "sale", D1)
+    _tx("C000003", "EXCH", "exchange", D2)
+
+    rc.run()
+
+    assert _cluster_alerts("EXCH") == [], (
+        "an exchange-only member was counted toward a sell consensus")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
