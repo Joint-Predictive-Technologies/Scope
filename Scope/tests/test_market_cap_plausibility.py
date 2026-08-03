@@ -33,6 +33,58 @@ from scripts import rule_reddit_collector as rc  # noqa: E402
 _REAL_IS_FPI = rc._is_foreign_private_issuer
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# A PINNED CLOCK FOR THE STALENESS BOUNDARY TESTS
+# ─────────────────────────────────────────────────────────────────────────────
+# ⚠️ WHY THIS EXISTS, SO NOBODY "SIMPLIFIES" IT BACK.
+#
+# `_fact_age_days` measures age against `datetime.now(timezone.utc).date()`
+# (`scripts/rule_reddit_collector.py:286`) — a single, consistent UTC basis, and correct.
+# The boundary fixtures used to build "N days ago" from LOCAL `date.today()`. Under any
+# timezone where local != UTC — here CEST, i.e. between 22:00 and midnight UTC — the two
+# sides sat a day apart, so a 541-day fixture measured 540 and the assertion at the 540
+# threshold inverted. Two tests went red every evening and green again by morning, which
+# is the signature people learn to dismiss as flakiness.
+#
+# ⚠️ THE FIX IS NOT TO SWAP THE FIXTURE TO UTC. That makes both sides agree *by luck* —
+# they happen to read the same clock — and re-skews the moment either side derives "now"
+# differently again. Instead BOTH sides are pinned to one constant, so "541 days ago" is
+# 541 days ago under any timezone, at any wall-clock moment, forever.
+#
+# This is the tz-mixing class `CLAUDE.md` warns about: "do not mix tz-aware Python
+# datetimes into these comparisons."
+_PINNED_UTC = _dt.datetime(2026, 6, 15, 12, 0, 0, tzinfo=_dt.timezone.utc)
+
+
+class _PinnedDatetime(_dt.datetime):
+    """`datetime` with only `now()` frozen; everything else inherits.
+
+    ⚠️ TWO SHARP EDGES, INERT TODAY, RECORDED SO THEY STAY THAT WAY.
+    * `utcnow()` is NOT pinned — it is inherited and reads the real clock. The collector
+      uses `datetime.now(timezone.utc)` everywhere, so this never fires; but if it ever
+      adopts `utcnow()`, the pin stops applying SILENTLY and the flake returns with no
+      test going red to announce it.
+    * `now(tz=None)` returns an AWARE datetime here, where the real `datetime.now()`
+      returns naive local. The collector has no bare `now()` call, so nothing compares the
+      two; a future one would raise `TypeError` only under test.
+    Both found by a verification pass.
+    """
+
+    @classmethod
+    def now(cls, tz=None):
+        return _PINNED_UTC if tz is None else _PINNED_UTC.astimezone(tz)
+
+
+def _pin_clock(monkeypatch):
+    """Freeze the collector's clock; return the reference date the fixture must count from.
+
+    Returning the date — rather than letting the caller reach for `date.today()` again —
+    is what makes the two sides share a single origin by construction.
+    """
+    monkeypatch.setattr(rc, "datetime", _PinnedDatetime)
+    return _PINNED_UTC.date()
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
     """Nothing here reaches SEC or Yahoo; each test injects the shape it needs."""
@@ -474,7 +526,9 @@ def test_the_staleness_threshold_boundary(monkeypatch, age_days, accepted):
     component, not the protection.
     """
     conn = db_connection()
-    as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
+    # Pinned on BOTH sides — see _pin_clock. Never `date.today()`: the code under
+    # test measures against UTC, and a local/UTC straddle inverts this boundary.
+    as_of = (_pin_clock(monkeypatch) - _dt.timedelta(days=age_days)).isoformat()
     _cap(monkeypatch, 50_000_000, 10.0, as_of=as_of)
     got = rc.market_cap(conn, "X", cache=False)
     conn.close()
@@ -681,7 +735,9 @@ def test_INSTANCE1_a_stale_count_that_still_reads_LARGE_is_KEPT(monkeypatch, age
     cover-page age.
     """
     conn = db_connection()
-    as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
+    # Pinned on BOTH sides — see _pin_clock. Never `date.today()`: the code under
+    # test measures against UTC, and a local/UTC straddle inverts this boundary.
+    as_of = (_pin_clock(monkeypatch) - _dt.timedelta(days=age_days)).isoformat()
     _cap(monkeypatch, 2_000_000_000, 25.0, as_of=as_of)  # $50B
     cap = rc.market_cap(conn, "CMCSA", cache=False)
     status, _ = rc.classify_cap(conn, "CMCSA", cache=False)
@@ -696,7 +752,9 @@ def test_INSTANCE1_the_other_direction_a_stale_SMALL_cap_still_fails_closed(
     """The control that keeps the exemption honest. Without it the rule would read
     'staleness never matters', which is the mis-scale this dimension exists to stop."""
     conn = db_connection()
-    as_of = (_dt.date.today() - _dt.timedelta(days=age_days)).isoformat()
+    # Pinned on BOTH sides — see _pin_clock. Never `date.today()`: the code under
+    # test measures against UTC, and a local/UTC straddle inverts this boundary.
+    as_of = (_pin_clock(monkeypatch) - _dt.timedelta(days=age_days)).isoformat()
     _cap(monkeypatch, 2_778_912, 2.00, as_of=as_of)      # $5.56M -> SMALL
     assert rc.market_cap(conn, "MOBX", cache=False) is None
     conn.close()
