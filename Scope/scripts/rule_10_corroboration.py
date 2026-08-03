@@ -315,6 +315,94 @@ def non_corroborating(alerts) -> list[dict]:
     return out
 
 
+SIGNED_RULE_DARK_SOURCE = "MONITOR_SIGNED_RULE_DARK"
+
+
+def _detect_dark_signed_rules(conn, window_hours: int) -> list[str]:
+    """⚠️ OBSERVABILITY ONLY. Writes `activity_log`; the gate reads nothing back.
+
+    A SIGNED rule contributes nothing to corroboration when its `corroborates` column is
+    unpopulated — `alert_corroborates` fails closed on NULL, correctly, and silently. The
+    signing session's own guard could not detect this: it asserted synthetic dicts don't
+    corroborate, which is true whether or not the population path has ever run on a real
+    database.
+
+    The hazard is the BACKLOG, not the emit path. Both signed rules write `corroborates` at
+    emit time (`rule_01b_first_touch.py:438-444`, `rule_06_form4.py:552`), so new alerts are
+    populated and a dark rule self-heals as they land. What goes dark is a corpus written
+    BEFORE the rule was signed: RULE_01B's is repaired by `remap_rule01b_direction.py`,
+    which is prepared-not-run, and shipping that signing first takes it from 26 corroborating
+    legs to 0 with no outward sign. An earlier version of this docstring said the verdicts
+    "come from a remap", which is wrong — the remap only covers the backlog. Found by a
+    verification pass.
+
+    Two behaviours worth knowing rather than discovering: this writes one row PER RUN, so a
+    persistently dark rule produces ~24 rows/day (correct for an activity log, noisy for a
+    dashboard); and it does not consult `dry_run`, matching the pre-existing `RULE_10`
+    activity row that is also written under `--dry-run`.
+
+    ⚠️ IT KEYS ON `corroborates IS NULL`, NEVER ON THE CORROBORATION BOOLEAN, AND THAT
+    DISTINCTION IS THE WHOLE POINT. NULL means "no verdict on record" — the population path
+    did not run. A verdict of 0 means "we looked, and this leg does not corroborate". A
+    signed rule whose in-window candidates happen to be ALL SALES has every verdict 0 and is
+    perfectly HEALTHY; alarming on that would fire loudest exactly when the signing is doing
+    its job. Only all-NULL is dark.
+
+    Fires at 100%, not a high ratio: a partially-populated rule is backfilling or rolling
+    over, which is a different (and quieter) signal. Zero in-window candidates is silent —
+    there is nothing to be NULL.
+    """
+    from jpt_common import log_activity
+
+    rows = _candidate_alerts(conn, window_hours)
+    dark: list[str] = []
+
+    for rule in sorted(SIGNED_RULES):
+        candidates = [r for r in rows if (_row_value(r, "rule") or "").strip().upper() == rule]
+        if not candidates:
+            continue                       # nothing to be NULL
+        nulls = [r for r in candidates if _row_value(r, "corroborates") is None]
+        if len(nulls) != len(candidates):
+            continue                       # any populated verdict means the path is running
+
+        # The cause discriminator. Both shapes look identical in-window and need different
+        # responses, so say which one this is.
+        #
+        # ⚠️ THESE LABELS NAME WHAT IS MEASURED, NOT WHAT IS INFERRED, DELIBERATELY. An
+        # earlier draft called them `population_path_never_ran` / `backlog_predates_signing`,
+        # which asserts a cause the query cannot see. "No verdict anywhere" is consistent
+        # with the population path being broken AND with the rule simply not having emitted
+        # since it was signed — RULE_06 on the local snapshot is the latter, and calling
+        # that "never ran" would read as an accusation against working code.
+        #   no_verdict_anywhere_in_db            -> nothing to roll over; investigate
+        #   verdicts_exist_outside_candidate_set -> these rows predate population; self-heals
+        #
+        # "outside the CANDIDATE SET", not "outside the window": a populated verdict can sit
+        # on a row that is in-window but below the severity floor, and calling that "outside
+        # the window" would be false. Both edges were found by a verification pass.
+        # `UPPER(TRIM())` matches how candidates are normalised above — a case-variant stored
+        # rule name with real verdicts was otherwise mislabelled as having none.
+        ever = conn.execute(
+            "SELECT 1 FROM alerts WHERE UPPER(TRIM(rule))=? "
+            "  AND corroborates IS NOT NULL LIMIT 1",
+            (rule,),
+        ).fetchone() is not None
+        cause = ("verdicts_exist_outside_candidate_set" if ever
+                 else "no_verdict_anywhere_in_db")
+
+        note = (f"CRITICAL:signed_rule_dark rule={rule} "
+                f"candidates={len(candidates)} null={len(nulls)} "
+                f"window_hours={window_hours} cause={cause}")
+        log_activity(conn, SIGNED_RULE_DARK_SOURCE, scanned=len(candidates),
+                     flagged=len(candidates), emitted=0, notes=note)
+        print(f"[RULE_10] ⚠️  CRITICAL: {rule} is SIGNED but every one of its "
+              f"{len(candidates)} in-window gate candidates has no directional verdict "
+              f"on record. It is contributing ZERO corroborating legs. cause={cause}")
+        dark.append(rule)
+
+    return dark
+
+
 def find_corroborated_tickers(conn, window_hours: int) -> dict[str, list]:
     rows = _candidate_alerts(conn, window_hours)
 
@@ -375,6 +463,12 @@ def run(dry_run: bool, window_hours: int | None = None) -> tuple[int, int]:
     _t0 = _time.time()
     load_dotenv()
     conn = db_connection()
+
+    # ⚠️ BEFORE the `not clusters` early return below, deliberately. A signed rule going
+    # dark is precisely a rule that stops completing convergences, so `clusters` is empty in
+    # exactly the case this alarm exists for — placing it near the normal exit would make it
+    # silent whenever it matters most. Observability only; the return value is unused.
+    _detect_dark_signed_rules(conn, window_hours)
 
     clusters = find_corroborated_tickers(conn, window_hours)
     found = len(clusters)
