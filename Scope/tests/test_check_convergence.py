@@ -252,7 +252,11 @@ def test_the_diagnostic_agrees_with_the_gate_on_a_REJECTED_insider_leg():
     exactly why it must be shown to inherit the per-alert verdict rather than assumed to.
     """
     conn = db_connection()
-    for rule, verdict in (("RULE_01B", None), ("RULE_11", None), ("RULE_06", 0)):
+    # RULE_01B carries verdict 1 because it was SIGNED on 2026-08-02. It is the
+    # CORROBORATING filler here — the rejection under test is RULE_06's. Leaving it NULL
+    # would silently make this a two-rejection fixture and stop it isolating the insider
+    # leg. RULE_11 is unsigned, so its NULL is ignored by design.
+    for rule, verdict in (("RULE_01B", 1), ("RULE_11", None), ("RULE_06", 0)):
         conn.execute(
             "INSERT INTO alerts (rule, ticker, severity, headline, created_at, "
             "corroborates) VALUES (?, 'SOLDX', 'HIGH', 'x', datetime('now','-1 days'), ?)",

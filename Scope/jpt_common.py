@@ -880,14 +880,32 @@ RULE_10_MIN_INSTRUMENTS = 3
 # instruments behave identically" provable rather than hoped for.
 #
 # It holds only the instruments whose direction is unambiguous AND whose attribution
-# is trusted. Earnings (RULE_15) and RULE_01B are deliberately ABSENT: RULE_15
-# misattributed *rituximab* to RTX, and ~46% of RULE_01B's sales are mislabelled as
-# opens. Signing a leg whose attribution is known-broken puts a CONFIDENT SIGN ON
+# is trusted. Signing a leg whose attribution is known-broken puts a CONFIDENT SIGN ON
 # DATA KNOWN TO BE WRONG, which makes a future false convergence look more credible,
-# not less. They join once their attribution repairs land. Lobbying/13F are parked:
-# "which lobby implies which ticker" is a thematic association, the basket disease in
-# disguise.
-SIGNED_RULES: frozenset[str] = frozenset({"RULE_06"})
+# not less. Earnings (RULE_15) is still deliberately ABSENT — it misattributed
+# *rituximab* to RTX. Lobbying/13F are parked, and RULE_09 has since been excluded from
+# corroboration outright: "which lobby implies which ticker" is a thematic association,
+# the basket disease in disguise.
+#
+# RULE_01B JOINED 2026-08-02, once its attribution repairs landed. It was absent because
+# ~46% of its sales were mislabelled as opens; all five of its 2026-07-28 audit defects
+# are now fixed on main (75bfdbc chronology, b9bf9bb ticker key, b6c67c4 direction,
+# 5a4c003 severity, a3bc9a9 window). Its verdict was proven correct PER ROW before
+# signing: 153 of 153 non-retracted stored alerts match a verdict recomputed
+# independently from tx_type, 0 mismatches. The 39 chronology-retracted rows hold NULL
+# and therefore fail closed — so signing also stops a RETRACTED RULE_01B alert counting
+# as a leg, which the gate's candidate query still cannot do on its own.
+#
+# ⚠️⚠️ SIGNING RULE_01B HAS A DEPLOY PRECONDITION, AND IGNORING IT DARKENS THE RULE.
+# The `corroborates` column is populated by `scripts/remap_rule01b_direction.py`, which
+# is PREPARED AND NOT RUN. Until it has run on a given database every stored RULE_01B
+# alert holds NULL, and NULL fails closed. Measured on the 2026-07-28 snapshot:
+#     remaps applied  -> 16 RULE_01B gate candidates, 11 corroborate  (the intent)
+#     remaps NOT run  -> 26 RULE_01B gate candidates,  0 corroborate  (a blackout)
+# It is fail-SAFE either way, never fail-open — but deploying this before that remap
+# silently removes RULE_01B from corroboration entirely. Run the three RULE_01B remaps
+# in their enforced order first; each exits non-zero if run early.
+SIGNED_RULES: frozenset[str] = frozenset({"RULE_06", "RULE_01B"})
 
 # A present-but-meaningless symbol; mirrors `_SENTINEL_TICKERS` in
 # scripts/insider_clusters.py, whose equivalence to this module is asserted by

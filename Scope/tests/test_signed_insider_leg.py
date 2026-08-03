@@ -160,19 +160,31 @@ def test_lower_case_fails_closed_rather_than_being_normalised():
 
 # ── 3. the blast radius is exactly one rule ─────────────────────────────────
 
-def test_only_RULE_06_is_signed_so_far():
+def test_only_RULE_06_and_RULE_01B_are_signed_so_far():
     """⚠️ THIS IS THE GUARD ON SCOPE CREEP, AND ON A REAL HAZARD.
 
-    RULE_15 and RULE_01B must NOT be here: RULE_15 misattributed *rituximab* to RTX, and
-    ~46% of RULE_01B's sales are mislabelled as opens. Signing a leg whose attribution is
-    known-broken puts a confident sign on data known to be wrong — it makes a future false
-    convergence look MORE credible. They join when their attribution repairs land, and
-    this test is where that decision gets recorded.
+    Signing a leg whose attribution is known-broken puts a confident sign on data known to
+    be wrong — it makes a future false convergence look MORE credible. A rule joins only
+    when its attribution repairs land, and this test is where that decision gets recorded.
+
+    RULE_15 must NOT be here: it misattributed *rituximab* to RTX.
+
+    RULE_01B JOINED 2026-08-02. It was blocked because ~46% of its sales were mislabelled
+    as opens; all five of its 2026-07-28 audit defects are now repaired on main (chronology,
+    ticker key, direction, severity, window). Its verdict was proven correct PER ROW before
+    signing — 153 of 153 non-retracted stored alerts match a verdict recomputed
+    independently from tx_type, 0 mismatches. Behaviour is pinned in
+    tests/test_rule01b_signed.py.
+
+    ⚠️ Signing RULE_01B has a DEPLOY precondition: `corroborates` is populated by
+    scripts/remap_rule01b_direction.py, which is prepared-not-run. Until it runs, every
+    stored RULE_01B alert is NULL and fails closed — measured 26 gate candidates -> 0
+    corroborating. Fail-safe, but a blackout.
     """
-    assert SIGNED_RULES == frozenset({"RULE_06"}), (
+    assert SIGNED_RULES == frozenset({"RULE_06", "RULE_01B"}), (
         "SIGNED_RULES changed — a rule may only be signed once its ATTRIBUTION is "
         "repaired, not merely once its direction is readable")
-    for blocked in ("RULE_15", "RULE_01B", "RULE_09", "RULE_16", "RULE_02"):
+    for blocked in ("RULE_15", "RULE_09", "RULE_16", "RULE_02"):
         assert blocked not in SIGNED_RULES
 
 

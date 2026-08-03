@@ -161,14 +161,30 @@ counting it as saying*. Without it an insider **sell** corroborated a bullish th
 as well as a buy, and that shipped: prod theme 1 fired on RTX at exactly 3 instruments where
 the insider leg was an **exercise-and-sell**.
 
-- `jpt_common.SIGNED_RULES` is the entire blast radius and is currently **`{"RULE_06"}`**.
-  For every other rule an absent verdict means "corroborates", exactly as before — that is
-  what makes "the untouched instruments are unchanged" provable
-  (`test_gate_redesign.py::test_the_UNSIGNED_instruments_are_completely_untouched`).
+- `jpt_common.SIGNED_RULES` is the entire blast radius and is currently
+  **`{"RULE_06", "RULE_01B"}`**. For every other rule an absent verdict means
+  "corroborates", exactly as before — that is what makes "the untouched instruments are
+  unchanged" provable
+  (`test_gate_redesign.py::test_the_UNSIGNED_instruments_are_completely_untouched`;
+  RULE_01B left that parametrisation when it was signed, and `congressional` stays covered
+  there by RULE_02).
 - **A rule may only be signed once its ATTRIBUTION is repaired.** RULE_15 (misattributed
-  *rituximab* to RTX) and RULE_01B (~46% of sales mislabelled as opens) are deliberately
-  unsigned: a confident sign on known-wrong data makes a future false convergence look
-  *more* credible. See `vault/Scope/01_Architecture/signed-signal-engine.md`.
+  *rituximab* to RTX) is still deliberately unsigned: a confident sign on known-wrong data
+  makes a future false convergence look *more* credible. See
+  `vault/Scope/01_Architecture/signed-signal-engine.md`.
+- **RULE_01B was signed 2026-08-02**, once all five of its 2026-07-28 audit defects were
+  repaired and merged. Its verdict was proven correct **per row** first — 153/153
+  non-retracted stored alerts matched a verdict recomputed independently from `tx_type`,
+  0 mismatches. Behaviour is pinned in `tests/test_rule01b_signed.py`.
+  ⚠️ **Signing it has a DEPLOY PRECONDITION.** `corroborates` is populated by
+  `scripts/remap_rule01b_direction.py`, which is prepared-not-run; until it has run on a
+  given database every stored RULE_01B alert is NULL and **fails closed**. Measured on the
+  2026-07-28 snapshot: remaps applied → 16 gate candidates / 11 corroborate; remaps not run
+  → 26 candidates / **0** corroborate, i.e. a silent blackout of the rule as a leg. Run the
+  three RULE_01B remaps in their enforced order *before* shipping the signing, and verify
+  after with the query in
+  `vault/Scope/02_Sessions/SESSION-2026-08-02-rule01b-signing.md`. There is **no automated
+  detector** for this state — flagged as a follow-up.
 - **Insider bar = a genuine open-market buy**: code `P`, acquired, non-derivative,
   non-10b5-1. Do NOT re-derive this — it is `insider_clusters.py::_buy_predicate`, with a
   Python twin `jpt_common.is_genuine_open_market_buy` whose equivalence is proven over an

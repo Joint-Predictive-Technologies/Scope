@@ -261,21 +261,22 @@ def test_a_valid_purchase_is_unaffected_by_either_feature():
 # 4. THIS SESSION MUST NOT HAVE SIGNED THE RULE
 # ─────────────────────────────────────────────────────────────────────────────
 
-def test_this_session_changed_NO_gate_behaviour():
-    """`corroborates` is written but INERT until RULE_01B is deliberately signed.
+def test_the_emit_path_records_the_bearish_verdict():
+    """The direction fix's own deliverable: the EMIT PATH writes a correct typed verdict.
 
-    Writing the verdict is the precondition for signing, not signing itself. If this
-    ever starts mattering without someone editing `SIGNED_RULES` on purpose, a sale
-    would begin failing corroboration silently — a real behaviour change smuggled in
-    under an attribution fix.
+    ⚠️ REWRITTEN 2026-08-02 WHEN RULE_01B WAS SIGNED. This test used to be called
+    `test_this_session_changed_NO_gate_behaviour` and asserted two things: that the emit
+    path records the verdict, and that the gate ignores it because `SIGNED_RULES` was
+    `{"RULE_06"}`. The second half was a pin on the direction session's restraint — it
+    recorded the direction without acting on it — and signing is precisely the deliberate,
+    human-gated act it was guarding against happening BY ACCIDENT. It has now happened on
+    purpose, so that assertion is retired rather than weakened.
+
+    The durable half is kept and is what this file is actually for: writing the verdict is
+    a property of RULE_01B's emit path, separable from whether the gate consumes it. The
+    consumption side is pinned in tests/test_rule01b_signed.py, including the mutation that
+    un-signs the rule.
     """
-    gate = _load(_GATE_PATH, "rule_10_dir")
-
-    assert jpt_common.SIGNED_RULES == frozenset({"RULE_06"}), (
-        f"SIGNED_RULES is {jpt_common.SIGNED_RULES} — this session must not change it; "
-        "signing RULE_01B is its own human-gated session"
-    )
-
     _tx(100, "ABT", "sale")
     r01b.run(emit=True)
 
@@ -286,10 +287,8 @@ def test_this_session_changed_NO_gate_behaviour():
     conn.close()
 
     assert alert["corroborates"] == 0, "the bearish verdict was not recorded"
-    verdict, _reason = gate.alert_corroborates(alert)
-    assert verdict is True, (
-        "a RULE_01B sale now fails the gate's per-alert check — this session was supposed "
-        "to record the direction, not act on it. RULE_01B is not in SIGNED_RULES."
+    assert "disposal" in (alert["corroboration_note"] or ""), (
+        "the verdict carries no reason, so a rejection could not be disclosed"
     )
 
 

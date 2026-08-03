@@ -166,8 +166,12 @@ def test_a_genuine_buy_still_completes_the_gate():
     assert _fires()
 
 
+# RULE_01B left this list on 2026-08-02 when it was SIGNED — it is no longer an unsigned
+# instrument, so asserting it behaves like one would assert the opposite of the truth.
+# `congressional` stays covered here by RULE_02, so the instrument itself loses no
+# coverage; RULE_01B's signed behaviour is pinned in tests/test_rule01b_signed.py.
 @pytest.mark.parametrize("rule,instrument", [
-    ("RULE_01B", "congressional"), ("RULE_02", "congressional"),
+    ("RULE_02", "congressional"),
     ("RULE_11", "contracts"), ("RULE_15", "earnings"), ("RULE_16", "institutional"),
 ])
 def test_the_UNSIGNED_instruments_are_completely_untouched(rule, instrument):
