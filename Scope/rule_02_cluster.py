@@ -2,8 +2,12 @@
 """
 rule_02_cluster.py
 
-Detects when 3+ members of Congress trade the same ticker within a 7-day
-rolling window and emits a RULE_02 cluster alert.
+Detects when 3+ members of Congress trade the same ticker DIRECTIONALLY within
+a 7-day rolling window and emits a RULE_02 cluster alert.
+
+"Directionally" is load-bearing: a member whose only activity on the ticker in
+the window is an exchange is present but expresses no direction, and counting
+them inflated both the headline count and its verb.
 """
 
 from __future__ import annotations
@@ -46,14 +50,65 @@ def direction(transaction_type: str | None) -> str:
     tt = transaction_type.lower()
     if tt.startswith("sale"):
         return "sell"
-    if tt == "purchase":
+    # Prefix, not equality. The two arms were asymmetric — `startswith("sale")`
+    # against `== "purchase"` — so "Purchase (Partial)" read neutral while
+    # "Sale (Partial)" read sell. Harmless while a neutral row merely weakened
+    # the verb; a SUPPRESSION path once neutral members stopped being counted.
+    # `ingest_senate.transaction_verb` already prefixes both.
+    if tt.startswith("purchase"):
         return "buy"
     return "neutral"
 
 
-def net_direction(members_in_window: list[dict]) -> str:
-    buys = sum(1 for m in members_in_window if direction(m["transaction_type"]) == "buy")
-    sells = sum(1 for m in members_in_window if direction(m["transaction_type"]) == "sell")
+def member_direction(rows: list[dict]) -> str:
+    """buy / sell / mixed / neutral for ONE member, over all their rows on the ticker.
+
+    Composes direction() rather than testing a literal set of transaction_type
+    strings. rule_cluster._member_direction keeps its own {"sale", "sale_partial"}
+    literal, which is exactly how it came to miss "sale_full"; anything direction()
+    learns to classify, this classifies too.
+
+    "neutral" means the member traded but said nothing directional (exchange-only).
+    They are present in the window and must NOT be counted as consensus.
+    """
+    dirs = {direction(r["transaction_type"]) for r in rows}
+    has_buy = "buy" in dirs
+    has_sell = "sell" in dirs
+    if has_buy and has_sell:
+        return "mixed"
+    if has_buy:
+        return "buy"
+    if has_sell:
+        return "sell"
+    return "neutral"
+
+
+#: A member counts toward the cluster if they traded directionally at all.
+#: "mixed" counts — they did trade on a direction — matching how
+#: rule_cluster._cluster_direction folds mixed members into its consensus set.
+COUNTED_DIRECTIONS = ("buy", "sell", "mixed")
+
+
+def net_direction(member_dirs: list[str]) -> str:
+    """Cluster verb from the per-member directions of the COUNTED members.
+
+    NOTE the buy-vs-sell contest is a MAJORITY, not unanimity — it is deliberately
+    NOT the same rule as rule_cluster._cluster_direction, which returns "mixed"
+    unless every member agrees. A 3-buy/2-sell cluster still reports NET_LONG here.
+    That is pre-existing and out of scope for this fix; it is pinned as a residual
+    in tests/test_rule02_directional_count.py.
+
+    An individually MIXED member is different, and does force MIXED. They are
+    counted — they did trade directionally — but they are not described by
+    "bought" or "sold", and letting them merely abstain reintroduced the exact bug
+    this fix exists to remove: on the real corpus, MSFT (one buyer + one member who
+    both bought and sold) reported "2 members bought MSFT" on the strength of a
+    single buyer. The count and the verb must describe the same members.
+    """
+    if any(d == "mixed" for d in member_dirs):
+        return "MIXED"
+    buys = sum(1 for d in member_dirs if d == "buy")
+    sells = sum(1 for d in member_dirs if d == "sell")
     if buys > sells:
         return "NET_LONG"
     if sells > buys:
@@ -104,38 +159,63 @@ def find_clusters(
                     break
                 in_window.append(txn)
 
-            distinct_members = {t["member_id"] for t in in_window if t["member_id"]}
-            if len(distinct_members) < min_members:
+            # Group every row the member has in this window BEFORE deciding
+            # their direction. The old code kept each member's FIRST row and
+            # voted on that alone, so a member who exchanged on Monday and sold
+            # on Tuesday voted "neutral" — the vote depended on row order.
+            rows_by_member: dict[str, list[dict]] = defaultdict(list)
+            for t in in_window:
+                if t["member_id"]:
+                    rows_by_member[t["member_id"]].append(t)
+
+            member_dirs = {
+                mid: member_direction(rows) for mid, rows in rows_by_member.items()
+            }
+
+            # THE FIX: count only members who actually traded directionally.
+            # An exchange-only member is present in the window but says nothing
+            # about direction, and counting them inflated both the headline
+            # number and the verb — "3 members sold WAT" over two exchanges and
+            # one partial sale.
+            counted = {
+                mid for mid, d in member_dirs.items() if d in COUNTED_DIRECTIONS
+            }
+            if len(counted) < min_members:
                 continue
 
             # Deduplicate windows with the same member set + date span to
             # avoid reporting the same cluster from every anchor point.
+            # Keyed on the COUNTED set: two windows differing only by an
+            # uncounted member are the same cluster.
             window_key = (
                 ticker,
                 anchor_date,
-                frozenset(distinct_members),
+                frozenset(counted),
             )
             if window_key in seen_windows:
                 continue
             seen_windows.add(window_key)
 
-            member_rows = [t for t in in_window if t["member_id"] in distinct_members]
-            # One row per distinct member (keep first occurrence each).
+            # One row per counted member, for naming only.
             seen_ids: set[str] = set()
             deduped: list[dict] = []
-            for t in member_rows:
-                if t["member_id"] not in seen_ids:
-                    seen_ids.add(t["member_id"])
+            for t in in_window:
+                mid = t["member_id"]
+                if mid in counted and mid not in seen_ids:
+                    seen_ids.add(mid)
                     deduped.append(t)
 
-            nd = net_direction(deduped)
-            member_count = len(distinct_members)
+            nd = net_direction([member_dirs[mid] for mid in counted])
+            member_count = len(counted)
             action_word = "bought" if nd == "NET_LONG" else "sold" if nd == "NET_SHORT" else "traded"
             headline = (
                 f"Cluster: {member_count} members {action_word} {ticker} "
                 f"within 7 days ({nd})"
             )
             severity = "MEDIUM" if nd == "MIXED" else "HIGH"
+            # Names are the COUNTED members only — the tag list and the count
+            # have to describe the same set, or the receipt contradicts the
+            # headline it is meant to evidence.
             names = sorted(
                 t["full_name"] or t["member_id"]
                 for t in deduped
