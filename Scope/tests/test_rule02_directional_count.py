@@ -77,19 +77,24 @@ def test_the_WAT_shape_no_longer_fires():
 
 
 def test_the_WAT_shape_had_three_present_but_one_directional():
-    """The old count's input really was 3 — this is what made the alert look sound."""
+    """The old count's input really was 3 — this is what made the alert look sound.
+
+    Asserted through `find_clusters` at min_members=1 rather than by re-deriving
+    the predicate in the test. An earlier version of this test recomputed
+    `member_direction(...) in COUNTED_DIRECTIONS` itself and so was killed by no
+    mutation of the code under test — it restated the implementation instead of
+    checking it.
+    """
     rows = [
         txn("D000624", "WAT", "exchange", D1),
         txn("H001082", "WAT", "exchange", D2),
-        txn("K000395", "WAT", "sale_partial", D3),
+        txn("K000395", "WAT", "sale_partial", D3, "Kean, Thomas H."),
     ]
-    present = {r["member_id"] for r in rows}
-    counted = {
-        r["member_id"] for r in rows
-        if r02.member_direction([r]) in r02.COUNTED_DIRECTIONS
-    }
-    assert len(present) == 3
-    assert counted == {"K000395"}
+    assert len({r["member_id"] for r in rows}) == 3
+    c = best(r02.find_clusters(rows, min_members=1))
+    assert c["member_count"] == 1
+    assert c["tags"] == "Kean, Thomas H."
+    assert c["net_direction"] == "NET_SHORT"
 
 
 def test_the_VSNT_shape_has_no_direction_at_all():
@@ -216,6 +221,10 @@ def test_sale_full_is_directional_by_composition():
     This is the divergence that bit rule_cluster._member_direction, which tests a
     literal {"sale", "sale_partial"} set and therefore had to be taught `sale_full`
     separately.
+
+    NOTE this passes on the unfixed baseline too — the sale arm always prefixed.
+    It pins a property the fix must not lose, and documents why composing
+    `direction()` is the right shape; it is not evidence FOR the fix.
     """
     assert r02.member_direction([txn("A", "T", "sale_full")]) == "sell"
     rows = [
@@ -252,7 +261,15 @@ def test_member_direction_is_row_order_independent(types, expected):
 
 
 def test_a_member_who_exchanged_then_sold_is_counted_as_a_seller():
-    """End-to-end version of the order dependence: 3 sellers, one of whom also exchanged."""
+    """3 sellers, one of whom also exchanged. Sanity check, NOT a mutation kill.
+
+    Billed in an earlier revision as the end-to-end proof of order independence,
+    which it is not: it survives the first-row-only mutation, because the sliding
+    anchor re-emits the same headline from a later window that begins at the
+    member's sale. That rescue looks structural — any anchor starting on the
+    directional row makes the member directional again. The order dependence is
+    killed by the `member_direction` unit cases above, not by this.
+    """
     rows = [
         txn("A000001", "WAT", "exchange", D1),
         txn("A000001", "WAT", "sale", D2),
@@ -283,6 +300,27 @@ def test_a_mixed_member_counts_but_forces_the_verb_to_MIXED():
     assert c["member_count"] == 3
     assert c["net_direction"] == "MIXED"
     assert "3 members traded NVDA" in c["headline"]
+    assert c["severity"] == "MEDIUM"
+
+
+@pytest.mark.parametrize("n_buy,n_sell", [(1, 1), (2, 2), (3, 3)])
+def test_a_buy_sell_TIE_is_MIXED_and_never_a_direction(n_buy, n_sell):
+    """An even split must read "traded ... (MIXED)" at MEDIUM, never a direction.
+
+    Found by the verifier as an uncaught escape in the rewritten `net_direction`:
+    making the tie return NET_LONG instead of MIXED passed all 1291 tests, and on
+    the real corpus flipped 10 clusters in the 90-day window (19 at 730 days) from
+    MEDIUM/MIXED to HIGH/NET_LONG — e.g. "2 members traded AAPL (MIXED)" becoming
+    "2 members bought AAPL (NET_LONG)". A 1-buy/1-sell cluster reported as a
+    HIGH-severity consensus buy is precisely the failure this whole fix exists to
+    prevent, so the tie branch is pinned here rather than left to inference.
+    """
+    rows = [txn(f"B{i:06d}", "AAPL", "purchase", D1) for i in range(n_buy)]
+    rows += [txn(f"S{i:06d}", "AAPL", "sale", D1) for i in range(n_sell)]
+    c = best(r02.find_clusters(rows, min_members=n_buy + n_sell))
+    assert c["member_count"] == n_buy + n_sell
+    assert c["net_direction"] == "MIXED"
+    assert f"{n_buy + n_sell} members traded AAPL" in c["headline"]
     assert c["severity"] == "MEDIUM"
 
 
@@ -333,6 +371,9 @@ def test_overlapping_anchors_collapse_to_one_headline():
     Because `alert_exists` keys on (rule, ticker, headline), that redundancy
     collapses at emit time rather than spamming alerts — but only as long as the
     headline stays a pure function of (count, verb, ticker).
+
+    NOTE this passes on the unfixed baseline too. It pins pre-existing behaviour
+    the fix must not break, not behaviour the fix introduces.
     """
     rows = [
         txn("A000001", "WAT", "sale", D1),

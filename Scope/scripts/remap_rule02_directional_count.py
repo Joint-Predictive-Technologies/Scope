@@ -1,44 +1,63 @@
 #!/usr/bin/env python3
-"""Retract the RULE_02 alerts whose member count was inflated by non-directional trades.
+"""Correct the RULE_02 alerts the directional-count fix no longer stands behind.
 
 WHAT THIS CORRECTS
 ------------------
 `rule_02_cluster.find_clusters` took its member count from every member with any
-row in the 7-day window, and its verb from a net over each member's FIRST row.
-A member whose only activity on the ticker was an *exchange* therefore counted
-toward the headline number and could swing its verb, so RULE_02 emitted alerts
-claiming a directional consensus that the underlying trades do not support.
+row in the 7-day window, and its verb from a net over each member's FIRST row. So
+a member whose only activity on the ticker was an *exchange* counted toward the
+headline number, and a member who both bought and sold voted as whichever row
+happened to come first. RULE_02 therefore emitted alerts asserting a directional
+consensus the underlying trades do not support.
 
 The code is fixed forward (rule_02_cluster.py). This script exists only for the
-alerts already stored, which the fix cannot reach — detection-time output is
-immutable, so the corpus is corrected by an explicit, reviewed remap or not at all.
+alerts already stored, which the fix cannot reach.
 
-Measured on the working DB (md5 177f474b03495c20df10a21335ca9dc3), 4 of 82
-RULE_02 alerts are affected, 3 of them HIGH:
+HOW IT DECIDES — reconstruction, not a heuristic
+------------------------------------------------
+An earlier version of this script tested each alert's named members for
+directional activity and retracted where fewer members were directional than the
+headline claimed. That predicate finds count inflation and NOTHING ELSE, and it
+therefore missed three HIGH alerts whose *count* was right and whose *verb* was
+wrong. The verifier caught it.
 
-    id 73 [HIGH]   "3 members sold WAT"     -> 1 directional (Dingell, Hern: exchange)
-    id 74 [HIGH]   "2 members sold WAT"     -> 1 directional (Dingell: exchange)
-    id  5 [HIGH]   "2 members bought ABT"   -> 1 directional (Friedman: exchange)
-    id 72 [MEDIUM] "2 members traded VSNT"  -> 0 directional (Dingell, Pelosi: exchange)
+This version instead re-derives the corpus: it runs the FIXED `find_clusters` over
+the whole transaction table and asks, for each stored alert, whether the fixed rule
+still emits it. That is the only predicate that is guaranteed to agree with the fix,
+because it IS the fix.
 
-WHY RETRACT RATHER THAN RE-COUNT
---------------------------------
-Every one of the four falls BELOW the minimum cluster size once the uncounted
-members are removed — three drop to a single directional member and one to zero.
-There is no smaller true cluster hiding inside them to rewrite the headline to; the
-signal is not overstated, it is absent. Rewriting "3 members" to "1 member" would
-manufacture a cluster alert for a lone trade, which is RULE_01B's job, not RULE_02's.
+The reconstruction is trustworthy because the BASELINE code, run the same way,
+reproduces all 82 stored alerts exactly on (ticker, headline, severity, tags) —
+`--check-reconstruction` asserts that before changing anything, and refuses to
+proceed if the corpus cannot be reproduced.
 
-So they are retracted in place: `lifecycle_stage='retracted'`, with the reason
-recorded on the row. Nothing is deleted — a retracted alert stays auditable, and
-the count of what we got wrong is itself a number worth keeping.
+Measured on the working DB (md5 177f474b03495c20df10a21335ca9dc3): 7 of 82 alerts,
+SIX of them HIGH.
+
+  RETRACT (the cluster is gone — too few directional members to be a cluster at all):
+    id  5 [HIGH]   "2 members bought ABT"    Friedman: exchange-only
+    id 72 [MEDIUM] "2 members traded VSNT"   Dingell + Pelosi: exchange-only
+    id 73 [HIGH]   "3 members sold WAT"      Dingell + Hern: exchange-only
+    id 74 [HIGH]   "2 members sold WAT"      Dingell: exchange-only
+
+  CORRECT (the cluster is real; the DIRECTION it asserts is not):
+    id  7 [HIGH]   "2 members sold ADP"    -> "2 members traded ADP (MIXED)"   MEDIUM
+    id 30 [HIGH]   "2 members bought GOOGL" -> "2 members traded GOOGL (MIXED)" MEDIUM
+    id 66 [HIGH]   "3 members sold US"     -> "3 members traded US (MIXED)"    MEDIUM
+
+The three CORRECT rows are the ones that matter most operationally.
+`rule_10_corroboration._candidate_alerts` filters `severity IN ('HIGH','CRITICAL')`,
+so while they stay HIGH they remain gate-eligible RULE_10 legs asserting a
+consensus the fixed rule reports as MIXED.
 
 ⚠️ THE GATE DOES NOT HONOUR RETRACTION for RULE_02. RULE_02 is not in
-`jpt_common.SIGNED_RULES`, so `alert_corroborates` short-circuits True for it and a
-retracted RULE_02 alert can still complete a RULE_10 convergence. Retracting here is
-therefore necessary but NOT sufficient; closing it means signing RULE_02, which is a
-separate human-gated session that this fix unblocks. Do not assume this script makes
-the gate honest.
+`jpt_common.SIGNED_RULES`, so `alert_corroborates` short-circuits True and a
+retracted RULE_02 alert still supplies the `congressional` instrument. Verified by
+execution: a retracted RULE_02 row still completes a 3-instrument convergence.
+Dropping the three CORRECT rows to MEDIUM does remove them from `_candidate_alerts`;
+retraction alone would not. Closing this properly means signing RULE_02 — a separate
+human-gated session that this fix unblocks. Do not assume this script makes the gate
+honest.
 
 DISCIPLINE (mirrors scripts/remap_rule09_tickers.py)
 ----------------------------------------------------
@@ -58,10 +77,14 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from rule_02_cluster import COUNTED_DIRECTIONS, member_direction  # noqa: E402
+import rule_02_cluster as fixed  # noqa: E402
 
 RULE = "RULE_02"
-REASON = "retracted: member count included non-directional (exchange-only) members"
+
+# Stored alerts include 2-member clusters, so the corpus must be rebuilt at the
+# lowest threshold any stored alert could have been emitted under. Rebuilding at
+# 3 would make every 2-member alert look retractable.
+REBUILD_MIN_MEMBERS = 2
 
 
 def _connect(db_path: str | None) -> sqlite3.Connection:
@@ -75,130 +98,206 @@ def _connect(db_path: str | None) -> sqlite3.Connection:
     return conn
 
 
-def _member_index(conn) -> dict[str, str]:
+def _all_transactions(conn) -> list[dict]:
+    """Every transaction, shaped as `fetch_transactions` shapes them.
+
+    No date filter: stored alerts span the whole history, and a 90-day window
+    would make every older alert look retractable.
+    """
+    return [
+        dict(r)
+        for r in conn.execute(
+            """
+            SELECT t.member_id,
+                   t.raw_ticker_string AS ticker,
+                   t.transaction_type,
+                   t.transaction_date,
+                   m.full_name
+            FROM transactions t
+            LEFT JOIN members m ON m.bioguide_id = t.member_id
+            WHERE t.raw_ticker_string IS NOT NULL
+            ORDER BY t.raw_ticker_string, t.transaction_date
+            """
+        )
+    ]
+
+
+def _emitted_index(clusters) -> dict[tuple[str, str], set[tuple[str, str]]]:
+    """(ticker, tags) -> {(headline, severity), ...}
+
+    Keyed on the member set, because that is what survives a verb correction: an
+    alert whose direction changed keeps its members, and an alert whose members
+    changed is a different cluster.
+    """
+    idx: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for c in clusters:
+        idx.setdefault((c["ticker"], c["tags"]), set()).add(
+            (c["headline"], c["severity"])
+        )
+    return idx
+
+
+def _pre_images(conn) -> dict[int, tuple[str, str]]:
+    """alert_id -> (old_headline, old_severity) for rows a prior --apply rewrote."""
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='rule02_directional_remap_backup'"
+    ).fetchone()
+    if not row:
+        return {}
     return {
-        r["full_name"]: r["bioguide_id"]
-        for r in conn.execute("SELECT bioguide_id, full_name FROM members")
-        if r["full_name"]
+        r["alert_id"]: (r["old_headline"], r["old_severity"])
+        for r in conn.execute(
+            "SELECT alert_id, old_headline, old_severity "
+            "FROM rule02_directional_remap_backup"
+        )
+        if r["old_headline"] is not None
     }
 
 
-def _segment(tagstr: str, names_by_len: list[str]) -> list[str]:
-    """Recover member names from the comma-joined tag string.
+def classify(conn, check_reconstruction: bool = True):
+    """Return (retract, correct, skipped, recon). Read-only."""
+    txns = _all_transactions(conn)
+    new_idx = _emitted_index(fixed.find_clusters(txns, REBUILD_MIN_MEMBERS))
 
-    The names are not stored as a list — they are joined with "," and member names
-    themselves contain ", " ("Kean, Thomas H."). Longest-match against the roster is
-    the only way back. Any residue is returned with a "?" prefix so the caller can
-    refuse to touch a row it could not fully parse.
-    """
-    out: list[str] = []
-    rest = (tagstr or "").strip()
-    while rest:
-        for name in names_by_len:
-            if rest.startswith(name):
-                out.append(name)
-                rest = rest[len(name):].lstrip(", ").strip()
-                break
-        else:
-            piece = rest.split(",")[0].strip()
-            out.append("?" + piece)
-            rest = rest[len(piece):].lstrip(", ").strip()
-    return out
-
-
-def find_affected(conn) -> tuple[list[dict], list[dict]]:
-    """Return (to_retract, skipped). Read-only."""
-    ids_by_name = _member_index(conn)
-    names_by_len = sorted(ids_by_name, key=len, reverse=True)
-
-    to_retract: list[dict] = []
-    skipped: list[dict] = []
-
-    rows = conn.execute(
+    stored = conn.execute(
         "SELECT id, ticker, headline, severity, tags, lifecycle_stage "
         "FROM alerts WHERE rule = ? ORDER BY id",
         (RULE,),
     ).fetchall()
 
-    for a in rows:
-        names = _segment(a["tags"] or "", names_by_len)
-        if not names or any(n.startswith("?") for n in names):
-            skipped.append({"id": a["id"], "why": f"tags did not segment: {a['tags']!r}"})
-            continue
+    recon = {"stored": len(stored), "reproduced_by_baseline": None}
+    if check_reconstruction:
+        # Trust check: the UNFIXED rule must reproduce the stored corpus, or the
+        # reconstruction is not a valid basis for changing anything.
+        base_dir = os.path.join(os.path.dirname(__file__), "..")
+        baseline_src = _baseline_source(base_dir)
+        if baseline_src is not None:
+            base_idx = _emitted_index(baseline_src.find_clusters(txns, REBUILD_MIN_MEMBERS))
+            # Compare against PRE-IMAGES for any row this remap already rewrote.
+            # Without this the guard is self-defeating: a successful --apply
+            # changes the very rows it then re-checks, so the second run sees the
+            # baseline failing to reproduce them and refuses — making the script
+            # non-idempotent, which the discipline forbids.
+            pre = _pre_images(conn)
+            hits = 0
+            for a in stored:
+                headline, severity = pre.get(a["id"], (a["headline"], a["severity"]))
+                if (headline, severity) in base_idx.get((a["ticker"], a["tags"] or ""), set()):
+                    hits += 1
+            recon["reproduced_by_baseline"] = hits
+            recon["from_pre_image"] = len(pre)
 
-        counted = 0
-        detail = []
-        for name in names:
-            mid = ids_by_name.get(name)
-            if mid is None:
-                counted = -1
-                skipped.append({"id": a["id"], "why": f"name not on roster: {name!r}"})
-                break
-            member_rows = [
-                {"transaction_type": r["transaction_type"]}
-                for r in conn.execute(
-                    "SELECT transaction_type FROM transactions "
-                    "WHERE member_id = ? AND raw_ticker_string = ?",
-                    (mid, a["ticker"]),
-                )
-            ]
-            d = member_direction(member_rows)
-            if d in COUNTED_DIRECTIONS:
-                counted += 1
-            detail.append((name, d))
-        if counted < 0:
-            continue
+    retract, correct, skipped = [], [], []
+    for a in stored:
+        key = (a["ticker"], a["tags"] or "")
+        stored_tuple = (a["headline"], a["severity"])
+        candidates = new_idx.get(key, set())
 
-        # The alert claims len(names) members. If fewer than that actually traded
-        # directionally, the headline overstates — and because all four known cases
-        # collapse below the cluster minimum, retraction is the correction.
-        if counted < len(names):
-            to_retract.append(
-                {
-                    "id": a["id"],
-                    "ticker": a["ticker"],
-                    "severity": a["severity"],
-                    "headline": a["headline"],
-                    "claimed": len(names),
-                    "counted": counted,
-                    "detail": detail,
-                    "already": (a["lifecycle_stage"] or "") == "retracted",
-                }
-            )
+        if stored_tuple in candidates:
+            continue  # the fixed rule still emits this exactly
 
-    return to_retract, skipped
+        already = (a["lifecycle_stage"] or "") == "retracted"
+        if not candidates:
+            retract.append({"id": a["id"], "severity": a["severity"],
+                            "headline": a["headline"], "already": already})
+        elif len(candidates) == 1:
+            new_headline, new_severity = next(iter(candidates))
+            correct.append({
+                "id": a["id"], "severity": a["severity"], "headline": a["headline"],
+                "new_headline": new_headline, "new_severity": new_severity,
+                "already": a["headline"] == new_headline and a["severity"] == new_severity,
+            })
+        else:
+            skipped.append({
+                "id": a["id"],
+                "why": f"ambiguous — {len(candidates)} candidate replacements: "
+                       f"{sorted(candidates)}",
+            })
+
+    return retract, correct, skipped, recon
+
+
+def _baseline_source(base_dir):
+    """Load the pre-fix module from git, for the reconstruction trust check.
+
+    Returns None (and the check is reported as unavailable) outside a git tree —
+    the check is a guard, not a dependency.
+    """
+    import importlib.util
+    import subprocess
+    import tempfile
+
+    try:
+        src = subprocess.run(
+            ["git", "show", "HEAD~1:Scope/rule_02_cluster.py"],
+            cwd=base_dir, capture_output=True, text=True, timeout=20,
+        )
+        if src.returncode != 0 or not src.stdout:
+            return None
+        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as fh:
+            fh.write(src.stdout)
+            path = fh.name
+        spec = importlib.util.spec_from_file_location("_r02_baseline", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__,
-                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--apply", action="store_true",
                         help="Actually write. Without this the script only reports.")
     parser.add_argument("--db", default=None, help="DB path (default: the resolved app DB).")
+    parser.add_argument("--skip-reconstruction-check", action="store_true",
+                        help="Skip the baseline-reproduces-the-corpus guard.")
     args = parser.parse_args()
 
     conn = _connect(args.db)
-    to_retract, skipped = find_affected(conn)
+    retract, correct, skipped, recon = classify(
+        conn, check_reconstruction=not args.skip_reconstruction_check
+    )
 
-    pending = [c for c in to_retract if not c["already"]]
+    print(f"\nRULE_02 directional-count remap — {recon['stored']} stored alerts")
+    got = recon["reproduced_by_baseline"]
+    if got is None:
+        print("  reconstruction check: UNAVAILABLE (no git baseline reachable)")
+    else:
+        ok = got == recon["stored"]
+        print(f"  reconstruction check: baseline reproduces {got}/{recon['stored']} "
+              f"{'OK' if ok else '*** MISMATCH ***'}")
+        if not ok and args.apply:
+            print("\n  REFUSING TO APPLY — the unfixed rule does not reproduce the stored\n"
+                  "  corpus, so 'the fixed rule no longer emits this' is not trustworthy.\n"
+                  "  Re-run with --skip-reconstruction-check only if you understand why.")
+            return 2
 
-    print(f"\nRULE_02 directional-count remap — {len(to_retract)} affected, "
-          f"{len(pending)} pending, {len(skipped)} skipped\n")
-    for c in to_retract:
-        mark = "(already retracted)" if c["already"] else ""
-        print(f"  id {c['id']:>4} [{c['severity']:<6}] claims {c['claimed']} "
-              f"-> {c['counted']} directional  {mark}")
-        print(f"           {c['headline']}")
-        for name, d in c["detail"]:
-            print(f"             {'COUNTED ' if d in COUNTED_DIRECTIONS else 'uncounted'}  {name}  ({d})")
+    print(f"\n  RETRACT ({len(retract)}) — no cluster survives at all:")
+    for c in retract:
+        print(f"    id {c['id']:>4} [{c['severity']:<6}] {c['headline']}"
+              f"{'   (already retracted)' if c['already'] else ''}")
+    print(f"\n  CORRECT ({len(correct)}) — cluster real, asserted direction not:")
+    for c in correct:
+        print(f"    id {c['id']:>4} [{c['severity']:<6}] {c['headline']}")
+        print(f"           -> [{c['new_severity']:<6}] {c['new_headline']}"
+              f"{'   (already correct)' if c['already'] else ''}")
     for s in skipped:
         print(f"  SKIP id {s['id']}: {s['why']}")
 
+    pending_r = [c for c in retract if not c["already"]]
+    pending_c = [c for c in correct if not c["already"]]
+
     if not args.apply:
-        print("\n  DRY RUN — nothing written. Read the rows above, then re-run with --apply.")
+        print(f"\n  DRY RUN — nothing written. {len(pending_r)} to retract, "
+              f"{len(pending_c)} to correct.")
+        print("  Read the rows above, then re-run with --apply.")
         return 0
 
-    if not pending:
+    if not pending_r and not pending_c:
         print("\n  Nothing to do; already applied.")
         return 0
 
@@ -206,34 +305,53 @@ def main() -> int:
         CREATE TABLE IF NOT EXISTS rule02_directional_remap_backup (
             alert_id        INTEGER PRIMARY KEY,
             old_lifecycle   TEXT,
+            old_headline    TEXT,
+            old_severity    TEXT,
             old_why_matters TEXT
         )
     """)
-    for c in pending:
+
+    def _backup(alert_id):
         row = conn.execute(
-            "SELECT lifecycle_stage, why_matters FROM alerts WHERE id = ?", (c["id"],)
+            "SELECT lifecycle_stage, headline, severity, why_matters "
+            "FROM alerts WHERE id = ?", (alert_id,)
         ).fetchone()
         conn.execute(
             "INSERT OR IGNORE INTO rule02_directional_remap_backup"
-            "(alert_id, old_lifecycle, old_why_matters) VALUES (?,?,?)",
-            (c["id"], row["lifecycle_stage"], row["why_matters"]),
+            "(alert_id, old_lifecycle, old_headline, old_severity, old_why_matters) "
+            "VALUES (?,?,?,?,?)",
+            (alert_id, row["lifecycle_stage"], row["headline"], row["severity"],
+             row["why_matters"]),
         )
-        note = (f"{REASON} — claimed {c['claimed']}, "
-                f"{c['counted']} traded directionally")
+
+    for c in pending_r:
+        _backup(c["id"])
         conn.execute(
             "UPDATE alerts SET lifecycle_stage = 'retracted', "
             "why_matters = COALESCE(why_matters || ' | ', '') || ? WHERE id = ?",
-            (note, c["id"]),
+            ("retracted: member count included non-directional (exchange-only) members",
+             c["id"]),
+        )
+    for c in pending_c:
+        _backup(c["id"])
+        conn.execute(
+            "UPDATE alerts SET headline = ?, severity = ?, "
+            "why_matters = COALESCE(why_matters || ' | ', '') || ? WHERE id = ?",
+            (c["new_headline"], c["new_severity"],
+             f"direction corrected: was {c['headline']!r} at {c['severity']}; "
+             f"a member traded both ways inside the window",
+             c["id"]),
         )
     conn.commit()
 
-    print(f"\n  APPLIED — {len(pending)} alert(s) retracted; "
+    print(f"\n  APPLIED — {len(pending_r)} retracted, {len(pending_c)} direction-corrected; "
           f"pre-images in rule02_directional_remap_backup.")
-    print("  Undo: UPDATE alerts SET lifecycle_stage=(SELECT old_lifecycle FROM "
-          "rule02_directional_remap_backup b WHERE b.alert_id=alerts.id), "
-          "why_matters=(SELECT old_why_matters FROM rule02_directional_remap_backup b "
-          "WHERE b.alert_id=alerts.id) WHERE id IN "
-          "(SELECT alert_id FROM rule02_directional_remap_backup);")
+    print("  Undo: UPDATE alerts SET "
+          "lifecycle_stage=(SELECT old_lifecycle FROM rule02_directional_remap_backup b WHERE b.alert_id=alerts.id), "
+          "headline=(SELECT old_headline FROM rule02_directional_remap_backup b WHERE b.alert_id=alerts.id), "
+          "severity=(SELECT old_severity FROM rule02_directional_remap_backup b WHERE b.alert_id=alerts.id), "
+          "why_matters=(SELECT old_why_matters FROM rule02_directional_remap_backup b WHERE b.alert_id=alerts.id) "
+          "WHERE id IN (SELECT alert_id FROM rule02_directional_remap_backup);")
     return 0
 
 
