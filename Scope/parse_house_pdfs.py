@@ -401,14 +401,42 @@ def parse_table_like_lines(text: str) -> list[ParsedTransaction]:
                     ticker = candidate
                     break
 
+        # FIX A — a rejected ticker must never cost us the TRANSACTION.
+        #
+        # This was `continue`, which discarded the whole row: the member, the date,
+        # the amount and the asset name, not just the unusable symbol. Because
+        # `is_blocklisted` is True for ANY one-character ticker, every Ford (F),
+        # Visa (V), AT&T (T), Citigroup (C) and General Electric line vanished from
+        # `transactions` entirely — invisible to every rule, score and audit, and
+        # leaving no trace to notice it by. 207 such rows exist from before the
+        # blocklist landed (2026-07-05); none since, against 441 House rows.
+        #
+        # Dropping the SYMBOL is right — a bare "A" lifted out of a company name is
+        # not Agilent. Dropping the HOLDING is not.
+        #
+        # `raw_ticker_string=None` is what makes the kept row safe: RULE_01B,
+        # RULE_02 and RULE_CLUSTER all require a non-empty ticker (directly or via
+        # COALESCE), so the row cannot become a corroboration key. The linker still
+        # sees it (`WHERE ticker_id IS NULL`) and resolves it from the description —
+        # which fix C below now leaves intact. That is where a genuine single-letter
+        # ticker is recovered, not here.
+        if ticker and is_blocklisted(ticker):
+            ticker = None
+
         description = before_type
 
         if ticker:
+            # FIX C — the `\b{ticker}\b` deletion that used to follow this line is
+            # gone. It removed the matched token from the description, which is the
+            # exact text `resolve_tickers.resolve_by_company_name` fuzzy-matches on:
+            # "JP Morgan …" became "Morgan …", "MACOM Technology Solutions" became
+            # "Technology Solutions", "Arlington, TX Municipal Bond" became
+            # "Arlington, Municipal Bond". The parser was destroying the evidence the
+            # linker needs and then the linker mis-matched the remainder.
+            #
+            # Stripping the redundant "(NVDA)" parenthetical stays: it is not part of
+            # the company name, and on a fallback-lifted token it is a no-op.
             description = re.sub(rf"\(\s*{re.escape(ticker)}\s*\)", "", description, count=1).strip()
-            description = re.sub(rf"\b{re.escape(ticker)}\b", "", description, count=1).strip()
-
-        if ticker and is_blocklisted(ticker):
-            continue
 
         if not ticker and not description:
             continue
@@ -465,8 +493,13 @@ def parse_pipe_or_tab_rows(text: str) -> list[ParsedTransaction]:
                 ticker_cell = value
                 break
 
+        # FIX A, second path. Same defect, same reasoning as parse_table_like_lines:
+        # this was `continue` and discarded the whole row. Clearing the cell instead
+        # keeps the transaction, and because `asset_candidates` below excludes
+        # whatever `ticker_cell` holds, setting it to None here also returns the
+        # rejected value to the description rather than losing it.
         if ticker_cell and is_blocklisted(ticker_cell):
-            continue
+            ticker_cell = None
 
         asset_candidates = [
             cell
