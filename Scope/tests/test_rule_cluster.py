@@ -54,6 +54,13 @@ def temp_db(monkeypatch, tmp_path):
 
 def _tx(member, ticker, ttype, d, band="$1,001 - $15,000"):
     conn = jpt_common.db_connection()
+    # Register the fixture symbol in `tickers`. RULE_CLUSTER now confers a
+    # corroboration key only on a symbol that validates against that table, so a
+    # fixture that never seeds it would exercise the unvalidated path and store
+    # `ticker=''` — these tests are about clustering (consensus, severity, dedup,
+    # upgrade), not about validity, and mean to run on a real symbol.
+    # The unvalidated path has its own file: tests/test_rule_cluster_ticker_validity.py.
+    conn.execute("INSERT OR IGNORE INTO tickers (symbol) VALUES (?)", (ticker,))
     conn.execute(
         "INSERT INTO transactions (member_id, raw_ticker_string, transaction_type, "
         "amount_band, transaction_date) VALUES (?,?,?,?,?)",

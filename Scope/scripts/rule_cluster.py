@@ -162,8 +162,27 @@ def _gather(conn) -> dict[str, dict]:
     return by_ticker
 
 
-def _prior_cluster_alerts(conn, ticker: str) -> list:
-    """Recent, non-superseded RULE_CLUSTER alerts on this ticker (with parsed identity)."""
+def _fingerprint_ticker(fp: str | None) -> str | None:
+    """The symbol embedded in a cluster fingerprint: CLUSTER::members::TICKER::dir."""
+    parts = (fp or "").split("::")
+    return parts[2] if len(parts) >= 4 else None
+
+
+def _prior_cluster_alerts(conn, stored_ticker: str, group_ticker: str) -> list:
+    """Recent, non-superseded RULE_CLUSTER alerts for THIS cluster's symbol.
+
+    ⚠️ Two arguments, and the second is load-bearing. The SQL narrows on the STORED
+    ticker because that is the column, but the stored ticker is `''` for every
+    cluster whose symbol does not validate — so on its own that predicate lumps all
+    unvalidated clusters, of every symbol, into one namespace. Since the identity
+    test below is `(member set, direction)` and does NOT include the symbol, an FI
+    cluster and a CTRA cluster would dedup against each other: one silently
+    suppressed, or marked `superseded` by the other with a fabricated
+    "expanded to N members" note on a different company.
+
+    So the group symbol is recovered from each candidate's fingerprint and matched
+    explicitly. For a validated cluster this is a no-op (stored == group).
+    """
     rows = conn.execute(
         f"""
         SELECT id, tags FROM alerts
@@ -171,7 +190,7 @@ def _prior_cluster_alerts(conn, ticker: str) -> list:
           AND COALESCE(lifecycle_stage,'') != 'superseded'
           AND created_at >= datetime('now', '-{DEDUP_LOOKBACK_DAYS} days')
         """,
-        (RULE, ticker),
+        (RULE, stored_ticker),
     ).fetchall()
     out = []
     for r in rows:
@@ -179,9 +198,31 @@ def _prior_cluster_alerts(conn, ticker: str) -> list:
             tg = json.loads(r["tags"] or "{}")
         except Exception:
             tg = {}
+        if _fingerprint_ticker(tg.get("fingerprint")) != group_ticker:
+            continue        # a different company sharing the blank key
         out.append({"id": r["id"], "members": set(tg.get("members") or []),
                     "direction": tg.get("direction")})
     return out
+
+
+def _validity_set(conn) -> set:
+    """Canonical symbols from `tickers` — the corroboration-key whitelist.
+
+    Built identically to `rule_01b_first_touch._validity_set` and RULE_02's, so all
+    three agree on canonical form: `normalize_ticker` folds '-' to '.', and BRK-B and
+    BRK.B must not become two corroboration keys for one company.
+
+    ⚠️ This is the THIRD copy of this three-line helper. Deliberately not refactored
+    here — a shared helper touches three rules at once and belongs in its own pass.
+    """
+    return {normalize_ticker(r["symbol"])
+            for r in conn.execute("SELECT symbol FROM tickers")
+            if r["symbol"]}
+
+
+#: Appended to `why_matters` when the cluster's symbol is not in `tickers`.
+#: Mirrors RULE_01B #4 / RULE_02 #2 wording so triage rows read alike across rules.
+UNVALIDATED_FLAG = " [UNVERIFIED->no corroboration] symbol not in `tickers`: "
 
 
 def _verb(direction: str) -> str:
@@ -195,8 +236,12 @@ def run(dry_run: bool = False) -> dict:
     conn = db_connection()
 
     by_ticker = _gather(conn)
+    # Read once. Validity is a pure function of the key, so it needs no threading
+    # through `_gather` — grouping is deliberately left untouched and a cluster on an
+    # unvalidated symbol still forms.
+    valid_symbols = _validity_set(conn)
     tickers_scanned = len(by_ticker)
-    qualifying = emitted = upgrades = 0
+    qualifying = emitted = upgrades = unvalidated = 0
     candidates = []
 
     for ticker, members in by_ticker.items():
@@ -222,7 +267,34 @@ def run(dry_run: bool = False) -> dict:
         severity = "CRITICAL" if n >= CRITICAL_MEMBERS else "HIGH"
         has_conflict = direction == "mixed"
 
-        prior = _prior_cluster_alerts(conn, ticker)
+        # THE KEYING FIX. `_gather` keys on `resolved_symbol or raw_ticker_string`,
+        # so when the ingestion linker correctly DECLINES to link a row the fallback
+        # resurrects the raw parse string it rejected — that is how a 3-member "US"
+        # cluster made entirely of Treasury bills reached the gate.
+        #
+        # ⚠️ THE LIMIT: this validates the SYMBOL, not the INSTRUMENT. Most state
+        # abbreviations the parser lifts out of bond descriptions ARE real tickers
+        # (TX=Ternium, OR, GO, ST, AA, BC, AD), so an "Arlington, Municipal Bond"
+        # row keyed TX still validates and still corroborates. Closing that needs
+        # the parser. Pinned in tests as a KNOWN_LIMIT, not claimed as fixed.
+        #
+        # The fallback itself is kept: SPCX arrives through it on four rows whose
+        # `ticker_id` is NULL and is a perfectly real symbol. What changes is that
+        # only a symbol present in `tickers` may become a CORROBORATION KEY. An
+        # unvalidated cluster still forms, still emits, and still shows its symbol in
+        # the headline — it simply cannot complete a convergence.
+        #
+        # Key removal is the mechanism, not retraction: RULE_CLUSTER is unsigned, so
+        # `alert_corroborates` short-circuits True whatever `lifecycle_stage` says.
+        # What the gate actually filters on is `_candidate_alerts`' `ticker != ''`.
+        is_valid = ticker in valid_symbols
+        stored_ticker = ticker if is_valid else ""
+
+        # Dedup/supersede must look up what was WRITTEN, not the group key —
+        # `_prior_cluster_alerts` filters `WHERE ticker = ?`, so querying the group
+        # key while storing '' would never find a prior unvalidated cluster and would
+        # re-emit it every run.
+        prior = _prior_cluster_alerts(conn, stored_ticker, ticker)
         cur_set = set(member_ids)
         if any(p["members"] == cur_set and p["direction"] == direction for p in prior):
             continue  # identical identity already alerted — dedup
@@ -246,6 +318,12 @@ def run(dry_run: bool = False) -> dict:
         names = [members[mid]["name"] for mid in member_ids]
         why = (f"{n} distinct members {_verb(direction)} {ticker} within {WINDOW_HOURS}h: "
                f"{'; '.join(names)}. Identity {fp}.")
+        if not is_valid:
+            # Absence from `tickers` is a COVERAGE GAP, not proof the symbol is fake —
+            # a listed company can be missing from the table. So the symbol is
+            # preserved here for a human to triage, never dropped and never
+            # fuzzy-resolved to a near neighbour.
+            why += UNVALIDATED_FLAG + repr(ticker)
 
         detail_members, exchange_notes = [], []
         for mid in member_ids:
@@ -277,7 +355,7 @@ def run(dry_run: bool = False) -> dict:
             continue
 
         alert_id = insert_alert(
-            conn, rule=RULE, ticker=ticker, severity=severity, headline=headline,
+            conn, rule=RULE, ticker=stored_ticker, severity=severity, headline=headline,
             why_matters=why, tags=tags, detail=detail, source_url=HOUSE_DISCLOSURE_HUB,
             verify_url=(members[member_ids[0]]["filing_url"] or HOUSE_DISCLOSURE_HUB),
             # 1, not `n`. `n` is the number of MEMBERS in the cluster, and passing it
@@ -287,6 +365,14 @@ def run(dry_run: bool = False) -> dict:
             # the headline, tags and severity; it is not corroboration BREADTH.
             distinct_rule_count=1, has_conflict=has_conflict, novelty_key=fp,
         )
+        if not is_valid:
+            # `insert_alert` has no lifecycle_stage kwarg and adding one would touch
+            # jpt_common, which several rules share. The post-insert UPDATE mirrors the
+            # 'superseded' write immediately below — the same pattern, already in
+            # this file. `review` is for human triage; the blank ticker above is what
+            # actually keeps this off the gate.
+            conn.execute("UPDATE alerts SET lifecycle_stage='review' WHERE id=?", (alert_id,))
+            unvalidated += 1
         for p in superseded:
             conn.execute(
                 "UPDATE alerts SET lifecycle_stage='superseded', "
@@ -298,13 +384,23 @@ def run(dry_run: bool = False) -> dict:
         upgrades += 1 if is_upgrade else 0
 
     conn.close()
+    # `unvalidated` is emitted-but-not-a-corroboration-key. Surfaced here so the
+    # triage backlog is visible in the activity strip without anyone running a query,
+    # and so a sudden jump (a truncated `tickers`) is noticeable.
     notes = (f"tickers_scanned={tickers_scanned}, groups_qualifying={qualifying}, "
-             f"alerts_emitted={emitted}, upgrades={upgrades}")
+             f"alerts_emitted={emitted}, upgrades={upgrades}, unvalidated={unvalidated}")
+    if not valid_symbols:
+        # The worst case, and an earlier version of this line SUPPRESSED the warning
+        # for it: the guard read `if valid_symbols and ...`, so an empty `tickers`
+        # — which un-keys the entire corpus — printed nothing at all.
+        notes += " CRITICAL:tickers_table_empty_every_cluster_unvalidated"
+    elif unvalidated and unvalidated == emitted:
+        notes += " WARNING:every_emitted_cluster_unvalidated_check_tickers_table"
     record_activity(RULE, scanned=tickers_scanned, flagged=qualifying, emitted=emitted,
                     duration_seconds=round(_time.time() - _t0, 2), notes=notes)
     print(f"[{RULE}] {notes}")
     return {"tickers_scanned": tickers_scanned, "qualifying": qualifying,
-            "emitted": emitted, "upgrades": upgrades}
+            "emitted": emitted, "upgrades": upgrades, "unvalidated": unvalidated}
 
 
 def build_parser() -> argparse.ArgumentParser:
