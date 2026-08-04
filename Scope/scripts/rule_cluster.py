@@ -54,10 +54,28 @@ MAX_PER_RUN = 15           # flood guard on the seeding run
 HOUSE_DISCLOSURE_HUB = "https://disclosures-clerk.house.gov/FinancialDisclosure"
 
 
+# Every disposal `parse_house_pdfs.normalize_transaction_type` can emit. It is the
+# authority: the scheduled House parser (every 4h) is what writes `transaction_type`, and
+# it returns exactly purchase / sale / sale_partial / sale_full / exchange.
+#
+# ⚠️ `sale_full` WAS MISSING, AND A MISSING DISPOSAL IS SILENT. It maps from the PTR code
+# "S (full)" (parse_house_pdfs:262) — the least ambiguous sale there is — and without it a
+# member whose only trade was a full sale classified as "other", which
+# `_cluster_direction`/the caller drop from consensus entirely. So a genuine 3-member
+# sell cluster containing one full-seller silently became a 2-member near-miss and never
+# fired. Zero rows carry `sale_full` today, so nothing was lost yet; it is prophylaxis.
+#
+# Found while planning the RULE_02 directional-count fix: RULE_02 matches disposals with
+# `startswith("sale")` and therefore already handled it, so the two rules disagreed on
+# exactly this value. They now agree on every value the parser can produce, which is what
+# `test_the_disposal_set_covers_every_type_the_parser_emits` pins.
+_DISPOSAL_TYPES = {"sale", "sale_partial", "sale_full"}
+
+
 def _member_direction(types: set[str]) -> str:
     """buy / sell / mixed / other from a member's transaction_type set on the ticker."""
     has_buy = "purchase" in types
-    has_sell = bool({"sale", "sale_partial"} & types)
+    has_sell = bool(_DISPOSAL_TYPES & types)
     if has_buy and has_sell:
         return "mixed"
     if has_buy:
