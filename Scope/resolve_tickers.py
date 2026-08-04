@@ -144,7 +144,25 @@ def load_ticker_maps(conn) -> tuple[dict[str, int], dict[str, int], list[str]]:
         if company_name:
             key = company_name.casefold()
             company_to_id[key] = ticker_id
-            company_names.append(company_name)
+            # CASEFOLDED, deliberately — this list exists only to feed
+            # `difflib.get_close_matches` in resolve_by_company_name, and that
+            # comparison was the one case-SENSITIVE step in an otherwise
+            # casefolded pipeline. Folding once here rather than per call keeps the
+            # cost O(names) instead of O(names x unresolved rows).
+            #
+            # ⚠️ That is NOT a saving against the old behaviour, and an earlier
+            # version of this comment implied it was. The old code never folded at
+            # all, so there is nothing to save — measured, the fix is about 16%
+            # SLOWER (3.07s -> 3.56s over 150 real descriptions), because folded
+            # strings clear difflib's `quick_ratio` prefilter more often and so more
+            # candidates reach the full ratio. That is the price of correctness here,
+            # on a job that is human-gated and runs by hand.
+            #
+            # NOT de-duplicated, also deliberately: 2,514 of these are exact repeats
+            # (one row per share class or bond line), and collapsing them would
+            # silently relink ~104 congressional rows to an arbitrary class. See
+            # tests/test_linker_casefold.py::test_the_candidate_list_is_NOT_de_duplicated.
+            company_names.append(key)
 
     return symbol_to_id, company_to_id, company_names
 
@@ -182,8 +200,28 @@ def resolve_by_company_name(
     if not description:
         return None
 
+    # THE FIX. This comparison was case-SENSITIVE while the ambiguity guard below
+    # and the final lookup both casefold, so an exact name match was discarded on
+    # case alone and a worse wrong one won:
+    #
+    #   ratio('Marsh & McLennan Companies, Inc.',
+    #         'MARSH & MCLENNAN COMPANIES, INC.') = 0.375  -> below cutoff, REJECTED
+    #   ratio('Marsh & McLennan Companies, Inc.',
+    #         'Bausch Health Companies Inc.')     = 0.700  -> at cutoff, ACCEPTED
+    #   casefolded:                 correct 1.000, wrong 0.667
+    #
+    # Marsh & McLennan is in `tickers`. The linker had a ratio-1.0 match available
+    # and threw it away. `company_names` is now casefolded at construction, so the
+    # probe must be too.
+    #
+    # The guard and lookup below are untouched and stay correct: they already call
+    # .casefold(), and casefold is idempotent on an already-folded string.
+    #
+    # ⚠️ Deliberately NOT changed: FUZZY_CUTOFF, resolve_by_symbol (the exact first
+    # pass), the ambiguity guard, and difflib itself. The fallback earns its keep —
+    # FB -> META is a legitimate rename that only it recovers.
     matches = difflib.get_close_matches(
-        description,
+        description.casefold(),
         company_names,
         n=3,
         cutoff=FUZZY_CUTOFF,
