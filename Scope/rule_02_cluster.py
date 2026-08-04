@@ -8,6 +8,25 @@ a 7-day rolling window and emits a RULE_02 cluster alert.
 "Directionally" is load-bearing: a member whose only activity on the ticker in
 the window is an exchange is present but expresses no direction, and counting
 them inflated both the headline count and its verb.
+
+TICKER RESOLUTION. A cluster confers a corroboration key only when its symbol
+verifies against `tickers`. Unresolved clusters are still emitted — with
+`ticker=''`, `lifecycle_stage='review'` and the symbol in `why_matters` — because
+absence from `tickers` is a coverage gap, not proof the symbol is fake.
+
+⚠️ KNOWN AND NOT FIXED HERE, two residuals of the raw parse string:
+
+  * Unresolved rows group by that raw string, so DISTINCT companies can share one
+    unkeyed cluster. Real example: `raw='CS'` appears under both "Walmart Inc."
+    and "The Walt Disney Company", giving one "N members bought CS" alert. This is
+    strictly better than before — that cluster used to carry `ticker='CS'` and
+    could corroborate — but it is still a conflated alert. Fixing it needs the
+    parser, not this rule.
+  * 30 transactions carry a resolved `ticker_id` and NO raw string, and are
+    excluded, exactly as they were before this change. They cannot be recovered
+    through the link: 14 of the 30 are mis-linked, and an FK-derived key is in
+    `tickers` by construction, so admitting them demotes the genuine cluster for
+    that symbol. A COVERAGE concern for the ingestion linker; see `resolve_key`.
 """
 
 from __future__ import annotations
@@ -16,19 +35,90 @@ import argparse
 from collections import defaultdict
 from datetime import date, timedelta
 
-from jpt_common import db_connection
+from jpt_common import db_connection, normalize_ticker
 
 
 RULE = "RULE_02"
 WINDOW_DAYS = 7
 
 
+def _validity_set(conn) -> set:
+    """Canonical symbols from `tickers`, the resolution set.
+
+    Deliberately the SAME set, built the same way, as
+    `rule_01b_first_touch._validity_set` — `normalize_ticker` canonicalises '-' to
+    '.', so BRK-B and BRK.B collapse to one symbol instead of splitting a company
+    across two corroboration keys. A second canonicaliser here would be a second
+    thing to keep in sync.
+    """
+    return {normalize_ticker(r["symbol"])
+            for r in conn.execute("SELECT symbol FROM tickers")
+            if r["symbol"]}
+
+
+def resolve_key(raw: str | None, fk_symbol: str | None, valid: set) -> tuple[str, bool]:
+    """(grouping key, resolved?) for one transaction row.
+
+    A three-rung ladder, in this order, that never merges, never fuzzy-resolves
+    and never drops:
+
+      1. The raw string canonicalises into `tickers` -> that canonical symbol.
+         This is RULE_01B #4's rule exactly.
+      2. Otherwise UNRESOLVED: the row still groups (on its canonicalised raw, so
+         it stays visible and clusters with its own kind) but confers no key.
+
+    THE INVARIANT, which the rest of the rule depends on:
+
+        resolved is True  <=>  key in valid
+
+    So resolution is a pure function of the key, which is what makes it uniform
+    across a group and lets a cluster's status be read off any of its rows.
+    `test_resolution_is_a_pure_function_of_the_key` pins it.
+
+    ⚠️ `transactions.ticker_id` NEVER participates. It is assigned by a company-NAME
+    matcher and is not trustworthy in either direction:
+
+      * With a raw string present, three groupings join DISTINCT companies —
+        `IDEXX`->DLB, `MTRS`->GIS, `CNSWF`->STZ. So the FK must never override or
+        supplement a raw string.
+      * With NO raw string, 14 of the 30 such rows are mis-linked (`ASCIX` x13 is
+        "Angel Oak Strategic Credit Fund" in `tickers` against "Oaktree Strategic
+        Credit Fund" in the filing; `RBBN` is "Ribbon" against "Verizon").
+
+    An earlier draft admitted that second group as a non-keying "recovery", on the
+    reasoning that an empty raw string leaves no competing signal. That was wrong
+    twice over. First, the absence of a contradicting signal is not the absence of
+    a contradiction — it only removes the means of DETECTING one. Second, and
+    worse, the verifier showed the recovery was not even inert: an FK-derived key
+    comes from `tickers.symbol` and is therefore IN the validity set by
+    construction, so a recovered row landed in the genuine cluster for that symbol
+    and dragged it to unresolved — stripping the key off real `MRK` and `PLTR`
+    clusters and labelling them "symbol not in `tickers`" about symbols that are.
+
+    Those rows are therefore left out, exactly as before this change. They are a
+    COVERAGE problem for the ingestion linker, not a keying problem for RULE_02;
+    see the module docstring.
+    """
+    norm = normalize_ticker(raw) if raw else None
+    if norm and norm in valid:
+        return norm, True
+    return (norm or ""), False
+
+
 def fetch_transactions(conn, days: int) -> list[dict]:
+    """Rows for clustering, keyed on the RESOLVED symbol where one exists.
+
+    The old query selected `raw_ticker_string AS ticker` and filtered on it being
+    non-NULL, so it (a) grouped and keyed on an unvalidated parse string — `US` is
+    not a symbol, yet 213 transactions carry it and it produced four alerts — and
+    (b) discarded every row that had a resolved `ticker_id` but no raw string.
+    """
+    valid = _validity_set(conn)
     rows = conn.execute(
         """
         SELECT
             t.member_id,
-            t.raw_ticker_string  AS ticker,
+            t.raw_ticker_string  AS raw_symbol,
             t.transaction_type,
             t.transaction_date,
             m.full_name
@@ -41,7 +131,17 @@ def fetch_transactions(conn, days: int) -> list[dict]:
         """,
         (f"-{days} days",),
     ).fetchall()
-    return [dict(r) for r in rows]
+
+    out = []
+    for r in rows:
+        row = dict(r)
+        key, resolved = resolve_key(row["raw_symbol"], None, valid)
+        if not key or " " in key:      # baskets / multi-symbol strings, as RULE_CLUSTER does
+            continue
+        row["ticker"] = key
+        row["resolved"] = resolved
+        out.append(row)
+    return out
 
 
 def direction(transaction_type: str | None) -> str:
@@ -223,8 +323,24 @@ def find_clusters(
             )
             tags = ",".join(names)
 
+            # Uniform across the group because `resolve_key` guarantees
+            # `resolved is True <=> key in valid`, and the group IS the key.
+            #
+            # ⚠️ This was NOT true of an earlier draft, and the comment here
+            # asserted it anyway. That draft let a row keyed from `ticker_id` be
+            # unresolved while carrying a key drawn from `tickers.symbol` — in the
+            # validity set by construction — so resolved and unresolved rows
+            # collided in one group and `all()` silently demoted real clusters.
+            # The invariant is now real; `any()` and `all()` agree by construction
+            # and `test_resolution_is_a_pure_function_of_the_key` holds it there.
+            resolved = all(t.get("resolved", True) for t in in_window)
+            assert resolved == any(t.get("resolved", True) for t in in_window), (
+                "mixed-resolution group — the resolve_key invariant has been broken"
+            )
+
             clusters.append(
                 {
+                    "resolved": resolved,
                     "ticker": ticker,
                     "headline": headline,
                     "severity": severity,
@@ -252,22 +368,42 @@ def alert_exists(conn, ticker: str, headline: str) -> bool:
     return row is not None
 
 
+#: Appended to `why_matters` when the cluster's symbol did not resolve. Mirrors
+#: rule_01b_first_touch's wording so the two rules' triage rows read alike.
+UNRESOLVED_FLAG = "[UNVERIFIED->no corroboration] symbol not in `tickers`: "
+
+
 def emit_alerts(conn, clusters: list[dict]) -> int:
     emitted = 0
     for cluster in clusters:
-        if alert_exists(conn, cluster["ticker"], cluster["headline"]):
+        resolved = cluster.get("resolved", True)
+
+        # An unresolved symbol is NOT a corroboration key. Storing '' rather than
+        # the parse string is what actually removes it from the gate:
+        # rule_10_corroboration._candidate_alerts requires `ticker != ''`. The
+        # alert is still emitted and the raw symbol is preserved below — absence
+        # from `tickers` is a coverage gap for a human to triage, not evidence
+        # that the symbol is fake (a listed company can be missing from the table).
+        stored_ticker = cluster["ticker"] if resolved else ""
+        lifecycle = "created" if resolved else "review"
+        why_matters = None if resolved else UNRESOLVED_FLAG + repr(cluster["ticker"])
+
+        if alert_exists(conn, stored_ticker, cluster["headline"]):
             continue
         conn.execute(
             """
-            INSERT INTO alerts (rule, headline, severity, tags, ticker)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO alerts (rule, headline, severity, tags, ticker,
+                                lifecycle_stage, why_matters)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 RULE,
                 cluster["headline"],
                 cluster["severity"],
                 cluster["tags"],
-                cluster["ticker"],
+                stored_ticker,
+                lifecycle,
+                why_matters,
             ),
         )
         emitted += 1
