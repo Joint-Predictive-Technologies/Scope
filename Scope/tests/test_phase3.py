@@ -32,6 +32,10 @@ def test_cluster_detection_emits_alert():
     conn = db_connection()
     _cleanup(conn, "ZCLU")
     # 3 members buying the same ticker within the 72h window (recent dates).
+    # RULE_CLUSTER confers a corroboration key only on a symbol present in
+    # `tickers`; an unseeded fixture would exercise the unvalidated path and store
+    # `ticker=''`. This test is about cluster DETECTION, so give it a real symbol.
+    conn.execute("INSERT OR IGNORE INTO tickers (symbol) VALUES ('ZCLU')")
     for i, mid in enumerate(("TESTM1", "TESTM2", "TESTM3")):
         conn.execute(
             "INSERT INTO transactions (member_id, raw_ticker_string, transaction_type, transaction_date) "
