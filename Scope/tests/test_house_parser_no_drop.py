@@ -154,17 +154,24 @@ def test_a_symbol_less_row_is_inert_to_the_REAL_rule_queries():
         assert rc._gather(conn) == {}, "RULE_CLUSTER must not group it"
 
 
-def test_a_WHITESPACE_ticker_would_slip_past_RULE_02_so_we_emit_None():
-    """Why the carrier is `None` and never an empty-ish string.
+def test_the_carrier_is_None_and_never_an_empty_ish_STRING():
+    """Why `None` rather than `""` or `"   "`.
 
-    ⚠️ Corrected by the verifier: the rule at risk is RULE_02, not RULE_CLUSTER.
-    RULE_CLUSTER runs `normalize_ticker` at `_gather:129`, which maps '   ' to None and
-    drops it at `:130`. RULE_02 (`rule_02_cluster.py:33`) tests only `IS NOT NULL` with
-    NO trim, so '' and '   ' both survive and cluster. The fix emits None, so neither
-    can arise — this pins that choice, and warns anyone tempted to "harden" it to "".
+    ⚠️ Rewritten after RULE_02's ticker-resolution fix landed on main. The original
+    version asserted that RULE_02 CLUSTERS on `''` and `'   '` — true when this branch
+    was written, because its predicate was a bare `IS NOT NULL` with no trim. That is
+    no longer so: `resolve_key` now maps `''`, `'   '`, `'\t'` and `None` alike to
+    `("", False)` and `fetch_transactions` drops them on `if not key`. Verified below
+    rather than assumed.
+
+    The choice of `None` stands regardless — it is the one carrier no consumer can
+    misread, and it does not depend on another rule continuing to be careful.
     """
-    from jpt_common import db_connection
     import rule_02_cluster as r02
+    for raw in ("", "   ", "  \t "):
+        assert r02.resolve_key(raw, None, {"NVDA"}) == ("", False)
+
+    from jpt_common import db_connection
     with db_connection() as conn:
         for i, raw in enumerate(("", "   ", "  ")):
             conn.execute("INSERT INTO members (bioguide_id, full_name) VALUES (?,?)",
@@ -174,8 +181,9 @@ def test_a_WHITESPACE_ticker_would_slip_past_RULE_02_so_we_emit_None():
                 "transaction_date) VALUES (?,?,?,date('now','-2 days'))",
                 (f"W{i:06d}", raw, "purchase"))
         conn.commit()
-        assert len(r02.fetch_transactions(conn, 90)) == 3, \
-            "RULE_02 does NOT trim — whitespace survives, which is why we emit None"
+        assert r02.fetch_transactions(conn, 90) == [], \
+            "RULE_02 now drops whitespace rows — the hazard this guarded against is closed"
+
     assert parse_one("Ford Motor Company (F) [ST]").raw_ticker_string is None
 
 
