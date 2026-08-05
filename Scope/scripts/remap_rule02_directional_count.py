@@ -81,6 +81,20 @@ import rule_02_cluster as fixed  # noqa: E402
 
 RULE = "RULE_02"
 
+#: The tree IMMEDIATELY BEFORE the directional-count fix landed, used by the
+#: reconstruction guard below to rebuild the pre-fix corpus.
+#:
+#: ⚠️ This was `HEAD~1`, which was correct only while HEAD *was* the fix commit. Once
+#: the fix merged, `HEAD~1` became a merge parent that ALREADY CONTAINS the fix, so the
+#: guard rebuilt the corpus with the fixed rule, reproduced 75/82 instead of 82/82, and
+#: refused every time. The only way past was `--skip-reconstruction-check`, which turns
+#: the safety property OFF rather than satisfying it — and because the identity remap
+#: refuses until this one has run, the entire RULE_02 remap chain was blocked behind a
+#: flag that disables its own guard.
+#:
+#: Pinned to a commit, so it stays correct however history is later reshaped.
+PRE_FIX_COMMIT = "2f16e36^"
+
 # Stored alerts include 2-member clusters, so the corpus must be rebuilt at the
 # lowest threshold any stored alert could have been emitted under. Rebuilding at
 # 3 would make every 2-member alert look retractable.
@@ -230,7 +244,7 @@ def _baseline_source(base_dir):
 
     try:
         src = subprocess.run(
-            ["git", "show", "HEAD~1:Scope/rule_02_cluster.py"],
+            ["git", "show", f"{PRE_FIX_COMMIT}:Scope/rule_02_cluster.py"],
             cwd=base_dir, capture_output=True, text=True, timeout=20,
         )
         if src.returncode != 0 or not src.stdout:
