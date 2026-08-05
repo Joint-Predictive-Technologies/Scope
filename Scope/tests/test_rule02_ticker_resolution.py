@@ -192,7 +192,11 @@ def test_a_resolved_cluster_is_unchanged():
     with db_connection() as conn:
         r02.emit_alerts(conn, [c])
         row = conn.execute("SELECT ticker, lifecycle_stage, why_matters FROM alerts").fetchone()
-    assert (row["ticker"], row["lifecycle_stage"], row["why_matters"]) == ("NVDA", "created", None)
+    assert (row["ticker"], row["lifecycle_stage"]) == ("NVDA", "created")
+    # `why_matters` is no longer None: the identity/dedup fix appends the cluster
+    # fingerprint here (rule_cluster's "Identity {fp}" convention). What must stay
+    # absent is the UNRESOLVED flag — a resolved cluster carries no coverage caveat.
+    assert r02.UNRESOLVED_FLAG not in (row["why_matters"] or "")
 
 
 # --------------------------------------------------------------------------
@@ -382,7 +386,8 @@ def test_a_genuine_cluster_keeps_its_key_when_a_linked_row_shares_the_symbol():
                            "WHERE rule='RULE_02'").fetchone()
     assert row["ticker"] == "PLTR", "a resolving cluster must keep its corroboration key"
     assert row["lifecycle_stage"] == "created"
-    assert row["why_matters"] is None, "must not claim PLTR is absent from `tickers`"
+    # Identity now lives in why_matters; only the UNRESOLVED claim must be absent.
+    assert r02.UNRESOLVED_FLAG not in (row["why_matters"] or ""),         "must not claim PLTR is absent from `tickers`"
 
 
 def test_two_distinct_companies_can_share_an_UNKEYED_cluster_KNOWN_RESIDUAL():

@@ -32,6 +32,7 @@ absence from `tickers` is a coverage gap, not proof the symbol is fake.
 from __future__ import annotations
 
 import argparse
+import json
 from collections import defaultdict
 from datetime import date, timedelta
 
@@ -40,6 +41,10 @@ from jpt_common import db_connection, normalize_ticker
 
 RULE = "RULE_02"
 WINDOW_DAYS = 7
+
+#: Fingerprint namespace. Distinct from rule_cluster's "CLUSTER::" so the two
+#: rules' identities can never be mistaken for one another.
+FP_PREFIX = "RULE02::"
 
 
 def _validity_set(conn) -> set:
@@ -338,6 +343,11 @@ def find_clusters(
                 "mixed-resolution group — the resolve_key invariant has been broken"
             )
 
+            # The member IDS, not their names. `tags` carries names and is left
+            # alone — the directional-count remap segments member names out of it,
+            # and the UI reads it — so identity travels separately.
+            member_ids = sorted(counted)
+
             clusters.append(
                 {
                     "resolved": resolved,
@@ -347,23 +357,136 @@ def find_clusters(
                     "tags": tags,
                     "member_count": member_count,
                     "net_direction": nd,
+                    "members": member_ids,
+                    "fingerprint": _fingerprint(member_ids, ticker, nd),
                 }
             )
 
     return clusters
 
 
-def alert_exists(conn, ticker: str, headline: str) -> bool:
+def _fingerprint(members: list[str], ticker: str, direction: str) -> str:
+    """Cluster identity: the MEMBER SET, the symbol, the direction.
+
+    Mirrors `scripts/rule_cluster.py::_fingerprint`, with a `RULE02::` prefix so the
+    two rules' identities can never be mistaken for one another.
+
+    This replaces identity-by-headline. The headline carries the member COUNT, so a
+    4-member window and its 3-member sub-window produced different strings and the
+    dedup never saw them as related — 15 strict subset/superset pairs exist on the
+    stored corpus, including SPCX ids 8597 (4 members) and 8598 (3 members), both
+    HIGH and emitted in the SAME run.
+    """
+    return f"{FP_PREFIX}{'+'.join(sorted(members))}::{ticker}::{direction}"
+
+
+def _fingerprint_ticker(fp: str | None) -> str | None:
+    """The symbol embedded in a fingerprint: RULE02::members::TICKER::direction.
+
+    ⚠️ Load-bearing, and the reason this exists rather than narrowing the dedup query
+    on the stored ticker. After the ticker-resolution fix every unvalidated cluster
+    stores `ticker=''`, so a ticker-narrowed lookup lumps ALL of them — of every
+    company — into one namespace, and an identity test that compares member sets
+    would dedup two DIFFERENT companies against each other. RULE_CLUSTER hit exactly
+    this and fixed it the same way (`rule_cluster.py:165-168`).
+    """
+    parts = (fp or "").split("::")
+    if len(parts) < 4:
+        return None
+    # rsplit-style: everything between the member segment and the direction. A
+    # symbol containing "::" would desynchronise a fixed parts[2] — the verifier
+    # planted "X::B" and made a DIFFERENT company dedup against it. No such row
+    # exists today (0 transactions carry ':'), but the guard costs one line.
+    return "::".join(parts[2:-1]) or None
+
+
+def _extract_fingerprint(why: str | None) -> str | None:
+    """Pull the fingerprint back out of `why_matters`.
+
+    `why_matters` accumulates — the directional and ticker remaps both append to it —
+    so this anchors on the marker and reads to the next whitespace rather than
+    assuming position.
+    """
+    text = why or ""
+    i = text.find(IDENTITY_MARKER + FP_PREFIX)
+    if i < 0:
+        return None
+    token = text[i + len(IDENTITY_MARKER):].split()[0]
+    return token.rstrip(".") or None
+
+
+def _fingerprint_parts(fp: str) -> tuple[set, str | None]:
+    """(member set, direction) from a fingerprint. The symbol is the ticker parser's."""
+    parts = fp.split("::")
+    if len(parts) < 4:
+        return set(), None
+    members = {m for m in parts[1].split("+") if m}
+    return members, parts[-1]
+
+
+def _prior_alerts(conn, group_ticker: str, days: int) -> list[dict]:
+    """Recent non-superseded RULE_02 alerts for THIS cluster's symbol.
+
+    Two changes from the `alert_exists` this replaces:
+
+    * The lookback is `days` — the caller's `--days` scan window — not a hardcoded
+      7. The old 7-day window was 13x shorter than the 90-day default scan, so the
+      identical AAPL member set re-fired on 2026-06-17, 07-09 and 07-20.
+    * Identity comes from the fingerprint recorded in `why_matters`, not from the
+      headline string. It is NOT in `detail` — see IDENTITY_MARKER for why.
+
+    Rows are matched on the fingerprint's OWN symbol, never on the stored ticker —
+    see `_fingerprint_ticker`.
+    """
+    rows = conn.execute(
+        f"""
+        SELECT id, why_matters FROM alerts
+        WHERE rule = ?
+          AND why_matters LIKE ?
+          AND COALESCE(lifecycle_stage,'') != 'superseded'
+          AND datetime(created_at) >= datetime('now', '-{int(days)} days')
+        """,
+        (RULE, f"%{IDENTITY_MARKER}{FP_PREFIX}%"),
+    ).fetchall()
+    out = []
+    for r in rows:
+        fp = _extract_fingerprint(r["why_matters"])
+        if not fp:
+            continue
+        if _fingerprint_ticker(fp) != group_ticker:
+            continue          # a different company sharing the blank key
+        members, direction = _fingerprint_parts(fp)
+        out.append({"id": r["id"], "members": members, "direction": direction})
+    return out
+
+
+def legacy_alert_exists(conn, ticker: str, headline: str, days: int) -> bool:
+    """The pre-fingerprint dedup, kept for rows written before this change.
+
+    ⚠️ Every RULE_02 alert stored today predates the fingerprint, so `_prior_alerts`
+    cannot see any of them. Without this fallback the first run after deploy would
+    re-emit the whole corpus. Widened from 7 days to the scan window, which on its
+    own also closes the AAPL refire for legacy rows.
+
+    ⚠️⚠️ Scoping this to rows WITHOUT an identity is NOT optional. Headline identity is the very defect
+    this change removes: the headline carries only the member COUNT, so two GENUINELY
+    DISTINCT 3-member clusters on one ticker share a headline exactly. Left
+    unscoped, this fallback suppressed the second one — reintroducing the blindness
+    the fingerprint exists to fix, on a path no fingerprint test would cover.
+    Restricting it to rows that carry no identity means legacy rows keep their old
+    protection while anything this rule writes is judged on its member set.
+    """
     row = conn.execute(
-        """
+        f"""
         SELECT 1 FROM alerts
         WHERE rule = ?
           AND ticker = ?
           AND headline = ?
-          AND datetime(created_at) >= datetime('now', '-7 days')
+          AND COALESCE(why_matters,'') NOT LIKE ?
+          AND datetime(created_at) >= datetime('now', '-{int(days)} days')
         LIMIT 1
         """,
-        (RULE, ticker, headline),
+        (RULE, ticker, headline, f"%{IDENTITY_MARKER}{FP_PREFIX}%"),
     ).fetchone()
     return row is not None
 
@@ -372,9 +495,29 @@ def alert_exists(conn, ticker: str, headline: str) -> bool:
 #: rule_01b_first_touch's wording so the two rules' triage rows read alike.
 UNRESOLVED_FLAG = "[UNVERIFIED->no corroboration] symbol not in `tickers`: "
 
+#: Identity marker inside `why_matters`, mirroring rule_cluster's "Identity {fp}".
+#:
+#: ⚠️ NOT `detail`. An earlier draft stored the identity there as JSON, which is
+#: machine-friendly and would have put raw JSON in front of users: `alerts.detail`
+#: is treated as PROSE by `api/receipts.py::_generic`, `api/static/congress.html`
+#: (which fetches rule=RULE_02 specifically), `scripts/telegram_bot.py` and
+#: `scripts/generate_brief.py`. RULE_CLUSTER escapes that only because it has a
+#: dedicated receipt builder; RULE_02 has none. `why_matters` already carries
+#: RULE_02 prose, and the fingerprint embeds the member set, symbol and direction,
+#: so nothing else needs storing.
+IDENTITY_MARKER = "Identity "
 
-def emit_alerts(conn, clusters: list[dict]) -> int:
+
+def emit_alerts(conn, clusters: list[dict], days: int = 90) -> int:
     emitted = 0
+
+    # LARGEST FIRST, mirroring `rule_cluster.py`'s `candidates.sort(...)`. The
+    # superset rule below can only suppress a shrunk view if the full one is already
+    # on record, so emission order decides the outcome; sorting makes it
+    # order-independent within a run. This is what stops SPCX 8597/8598 — both
+    # emitted in the SAME run, from two overlapping anchor windows.
+    clusters = sorted(clusters, key=lambda c: c.get("member_count", 0), reverse=True)
+
     for cluster in clusters:
         resolved = cluster.get("resolved", True)
 
@@ -388,8 +531,41 @@ def emit_alerts(conn, clusters: list[dict]) -> int:
         lifecycle = "created" if resolved else "review"
         why_matters = None if resolved else UNRESOLVED_FLAG + repr(cluster["ticker"])
 
-        if alert_exists(conn, stored_ticker, cluster["headline"]):
+        # Legacy rows carry no `detail`, so the fingerprint cannot see them.
+        if legacy_alert_exists(conn, stored_ticker, cluster["headline"], days):
             continue
+
+        direction = cluster["net_direction"]
+        member_ids = sorted(cluster.get("members") or [])
+        cur_set = set(member_ids)
+        # Derive identity when the caller did not supply it, rather than requiring
+        # it. `find_clusters` always does, but a hand-built cluster dict should not
+        # crash the emitter — and a memberless dict then degrades to
+        # (ticker, direction) identity, which is all it can honestly assert.
+        fingerprint = cluster.get("fingerprint") or _fingerprint(
+            member_ids, cluster["ticker"], direction
+        )
+        prior = _prior_alerts(conn, cluster["ticker"], days)
+
+        # RULE_CLUSTER's identity semantics, in its order.
+        if any(p["members"] == cur_set and p["direction"] == direction for p in prior):
+            continue          # same members, same direction — already alerted
+        if any(p["members"] > cur_set for p in prior):
+            # A superset is already on record. This is a shrunk view of the same
+            # signal, not a second one.
+            #
+            # ⚠️ Deliberately not direction-aware, matching rule_cluster.py. A
+            # 2-member NET_LONG subset of a 4-member NET_SHORT window IS suppressed
+            # (real case: MSFT id 44 within id 46). Overlapping windows on one
+            # ticker are slices of one cluster, so the fuller read wins.
+            continue
+        superseded = [p for p in prior if p["members"] and p["members"] < cur_set]
+
+        # Identity rides in `why_matters`, appended after any unresolved flag.
+        why_matters = " ".join(
+            x for x in ((why_matters or ""), f"{IDENTITY_MARKER}{fingerprint}") if x
+        ).strip()
+
         conn.execute(
             """
             INSERT INTO alerts (rule, headline, severity, tags, ticker,
@@ -406,6 +582,12 @@ def emit_alerts(conn, clusters: list[dict]) -> int:
                 why_matters,
             ),
         )
+        for p in superseded:
+            # SUPERSEDED, not deleted — an expanded member set replaces the smaller
+            # alert on record rather than silently dropping it.
+            conn.execute(
+                "UPDATE alerts SET lifecycle_stage='superseded' WHERE id=?", (p["id"],)
+            )
         emitted += 1
     conn.commit()
     return emitted
@@ -442,7 +624,7 @@ def main() -> None:
     with db_connection() as conn:
         transactions = fetch_transactions(conn, args.days)
         clusters = find_clusters(transactions, args.min_members)
-        emitted = emit_alerts(conn, clusters)
+        emitted = emit_alerts(conn, clusters, args.days)
 
     print(f"{len(clusters)} clusters found, {emitted} alerts emitted")
     from jpt_common import record_activity
