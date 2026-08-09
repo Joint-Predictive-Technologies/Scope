@@ -126,7 +126,13 @@ def fetch_transactions(conn, days: int) -> list[dict]:
             t.raw_ticker_string  AS raw_symbol,
             t.transaction_type,
             t.transaction_date,
-            m.full_name
+            m.full_name,
+            -- The cross-partisan definition needs party, and this join already
+            -- exists for `full_name` — so party is one column, not a new source.
+            -- A LEFT JOIN means an unmatched filer yields NULL, which
+            -- `is_cross_partisan` treats as "satisfies neither side", never as
+            -- a guess.
+            m.party
         FROM transactions t
         LEFT JOIN members m ON m.bioguide_id = t.member_id
         WHERE t.raw_ticker_string IS NOT NULL
@@ -163,6 +169,43 @@ def direction(transaction_type: str | None) -> str:
     if tt.startswith("purchase"):
         return "buy"
     return "neutral"
+
+
+#: The two parties whose agreement RULE_02 is *about*. Values are `members.party`
+#: verbatim — measured on the roster as 'Democratic' (1350) / 'Republican' (1328),
+#: with zero NULLs. Not a hardcoded member→party map: the roster is the source.
+DEMOCRAT = "Democratic"
+REPUBLICAN = "Republican"
+
+
+def is_cross_partisan(parties) -> bool:
+    """Do the COUNTED members span both major parties?
+
+    ⚠️ THE DEFINITION, NOT A HEURISTIC. RULE_02's refined meaning is "a Democrat
+    AND a Republican agree" — not "N members clustered". A same-party cluster is
+    a real but *different*, weaker signal, and under the hard gate it does not
+    emit at all.
+
+    ⚠️ INDEPENDENTS, MINOR PARTIES AND UNKNOWN PARTY SATISFY NEITHER SIDE BUT
+    BLOCK NOTHING. `D + R + Independent` is cross-partisan; `D + Independent` is
+    not. The same holds for a NULL party from an unmatched filer: it can never
+    stand in for the missing side, and it can never veto a pair that is already
+    present. That asymmetry is deliberate — an unknown must not be able to
+    manufacture agreement, and must not be able to destroy it either.
+
+    Measured on the roster: 12 Independents plus three singletons (New
+    Progressive, Libertarian, Independent Democrat) exist, but **none of the 119
+    members who have ever traded is one of them**, so this arm is currently
+    unexercised in production and is held by fixture instead.
+    """
+    seen = set(parties)
+    return DEMOCRAT in seen and REPUBLICAN in seen
+
+
+def party_split(parties) -> tuple[int, int]:
+    """(#Democrats, #Republicans) — for the headline only, never for the gate."""
+    seq = list(parties)
+    return sum(1 for p in seq if p == DEMOCRAT), sum(1 for p in seq if p == REPUBLICAN)
 
 
 def member_direction(rows: list[dict]) -> str:
@@ -288,6 +331,26 @@ def find_clusters(
             if len(counted) < min_members:
                 continue
 
+            # THE DEFINITION: a Democrat AND a Republican, among the COUNTED
+            # members. Gated on `counted`, not on everyone in the window — an
+            # exchange-only member says nothing about direction and so cannot
+            # supply the agreement either.
+            #
+            # ⚠️ The position relative to `seen_windows` is NOT load-bearing, and
+            # an earlier version of this comment claimed it was. `window_key`
+            # already includes `anchor_date`, so a rejected window can never have
+            # occupied another window's slot wherever the check sits — moving this
+            # block below `seen_windows.add` kills no test and produces
+            # byte-identical output over 365d and 3650d of real data. It is here
+            # only because rejecting early is cheaper.
+            member_party = {
+                mid: (rows[0].get("party") if rows else None)
+                for mid, rows in rows_by_member.items()
+            }
+            cluster_parties = [member_party.get(mid) for mid in counted]
+            if not is_cross_partisan(cluster_parties):
+                continue
+
             # Deduplicate windows with the same member set + date span to
             # avoid reporting the same cluster from every anchor point.
             # Keyed on the COUNTED set: two windows differing only by an
@@ -313,7 +376,27 @@ def find_clusters(
             nd = net_direction([member_dirs[mid] for mid in counted])
             member_count = len(counted)
             action_word = "bought" if nd == "NET_LONG" else "sold" if nd == "NET_SHORT" else "traded"
+            n_dem, n_rep = party_split(cluster_parties)
+            # ⚠️ The composition goes at the END, deliberately. The core phrase
+            # "{n} members {verb} {ticker}" is asserted as a SUBSTRING by the
+            # existing #1 and #2 test suites and read by humans in the feed;
+            # splicing "(2D/1R)" into the middle of it broke eleven of those
+            # assertions and would have broken anything else matching on the
+            # phrase. Prefix and suffix carry the new claim without disturbing it.
             headline = (
+                f"Cross-partisan cluster: {member_count} members {action_word} "
+                f"{ticker} within 7 days ({nd}) [{n_dem}D/{n_rep}R]"
+            )
+            # ⚠️ LOAD-BEARING, AND NOT COSMETIC. `emit_alerts` probes
+            # `legacy_alert_exists` — which matches stored rows on HEADLINE TEXT —
+            # for every row written before the fingerprint existed, and today that
+            # is ALL 82 of them. Changing the headline without this would make
+            # every one of those rows stop matching and re-emit the surviving
+            # corpus as duplicates on the first run after deploy, which is the
+            # exact failure that function's docstring warns about. So the OLD
+            # string is retained verbatim, used ONLY as the legacy probe key and
+            # never stored or displayed.
+            legacy_headline = (
                 f"Cluster: {member_count} members {action_word} {ticker} "
                 f"within 7 days ({nd})"
             )
@@ -353,6 +436,8 @@ def find_clusters(
                     "resolved": resolved,
                     "ticker": ticker,
                     "headline": headline,
+                    "legacy_headline": legacy_headline,
+                    "party_split": (n_dem, n_rep),
                     "severity": severity,
                     "tags": tags,
                     "member_count": member_count,
@@ -532,7 +617,17 @@ def emit_alerts(conn, clusters: list[dict], days: int = 90) -> int:
         why_matters = None if resolved else UNRESOLVED_FLAG + repr(cluster["ticker"])
 
         # Legacy rows carry no `detail`, so the fingerprint cannot see them.
-        if legacy_alert_exists(conn, stored_ticker, cluster["headline"], days):
+        # ⚠️ The LEGACY headline, not the new one. Every stored RULE_02 row
+        # predates both the fingerprint and the cross-partisan headline, so this
+        # probe has to ask the question in the old string's words or it matches
+        # nothing and re-emits the corpus. Semantics are unchanged: same rows,
+        # same window, same scoping — only the key is kept in its original form.
+        # `.get`, not `[...]`: `emit_alerts` accepts any cluster mapping, and a
+        # required new key would break every caller that builds one by hand —
+        # which is a real contract, not just a test convenience. Absent the key,
+        # fall back to `headline` and behave exactly as before this change.
+        legacy_key = cluster.get("legacy_headline") or cluster["headline"]
+        if legacy_alert_exists(conn, stored_ticker, legacy_key, days):
             continue
 
         direction = cluster["net_direction"]

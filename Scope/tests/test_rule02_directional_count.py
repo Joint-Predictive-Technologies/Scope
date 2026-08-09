@@ -37,13 +37,36 @@ D2 = "2026-06-03"
 D3 = "2026-06-05"
 
 
-def txn(member, ticker, ttype, when=D1, name=None):
+def _auto_party(member: str) -> str:
+    """Deterministic D/R so any multi-member fixture is CROSS-PARTISAN by default.
+
+    ⚠️ These tests are about the COUNT, the VERB and the KEY — not about party.
+    RULE_02's cross-partisan hard gate (added later) means a cluster only forms
+    when both major parties are present, so a fixture with no party at all now
+    forms nothing and every assertion here would vanish rather than fail loudly.
+    Party is derived from the member id, so it is stable and order-independent.
+    The gate itself is exercised in test_rule02_cross_partisan.py; pass `party=`
+    explicitly if a test ever needs to care.
+    """
+    # ⚠️ THIS DOES NOT GUARANTEE A MIXED FIXTURE — do not assume it does. It
+    # alternates for the synthetic sequential ids these files mostly use, but REAL
+    # bioguide ids collide freely: `C001123` and `G000583` both end in '3';
+    # `B000000` and `S000000` both end in '0'. Three fixtures here pass `party=`
+    # explicitly for exactly that reason.
+    # ⚠️ THE FAILURE MODE IS SILENT: a same-last-digit pair forms NO cluster, so an
+    # `== []`-shaped assertion passes vacuously. If a new fixture starts passing
+    # for no visible reason, suspect this first and pass `party=` explicitly.
+    return r02.DEMOCRAT if ord(member[-1]) % 2 == 0 else r02.REPUBLICAN
+
+
+def txn(member, ticker, ttype, when=D1, name=None, party=None):
     return {
         "member_id": member,
         "ticker": ticker,
         "transaction_type": ttype,
         "transaction_date": when,
         "full_name": name if name is not None else f"Member {member}",
+        "party": party if party is not None else _auto_party(member),
     }
 
 
@@ -79,21 +102,30 @@ def test_the_WAT_shape_no_longer_fires():
 def test_the_WAT_shape_had_three_present_but_one_directional():
     """The old count's input really was 3 — this is what made the alert look sound.
 
-    Asserted through `find_clusters` at min_members=1 rather than by re-deriving
-    the predicate in the test. An earlier version of this test recomputed
-    `member_direction(...) in COUNTED_DIRECTIONS` itself and so was killed by no
-    mutation of the code under test — it restated the implementation instead of
-    checking it.
+    Asserted through `find_clusters` rather than by re-deriving the predicate in
+    the test. An earlier version recomputed `member_direction(...) in
+    COUNTED_DIRECTIONS` itself and so was killed by no mutation of the code under
+    test — it restated the implementation instead of checking it.
+
+    ⚠️ WIDENED FROM THE ORIGINAL 3-present/1-directional SHAPE, and here is why.
+    This used to probe at `min_members=1` and assert `member_count == 1`. RULE_02's
+    cross-partisan gate makes that impossible by construction: a LONE member can
+    never span both parties, so a 1-member cluster can no longer form at any
+    threshold. The shape is therefore 4 present / 2 directional, with the two
+    directional members spanning both parties. THE GUARD IS UNCHANGED — the two
+    exchange-only members must still be absent from both the count and the tags,
+    and reverting the directional-count fix still makes this read 4, not 2.
     """
     rows = [
         txn("D000624", "WAT", "exchange", D1),
         txn("H001082", "WAT", "exchange", D2),
-        txn("K000395", "WAT", "sale_partial", D3, "Kean, Thomas H."),
+        txn("K000395", "WAT", "sale_partial", D3, "Kean, Thomas H.", party=r02.REPUBLICAN),
+        txn("P000034", "WAT", "sale", D3, "Pallone, Frank", party=r02.DEMOCRAT),
     ]
-    assert len({r["member_id"] for r in rows}) == 3
+    assert len({r["member_id"] for r in rows}) == 4
     c = best(r02.find_clusters(rows, min_members=1))
-    assert c["member_count"] == 1
-    assert c["tags"] == "Kean, Thomas H."
+    assert c["member_count"] == 2, "the two exchange-only members must not be counted"
+    assert c["tags"] == "Kean, Thomas H.,Pallone, Frank"
     assert c["net_direction"] == "NET_SHORT"
 
 
@@ -315,8 +347,11 @@ def test_a_buy_sell_TIE_is_MIXED_and_never_a_direction(n_buy, n_sell):
     HIGH-severity consensus buy is precisely the failure this whole fix exists to
     prevent, so the tie branch is pinned here rather than left to inference.
     """
-    rows = [txn(f"B{i:06d}", "AAPL", "purchase", D1) for i in range(n_buy)]
-    rows += [txn(f"S{i:06d}", "AAPL", "sale", D1) for i in range(n_sell)]
+    # Explicit parties: B* and S* end in the same digit, so the auto rule makes
+    # this single-party and the cross-partisan gate correctly forms no cluster at
+    # all. The tie semantics under test are about DIRECTION, not party.
+    rows = [txn(f"B{i:06d}", "AAPL", "purchase", D1, party=r02.DEMOCRAT) for i in range(n_buy)]
+    rows += [txn(f"S{i:06d}", "AAPL", "sale", D1, party=r02.REPUBLICAN) for i in range(n_sell)]
     c = best(r02.find_clusters(rows, min_members=n_buy + n_sell))
     assert c["member_count"] == n_buy + n_sell
     assert c["net_direction"] == "MIXED"
@@ -327,9 +362,12 @@ def test_a_buy_sell_TIE_is_MIXED_and_never_a_direction(n_buy, n_sell):
 def test_the_MSFT_shape_keeps_the_verb_it_already_had():
     """Regression pin for the above, in the shape that exposed it."""
     rows = [
-        txn("C001123", "MSFT", "purchase", D1, "Cisneros, Gilbert Ray"),
-        txn("G000583", "MSFT", "sale", D2, "Gottheimer, Josh"),
-        txn("G000583", "MSFT", "purchase", D2, "Gottheimer, Josh"),
+        # Both ids end in '3', so the auto rule makes this single-party. This
+        # fixture is about the VERB, so the pair is made cross-partisan to let a
+        # cluster form at all.
+        txn("C001123", "MSFT", "purchase", D1, "Cisneros, Gilbert Ray", party=r02.DEMOCRAT),
+        txn("G000583", "MSFT", "sale", D2, "Gottheimer, Josh", party=r02.REPUBLICAN),
+        txn("G000583", "MSFT", "purchase", D2, "Gottheimer, Josh", party=r02.REPUBLICAN),
     ]
     c = best(r02.find_clusters(rows, min_members=2))
     assert c["member_count"] == 2

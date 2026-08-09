@@ -59,7 +59,29 @@ D3 = "2026-06-05"
 VALID = {"NVDA", "WMT", "DIS", "BRK.B", "PLTR", "DLB", "GIS", "STZ", "IDXX"}
 
 
-def txn(member, key, ttype, when=D1, name=None, resolved=True):
+def _auto_party(member: str) -> str:
+    """Deterministic D/R so any multi-member fixture is CROSS-PARTISAN by default.
+
+    ⚠️ These tests are about the COUNT, the VERB and the KEY — not about party.
+    RULE_02's cross-partisan hard gate (added later) means a cluster only forms
+    when both major parties are present, so a fixture with no party at all now
+    forms nothing and every assertion here would vanish rather than fail loudly.
+    Party is derived from the member id, so it is stable and order-independent.
+    The gate itself is exercised in test_rule02_cross_partisan.py; pass `party=`
+    explicitly if a test ever needs to care.
+    """
+    # ⚠️ THIS DOES NOT GUARANTEE A MIXED FIXTURE — do not assume it does. It
+    # alternates for the synthetic sequential ids these files mostly use, but REAL
+    # bioguide ids collide freely: `C001123` and `G000583` both end in '3';
+    # `B000000` and `S000000` both end in '0'. Three fixtures here pass `party=`
+    # explicitly for exactly that reason.
+    # ⚠️ THE FAILURE MODE IS SILENT: a same-last-digit pair forms NO cluster, so an
+    # `== []`-shaped assertion passes vacuously. If a new fixture starts passing
+    # for no visible reason, suspect this first and pass `party=` explicitly.
+    return r02.DEMOCRAT if ord(member[-1]) % 2 == 0 else r02.REPUBLICAN
+
+
+def txn(member, key, ttype, when=D1, name=None, resolved=True, party=None):
     return {
         "member_id": member,
         "ticker": key,
@@ -67,6 +89,7 @@ def txn(member, key, ttype, when=D1, name=None, resolved=True):
         "transaction_type": ttype,
         "transaction_date": when,
         "full_name": name if name is not None else f"Member {member}",
+        "party": party if party is not None else _auto_party(member),
     }
 
 
@@ -326,11 +349,18 @@ def test_a_mislinked_row_does_not_join_the_other_companys_cluster():
 # End-to-end through fetch_transactions, against a real schema
 # --------------------------------------------------------------------------
 
+#: Alternating parties. RULE_02's cross-partisan gate means a cluster only forms
+#: when both major parties are present, and a real member always HAS a party —
+#: a partyless seed row is the unrealistic case. These tests are about the KEY;
+#: the gate itself is covered in test_rule02_cross_partisan.py.
+_SEED_PARTIES = ("Democratic", "Republican", "Democratic")
+
+
 def _seed(conn):
     conn.execute("INSERT INTO tickers (id, symbol) VALUES (1, 'PLTR'), (2, 'NVDA'), (3, 'DLB')")
     for i in range(3):
-        conn.execute("INSERT INTO members (bioguide_id, full_name) VALUES (?,?)",
-                     (f"M00000{i}", f"Member {i}"))
+        conn.execute("INSERT INTO members (bioguide_id, full_name, party) VALUES (?,?,?)",
+                     (f"M00000{i}", f"Member {i}", _SEED_PARTIES[i]))
 
 
 def test_rows_with_a_ticker_id_but_no_raw_string_stay_excluded():
@@ -372,7 +402,7 @@ def test_a_genuine_cluster_keeps_its_key_when_a_linked_row_shares_the_symbol():
                 "transaction_type, transaction_date) VALUES (?,?,?,?,date('now','-2 days'))",
                 (f"M00000{i}", 1, "PLTR", "purchase"),
             )
-        conn.execute("INSERT INTO members (bioguide_id, full_name) VALUES ('Q000001','Q')")
+        conn.execute("INSERT INTO members (bioguide_id, full_name, party) VALUES ('Q000001','Q','Republican')")
         conn.execute(
             "INSERT INTO transactions (member_id, ticker_id, raw_ticker_string, "
             "transaction_type, transaction_date) VALUES (?,?,?,?,date('now','-2 days'))",
@@ -402,8 +432,8 @@ def test_two_distinct_companies_can_share_an_UNKEYED_cluster_KNOWN_RESIDUAL():
     with db_connection() as conn:
         conn.execute("INSERT INTO tickers (id, symbol) VALUES (41,'WMT'), (42,'DIS')")
         for i, fk in enumerate((41, 41, 42)):
-            conn.execute("INSERT INTO members (bioguide_id, full_name) VALUES (?,?)",
-                         (f"C00000{i}", f"Member {i}"))
+            conn.execute("INSERT INTO members (bioguide_id, full_name, party) VALUES (?,?,?)",
+                         (f"C00000{i}", f"Member {i}", _SEED_PARTIES[i]))
             conn.execute(
                 "INSERT INTO transactions (member_id, ticker_id, raw_ticker_string, "
                 "transaction_type, transaction_date) VALUES (?,?,?,?,date('now','-2 days'))",
@@ -442,8 +472,8 @@ def test_the_ASCIX_mislink_never_reaches_clustering_at_all():
         conn.execute("INSERT INTO tickers (id, symbol, company_name) "
                      "VALUES (9, 'ASCIX', 'Angel Oak Strategic Credit Fund')")
         for i in range(3):
-            conn.execute("INSERT INTO members (bioguide_id, full_name) VALUES (?,?)",
-                         (f"X00000{i}", f"Member {i}"))
+            conn.execute("INSERT INTO members (bioguide_id, full_name, party) VALUES (?,?,?)",
+                         (f"X00000{i}", f"Member {i}", _SEED_PARTIES[i]))
             conn.execute(
                 "INSERT INTO transactions (member_id, ticker_id, raw_ticker_string, "
                 "raw_description, transaction_type, transaction_date) "
