@@ -843,6 +843,33 @@ def cmdk_js():
     and missing on 13. Placement now lives in one file every page loads."""
     return FileResponse(STATIC_DIR / "cmdk.js", media_type="application/javascript")
 
+@app.get("/signal-events.js", include_in_schema=False)
+def signal_events_js():
+    """The signal event bus — the ONLY path from `/alerts` to a visual component.
+
+    Served like `/theme.js` and `/cmdk.js` because there is no StaticFiles mount:
+    every asset is an explicit route. Additive — nothing already served changes."""
+    return FileResponse(STATIC_DIR / "signal-events.js",
+                        media_type="application/javascript")
+
+@app.get("/signal-dna.js", include_in_schema=False)
+def signal_dna_js():
+    """DNA-as-intelligence-state. A bus subscriber; it has no fetch of its own."""
+    return FileResponse(STATIC_DIR / "signal-dna.js",
+                        media_type="application/javascript")
+
+@app.get("/signal-pulse.js", include_in_schema=False)
+def signal_pulse_js():
+    """Market pulse. A bus subscriber; state comes from real alert frequency."""
+    return FileResponse(STATIC_DIR / "signal-pulse.js",
+                        media_type="application/javascript")
+
+@app.get("/signals", response_class=HTMLResponse, include_in_schema=False)
+def signals_page():
+    """Host page for the signal event system. A NEW page — no existing page was
+    modified to add these components."""
+    return FileResponse(STATIC_DIR / "signals.html")
+
 @app.get("/ask", response_class=HTMLResponse, include_in_schema=False)
 def ask():
     return FileResponse(STATIC_DIR / "chat.html")
