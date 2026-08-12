@@ -828,6 +828,15 @@ def theme_js():
     applied before first paint — deferring it flashes dark on every load."""
     return FileResponse(STATIC_DIR / "theme.js", media_type="application/javascript")
 
+@app.get("/nav.js", include_in_schema=False)
+def nav_js():
+    """Primary navigation — one definition for all 31 pages.
+
+    Loaded SYNCHRONOUSLY (not deferred) so the page's stale hand-copied links
+    are hidden before first paint. The nav had drifted into nine variants and
+    had lost nine routes entirely; see the file header."""
+    return FileResponse(STATIC_DIR / "nav.js", media_type="application/javascript")
+
 @app.get("/rule-names.js", include_in_schema=False)
 def rule_names_js():
     """Rule DISPLAY names. Presentation only — the programmatic ids that the

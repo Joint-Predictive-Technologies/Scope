@@ -486,17 +486,16 @@ a.wr{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-
 """
 
 
-# Full navigation for the main page (the brief IS the main page). The brand
-# links to `/` (this page); these cover the major routes so nothing is hidden.
-_FULL_NAV = (
-    '<a href="/home">Dashboard</a>'
-    '<a href="/feed">Alerts</a><a href="/congress">Congress</a>'
-    '<a href="/insiders">Insiders</a><a href="/contracts">Contracts</a>'
-    '<a href="/lobbying">Lobbying</a><a href="/intelligence">Theses</a>'
-    '<a href="/clusters">Clusters</a><a href="/osint">OSINT</a>'
-    '<a href="/universe">Universe</a>'
-    '<a href="/sectors">Sectors</a><a href="/ask">Ask</a>'
-)
+# The hand-rolled nav constant that used to live here HAS BEEN DELETED, and its
+# absence is the point. This page is GENERATED, not a static file, so it was
+# invisible to a sweep of `api/static/*.html` — and an independent verifier
+# caught that the product's DEFAULT LANDING PAGE was still serving a
+# twelve-link bar with no `/signals` in it, while the shared nav's own first
+# entry ("Brief") pointed straight at it. The one page the new nav promoted was
+# the one page it could not reach.
+#
+# The nav now comes from `/nav.js` like every other page. Re-adding a local
+# copy here would recreate exactly the drift that caused this.
 
 # Client-side hydration for the two live components on the main page: the ticker
 # belt (/api/ticker-tape) and the week calendar (/api/activity). Plain string
@@ -678,9 +677,10 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
 <script src="/theme.js"></script>
 <link rel="stylesheet" href="/tokens.css"/>
 <script src="/rule-names.js"></script>
+<script src="/nav.js"></script>
 <script src="/cmdk.js" defer></script>
 <style>{_CSS}</style></head><body>
-<nav><a href="/" class="brand">◈ SCOPE</a><div class="nav-links">{_FULL_NAV}</div></nav>
+<nav><a href="/" class="brand">◈ SCOPE</a></nav>
 <div class="tape" aria-label="Live signal ticker"><div class="tape-inner" id="tape"></div></div>
 <div class="page">{hero_html}{strip_html}
 <section id="thisweek"><h2>This Week <a href="#thisweek">¶</a></h2><div class="weekcal" id="weekcal"></div></section>
@@ -757,7 +757,7 @@ def render_text(d: dict, date_str: str, preamble: str | None) -> str:
 # whose embedded marker != the current version is treated as a cache MISS by
 # generate() and as "not current" by brief_is_current(), so the next scheduled
 # run — or a non-blocking page-load-triggered regen — rebuilds it.
-TEMPLATE_VERSION = "light-theme-2"   # nav: + Dashboard(/home); shared ⌘K;
+TEMPLATE_VERSION = "shared-nav-1"    # nav: rendered by /nav.js, not hand-rolled;
                                     # hero counted in the gate's units
 _TEMPLATE_MARKER = f"<!--scope-brief-template:{TEMPLATE_VERSION}-->"
 
