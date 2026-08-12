@@ -31,6 +31,7 @@
     canvas { display: block; width: 100%; }
     #dna { height: 260px; }
     #pulse { height: 96px; }
+    #constellation { height: 320px; }
 
     .state-row { display: flex; align-items: center; gap: .8rem; padding: .55rem 1rem 0; flex-wrap: wrap; }
     .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
@@ -68,9 +69,10 @@
   <div class="sub" id="sub">Initialising…</div>
 
   <div class="note">
-    <strong>Everything moving on this page is a real Scope alert.</strong> Both components subscribe
-    to one shared event bus fed from <code>/alerts</code>; neither has a data path of its own and
-    neither has a simulator. Scope has no WebSocket or SSE endpoint, so this is
+    <strong>Everything moving on this page is a real Scope alert.</strong> All three components subscribe
+    to one shared event bus fed from <code>/alerts</code>; none has a data path of its own and
+    none has a simulator. In the graph below, <strong>an edge is a claim</strong> — a line is drawn only
+    where a stored field says the two things are related, never from co-occurrence. Scope has no WebSocket or SSE endpoint, so this is
     <strong>polling, not push</strong> — new alerts appear at the next poll, not instantly. If the
     poll fails, the helix stops gaining rungs and the pulse goes quiet: that is the honest reading
     of "we don't know", and nothing here will invent activity to fill it. And if a backlog is larger
@@ -85,6 +87,16 @@
     </div>
     <div class="panel-body"><canvas id="dna"></canvas></div>
     <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Signal constellation · relationship graph</span>
+      <span class="panel-note" id="con-note">—</span>
+    </div>
+    <div class="panel-body"><canvas id="constellation"></canvas></div>
+    <div class="legend" id="con-legend"></div>
+    <div class="status" id="con-sources"></div>
   </div>
 
   <div class="panel">
@@ -110,11 +122,52 @@
 <script src="/signal-events.js"></script>
 <script src="/signal-dna.js"></script>
 <script src="/signal-pulse.js"></script>
+<script src="/signal-constellation.js"></script>
 <script>
 (function () {
   "use strict";
   var dna   = SignalDNA.mount(document.getElementById("dna"));
   var pulse = SignalPulse.mount(document.getElementById("pulse"), { onRead: renderPulse });
+  var con   = SignalConstellation.mount(document.getElementById("constellation"), { onChange: renderCon });
+
+  /* The mapping is printed on the page, not just in a comment: every edge type
+     names the stored field it came from, so a reader can check the claim
+     without opening the source. */
+  var EDGE_SOURCES = [
+    ["member → ticker",      "alerts.member_id + full_name (RULE_01B) · tags.members[] + member_names[] (RULE_CLUSTER)"],
+    ["insider → ticker",     "tags[0..-2] (RULE_06 owner — comma-safe parse)"],
+    ["institution → ticker", "tags.filer + tags.cik (RULE_16)"],
+    ["contractor → ticker",  "tags|0 (RULE_11 recipient)"],
+    ["ticker → instrument",  "tags.instruments[] — written by the gate (RULE_10 only)"]
+  ];
+  var EDGE_GAPS = [
+    "RULE_02 members: recoverable from tags by a count-validated split, but as NAMES not bioguide ids — they would mint a second node for a member already in the graph, so no person edge is drawn",
+    "RULE_08 has a real agency but a basket-derived ticker — contributes nothing, by refusal",
+    "RULE_09 client/registrant are real but 9 of 10 rows have no ticker — a disconnected island, not drawn",
+    "contract → agency: available from /contracts/data, but NOT on the /alerts payload — reading it would need a second stream, which the one-bus rule forbids"
+  ];
+
+  function renderCon(sum) {
+    document.getElementById("con-note").textContent =
+      sum.nodes + " nodes · " + sum.edges + " edges · " + sum.counters.edgesReinforced +
+      " reinforced · cap " + sum.caps.nodes + "/" + sum.caps.edges;
+    var lg = document.getElementById("con-legend");
+    lg.innerHTML = Object.keys(sum.nodesByType).sort().map(function (t) {
+      var c = SignalConstellation.TYPE_STYLE[t];
+      var rgb = (document.documentElement.getAttribute("data-theme") === "light") ? c.light : c.dark;
+      return '<span class="lg"><span class="sw" style="border-radius:50%;width:8px;height:8px;background:rgb('
+        + rgb.join(",") + ')"></span>' + t + " · " + sum.nodesByType[t] + "</span>";
+    }).join("");
+  }
+
+  function renderConSources() {
+    document.getElementById("con-sources").innerHTML =
+      "<b>Every edge type and the stored field it comes from:</b><br>"
+      + EDGE_SOURCES.map(function (r) { return "&nbsp;&nbsp;" + r[0] + " &nbsp;←&nbsp; <b>" + r[1] + "</b>"; }).join("<br>")
+      + "<br><br><b>Links the design brief asks for that the data does not support — named, not inferred:</b><br>"
+      + EDGE_GAPS.map(function (g) { return "&nbsp;&nbsp;· " + g; }).join("<br>");
+  }
+
   document.getElementById("pulse-window").textContent =
     "rolling " + Math.round(SignalPulse.WINDOW_MS / 60000) + " min · thresholds calibrated to measured prod cadence";
 
@@ -172,27 +225,34 @@
       + dna.isRunning() + "</b>";
     var line3 = "Pulse avg <b>" + pp.avgMs + "ms</b>/frame · worst <b>" + pp.worstMs + "ms</b> · paused <b>"
       + pp.pauses + "</b>× · running <b>" + pulse.isRunning() + "</b>";
-    el.innerHTML = line1 + "<br>" + line2 + "<br>" + line3;
+    var cp = con.perf();
+    var line4 = "Constellation " + cp.nodes + " nodes / " + cp.edges + " edges · avg <b>" + cp.avgMs
+      + "ms</b>/frame · worst <b>" + cp.worstMs + "ms</b> · paused <b>" + cp.pauses + "</b>× · running <b>"
+      + con.isRunning() + "</b>";
+    el.innerHTML = line1 + "<br>" + line2 + "<br>" + line3 + "<br>" + line4;
 
     /* `count` is `recent.length`, capped at the display buffer — "retained", not
        "ingested". The old wording implied a lifetime total it never was. */
     document.getElementById("sub").textContent =
-      "one bus · two subscribers · " + s.count + " real alerts retained";
+      "one bus · three subscribers · " + s.count + " real alerts retained";
     document.getElementById("dna-note").textContent =
       dna.count() + " rungs · colour = gate instrument · thickness = severity · glow = corroborated · fade = age";
   }
 
   window.addEventListener("signal-events:status", function () { renderLegend(); renderStatus(); });
+  renderConSources();
+  document.addEventListener("scope:themechange", function () { renderCon(con.summary()); });
   /* The canvases re-colour themselves at draw time; these DOM swatches do not. */
   document.addEventListener("scope:themechange", renderLegend);
   setInterval(renderStatus, 1000);
 
   SignalEvents.start();
   renderPulse(pulse.read());
+  renderCon(con.summary());
   renderStatus();
 
   /* exposed for the verifier / manual inspection */
-  window.__signalSystem = { dna: dna, pulse: pulse, bus: SignalEvents };
+  window.__signalSystem = { dna: dna, pulse: pulse, con: con, bus: SignalEvents };
 })();
 </script>
 </body>
