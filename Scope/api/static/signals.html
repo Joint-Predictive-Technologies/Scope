@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Signal System — Scope</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/tokens.css"/>
+  <script src="/rule-names.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--cream); font-family: Inter, sans-serif; min-height: 100vh; }
+    nav { position: sticky; top: 0; z-index: 100; border-bottom: 1px solid var(--border); background: var(--surface-nav); backdrop-filter: blur(12px); padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px; }
+    .nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem; color: var(--amber); letter-spacing: 0.05em; text-decoration: none; margin-right: 0.5rem; }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--cream2); text-decoration: none; letter-spacing: 0.06em; text-transform: uppercase; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--amber); }
+
+    .page { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 5rem; }
+    h1 { font-family: var(--font-serif), Fraunces, serif; font-size: var(--text-2xl); font-weight: 600; margin-bottom: .35rem; }
+    .sub { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); letter-spacing: .04em; margin-bottom: 1.5rem; }
+
+    .panel { border: 1px solid var(--border-subtle); background: var(--surface-1); border-radius: 6px; margin-bottom: 1.25rem; }
+    .panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: .7rem 1rem; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap; }
+    .panel-title { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: .1em; color: var(--text-secondary); }
+    .panel-note { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+    .panel-body { padding: .5rem 0; }
+
+    canvas { display: block; width: 100%; }
+    #dna { height: 260px; }
+    #pulse { height: 96px; }
+
+    .state-row { display: flex; align-items: center; gap: .8rem; padding: .55rem 1rem 0; flex-wrap: wrap; }
+    .state-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-tertiary); }
+    .state-label { font-family: var(--font-mono); font-size: var(--text-sm); letter-spacing: .06em; text-transform: uppercase; }
+    .state-meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+
+    .legend { display: flex; flex-wrap: wrap; gap: .5rem .9rem; padding: .8rem 1rem; }
+    .lg { display: flex; align-items: center; gap: .4rem; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); }
+    .sw { width: 16px; height: 3px; border-radius: 2px; }
+
+    .status { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); padding: .8rem 1rem; border-top: 1px solid var(--border-subtle); line-height: 1.7; }
+    .status b { color: var(--text-secondary); font-weight: 500; }
+    .status.err b, .err-txt { color: var(--severity-critical, #e06868); }
+
+    .note { border: 1px solid var(--border-subtle); border-left: 2px solid var(--accent); background: var(--surface-1);
+            padding: .9rem 1rem; border-radius: 4px; font-size: var(--text-sm); line-height: 1.6;
+            color: var(--text-secondary); margin-bottom: 1.25rem; }
+    .note strong { color: var(--text-primary); }
+    code { font-family: var(--font-mono); font-size: .9em; color: var(--text-primary); }
+  </style>
+</head>
+<body>
+<nav>
+  <a href="/" class="nav-brand">SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Feed</a>
+    <a href="/forming">Forming</a>
+    <a href="/signals">Signal System</a>
+    <a href="/status">Status</a>
+  </div>
+</nav>
+
+<div class="page">
+  <h1>Signal System</h1>
+  <div class="sub" id="sub">Initialising…</div>
+
+  <div class="note">
+    <strong>Everything moving on this page is a real Scope alert.</strong> Both components subscribe
+    to one shared event bus fed from <code>/alerts</code>; neither has a data path of its own and
+    neither has a simulator. Scope has no WebSocket or SSE endpoint, so this is
+    <strong>polling, not push</strong> — new alerts appear at the next poll, not instantly. If the
+    poll fails, the helix stops gaining rungs and the pulse goes quiet: that is the honest reading
+    of "we don't know", and nothing here will invent activity to fill it. And if a backlog is larger
+    than one drain can carry, the status line below says <strong>BACKLOG TRUNCATED</strong> rather
+    than reporting "live" over an incomplete picture.
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Intelligence state · DNA</span>
+      <span class="panel-note" id="dna-note">—</span>
+    </div>
+    <div class="panel-body"><canvas id="dna"></canvas></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head">
+      <span class="panel-title">Market pulse</span>
+      <span class="panel-note" id="pulse-window">—</span>
+    </div>
+    <div class="state-row">
+      <span class="state-dot" id="p-dot"></span>
+      <span class="state-label" id="p-label">—</span>
+      <span class="state-meta" id="p-meta"></span>
+    </div>
+    <div class="panel-body"><canvas id="pulse"></canvas></div>
+    <div class="status" id="p-corr"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><span class="panel-title">Provenance &amp; frame budget</span></div>
+    <div class="status" id="status">—</div>
+  </div>
+</div>
+
+<script src="/signal-events.js"></script>
+<script src="/signal-dna.js"></script>
+<script src="/signal-pulse.js"></script>
+<script>
+(function () {
+  "use strict";
+  var dna   = SignalDNA.mount(document.getElementById("dna"));
+  var pulse = SignalPulse.mount(document.getElementById("pulse"), { onRead: renderPulse });
+  document.getElementById("pulse-window").textContent =
+    "rolling " + Math.round(SignalPulse.WINDOW_MS / 60000) + " min · thresholds calibrated to measured prod cadence";
+
+  function renderPulse(r) {
+    document.getElementById("p-label").textContent = r.label;
+    document.getElementById("p-meta").textContent =
+      r.rate + " alert" + (r.rate === 1 ? "" : "s") + " in the last " + r.windowLabel +
+      " · " + r.bpm + " bpm" + (r.spiking ? " · CORROBORATION SPIKE" : "");
+    var st = SignalPulse.STATES.filter(function (s) { return s.id === r.state; })[0];
+    if (st) document.getElementById("p-dot").style.background = "rgb(" + SignalPulse.colorOf(st).join(",") + ")";
+    var c = document.getElementById("p-corr");
+    /* ⚠️ This line used to state "RULE_10 has fired once in Scope's history" as
+       STATIC COPY. On a page whose whole thesis is that everything shown is real,
+       a hardcoded production fact is exactly the wrong shape — it was unverifiable
+       from here and goes false the moment RULE_10 fires again. Say only what this
+       page can actually see. */
+    c.textContent = r.lastCorroboration
+      ? "Last corroboration seen on the bus: " + r.lastCorroboration.ticker +
+        " · " + (r.lastCorroboration.instrument_count || "breadth unknown") + " instruments"
+      : "No corroborated alert has arrived on the bus in this window. A corroboration is the "
+        + "rarest thing Scope emits, so an empty line here is the expected reading — not a "
+        + "broken subscriber.";
+  }
+
+  function renderLegend() {
+    var m = SignalEvents.getRuleModel();
+    var el = document.getElementById("legend");
+    if (!m) { el.innerHTML = '<span class="lg">rule model unavailable — categories shown as “unknown”</span>'; return; }
+    var cats = m.instruments.slice();
+    cats.push("corroboration", "context");
+    el.innerHTML = cats.map(function (c) {
+      var rgb = SignalDNA.colorFor(c);
+      var label = (c === "context") ? "context (excluded from the gate)" : c;
+      return '<span class="lg"><span class="sw" style="background:rgb(' + rgb.join(",") + ')"></span>' + label + '</span>';
+    }).join("");
+  }
+
+  function renderStatus() {
+    var s = SignalEvents.getStatus();
+    var dp = dna.perf(), pp = pulse.perf();
+    var el = document.getElementById("status");
+    el.className = "status" + (s.state === "error" ? " err" : "");
+    var line1 = "transport <b>" + SignalEvents.describeTransport() + "</b> · state <b>" + s.state + "</b>"
+      + (s.lastError ? ' · <span class="err-txt">' + s.lastError + "</span>" : "")
+      + " · retained <b>" + s.count + "</b> · cursor <b>" + (s.cursor || "—") + "</b>"
+      + " · last drain matched <b>" + s.backlog + "</b> row(s)"
+      + " · rule model <b>" + (s.ruleModelLoaded ? "loaded from /api/rule-model" : "unavailable") + "</b>";
+    /* An incomplete drain must never read as healthy. */
+    if (s.truncated) {
+      line1 += ' · <span class="err-txt">BACKLOG TRUNCATED — more rows matched than were drained; '
+             + 'this view is INCOMPLETE</span>';
+    }
+    var line2 = "DNA " + dp.rungs + " rungs · avg <b>" + dp.avgMs + "ms</b>/frame · worst <b>" + dp.worstMs
+      + "ms</b> · budget 16.67ms · paused <b>" + dp.pauses + "</b>× (offscreen/backgrounded) · running <b>"
+      + dna.isRunning() + "</b>";
+    var line3 = "Pulse avg <b>" + pp.avgMs + "ms</b>/frame · worst <b>" + pp.worstMs + "ms</b> · paused <b>"
+      + pp.pauses + "</b>× · running <b>" + pulse.isRunning() + "</b>";
+    el.innerHTML = line1 + "<br>" + line2 + "<br>" + line3;
+
+    /* `count` is `recent.length`, capped at the display buffer — "retained", not
+       "ingested". The old wording implied a lifetime total it never was. */
+    document.getElementById("sub").textContent =
+      "one bus · two subscribers · " + s.count + " real alerts retained";
+    document.getElementById("dna-note").textContent =
+      dna.count() + " rungs · colour = gate instrument · thickness = severity · glow = corroborated · fade = age";
+  }
+
+  window.addEventListener("signal-events:status", function () { renderLegend(); renderStatus(); });
+  /* The canvases re-colour themselves at draw time; these DOM swatches do not. */
+  document.addEventListener("scope:themechange", renderLegend);
+  setInterval(renderStatus, 1000);
+
+  SignalEvents.start();
+  renderPulse(pulse.read());
+  renderStatus();
+
+  /* exposed for the verifier / manual inspection */
+  window.__signalSystem = { dna: dna, pulse: pulse, bus: SignalEvents };
+})();
+</script>
+</body>
+</html>
