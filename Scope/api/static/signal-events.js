@@ -167,18 +167,240 @@
     return { category: "context", eligible: false };
   }
 
-  function entitiesFor(a) {
-    /* Real entities only: the member (if the alert has one) and the ticker.
-       No NER, no inference from headline text. */
+  /* ══════════════════════════════════════════════════════════════════════════
+     ENTITIES AND RELATIONS — every one traced to a NAMED field, none inferred.
+
+     ⚠️ THE RULE THIS SECTION EXISTS TO ENFORCE: an edge is drawn only where the
+     stored alert SAYS the two things are related. Co-occurrence is not a
+     relationship, proximity is not proof, and a ticker that a rule attached from
+     a keyword basket is not a subject. Each entry below carries the exact field
+     it came from, and `sourceField` travels with the entity so a consumer (or a
+     reviewer) can check it without reading this file.
+
+     ── WHAT THE STORED DATA ACTUALLY SUPPORTS (measured on prod, not assumed) ──
+       RULE_01B      member_id + full_name (TYPED COLUMNS) + ticker      -> SAFE
+       RULE_CLUSTER  tags.members[] + tags.member_names[] (JSON) + ticker -> SAFE
+       RULE_16       tags.filer + tags.cik (JSON) + ticker                -> SAFE
+       RULE_11       tags PIPE-delimited, field 0 = recipient + ticker    -> SAFE
+       RULE_06       tags COMMA, owner name is everything but the last 2  -> see below
+       RULE_10       tags.instruments[] (JSON, written by the gate)       -> SAFE
+
+     ── AND WHAT IT DOES NOT (named, never worked around) ──────────────────────
+       🔴 RULE_02  `tags` is member names JOINED BY COMMAS, and the names
+          THEMSELVES contain commas: "Cisneros, Gilbert Ray,James, John,McGuire,
+          John J.,…" splits into 12 pieces for 6 members.
+          ⚠️ I FIRST CALLED THIS UNRECOVERABLE AND A VERIFIER OVERTURNED THAT.
+          96 of 96 prod rows satisfy `fields == 2 × the member count stated in
+          the headline`, and 53 of 53 roster names carry exactly one comma — so a
+          count-validated pairwise split works and fails closed on any row that
+          breaks the invariant.
+          The REAL reason RULE_02 still contributes no person node is IDENTITY,
+          not parsing: a recovered NAME is not a bioguide id, so it would mint a
+          second node for a member already in the graph as `M:<bioguide>` from
+          RULE_01B or RULE_CLUSTER. Two nodes for one person asserts two people —
+          a worse falsehood than one absent edge. `rule_02_cluster.py` already
+          computes the bioguide set into `why_matters`; putting it in `tags` as
+          RULE_CLUSTER does would close this properly. GAP, restated.
+       🔴 RULE_08  DOES carry a real agency (`tags` field 0, e.g. "Treasury
+          Department") — but its TICKER comes from a keyword→basket lookup, not
+          from the document's subject. That is precisely why the gate excludes it
+          (`CLAUDE.md`, basket-keyed). Drawing agency↔ticker here would assert a
+          relationship Scope has explicitly ruled false, so RULE_08 contributes
+          NOTHING. Not an oversight — a refusal.
+       🔴 RULE_09  client + registrant are real organisations, but 9 of 10 prod
+          rows have NO ticker (the 2026-08-11 remap cleared them), so the
+          sub-graph could never connect to anything. Its `tags` arity also varies
+          4→10 fields because issue lists differ, so positional parsing is not
+          safe. Contributes nothing. GAP.
+       🔴 AGENCY on a contract  NOT a field on the `/alerts` payload, so the
+          "government → contract" link of the design brief is not drawn.
+          ⚠️ I FIRST CALLED IT UNBUILDABLE-WITHOUT-SCRAPING-PROSE AND THAT WAS
+          WRONG. `/contracts/data` (`api/routers/contracts.py:69`) is LIVE on prod
+          and returns `agency` and `award_id` straight from the stored column;
+          182 of 183 RULE_11 alerts carrying a `CONT_AWD_…` id in `tags|2` join
+          to a row with a non-null agency. The obstacle is architectural: reading
+          it means a SECOND fetch path, and one stream is the rule this bus
+          exists to enforce. Two honest fixes, both out of scope here: put
+          `agency` on the alert payload, or let the BUS (never a component)
+          enrich contract events from `/contracts/data`.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  function insiderOwnerName(tags) {
+    /* RULE_06 `tags` is a bare positional COMMA string, `owner,action,multiplier`
+       — and `CLAUDE.md` warns that an owner name containing a comma shifts every
+       later field. It is not hypothetical: measured on prod, 29 of 500 rows have
+       four fields, e.g. `Saba Capital Management, L.P.,sale,2.3x` and
+       `MBG INVESTORS I, L.P.,purchase,7.5x`.
+
+       So take everything EXCEPT the last two fields. `action` ("sale"/"purchase")
+       and `multiplier` ("2.3x") cannot contain a comma, which makes this exact
+       where `parts[0]` truncates.
+
+       ⚠️ PRE-EXISTING DEFECT FOUND, NOT FIXED HERE: `api/receipts.py:_insider`
+       uses `parts[0]`, so the server's own receipt renders that name as
+       "Saba Capital Management". Backend, out of scope — reported. */
+    var parts = String(tags || "").split(",");
+    if (parts.length < 3) return "";
+    /* Anchor on the MULTIPLIER rather than on "two fields from the end". The
+       verifier showed the positional form still truncates on a
+       `owner,action` row with a comma in the name (`"Saba Capital Management,
+       L.P.,sale"` -> "Saba Capital Management"). 0 of 500 prod rows have that
+       shape, so it was latent — but anchoring is exact rather than lucky, and
+       refuses instead of guessing when the shape is unrecognised. */
+    var last = parts[parts.length - 1].trim();
+    if (!/^\d+(\.\d+)?x$/i.test(last)) return "";
+    return parts.slice(0, parts.length - 2).join(",").trim();
+  }
+
+  function contractRecipient(rawTags) {
+    /* 🔴 RULE_11 HAS TWO TAG SHAPES IN PROD AND ONLY ONE IS PIPE-DELIMITED.
+       Found by an independent verifier: 39 prod rows are the LEGACY COMMA form
+       `RECIPIENT,YYYY-MM-DD` with no pipe at all, 14 of them with a resolved
+       ticker. Splitting those on "|" returns the whole string, so the graph
+       minted `R:RAYTHEON COMPANY,2026-07-08` as a SECOND node beside
+       `R:RAYTHEON COMPANY` — two nodes for one company, and one of them named
+       after a date. That is a duplicate the dedup key cannot catch, because the
+       ids genuinely differ.
+
+       Pipe form wins when a pipe is present. Otherwise strip exactly one
+       trailing `,YYYY-MM-DD` — deterministic, and a company name cannot end in
+       one. Anything else is refused rather than guessed. */
+    var t = String(rawTags || "").trim();
+    if (!t) return "";
+    if (t.indexOf("|") >= 0) return t.split("|")[0].trim();
+    var m = t.match(/^(.*),\s*\d{4}-\d{2}-\d{2}$/);
+    return m ? m[1].trim() : "";
+  }
+
+  /* ⚠️ A TICKER STRING IS NOT AUTOMATICALLY A TICKER, and an unusable one makes
+     a FALSE HUB rather than a missing node — which is worse. The verifier found
+     `T:N/A` joining five unrelated insiders (Manulife, Knudsen Todd, Calamos…)
+     into one apparent cluster, plus `T:GEF, GEF.B` (a multi-symbol basket),
+     `T:(CALX)`, and `T:tyg` sitting beside `T:TYG` as two nodes for one company.
+     None of those relationships exist. Case-fold, then require a plain symbol.
+     Same false-positive family the novelty fix dealt with — a shape test, not a
+     lookup, because the browser has no symbol table. */
+  function tickerKey(raw) {
+    var t = String(raw || "").trim().toUpperCase();
+    if (!t) return "";
+    if (!/^[A-Z][A-Z0-9]{0,5}(?:[.-][A-Z]{1,2})?$/.test(t)) return "";
+    if (t === "N/A" || t === "NA" || t === "NONE") return "";
+    return t;
+  }
+
+  function entitiesFor(a, tags) {
     var out = [];
-    if (a.full_name) {
-      out.push({
-        type: "member", name: a.full_name, id: a.member_id || null,
-        party: a.party || null, state: a.state || null
+    var rule = (a.rule || "").toUpperCase();
+
+    /* ⚠️ RULE_08 IS REFUSED WHOLESALE — see the block above. Returning early
+       means it can never leak a node through some later branch. */
+    if (rule === "RULE_08") return out;
+
+    var tk = tickerKey(a.ticker);
+    if (tk) {
+      out.push({ type: "ticker", id: "T:" + tk, name: tk,
+                 sourceField: "alerts.ticker" });
+    }
+
+    /* A member the alert names in TYPED COLUMNS. RULE_01B is the live case. */
+    if (a.full_name && a.member_id) {
+      out.push({ type: "member", id: "M:" + a.member_id, name: a.full_name,
+                 party: a.party || null, state: a.state || null,
+                 sourceField: "alerts.member_id + alerts.full_name" });
+    }
+
+    if (rule === "RULE_CLUSTER") {
+      /* Structured JSON arrays — ids AND names, index-aligned by the emitter. */
+      var ids = tags.members, names = tags.member_names;
+      if (Array.isArray(ids) && Array.isArray(names) && ids.length === names.length) {
+        for (var i = 0; i < ids.length; i++) {
+          if (!ids[i]) continue;
+          out.push({ type: "member", id: "M:" + ids[i], name: names[i] || ids[i],
+                     sourceField: "tags.members[] + tags.member_names[]" });
+        }
+      }
+    }
+
+    if (rule === "RULE_06") {
+      var owner = insiderOwnerName(a.tags);
+      if (owner) {
+        /* No stable id exists for a Form 4 owner — no CIK is captured at
+           ingestion. Key on the NAME, and say so, rather than minting an id that
+           implies an identity resolution nobody performed. */
+        out.push({ type: "insider", id: "I:" + owner.toUpperCase(), name: owner,
+                   sourceField: "tags[0..-2] (RULE_06 owner)" });
+      }
+    }
+
+    if (rule === "RULE_16" && tags.filer) {
+      out.push({ type: "institution",
+                 id: tags.cik ? ("C:" + tags.cik) : ("C:" + String(tags.filer).toUpperCase()),
+                 name: tags.filer, cik: tags.cik || null,
+                 sourceField: "tags.filer + tags.cik" });
+    }
+
+    if (rule === "RULE_11") {
+      /* PIPE-delimited, so a comma in a company name is harmless — the reason
+         this one is safe where RULE_06's is not.
+         ⚠️ DO NOT read field 4 as an amount. `rule_11_contracts.py:361-362`
+         writes `[recipient, award_date, award_id, parent, CONFIDENCE, piid]`;
+         field 4 is a MATCH CONFIDENCE (88, 90, 98, 99…). `receipts.py:_contract`
+         reads it as the amount and renders "$88" on a multi-million-dollar
+         award. Pre-existing, backend, reported not fixed. */
+      var recipient = contractRecipient(a.tags);
+      var p = String(a.tags || "").split("|");
+      if (recipient) {
+        out.push({ type: "contractor", id: "R:" + recipient.toUpperCase(), name: recipient,
+                   awardId: (p[2] || "").trim() || null,
+                   sourceField: "tags|0 (RULE_11 recipient)" });
+      }
+    }
+
+    if (rule === "RULE_10" && Array.isArray(tags.instruments)) {
+      for (var k = 0; k < tags.instruments.length; k++) {
+        out.push({ type: "instrument", id: "N:" + tags.instruments[k],
+                   name: tags.instruments[k],
+                   sourceField: "tags.instruments[] (written by the gate)" });
+      }
+    }
+    return out;
+  }
+
+  function relationsFor(a, entities) {
+    /* Every edge is a statement the ALERT makes. The ticker is the hub because
+       that is what the stored row actually ties each party to; nothing here
+       relates two non-ticker entities to each other, because no stored field
+       says they are related. */
+    var rels = [];
+    var tickerNode = null;
+    for (var i = 0; i < entities.length; i++) {
+      if (entities[i].type === "ticker") { tickerNode = entities[i]; break; }
+    }
+    if (!tickerNode) return rels;
+
+    var VERB = {
+      member:      "traded",
+      insider:     "traded",
+      institution: "disclosed a position in",
+      contractor:  "resolves to",
+      instrument:  "corroborated"
+    };
+    for (var j = 0; j < entities.length; j++) {
+      var e = entities[j];
+      if (e.type === "ticker") continue;
+      rels.push({
+        from: (e.type === "instrument") ? tickerNode.id : e.id,
+        to:   (e.type === "instrument") ? e.id : tickerNode.id,
+          /* ⚠️ The label must match the DIRECTION actually emitted. This read
+           `instrument->ticker` while `from`/`to` were ticker→instrument, so the
+           one edge whose direction is documented correctly was the one mislabelled
+           in `summary().edgesByKind`. Caught by the verifier. */
+      kind: (e.type === "instrument") ? "ticker->instrument" : (e.type + "->ticker"),
+        verb: VERB[e.type] || "relates to",
+        sourceField: e.sourceField
       });
     }
-    if (a.ticker) out.push({ type: "ticker", name: a.ticker, id: a.ticker });
-    return out;
+    return rels;
   }
 
   /* ── the adapter — the ONLY place a raw alert becomes an event ─────────── */
@@ -186,6 +408,7 @@
     if (!a || a.id == null) return null;
     var cat = categoryFor(a.rule);
     var tags = parseTags(a.tags);
+    var ents = entitiesFor(a, tags);
 
     /* is_corroborated is a FACT ABOUT THIS ROW, not an inference. `theme_id`
        is set by RULE_10 when it groups signals into a theme, so a row carrying
@@ -219,7 +442,11 @@
         confidence: conf,
         theme_id: (a.theme_id != null ? a.theme_id : null)
       },
-      entities: entitiesFor(a),
+      entities: ents,
+      /* Edges the ALERT ITSELF asserts. Empty is a valid, common answer — a
+         RULE_15 or RULE_ANOMALY row names a ticker and nothing else, so it
+         carries no relationship and contributes none. */
+      relations: relationsFor(a, ents),
       location: null,            /* NOT AVAILABLE server-side — see header */
       ticker: a.ticker || null,
       headline: a.headline || null,

@@ -864,6 +864,13 @@ def signal_pulse_js():
     return FileResponse(STATIC_DIR / "signal-pulse.js",
                         media_type="application/javascript")
 
+@app.get("/signal-constellation.js", include_in_schema=False)
+def signal_constellation_js():
+    """Relationship graph. A bus subscriber; draws only edges the stored alert
+    asserts, never an inferred one."""
+    return FileResponse(STATIC_DIR / "signal-constellation.js",
+                        media_type="application/javascript")
+
 @app.get("/signals", response_class=HTMLResponse, include_in_schema=False)
 def signals_page():
     """Host page for the signal event system. A NEW page — no existing page was
