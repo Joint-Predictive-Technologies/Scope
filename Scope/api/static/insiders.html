@@ -199,9 +199,13 @@
     el.innerHTML = data.map((a, i) => {
       const t = a.ticker ? a.ticker.replace(/\$/g,'').split(' ')[0] : null;
       const tChip = t ? `<a href="/ticker/${t}" class="ticker-chip" onclick="event.stopPropagation()">${t}</a>` : '';
-      const edgarUrl = t
-        ? `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${t}&type=4&dateb=&owner=include&count=40`
-        : 'https://www.sec.gov';
+        // 🔴 WAS: the ticker placed in EDGAR's CIK parameter, falling back to a
+        // bare sec.gov landing page. Measured across 183 distinct RULE_06
+        // tickers, the ticker-as-CIK form silently returns "No matching
+        // companies" for ~20% of them. Only the server can map ticker -> real
+        // CIK (`tickers.cik`, populated 10,619/10,619); this page uses the
+        // resolved field and shows nothing rather than a guess.
+        const edgarUrl = a.source_index_url || a.document_url || null;
       const enterClass = REDUCE_MOTION ? '' : ' enter';
       const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `
@@ -215,7 +219,9 @@
           </div>
           <div class="alert-detail">
             ${a.detail ? `<div>${a.detail}</div>` : ''}
-            <a href="${edgarUrl}" target="_blank" rel="noopener" class="verify-link">Verify → SEC EDGAR</a>
+            ${edgarUrl
+              ? `<a href="${edgarUrl}" target="_blank" rel="noopener" class="verify-link">SEC EDGAR Form 4 index ↗</a>`
+              : `<span style="display:inline-block;font-family:var(--font-mono);font-size:0.62rem;color:var(--muted);opacity:0.62;font-style:italic;cursor:default">No source document</span>`}
           </div>
         </div>`;
     }).join('');

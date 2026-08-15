@@ -115,6 +115,15 @@
     .member-link:hover { color: var(--amber); }
     .verify-link { display: inline-block; margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.04em; color: var(--amber); text-decoration: none; border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent); padding: 4px 12px; border-radius: 3px; }
     .verify-link:hover { background: color-mix(in srgb, var(--amber) 10%, transparent); }
+    /* An INDEX link is real but is not this filing — deliberately cooler than amber. */
+    .verify-link.index { color: var(--muted); border-color: color-mix(in srgb, var(--muted) 30%, transparent); }
+    .verify-link.index:hover { background: color-mix(in srgb, var(--muted) 10%, transparent); }
+    .source-note { display: inline-block; margin-left: 0.5rem; font-family: var(--font-mono); font-size: 0.58rem; color: var(--muted); opacity: 0.8; }
+    /* 🔴 THE HONEST EMPTY STATE. No border, no accent colour, no pointer — it must
+       not read as a button that happens to be broken. */
+    .source-none { display: inline-block; margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.62rem;
+                   letter-spacing: 0.03em; color: var(--muted); opacity: 0.62; font-style: italic;
+                   border: 0; padding: 4px 0; cursor: default; user-select: text; }
 
     /* HISTORICAL CONTEXT */
     .context-section { margin-top: 0.7rem; font-family: var(--font-mono); font-size: 0.7rem; }
@@ -383,75 +392,76 @@ function renderReceipts(r){
     const normalized = ts.replace(' ', 'T');
     return new Date(normalized + (normalized.includes('Z') ? '' : 'Z')).toLocaleString();
   }
-  // Rules whose verify link lands on a search form rather than THIS record.
-  const GENERIC_SOURCE_RULES = new Set([
-    'RULE_07','RULE_09','RULE_12','RULE_13','RULE_14','RULE_15'
-  ]);
+  // ── SOURCE LINKS ──────────────────────────────────────────────────────────
+  // 🔴 A SOURCE LINK IS A REAL DOCUMENT OR IT IS NOTHING.
+  //
+  // This file used to CONSTRUCT links. It no longer constructs anything: the
+  // server resolves `document_url` (the actual originating filing) and
+  // `source_index_url` (a real, correct index at the source system that is NOT
+  // this filing), and returns null when neither exists.
+  //
+  // What was removed, and why — every one of these was measured, not assumed:
+  //   news.google.com/search?q=<tags>   FABRICATED. All 387 RULE_OSINT rows were
+  //                                     a search QUERY presented as "the source".
+  //   usaspending.gov/search/?query=    FABRICATED fallback when no award id.
+  //   polymarket.com, federalregister   generic landing pages / guessed queries.
+  //   disclosures-clerk.house.gov/.../ptr-pdfs/   -> HTTP 403. A dead link on 274 alerts.
+  //   lda.senate.gov/filings/.../search/          -> HTTP 403 on 554 alerts, and the
+  //                                     page is a SPA that ignores query params, so
+  //                                     it could not be pre-filled even if it loaded.
+  //   browse-edgar?CIK=<TICKER>         GUESSED. 3 of 8 sampled tickers returned
+  //                                     "No matching companies". Replaced server-side
+  //                                     with the real CIK from `tickers.cik`.
+  //
+  // A broken or generic link is worse than no link: it looks authoritative while
+  // lying. Where nothing real exists, the card says so.
 
-  function sourceInfo(a) {
-    const rule = a.rule, ticker = a.ticker || '', tags = a.tags || '';
-    const t = ticker.replace(/\$/g,'').split(' ')[0];
-    if (['RULE_01','RULE_01B','RULE_02'].includes(rule))
-      return { label: 'House Clerk', url: 'https://disclosures-clerk.house.gov' };
-    if (rule === 'RULE_06')
-      return { label: 'SEC EDGAR', url: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${t}&type=4&dateb=&owner=include&count=40` };
-    if (rule === 'RULE_07') return { label: 'Polymarket', url: 'https://polymarket.com' };
-    if (rule === 'RULE_08') return { label: 'Federal Register', url: 'https://federalregister.gov' };
-    if (rule === 'RULE_09') return { label: 'Senate LDA', url: 'https://lda.senate.gov' };
-    if (rule === 'RULE_10') return { label: 'Cross-reference', url: null };
-    if (rule === 'RULE_11') return { label: 'USASpending.gov', url: 'https://usaspending.gov' };
-    if (rule === 'RULE_12') return { label: 'Senate LDA', url: 'https://lda.senate.gov' };
-    if (rule === 'RULE_13') return { label: 'FEC.gov', url: 'https://www.fec.gov/data/receipts/pac-and-party/' };
-    if (rule === 'RULE_14') return { label: 'PatentsView', url: 'https://patentsview.org' };
-    if (rule === 'RULE_15') return { label: 'SEC EDGAR', url: 'https://efts.sec.gov/LATEST/search-index?forms=8-K' };
-    if (rule === 'RULE_ANOMALY') return { label: 'Internal signal', url: null };
-    if (rule === 'RULE_OSINT') {
-      if (a.source_url) return { label: 'Google News', url: a.source_url };
-      try {
-        const tj = JSON.parse(tags);
-        const q = encodeURIComponent((tj.event_type||'conflict') + ' ' + (tj.region||''));
-        return { label: 'Google News', url: `https://news.google.com/search?q=${q}&hl=en-US&gl=US&ceid=US:en` };
-      } catch {}
-      return { label: 'GDELT', url: 'https://www.gdeltproject.org' };
-    }
-    return { label: 'Source', url: null };
+  // Why no document exists, per rule — shown to the reader instead of a fake link.
+  const NO_SOURCE_REASON = {
+    // 🔴 CORRECTED. The first version said "filing URL not captured at ingestion",
+    // which is FALSE: lobbying_filings.document_url is populated 2113/2113 by
+    // ingest_lobbying.py. The real reason is narrower — a RULE_09 alert is a
+    // year-over-year SPIKE spanning two or more filings, so no single filing is
+    // "the" source, and the rule does not retain the uuids of the ones it compared.
+    RULE_09: 'spike spans multiple filings — no single source document',
+    RULE_12: 'spike spans multiple filings — no single source document',
+    RULE_02: 'cluster spans multiple filings',
+    RULE_07: 'derived from market pricing, not a filing',
+    RULE_08: 'no per-alert document reference stored',
+    // These two now resolve a real article/permalink from tags server-side, so
+    // these strings are only reached if that field is missing on a given row.
+    RULE_OSINT: 'article link missing on this row',
+    RULE_REDDIT: 'permalink missing on this row',
+    RULE_ANOMALY: 'internal signal, no external document',
+    RULE_10: 'corroboration of other alerts — see its evidence',
+    RULE_CLUSTER: 'cluster spans multiple filings',
+  };
+
+  function sourceLink(a) {
+    if (a.document_url) return { kind: 'document', url: a.document_url };
+    if (a.source_index_url) return { kind: 'index', url: a.source_index_url };
+    return { kind: 'none', reason: NO_SOURCE_REASON[a.rule] || 'no source document stored' };
   }
+
   function escHtml(s) {
     return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-  function sourceUrl(a) {
-    const rule = a.rule, tags = a.tags || '';
-    const ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
-    // Rules whose "verify" target is only the source system's SEARCH ENTRY
-    // POINT, not this filing. RULE_09/RULE_12 store no source_url (all 554
-    // RULE_09 rows are NULL), and lda.senate.gov's search page is a SPA that
-    // does NOT read query params — checked against its own JS bundles — so it
-    // cannot even be pre-filled. Calling that "Verify" promises a receipt the
-    // link does not deliver, so it is labelled for what it is. The real fix is
-    // capturing the filing URL at ingestion (RULE_09 work, human-gated —
-    // tracked in Known Issues under the receipts gap).
-    if (['RULE_01','RULE_01B','RULE_02'].includes(rule))
-      return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
-    if (rule === 'RULE_06')
-      return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
-    if (rule === 'RULE_07') return 'https://polymarket.com/markets?category=politics';
-    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1]||'')}`; }
-    if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
-    if (rule === 'RULE_10') return ticker ? `/feed?ticker=${ticker}` : null;
-    if (rule === 'RULE_11') {
-      const parts = (tags || '').split('|');
-      const awardId = parts[2] ? parts[2].trim() : null;
-      const recipient = parts[0] ? encodeURIComponent(parts[0].trim()) : '';
-      return awardId
-        ? `https://www.usaspending.gov/award/${awardId}/`
-        : `https://www.usaspending.gov/search/?query=${recipient}`;
-    }
-    if (rule === 'RULE_12') return 'https://lda.senate.gov/filings/public/filing/search/';
-    if (rule === 'RULE_13') return 'https://www.fec.gov/data/receipts/pac-and-party/';
-    if (rule === 'RULE_14') return 'https://patentsview.org/search/real/result/';
-    if (rule === 'RULE_15') return 'https://efts.sec.gov/LATEST/search-index?forms=8-K';
-    return null;
-  }
+  // The source-SYSTEM name, for the chip. A LABEL ONLY — it is deliberately not
+  // a link. Naming the system ("SEC EDGAR") is useful context; linking it to that
+  // system's front door and calling it "SOURCE" is not, because the front door is
+  // not the document. The real link, when one exists, is rendered by sourceLink().
+  const SOURCE_SYSTEM = {
+    RULE_01: 'House Clerk', RULE_01B: 'House Clerk', RULE_02: 'House Clerk',
+    RULE_CLUSTER: 'House Clerk',
+    RULE_06: 'SEC EDGAR', RULE_15: 'SEC EDGAR',
+    RULE_07: 'Polymarket', RULE_08: 'Federal Register',
+    RULE_09: 'Senate LDA', RULE_12: 'Senate LDA',
+    RULE_10: 'Cross-reference', RULE_11: 'USAspending',
+    RULE_13: 'FEC', RULE_14: 'PatentsView',
+    RULE_OSINT: 'GDELT news', RULE_REDDIT: 'Reddit', RULE_ANOMALY: 'Internal signal',
+  };
+  function sourceLabel(a) { return SOURCE_SYSTEM[a.rule] || 'Source'; }
+
   function firstTicker(raw) {
     if (!raw) return null;
     return raw.replace(/\$/g, '').split(' ')[0].trim() || null;
@@ -855,7 +865,6 @@ function renderReceipts(r){
     }
 
     list.innerHTML = data.map((a, i) => {
-      const url    = sourceUrl(a);
       const ticker = firstTicker(a.ticker);
       const tickerBadge = ticker
         ? `<a href="/ticker/${ticker}" class="ticker-link" onclick="event.stopPropagation()">${ticker}</a>`
@@ -870,10 +879,8 @@ function renderReceipts(r){
         inlineDelay = delayBadge(r01b.delay);
       }
 
-      const src = sourceInfo(a);
-      const srcChip = src.url
-        ? `<span class="badge badge-source"><a href="${src.url}" target="_blank" rel="noopener" onclick="event.stopPropagation()">SOURCE: ${src.label}</a></span>`
-        : `<span class="badge badge-source">SOURCE: ${src.label}</span>`;
+      // Label only — never a link to a source system's front door. See sourceLabel().
+      const srcChip = `<span class="badge badge-source">SOURCE: ${escHtml(sourceLabel(a))}</span>`;
       const aiLabel = (a.rule === 'RULE_10' || a.rule === 'RULE_ANOMALY')
         ? `<span class="ai-label">AI SUMMARY · Groq Llama 3.3</span>` : '';
 
@@ -907,11 +914,18 @@ function renderReceipts(r){
 
       if (memberLink)
         detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
-      if (url) {
-        const generic = GENERIC_SOURCE_RULES.has(a.rule);
-        const srcName = (sourceInfo(a) || {}).label || 'the source';
-        detailHtml += `<a href="${url}" target="_blank" rel="noopener" class="verify-link">`
-                    + (generic ? `Search ${srcName} →` : 'Verify →') + '</a>';
+      const src = sourceLink(a);
+      if (src.kind === 'document') {
+        detailHtml += `<a href="${escHtml(src.url)}" target="_blank" rel="noopener" class="verify-link">Verify → source document</a>`;
+      } else if (src.kind === 'index') {
+        // Real and correct, but an INDEX. Labelled as such so it never reads as
+        // a receipt for THIS alert.
+        detailHtml += `<a href="${escHtml(src.url)}" target="_blank" rel="noopener" class="verify-link index">SEC EDGAR Form 4 index ↗</a>`
+                    + `<span class="source-note">index for this company — not this filing</span>`;
+      } else {
+        // 🔴 THE HONEST EMPTY STATE. Not a link, not clickable, visually distinct
+        // from both link styles: no border, no amber, muted, no pointer cursor.
+        detailHtml += `<span class="source-none">No source document — ${escHtml(src.reason)}</span>`;
       }
       // War-room link: RULE_10 -> its thesis, RULE_CLUSTER -> its cluster room.
       const warRoom = warRoomHref(a);

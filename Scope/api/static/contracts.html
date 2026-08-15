@@ -254,7 +254,7 @@
                 const recipient = encodeURIComponent((parts[0] || '').trim());
                 const url = awardId
                   ? `https://www.usaspending.gov/award/${awardId}/`
-                  : `https://www.usaspending.gov/search/?query=${recipient}`;
+                  : null;   // no search fallback — a query is not the award
                 return `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify → USASpending.gov</a>`;
               })()}
             </div>
@@ -289,7 +289,7 @@
       <tbody>${data.map(c => {
         const url = c.award_id
           ? `https://www.usaspending.gov/award/${c.award_id}/`
-          : `https://www.usaspending.gov/search/?query=${encodeURIComponent(c.recipient_name || '')}`;
+          : null;   // no search fallback — a query is not the award
         return `
         <tr>
           <td>${c.recipient_name || '—'}</td>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from datetime import datetime, timezone
 
@@ -36,12 +37,148 @@ def _row_to_dict(row) -> dict:
     return dict(row)
 
 
+# ── source documents ────────────────────────────────────────────────────────
+# 🔴 A SOURCE LINK IS A REAL DOCUMENT OR IT IS NOTHING.
+#
+# Resolves `document_url` to the actual originating filing, and returns None when
+# no such document can be produced from stored data. It NEVER constructs a search
+# query, a landing page, or a guessed path — a broken or generic link is worse
+# than none, because it looks authoritative while lying.
+#
+# Measured before this was written (local DB, 3,347 alerts), by fetching, not by
+# checking non-emptiness:
+#   disclosures-clerk.house.gov/public_disc/ptr-pdfs/  -> 403   (274 alerts pointed here)
+#   lda.senate.gov/filings/public/filing/search/       -> 403   (554 alerts pointed here)
+#   news.google.com/search?q=...                       -> a SEARCH QUERY, on all 387 RULE_OSINT rows
+# Both 403s would have passed any "field is non-empty" check.
+#
+# What IS recoverable, because the real identifier was already stored and simply
+# never used:
+#   RULE_01/01B  filings.raw_url is populated on 823/823 filings; 85 of 192 alerts
+#                join to one on (member_id, ticker, transaction_date).
+#   RULE_11      alerts.award_key is populated on 62 of 102, and
+#                usaspending.gov/award/<key>/ returns 200. The page previously read
+#                tags.split('|')[2] — the same positional-tag fragility behind the
+#                comma-in-name bugs.
+
+
+def _document_urls(rows, conn) -> dict:
+    """alert id -> real document URL, only where one genuinely exists.
+
+    Batched deliberately: one query per rule family, not one per alert.
+    """
+    out, index_out = {}, {}
+    keys = rows[0].keys() if rows else []
+    ids_01b = [r["id"] for r in rows if r["rule"] in ("RULE_01", "RULE_01B")]
+    if ids_01b and "event_date" in keys:
+        # 🔴 JOIN ON `raw_ticker_string`, NOT `ticker_id`. This originally used
+        # `transactions.ticker_id -> tickers.id` and matched 85/192 locally — but on
+        # PROD `ticker_id` is NULL on all 10,232 rows, so the join returned
+        # **0 of 2,168**. The entire headline category silently produced nothing in
+        # production while looking fine on the dev database.
+        # `raw_ticker_string` is populated in both, and normalising both sides the
+        # same way is what makes it portable.
+        #
+        # `transaction_date` is ISO on 10,230 prod rows and MM/DD/YYYY on 2, so both
+        # shapes are accepted rather than assuming one.
+        #
+        # ⚠️ AMBIGUITY IS DROPPED, NOT GUESSED. 14 alerts match more than one
+        # distinct filing (same member, ticker and date across two filings). There
+        # is no basis to call either one "the" source, so those get no link —
+        # picking one arbitrarily would be a receipt that might not be the receipt.
+        q = """
+            SELECT a.id AS alert_id, MIN(f.raw_url) AS url, COUNT(DISTINCT f.raw_url) AS n
+            FROM alerts a
+            JOIN transactions t
+              ON t.member_id = a.member_id
+             AND UPPER(TRIM(REPLACE(t.raw_ticker_string, '$', '')))
+               = UPPER(TRIM(REPLACE(a.ticker, '$', '')))
+             AND ( t.transaction_date = a.event_date
+                   OR substr(t.transaction_date, 7, 4) || '-'
+                      || substr(t.transaction_date, 1, 2) || '-'
+                      || substr(t.transaction_date, 4, 2) = a.event_date )
+            JOIN filings f ON f.id = t.filing_id
+            WHERE a.id IN (%s)
+              AND f.raw_url IS NOT NULL AND TRIM(f.raw_url) != ''
+            GROUP BY a.id
+            HAVING COUNT(DISTINCT f.raw_url) = 1
+        """ % ",".join("?" * len(ids_01b))
+        for r in conn.execute(q, ids_01b):
+            out.setdefault(r["alert_id"], r["url"])
+
+    # ── RULE_06: a real, correct COMPANY INDEX — not this filing ────────────
+    # Kept separate from document_url on purpose. EDGAR's Form-4 list for the
+    # right company is real and useful, but it is an INDEX, and calling it
+    # "the source" promises a receipt it does not deliver.
+    #
+    # 🔴 The old link put the TICKER in EDGAR's CIK parameter. Measured on a real
+    # sample of 8 RULE_06 tickers: 3 returned "No matching companies" — a 37.5%
+    # silent failure rate on a guessed construction. `tickers.cik` is populated on
+    # 10,619/10,619 rows, and the real CIK resolves every one of those three
+    # (SFD -> Smithfield Foods, SEZL -> Sezzle, OMDA -> Omada Health).
+    ids_06 = [r["id"] for r in rows if r["rule"] == "RULE_06"]
+    if ids_06:
+        q6 = """
+            SELECT a.id AS alert_id, tk.cik AS cik
+            FROM alerts a
+            JOIN tickers tk ON tk.symbol = REPLACE(a.ticker, '$', '')
+            WHERE a.id IN (%s) AND tk.cik IS NOT NULL AND TRIM(tk.cik) != ''
+        """ % ",".join("?" * len(ids_06))
+        for r in conn.execute(q6, ids_06):
+            cik = str(r["cik"]).strip()
+            if cik.isdigit():
+                index_out[r["alert_id"]] = (
+                    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+                    "&CIK=%s&type=4&dateb=&owner=include&count=40" % cik.zfill(10))
+
+    # ── RULE_OSINT / RULE_REDDIT: the real article URL is in `tags` ──────────
+    # 🔴 FOUND BY THE VERIFIER, AFTER I HAD DECLARED THESE UNRECOVERABLE.
+    # `alerts.source_url` on all 387 OSINT rows is a Google News SEARCH QUERY —
+    # which is why the column looked useless. But `tags.source_url` carries the
+    # actual article permalink on 387/387, and `tags` carries a reddit permalink
+    # on 8/8. Sampled article URLs return 200 (dailytrust, irishtimes, yahoo…).
+    # `osint_region.html` was already using them.
+    #
+    # Rendering "no source document" over a stored, working document link is the
+    # same failure this change exists to fix, pointing the other way.
+    for r in rows:
+        if r["rule"] not in ("RULE_OSINT", "RULE_REDDIT") or r["id"] in out:
+            continue
+        try:
+            tj = json.loads(r["tags"] or "{}")
+        except Exception:
+            continue
+        if not isinstance(tj, dict):
+            continue
+        u = (tj.get("source_url") or tj.get("permalink") or tj.get("url") or "").strip()
+        # Never re-admit the search query the column holds.
+        if u.startswith("http") and "news.google.com/search" not in u:
+            out[r["id"]] = u
+
+    if "award_key" in keys:
+        for r in rows:
+            if r["rule"] != "RULE_11":
+                continue
+            key = (r["award_key"] or "").strip()
+            # An award id is opaque but structured; only emit a link for something
+            # that actually looks like one, never for arbitrary text.
+            if key and key.upper().startswith(("CONT_AWD", "ASST_NON", "CONT_IDV")):
+                out[r["id"]] = "https://www.usaspending.gov/award/%s/" % key
+    return out, index_out
+
+
 def _rows_with_receipts(rows, conn) -> list[dict]:
     """Attach the server-assembled factual receipts block to each alert."""
+    docs, indexes = _document_urls(rows, conn)
     out = []
     for r in rows:
         d = _row_to_dict(r)
         d["receipts"] = build_receipts(d, conn)
+        # None means "no real source document exists for this alert" — the client
+        # renders an explicit unavailable state, NOT a link.
+        d["document_url"] = docs.get(d["id"])
+        # A real, correct index at the source system — explicitly NOT this filing.
+        d["source_index_url"] = indexes.get(d["id"])
         out.append(d)
     return out
 
@@ -170,6 +307,7 @@ def get_alerts(
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
             a.tags, a.member_id, a.created_at, a.source_url,
+            a.event_date, a.award_key,
             a.time_horizon, a.novelty_score, a.opportunity_score,
             a.evidence_confidence, a.source_quality, a.verify_url,
             a.theme_id, a.lifecycle_stage,
@@ -262,6 +400,7 @@ def get_alert(alert_id: int):
         SELECT
             a.id, a.rule, a.ticker, a.severity, a.headline, a.detail,
             a.tags, a.member_id, a.created_at, a.source_url,
+            a.event_date, a.award_key,
             m.full_name, m.party, m.state
         FROM alerts a
         LEFT JOIN members m ON a.member_id = m.bioguide_id
@@ -274,4 +413,10 @@ def get_alert(alert_id: int):
     if not row:
         return JSONResponse(status_code=404, content={"error": "Alert not found"})
 
-    return _row_to_dict(row)
+    d = _row_to_dict(row)
+    conn2 = db_connection()
+    _docs, _idx = _document_urls([row], conn2)
+    d["document_url"] = _docs.get(d["id"])
+    d["source_index_url"] = _idx.get(d["id"])
+    conn2.close()
+    return d
