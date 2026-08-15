@@ -10,17 +10,19 @@ from __future__ import annotations
 import sys
 import os
 import asyncio
+import hmac
 import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from api.rate_limit import rate_limit
 from api.routers import (
     alerts, chat, members, tickers,
     filter as filter_router,
@@ -324,7 +326,15 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # This is a public, unauthenticated, cookie-free JSON API — allow_origins=["*"]
+    # is intentional so any consumer can read it. allow_credentials must stay False:
+    # combined with a wildcard origin it is a known-bad pairing (browsers/Starlette
+    # respond by reflecting the caller's actual Origin instead of a literal "*",
+    # which quietly becomes "any origin, WITH credentials"). Nothing in Scope ever
+    # sets a cookie (confirmed: zero `set_cookie` calls anywhere), so there is no
+    # credentialed request to protect — if that ever changes, allow_origins must be
+    # narrowed to a real allowlist before allow_credentials can safely become True.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -446,18 +456,46 @@ def scheduler_status():
     }
 
 
-@app.get("/admin/refresh", tags=["Admin"])
+def _admin_key_ok(key: str) -> bool:
+    """Constant-time compare against ADMIN_KEY — a plain `!=` leaks timing
+    information about how many leading characters of a guess were correct,
+    an unnecessary side-channel on the one secret gating these routes."""
+    admin_key = os.getenv("ADMIN_KEY", "")
+    return bool(admin_key) and hmac.compare_digest(key or "", admin_key)
+
+
+def _log_admin_denied(source: str) -> None:
+    """Failed admin-key attempts were previously invisible: a wrong key returned
+    a 403 and left no trace anywhere, on the one class of endpoint (`/admin/*`)
+    where a trace matters most. Best-effort — must never block the 403 response."""
+    try:
+        from jpt_common import record_activity
+        record_activity(source, notes="admin key rejected")
+    except Exception:
+        pass
+
+
+@app.get("/admin/refresh", tags=["Admin"], dependencies=[Depends(rate_limit(5, 60))])
 def admin_refresh(key: str = ""):
     """Manually trigger all live rules. Pass ?key=ADMIN_KEY."""
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key or key != admin_key:
+    if not _admin_key_ok(key):
         from fastapi.responses import JSONResponse
+        _log_admin_denied("ADMIN_REFRESH_DENIED")
         return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
     results = _run_rules(LIVE_RULES)
     return {"status": "done", "alert_count": _alert_count(), "results": results}
 
 
-@app.post("/admin/upload-db", tags=["Admin"])
+# SQLite's own on-disk file signature (first 16 bytes of every valid database
+# file, including empty ones) — https://www.sqlite.org/fileformat.html#the_database_header
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+# Generous headroom over anything Scope has held to date (prod sits at tens of
+# thousands of alerts, tens of MB) without leaving the upload unbounded — an
+# uncapped body on a volume-backed endpoint is a disk-fill DoS waiting to happen.
+_MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+
+
+@app.post("/admin/upload-db", tags=["Admin"], dependencies=[Depends(rate_limit(5, 60))])
 async def admin_upload_db(key: str, request: "Request"):
     """
     Replace the live DB with an uploaded binary — writes directly to the volume.
@@ -465,21 +503,50 @@ async def admin_upload_db(key: str, request: "Request"):
     """
     from fastapi.responses import JSONResponse
     import shutil
+    import sqlite3
     from jpt_common import _get_db_path
 
-    admin_key = os.getenv("ADMIN_KEY", "")
-    if not admin_key or key != admin_key:
+    if not _admin_key_ok(key):
+        _log_admin_denied("ADMIN_UPLOAD_DB_DENIED")
         return JSONResponse(status_code=403, content={"error": "Invalid or missing key"})
+
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "File too large"})
 
     body = await request.body()
     if len(body) < 4096:
         return JSONResponse(status_code=400, content={"error": "Body too small — send the full .db file"})
+    if len(body) > _MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "File too large"})
+    # This was previously the entire validation, and it validated nothing about
+    # the CONTENT — any bytes >= 4KB (a text file, an image, garbage) were
+    # accepted and installed as the live database. Two checks now run before a
+    # single byte reaches the volume: the file must actually be a SQLite
+    # database (real magic header, not just enough bytes), and it must pass
+    # SQLite's own integrity check — the same precondition `scripts/db_backup.py`
+    # already requires of a snapshot before treating it as good, applied here
+    # for the same reason.
+    if not body.startswith(_SQLITE_MAGIC):
+        return JSONResponse(status_code=400, content={"error": "Not a SQLite database file"})
 
     db_path = _get_db_path(None)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     tmp = Path(str(db_path) + ".upload_tmp")
     tmp.write_bytes(body)
+
+    try:
+        check_conn = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
+        result = check_conn.execute("PRAGMA integrity_check").fetchone()
+        check_conn.close()
+        if not result or result[0] != "ok":
+            tmp.unlink(missing_ok=True)
+            return JSONResponse(status_code=400, content={"error": "Failed integrity check — not a valid database"})
+    except sqlite3.Error as exc:
+        tmp.unlink(missing_ok=True)
+        return JSONResponse(status_code=400, content={"error": f"Not a readable SQLite database: {exc}"})
+
     shutil.move(str(tmp), str(db_path))
 
     size = db_path.stat().st_size
@@ -704,12 +771,12 @@ def get_watchlist_rules():
 
 
 class _WatchlistRuleBody(BaseModel):
-    label: str
-    condition_type: str
-    condition_value: str
+    label: str = Field(..., max_length=200)
+    condition_type: str = Field(..., max_length=100)
+    condition_value: str = Field(..., max_length=500)
 
 
-@app.post("/api/watchlist-rules", tags=["Watchlist"])
+@app.post("/api/watchlist-rules", tags=["Watchlist"], dependencies=[Depends(rate_limit(20, 60))])
 def add_watchlist_rule(body: _WatchlistRuleBody):
     from fastapi.responses import JSONResponse
     label = (body.label or "").strip()

@@ -396,7 +396,7 @@ function renderReceipts(r){
       // receipts + tags carry the war room. Generation code is left intact,
       // just unwired from the UI here.
       let detail = '';
-      if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
+      if (a.tags) detail = `<div class="detail-label">Tags</div>${esc(a.tags)}`;
       const verifyBtn = _src.kind === 'document'
         ? `<a href="${_src.url}" target="_blank" rel="noopener" class="verify-link">Verify → source document</a>`
         : _src.kind === 'index'
@@ -408,8 +408,8 @@ function renderReceipts(r){
         <div class="alert-card${enterClass}" id="ac-${i}"${enterStyle} onclick="toggle(${i})">
           <div class="alert-top">
             <span class="badge badge-${a.severity}">${a.severity}</span>
-            <span class="badge badge-rule" title="${a.rule}">${ruleName(a.rule)}</span>
-            <span class="alert-headline">${a.headline}</span>
+            <span class="badge badge-rule" title="${esc(a.rule)}">${esc(ruleName(a.rule))}</span>
+            <span class="alert-headline">${esc(a.headline)}</span>
             <span class="alert-time">${timeAgo(a.created_at)}</span>
             <button class="copy-btn" id="ticker-copy-${a.id}" title="Copy alert ID and link" onclick="copyAlertInfo(event,${a.id})">📋 Copy</button>
           </div>

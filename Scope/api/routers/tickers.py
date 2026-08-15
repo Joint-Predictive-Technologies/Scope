@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timedelta, timezone
 
 import requests
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
+from api.rate_limit import rate_limit
 from jpt_common import db_connection
 from api.receipts import build_receipts
 
@@ -93,20 +95,34 @@ def get_watchlist():
     return [dict(r) for r in rows]
 
 
-@router.post("/watchlist/{symbol}")
+_TICKER_SHAPE = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+
+
+@router.post("/watchlist/{symbol}", dependencies=[Depends(rate_limit(20, 60))])
 def add_watchlist(symbol: str):
+    # `symbol` reaches `watchlist.html`'s render() unescaped, including inside a
+    # single-quoted onclick="removeTicker('...')" JS string — the client-side
+    # `.replace(/[^A-Z]/g, '')` in watchlist.html is a UI convenience only, not a
+    # security boundary, since this endpoint is reachable directly. Without a
+    # server-side shape check, POSTing an id like `x');alert(1)//` stores verbatim
+    # (the SQL insert below is already parameterized and safe) and then executes
+    # for anyone who next loads /watchlist. Real ticker shapes (incl. class
+    # shares like BRK.B or BF-B) fit this; anything else is rejected outright.
+    clean = symbol.upper().strip()
+    if not _TICKER_SHAPE.match(clean):
+        return JSONResponse(status_code=422, content={"error": "invalid ticker symbol"})
     conn = db_connection()
     try:
         conn.execute(
             "INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)",
-            (symbol.upper().strip(),),
+            (clean,),
         )
         conn.commit()
     except Exception as exc:
         conn.close()
         return JSONResponse(status_code=400, content={"error": str(exc)})
     conn.close()
-    return {"status": "added", "symbol": symbol.upper()}
+    return {"status": "added", "symbol": clean}
 
 
 @router.delete("/watchlist/{symbol}")

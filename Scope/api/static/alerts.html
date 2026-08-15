@@ -489,7 +489,7 @@ function renderReceipts(r){
   function memberTagLinks(tags) {
     return parseMemberNames(tags).map(name => {
       const id = memberMap[name];
-      return id ? `<a href="/member/${id}" class="member-link" onclick="event.stopPropagation()">${name}</a>` : name;
+      return id ? `<a href="/member/${escHtml(id)}" class="member-link" onclick="event.stopPropagation()">${escHtml(name)}</a>` : escHtml(name);
     }).join(', ');
   }
   function parseR01bTags(tags) {
@@ -893,11 +893,11 @@ function renderReceipts(r){
     list.innerHTML = data.map((a, i) => {
       const ticker = firstTicker(a.ticker);
       const tickerBadge = ticker
-        ? `<a href="/ticker/${ticker}" class="ticker-link" onclick="event.stopPropagation()">${ticker}</a>`
+        ? `<a href="/ticker/${escHtml(ticker)}" class="ticker-link" onclick="event.stopPropagation()">${escHtml(ticker)}</a>`
         : '';
       const memberLink = (a.member_id && a.full_name)
-        ? `<a href="/member/${a.member_id}" class="member-link" onclick="event.stopPropagation()">${a.full_name}</a>`
-        : (a.full_name || '');
+        ? `<a href="/member/${escHtml(a.member_id)}" class="member-link" onclick="event.stopPropagation()">${escHtml(a.full_name)}</a>`
+        : escHtml(a.full_name || '');
 
       let r01b = null, inlineDelay = '';
       if (a.rule === 'RULE_01B' && a.tags) {
@@ -932,11 +932,11 @@ function renderReceipts(r){
         if (ticker)
           detailHtml += `<div class="social-flag" data-sym="${ticker}"></div>`;
       } else if (!a.detail && a.tags) {
-        detailHtml += `<div class="detail-label">Tags</div><div>${a.tags}</div>`;
+        detailHtml += `<div class="detail-label">Tags</div><div>${escHtml(a.tags)}</div>`;
       }
 
       if (a.why_matters)
-        detailHtml += `<div style="margin-top:0.6rem;font-size:0.74rem;color:var(--cream2);font-style:italic;border-left:2px solid var(--amber);padding-left:0.7rem">Why this matters: ${a.why_matters}</div>`;
+        detailHtml += `<div style="margin-top:0.6rem;font-size:0.74rem;color:var(--cream2);font-style:italic;border-left:2px solid var(--amber);padding-left:0.7rem">Why this matters: ${escHtml(a.why_matters)}</div>`;
 
       if (memberLink)
         detailHtml += `<div style="margin-top:0.5rem;font-size:0.78rem;color:var(--muted)">Member: ${memberLink}</div>`;
@@ -978,7 +978,7 @@ function renderReceipts(r){
             <span class="badge badge-score" title="Signal score">${sc}</span>
             ${a.relevance_score != null ? `<span class="badge badge-score">${a.relevance_score}/10</span>` : ''}
             ${a.lifecycle_stage && a.lifecycle_stage !== 'created' ? `<span class="badge badge-lifecycle badge-lc-${a.lifecycle_stage}" title="Signal lifecycle">${{corroborated:'★ CORROBORATED', featured:'📰 FEATURED', backtested:'📊 BACKTESTED'}[a.lifecycle_stage] || a.lifecycle_stage}</span>` : ''}
-            <span class="alert-headline">${a.headline}</span>
+            <span class="alert-headline">${escHtml(a.headline)}</span>
             <span class="alert-time" title="${exactTime(a.created_at)}">${timeAgo(a.created_at)}</span>
             <button class="vote-btn" id="vote-${a.id}" onclick="toggleVote(event,${a.id})">▲ <span id="vc-${a.id}">0</span></button>
             <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
