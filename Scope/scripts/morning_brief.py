@@ -196,7 +196,7 @@ def _synthesize_headline(conn) -> dict:
             # counted toward it, not from whichever noise row happened to be first.
             a["example"] = r["headline"]
     if not agg:
-        return {"mode": "quiet"}
+        return {"mode": "quiet", "window_days": CONVERGENCE_WINDOW_DAYS}
 
     # Rank by gate instruments first — never by raw alert volume, which is what
     # let a single noisy source dominate.
@@ -206,16 +206,19 @@ def _synthesize_headline(conn) -> dict:
 
     if len(instruments) >= RULE_10_MIN_INSTRUMENTS:
         return {"mode": "converge", "ticker": tk, "types": sorted(instruments),
-                "n": top["n"], "example": top["example"]}
+                "n": top["n"], "example": top["example"],
+                "window_days": CONVERGENCE_WINDOW_DAYS}
     if not instruments:
         # Nothing has even ONE corroborating instrument. Naming a "leader" here
         # would promote a ticker whose entire presence is excluded-as-noise —
         # which is exactly how the stale hero got there. Say the true thing.
         return {"mode": "quiet", "noise_only": True,
-                "noise": sorted(top["noise"]), "needed": RULE_10_MIN_INSTRUMENTS}
+                "noise": sorted(top["noise"]), "needed": RULE_10_MIN_INSTRUMENTS,
+                "window_days": CONVERGENCE_WINDOW_DAYS}
     return {"mode": "coverage", "ticker": tk, "types": sorted(instruments),
             "noise": sorted(top["noise"]), "needed": RULE_10_MIN_INSTRUMENTS,
-            "n": top["n"], "example": top["example"]}
+            "n": top["n"], "example": top["example"],
+            "window_days": CONVERGENCE_WINDOW_DAYS}
 
 
 def _activity_strip(conn) -> dict:
@@ -538,7 +541,13 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
     P = parts.append
 
     # ── HERO — cross-source convergence (synthesized), not a single top signal.
-    hero = d.get("hero") or {"mode": "quiet"}
+    # `window_days` is stamped onto every mode by `_synthesize_headline` from the
+    # gate's own `CONVERGENCE_WINDOW_DAYS` — never hardcode the day count in the
+    # copy below again (that drift is exactly the bug this comment exists to stop:
+    # the hero text said "7 days" while the query was scoped to 14).
+    from scripts.rule_10_corroboration import CONVERGENCE_WINDOW_DAYS as _FALLBACK_WINDOW_DAYS
+    hero = d.get("hero") or {"mode": "quiet", "window_days": _FALLBACK_WINDOW_DAYS}
+    window_days = hero.get("window_days", _FALLBACK_WINDOW_DAYS)
     top = d.get("headline")  # strongest single signal → war-room link target
     top_wr = war_room_path(top["rule"], top["tags"], top["theme_id"], top["ticker"]) if top else "#"
     if hero.get("mode") == "converge":
@@ -546,7 +555,7 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
         tlist = (", ".join(types[:-1]) + " and " + types[-1]) if len(types) > 1 else types[0]
         headline_txt = (f'<span class="hero-accent">{_esc(hero["ticker"])}</span> '
                         f'converges across {len(types)} instruments')
-        context = (f'{_esc(tlist)} all point to {_esc(hero["ticker"])} in the last 7 days '
+        context = (f'{_esc(tlist)} all point to {_esc(hero["ticker"])} in the last {window_days} days '
                    f'({hero["n"]} signals) — the day\'s strongest cross-source read.')
     elif hero.get("mode") == "coverage":
         # Deliberately does NOT print the word "converges": nothing cleared the
@@ -571,7 +580,7 @@ def render_html(d: dict, date_str: str, preamble: str | None) -> str:
                    f'instrument, and {hero.get("needed", 3)} are needed to fire.')
     else:
         headline_txt = 'A quiet window'
-        context = 'No ticker-linked signals in the last 7 days.'
+        context = f'No ticker-linked signals in the last {window_days} days.'
     wr_link = f'<a class="wr" href="{_esc(top_wr)}">Open strongest war room →</a>' if top else ''
     hero_html = (f'<h1>{headline_txt}</h1>'
                  f'<div class="date">{date_str} · 06:30 UTC</div>'

@@ -49,9 +49,30 @@
     .result-info { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); }
 
     /* TABLE */
-    .table-wrap { overflow-x: auto; }
-    table { width: 100%; border-collapse: collapse; }
-    thead th { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+    /* A sticky `thead` needs a real scrolling container to stick within, and
+       `overflow-x: auto` alone does not give it one: per the CSS Overflow
+       spec, pairing a non-visible overflow-x with a `visible` overflow-y
+       forces the y-axis to compute as `auto` too — so .table-wrap already
+       silently became its own scroll container, just with no bounded height,
+       meaning it never actually scrolled and `position: sticky` inside it had
+       nothing to stick against (proven by measurement: the header rode off
+       past the nav instead of pinning under it). Bounding the height embraces
+       that container instead of fighting it — the archive scrolls in its own
+       pane, header frozen at its top, same pattern `#scope-rollout` already
+       uses (`nav.js`, `max-height:78vh`) elsewhere in this app. */
+    .table-wrap { overflow-x: auto; overflow-y: auto; max-height: 70vh; }
+    /* `border-collapse: separate` (+ zeroed spacing) is required, not cosmetic.
+       Under `collapse`, borders are painted by the TABLE rather than by each
+       cell — which breaks a sticky `<th>`'s own paint box: re-derived by a
+       verifier forcing `collapse` back on at runtime and diffing the header
+       band across 12 scroll offsets in both themes, the sticky `<th>`'s own
+       `border-bottom` disappears entirely (it stays behind, painted with the
+       rest of the table, while the `<th>` itself visually detaches to stick)
+       — not the "row text bleeds through the header" symptom an earlier pass
+       of this fix mis-described from a screenshot. `separate` restores the
+       cell owning its own borders, so the sticky header keeps its underline. */
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th { font-family: var(--font-mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 0.7rem 0.8rem; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; position: sticky; top: 0; background: var(--bg); z-index: 10; }
     tbody tr { border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); transition: background 0.1s; cursor: pointer; }
     tbody tr:hover { background: var(--bg2); }
     tbody tr.expanded { background: var(--bg2); }

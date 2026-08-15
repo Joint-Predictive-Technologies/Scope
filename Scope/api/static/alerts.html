@@ -45,7 +45,7 @@
     .thesis-clear:hover { color: var(--cream); }
 
     /* FILTERS */
-    .filters { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; }
+    .filters { display: flex; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 1.5rem; align-items: center; position: sticky; top: 56px; z-index: 50; background: var(--bg); padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
     .filter-select, .filter-input { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em; background: var(--bg2); border: 1px solid var(--border); color: var(--cream2); padding: 7px 12px; border-radius: 4px; outline: none; appearance: none; }
     .filter-select:focus, .filter-input:focus { border-color: var(--amber); color: var(--cream); }
     .filter-input { width: 140px; }
@@ -107,6 +107,9 @@
     .rate-btn { background: transparent; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 0.66rem; line-height: 1; filter: grayscale(0.85); opacity: 0.5; transition: all 0.15s; flex-shrink: 0; }
     .rate-btn:hover { opacity: 1; filter: none; border-color: var(--amber); }
     .rate-btn.rated { opacity: 1; filter: none; border-color: var(--amber); background: color-mix(in srgb, var(--amber) 12%, transparent); }
+    .copy-btn { font-family: var(--font-mono); font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; min-width: 2.4em; }
+    .copy-btn:hover { border-color: var(--amber); color: var(--amber2); }
+    .copy-btn.copied { border-color: var(--direction-buy, var(--amber)); color: var(--direction-buy, var(--amber)); }
 
     /* EXPANDED DETAIL */
     .detail-label { font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); margin-bottom: 0.4rem; margin-top: 0.7rem; }
@@ -178,7 +181,13 @@
     /* NAV BADGE */
     .nav-badge { background: var(--red); color: #fff;   /* theme-ok: ink on a filled severity badge, not on the page */ font-size: 0.52rem; font-family: var(--font-mono); padding: 1px 5px; border-radius: 10px; margin-left: 3px; vertical-align: middle; line-height: 1; }
 
-    @media (max-width: 700px) { .filters { gap: 0.5rem; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
+    /* Sticky is desktop-only below 700px: the filter row wraps to ~5 lines at
+       phone widths, and a verifier measured that pinned it would permanently
+       consume 264 of 736px (35.9%) of a 414-wide viewport, clipping the top
+       alert card's badge row under it on every scroll. `position: static`
+       keeps every control reachable by just scrolling past it once, which a
+       phone screen this cramped needs more than a pinned toolbar does. */
+    @media (max-width: 700px) { .filters { gap: 0.5rem; position: static; padding: 0; border-bottom: none; } .alert-time { display: none; } .thesis-row { flex-direction: column; } }
 
     /* Functional motion — reduced motion: keep opacity fades, drop transform/scale. */
     @media (prefers-reduced-motion: reduce) {
@@ -660,6 +669,23 @@ function renderReceipts(r){
     if (vCnt) vCnt.textContent = data.votes;
     if (cCnt) cCnt.textContent = data.comments;
   }
+  // ── Copy ticker / alert ID / link to clipboard ──────────────────────────
+  function copyAlertInfo(e, alertId, ticker) {
+    e.stopPropagation();
+    const link = ticker ? `${location.origin}/ticker/${ticker}` : `${location.origin}/feed`;
+    const text = (ticker ? `${ticker} — ` : '') + `Alert #${alertId} — ${link}`;
+    const btn = document.getElementById(`copy-${alertId}`);
+    const reset = (label, ok) => {
+      if (!btn) return;
+      btn.textContent = label;
+      btn.classList.toggle('copied', ok);
+      setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied'); }, 1400);
+    };
+    navigator.clipboard.writeText(text)
+      .then(() => reset('✓ Copied', true))
+      .catch(() => reset('✗ Failed', false));
+  }
+
   async function toggleVote(e, alertId) {
     e.stopPropagation();
     try {
@@ -958,6 +984,7 @@ function renderReceipts(r){
             <button class="comment-btn" onclick="toggleComments(event,${a.id})">💬 <span id="cc-${a.id}">0</span></button>
             <button class="rate-btn" id="rate-up-${a.id}" title="Thumbs up" onclick="annotateAlert(event,${a.id},'up')">👍</button>
             <button class="rate-btn" id="rate-down-${a.id}" title="Thumbs down" onclick="annotateAlert(event,${a.id},'down')">👎</button>
+            <button class="copy-btn" id="copy-${a.id}" title="Copy ticker, alert ID and link" onclick="copyAlertInfo(event,${a.id},${ticker ? `'${ticker}'` : 'null'})">📋 Copy</button>
           </div>
           <div class="alert-detail">${detailHtml}</div>
         </div>`;

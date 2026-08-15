@@ -85,6 +85,9 @@
     .badge-MEDIUM   { background: color-mix(in srgb, var(--severity-medium) 15%, transparent); color: var(--severity-medium); border: 1px solid var(--severity-medium); }
     .badge-rule { background: transparent; color: var(--muted); border: 1px solid var(--border2); }
     .alert-headline { font-size: 0.86rem; color: var(--cream); line-height: 1.4; flex: 1; min-width: 200px; }
+    .copy-btn { font-family: var(--font-mono); font-size: 0.62rem; background: transparent; border: 1px solid var(--border2); color: var(--muted); padding: 2px 8px; border-radius: 3px; cursor: pointer; transition: border-color 0.15s, color 0.15s; flex-shrink: 0; min-width: 2.4em; }
+    .copy-btn:hover { border-color: var(--amber); color: var(--amber2, var(--amber)); }
+    .copy-btn.copied { border-color: var(--amber); color: var(--amber); }
     .alert-time { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-left: auto; flex-shrink: 0; }
 
     /* Functional motion (b): staggered entrance on render. */
@@ -408,6 +411,7 @@ function renderReceipts(r){
             <span class="badge badge-rule" title="${a.rule}">${ruleName(a.rule)}</span>
             <span class="alert-headline">${a.headline}</span>
             <span class="alert-time">${timeAgo(a.created_at)}</span>
+            <button class="copy-btn" id="ticker-copy-${a.id}" title="Copy alert ID and link" onclick="copyAlertInfo(event,${a.id})">📋 Copy</button>
           </div>
           ${receipts || detail || verifyBtn ? `<div class="alert-detail">${receipts}${detail}${verifyBtn}</div>` : ''}
         </div>`;
@@ -461,6 +465,22 @@ function renderReceipts(r){
   }
 
   function toggle(i) { document.getElementById(`ac-${i}`)?.classList.toggle('expanded'); }
+
+  // ── Copy ticker / alert ID / link to clipboard ──────────────────────────
+  function copyAlertInfo(e, alertId) {
+    e.stopPropagation();
+    const text = `${symbol} — Alert #${alertId} — ${location.href}`;
+    const btn = document.getElementById(`ticker-copy-${alertId}`);
+    const reset = (label, ok) => {
+      if (!btn) return;
+      btn.textContent = label;
+      btn.classList.toggle('copied', ok);
+      setTimeout(() => { btn.textContent = '📋 Copy'; btn.classList.remove('copied'); }, 1400);
+    };
+    navigator.clipboard.writeText(text)
+      .then(() => reset('✓ Copied', true))
+      .catch(() => reset('✗ Failed', false));
+  }
 
   let _activeRuleFilter = null;
 

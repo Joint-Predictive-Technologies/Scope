@@ -203,6 +203,7 @@
   }
 
   async function removeTicker(sym) {
+    if (!confirm(`Remove ${sym} from your watchlist?`)) return;
     await fetch(`/tickers/watchlist/${sym}`, { method: 'DELETE' });
     document.getElementById(`wl-${sym}`)?.remove();
     const list = document.getElementById('wl-list');
@@ -273,6 +274,7 @@
   }
 
   async function removeRule(id) {
+    if (!confirm('Remove this alert rule?')) return;
     await fetch(`/api/watchlist-rules/${id}`, { method: 'DELETE' });
     document.getElementById(`rule-${id}`)?.remove();
     const list = document.getElementById('wl-rule-list');

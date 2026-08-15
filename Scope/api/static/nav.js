@@ -348,10 +348,113 @@ nav .scope-more[aria-expanded="true"] .chev { transform:rotate(180deg); }
     };
   }
 
+  /* ── Skip-to-content link, one definition for every page ──────────────────
+     Visually hidden until focused; the first tab stop on any page. There is
+     no consistent `<main>` landmark across the 31 pages this loads on, so the
+     real content container is resolved defensively: an explicit `<main>` /
+     `[role=main]` wins if present, then the common `.page` wrapper (27 of 31
+     pages), then the first element after `<nav>` that is not one of the
+     known chrome overlays (`cmdk.js`'s legacy `#cmd-backdrop` markup, or this
+     file's own `#scope-rollout` panel) or a `<header>` strip. */
+  var SKIP_CSS = `
+.scope-skip-link { position:absolute; left:8px; top:-48px; z-index:10001;
+  background:var(--amber,#c89664); color:var(--surface-1,#131317);
+  font-family:var(--font-mono,monospace); font-size:0.75rem; font-weight:600;
+  letter-spacing:0.03em; text-decoration:none; padding:.55rem .9rem;
+  border-radius:4px; transition:top .15s ease; }
+.scope-skip-link:focus { top:8px; outline:2px solid var(--surface-1,#131317); outline-offset:2px; }
+`;
+  var CHROME_IDS = ["cmd-backdrop", "scope-rollout", "scope-rollout-scrim"];
+
+  /* A candidate found by DOM position, not semantics, needs a real "is this
+     actually visible" check before `.focus()`ing it — `.focus()` on a hidden
+     element is a silent no-op, which is exactly how two different bugs here
+     left focus stuck on the skip link itself instead of moving it:
+
+       (1) /universe: the walk's first non-chrome sibling was `#legend`, a div
+           sitting at `visibility:hidden` until `paintLegend()` runs.
+       (2) /osint: EVERY sibling after `<nav>` is `position:fixed` (the WebGL
+           canvas, its legend, the side panel, the conflict tape — the whole
+           page is fixed-position chrome over a full-bleed globe). A fixed
+           element's `offsetParent` is ALSO `null` — not just a hidden one's —
+           so the first version of this check (`offsetParent !== null`)
+           rejected every real candidate on that page and silently fell back
+           to `document.body`, which is a genuinely different, worse bug: the
+           skip link no-ops (Tab -> Enter -> Tab lands back on the link,
+           having "skipped" nothing), found only by testing more than the 3
+           pages the first version happened to be checked against.
+
+     `getBoundingClientRect()` + computed `display`/`visibility` catches both
+     without the `offsetParent` false-negative on `position:fixed`. Resolved
+     fresh on EVERY activation, not cached from page load, because visibility
+     (case 1) can flip after the skip link was built. */
+  function findMainContent(nav) {
+    var isRendered = function (el) {
+      if (!el) return false;
+      var cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden") return false;
+      var r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    var explicit = document.querySelector("main, [role='main']");
+    if (isRendered(explicit)) return explicit;
+    var page = document.querySelector(".page");
+    if (isRendered(page)) return page;
+    var el = nav && nav.nextElementSibling;
+    while (el) {
+      if (el.nodeType === 1 && CHROME_IDS.indexOf(el.id) === -1 &&
+          el.tagName !== "HEADER" && el.tagName !== "STYLE" && el.tagName !== "SCRIPT" &&
+          isRendered(el)) {
+        return el;
+      }
+      el = el.nextElementSibling;
+    }
+    return document.body;
+  }
+
+  function buildSkipLink() {
+    if (document.getElementById("scope-skip-link")) return;   /* idempotent */
+    var nav = document.querySelector("nav");
+
+    injectStyle(SKIP_CSS, "scope-skip-link-style");
+
+    /* Stamps an id/tabindex on the resolved target so it is addressable and
+       focusable — EXCEPT when the target is `document.body` itself (the
+       last-resort fallback when no real candidate renders): body already has
+       an implicit id-less identity, and `body.id = "scope-main-content"`
+       would be a global id landing on every page that hits this fallback,
+       free to collide with that page's own `#`-selectors. Body is natively
+       focusable with `tabindex="-1"` without needing an id at all. */
+    var markFocusable = function (target) {
+      if (target !== document.body && !target.id) target.id = "scope-main-content";
+      if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+      return target;
+    };
+
+    var link = document.createElement("a");
+    link.id = "scope-skip-link";
+    link.className = "scope-skip-link";
+    /* href is a best-effort static fallback for a non-JS agent; the real,
+       keyboard-driven behaviour below always re-resolves the target live. */
+    var initialTarget = markFocusable(findMainContent(nav));
+    link.href = initialTarget.id ? "#" + initialTarget.id : "#";
+    link.textContent = "Skip to content";
+    /* Anchor navigation alone does not reliably move keyboard focus onto a
+       tabindex="-1" element in every browser, so it is done explicitly. */
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      var target = markFocusable(findMainContent(nav));
+      target.focus();
+      target.scrollIntoView();
+    });
+    document.body.insertBefore(link, document.body.firstChild);
+  }
+
   injectStyle(HIDE_STALE, "scope-nav-hide-stale");
+  function init() { build(); buildSkipLink(); }
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", build);
+    document.addEventListener("DOMContentLoaded", init);
   } else {
-    build();
+    init();
   }
 })(window);
