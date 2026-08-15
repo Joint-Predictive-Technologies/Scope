@@ -360,8 +360,9 @@ def get_position_sizing(symbol: str):
 
 
 def _position_sizing_payload(conn, symbol: str) -> dict:
-    from scripts.position_sizing import (cash_runway_months, monthly_burn_rate,
-                                         resolve)
+    from scripts.position_sizing import (ADV_WINDOW_DAYS, PARTICIPATION_RATE,
+                                         cash_runway_months, fill_profile,
+                                         max_fillable_usd, monthly_burn_rate, resolve)
     row = resolve(conn, symbol) or {}
 
     cap = row.get("market_cap")
@@ -375,6 +376,13 @@ def _position_sizing_payload(conn, symbol: str) -> dict:
     cap_reason = ("SEC shares outstanding x last close could not be resolved within the "
                   "plausibility guards (foreign private issuer, stale or implausible "
                   "share count, or no price).")
+
+    adv = row.get("adv_shares")
+    adv_usd = (adv * row["last_close"]) if adv and row.get("last_close") else None
+    adv_reason = (
+        f"Fewer than {ADV_WINDOW_DAYS} traded sessions available, or no usable last close. "
+        "A thinly-traded name is exactly where this matters, so it is reported as unknown "
+        "rather than averaged over whatever sessions happened to exist.")
 
     if ocf is None or not ocf_start:
         runway = _field(None, "unavailable",
@@ -444,6 +452,30 @@ def _position_sizing_payload(conn, symbol: str) -> dict:
                        "No cash and equivalents balance reported.",
                        as_of=row.get("cash_as_of")),
         "cash_runway_months": runway,
+        # ── liquidity ────────────────────────────────────────────────────────
+        # A signal can be perfectly real and still not tradeable at size. GCTS carries a
+        # $181M market cap on ~$4.8M of daily dollar volume, so a $1M position is ~21% of
+        # a day's entire tape — the gap between a theoretical edge and an executable one.
+        #
+        # ⚠️ ADV IS PUBLISHED ONLY WHERE `last_close` IS. Dollar volume is ADV x that same
+        # close, so surfacing volume after the close has been withheld would invite the
+        # reader to supply a price from elsewhere — which for a foreign private issuer
+        # reproduces the ADR mis-scale the cap guards exist to prevent, arriving through the
+        # liquidity panel instead of the cap one. Enforced in the resolver, restated here.
+        "adv_shares": _field(
+            adv, "known" if adv else "unavailable",
+            None if adv else adv_reason,
+            window_days=row.get("adv_window_days"),
+            period_start=row.get("adv_period_start"),
+            period_end=row.get("adv_period_end")),
+        "adv_usd": _field(adv_usd, "known" if adv_usd else "unavailable",
+                          None if adv_usd else adv_reason,
+                          window_days=row.get("adv_window_days")),
+        "max_fillable_usd": _field(
+            max_fillable_usd(adv_usd), "known" if adv_usd else "unavailable",
+            None if adv_usd else adv_reason,
+            participation_rate=PARTICIPATION_RATE, window_days=ADV_WINDOW_DAYS),
+        "fill_profile": fill_profile(adv_usd),
         "dilution_overhang": _field(None, "unavailable", _DILUTION_UNAVAILABLE),
         "events": _dollar_events(conn, symbol, cap, revenue),
     }

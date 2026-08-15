@@ -731,6 +731,38 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO scope_migrations(name) VALUES('m015_position_sizing_cache')")
         conn.commit()
 
+    # m016: average daily volume, on the SAME row as the rest of the position-sizing facts.
+    #
+    # ⚠️ COLUMNS ON `position_sizing_cache`, NOT A SECOND TABLE, AND THE REASON IS THE FETCH.
+    # ADV and `last_close` come out of ONE Yahoo chart response — the same response the
+    # panel already reads its close from. A separate `liquidity_cache` would have to either
+    # fire a second HTTP request for data already in hand, or write two tables from one
+    # response and then keep their TTLs, their degraded-retention rules and their
+    # `fetched_at` stamps in agreement forever. Those are the same fact about the same
+    # company at the same instant; splitting them would invent a synchronisation problem
+    # that does not otherwise exist.
+    #
+    # Still display-only and still outside the moat: `position_sizing_cache` is read by
+    # `scripts/position_sizing.py` and the ticker API and by nothing else. Adding columns
+    # does not widen that, and `test_no_rule_or_gate_module_reads_the_panel_cache` continues
+    # to hold the line.
+    #
+    # `adv_shares` is a 20-TRADING-DAY mean and `adv_window_days` records the count that
+    # actually went into it, because a holiday-shortened window is a different number and
+    # the panel must be able to say which one it got.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m016_position_sizing_adv'"
+    ).fetchone():
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(position_sizing_cache)")}
+        for col, decl in (("adv_shares", "REAL"), ("adv_window_days", "INTEGER"),
+                          ("adv_period_start", "TEXT"), ("adv_period_end", "TEXT")):
+            if col not in cols:
+                conn.execute(
+                    f"ALTER TABLE position_sizing_cache ADD COLUMN {col} {decl}")
+        conn.execute(
+            "INSERT INTO scope_migrations(name) VALUES('m016_position_sizing_adv')")
+        conn.commit()
+
     conn.commit()
 
 

@@ -65,7 +65,11 @@ def test_the_panel_never_writes_a_cache_the_gate_reads(monkeypatch):
     monkeypatch.setattr(ps, "_market_cap_core",
                         lambda *a, **k: (a[4](1_000_000_000), 1_000_000_000)[1])
     monkeypatch.setattr(ps, "_shares_outstanding", lambda c: (10_000_000, "2026-06-30"))
-    monkeypatch.setattr(ps, "_last_close", lambda s: 100.0)
+    # `_close_and_adv`, not `_last_close`: the resolver stopped calling the latter when
+    # ADV arrived, because the close and the volume now come out of ONE chart response.
+    # Stubbing the retired name left these tests hitting the network for real.
+    monkeypatch.setattr(ps, "_close_and_adv",
+                        lambda s: (100.0, 250_000.0, 20, "2026-07-17", "2026-08-14"))
     monkeypatch.setattr(ps, "_companyfacts_units", lambda c: {})
 
     conn = db_connection()
@@ -113,7 +117,11 @@ def _stub_resolver(monkeypatch, *, cap_works=True, facts_works=True):
 
     monkeypatch.setattr(ps, "_cik_for", lambda s: "0000012927")
     monkeypatch.setattr(ps, "_shares_outstanding", lambda c: (10_000_000, "2026-06-30"))
-    monkeypatch.setattr(ps, "_last_close", lambda s: 100.0)
+    # `_close_and_adv`, not `_last_close`: the resolver stopped calling the latter when
+    # ADV arrived, because the close and the volume now come out of ONE chart response.
+    # Stubbing the retired name left these tests hitting the network for real.
+    monkeypatch.setattr(ps, "_close_and_adv",
+                        lambda s: (100.0, 250_000.0, 20, "2026-07-17", "2026-08-14"))
     if cap_works:
         monkeypatch.setattr(ps, "_market_cap_core",
                             lambda *a, **k: (a[4](1_000_000_000), 1_000_000_000)[1])
@@ -517,4 +525,135 @@ def test_the_migration_is_registered_and_additive():
             "ttm_revenue_basis", "cash_usd", "operating_cash_flow"} <= cols
     # No dilution column: an always-NULL column is an invitation to fill it with a guess.
     assert not [c for c in cols if "dilut" in c or "warrant" in c]
+    conn.close()
+
+
+# ── liquidity ─────────────────────────────────────────────────────────────────
+
+def _chart_stub(closes, volumes):
+    """A Yahoo chart response with the given parallel series. `monkeypatch` it in — never
+    assign `ps.requests.get` directly, which mutates the shared `requests` module for the
+    rest of the process and takes four unrelated tests down with it."""
+    class _R:
+        ok = True
+        @staticmethod
+        def json():
+            ts = list(range(1_750_000_000,
+                            1_750_000_000 + len(closes) * 86400, 86400))
+            return {"chart": {"result": [{"timestamp": ts, "indicators": {
+                "quote": [{"close": list(closes), "volume": list(volumes)}]}}]}}
+    return lambda *a, **k: _R()
+
+
+def test_the_adv_window_is_traded_sessions_not_calendar_rows(monkeypatch):
+    """The average must divide by the sessions that ACTUALLY TRADED.
+
+    Yahoo returns `close` and `volume` as parallel arrays with INDEPENDENT nulls — a halted
+    session carries a close and no volume. Averaging the raw array divides a short sum by a
+    long length and quietly under-reports liquidity on exactly the illiquid names this panel
+    exists to flag.
+
+    23 rows in, two unusable (one null volume, one null close), leaving 21 tradeable
+    sessions — one MORE than the window, which is the point: the planted `1` in the oldest
+    row must be trimmed by `rows[-20:]`, so this proves the mean is taken over the last 20
+    sessions and not over everything the endpoint returned. (An earlier version of this test
+    used 22 rows, which left exactly 20 survivors and therefore trimmed nothing — it passed
+    the null-handling half while asserting nothing at all about the window.)
+    """
+    import scripts.position_sizing as ps
+
+    close = [10.0] * 23
+    vol = [1_000_000] * 23
+    vol[0] = 1              # oldest row — must fall outside the 20-session window
+    vol[3] = None
+    close[7] = None
+    monkeypatch.setattr(ps.requests, "get", _chart_stub(close, vol))
+
+    out = ps._close_and_adv("X")
+    assert out is not None
+    last_close, adv, sessions, _s, _e = out
+    assert sessions == 20, "the window must be 20 TRADED sessions"
+    assert adv == 1_000_000, "a null row must not dilute the mean, nor an out-of-window one"
+    assert last_close == 10.0
+
+
+def test_too_few_sessions_is_unavailable_not_a_short_average(monkeypatch):
+    """An ADV over 3 sessions is not an ADV. A newly-listed or barely-traded name gets an
+    honest unknown — which for a thin micro-cap is itself the signal the panel exists for."""
+    import scripts.position_sizing as ps
+
+    monkeypatch.setattr(ps.requests, "get", _chart_stub([5.0] * 3, [100] * 3))
+    assert ps._close_and_adv("X") is None
+
+    # 20 rows but half of them untraded → 10 usable sessions → still not an ADV.
+    monkeypatch.setattr(ps.requests, "get",
+                        _chart_stub([5.0] * 20, ([100, None] * 10)))
+    assert ps._close_and_adv("X") is None
+
+
+def test_the_fill_bands_are_inclusive_at_their_boundaries():
+    """Exactly 10% is "fillable", not "work it" — an off-by-one at the threshold silently
+    reclassifies every position sized precisely to the stated convention."""
+    from scripts.position_sizing import fill_band
+    assert fill_band(9.99) == "fillable in a day"
+    assert fill_band(10.0) == "fillable in a day"
+    assert fill_band(10.01) == "work it over several days"
+    assert fill_band(25.0) == "work it over several days"
+    assert fill_band(25.01) == "will move the price"
+    assert fill_band(None) is None
+
+
+def test_fillable_size_is_the_stated_participation_rate_of_dollar_volume():
+    """GCTS, from the Stage 0 hand-check: 2,455,360 sh x $1.97 = $4,837,059/day."""
+    from scripts.position_sizing import (PARTICIPATION_RATE, fill_profile,
+                                         max_fillable_usd)
+    adv_usd = 2_455_360 * 1.9700000286102295
+    assert max_fillable_usd(adv_usd) == pytest.approx(483_705.9, abs=1.0)
+    assert PARTICIPATION_RATE == 0.10
+
+    prof = {p["size_usd"]: p for p in fill_profile(adv_usd)}
+    # $1M against a $4.84M tape is ~20.7% of a whole day — the point of the feature.
+    assert prof[1_000_000]["pct_of_adv"] == pytest.approx(20.6737, abs=1e-3)
+    assert prof[1_000_000]["band"] == "work it over several days"
+    assert prof[10_000]["band"] == "fillable in a day"
+
+
+def test_adv_is_withheld_wherever_the_close_is(monkeypatch):
+    """Dollar volume is ADV x the close. Publishing volume after the close was withheld
+    invites the reader to supply a price from elsewhere — the ADR mis-scale arriving through
+    the liquidity panel instead of the cap one."""
+    from api.routers.tickers import _position_sizing_payload
+    import scripts.position_sizing as ps
+
+    monkeypatch.setattr(ps, "resolve", lambda conn, sym: {
+        "market_cap": None, "cap_updated": None,
+        "shares_outstanding": None, "shares_as_of": None, "last_close": None,
+        "adv_shares": None, "adv_window_days": None,
+        "adv_period_start": None, "adv_period_end": None,
+        "fetched_at": "2026-08-15T00:00:00+00:00",
+    })
+    conn = db_connection()
+    payload = _position_sizing_payload(conn, "FPI")
+    conn.close()
+
+    for f in ("adv_shares", "adv_usd", "max_fillable_usd"):
+        assert payload[f]["status"] == "unavailable"
+        assert payload[f]["value"] is None
+        assert payload[f]["reason"], f"{f} must say WHY, not render an empty cell"
+    assert payload["fill_profile"] is None
+
+
+def test_liquidity_adds_no_column_the_moat_can_read():
+    """m016 extends the panel's own cache. The isolation property must be unchanged —
+    `test_no_rule_or_gate_module_reads_the_panel_cache` covers reads; this pins that the new
+    columns landed on the display table and not on a moat one."""
+    conn = db_connection()
+    assert conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m016_position_sizing_adv'").fetchone()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(position_sizing_cache)")}
+    assert {"adv_shares", "adv_window_days", "adv_period_start", "adv_period_end"} <= cols
+    for moat in ("ticker_meta", "issuer_cap"):
+        mcols = {r[1] for r in conn.execute(f"PRAGMA table_info({moat})")}
+        assert not [c for c in mcols if "adv" in c.lower()], (
+            f"{moat} is read by the gate and must not gain a liquidity column")
     conn.close()

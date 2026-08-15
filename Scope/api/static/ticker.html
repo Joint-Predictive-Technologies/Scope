@@ -420,6 +420,69 @@ function renderReceipts(r){
       : `Denominator is trailing twelve months to ${when}, basis ${rev.basis}.`;
   }
 
+  /* ── LIQUIDITY ────────────────────────────────────────────────────────────
+     Can this signal actually be traded at size? A strong convergence on a thin-float
+     micro-cap is an edge you cannot get into: GCTS carries a $181M market cap on ~$4.8M
+     of daily dollar volume, so $1M is ~21% of a whole day's tape.
+
+     Same rules as the panel above — the client formats, the server computes. The
+     percentages and band labels are served, not derived here, which is why there is no
+     "enter your position size" box: that would be the browser computing a number the
+     server never saw. Fixed sizes keep the arithmetic on one side of the wire.
+
+     The band thresholds are a stated CONVENTION (10% participation), not a claim about
+     what the market will bear, and the panel says so in words rather than implying
+     precision it does not have. */
+  function renderLiquidity(d) {
+    const adv = d.adv_shares, advUsd = d.adv_usd, fillable = d.max_fillable_usd;
+    const known = advUsd && advUsd.status === 'known';
+
+    const grid = `
+      <div class="ps-grid" style="margin-top:1px">
+        ${psCell(`Avg daily volume (${(adv && adv.window_days) || 20}d)`, adv,
+                 v => v.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' sh',
+                 f => (f.period_start ? `${f.period_start} → ${f.period_end}` : ''))}
+        ${psCell('Avg daily volume ($)', advUsd, fmtUsd,
+                 f => `${f.window_days || 20} sessions × last close`)}
+        ${psCell('Fillable in one day', fillable, fmtUsd,
+                 f => `at ${Math.round((f.participation_rate || 0.10) * 100)}% participation`)}
+      </div>`;
+
+    const profile = d.fill_profile;
+    const table = (known && profile && profile.length) ? `
+      <div class="ps-scroll">
+      <table class="ps-events">
+        <thead><tr>
+          <th>Position size</th>
+          <th style="text-align:right">% of one day's volume</th>
+          <th>What that means</th>
+        </tr></thead>
+        <tbody>
+          ${profile.map(p => `
+            <tr>
+              <td class="ps-num" style="text-align:left">${fmtUsd(p.size_usd)}</td>
+              <td class="ps-num" title="${p.pct_of_adv}% of average daily dollar volume">${
+                fmtPct(p.pct_of_adv)}</td>
+              <td>${esc(p.band)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>` : '';
+
+    return `
+      <div class="section-label" style="margin-top:2rem">Liquidity — Can You Actually Fill It</div>
+      ${grid}${table}
+      <div class="ps-note">
+        Context only — liquidity does not affect severity, scoring or corroboration.
+        Average daily volume is the mean over the last ${(adv && adv.window_days) || 20}
+        <em>traded sessions</em>, the same 20-trading-day horizon Scope already uses for
+        forward returns. “Fillable in one day” assumes a
+        ${Math.round(((fillable && fillable.participation_rate) || 0.10) * 100)}%
+        participation rate — a common execution convention, <em>not</em> a measured limit
+        for this stock. Real capacity depends on spread, borrow and news, none of which
+        Scope models.
+      </div>`;
+  }
+
   function renderPositionSizing(d) {
     if (!d || d.available === false) {
       return `<div class="ps-note">Position-sizing context unavailable — ${
@@ -492,7 +555,12 @@ function renderReceipts(r){
         <em>total obligated to date</em> across all modifications of the award, not the
         new-award value, so a percentage can overstate a single announcement. Every figure
         carries the date of the filing it came from; they are not all as of the same day.
-      </div>`;
+      </div>
+      ${/* Liquidity comes AFTER this panel's own events table and note, not between them.
+            Appending it to `grid` put the whole liquidity block in the middle of position
+            sizing, leaving "No dollar-denominated events on record" and the caveat above
+            stranded below it and reading as though they belonged to the fill table. */''}
+      ${renderLiquidity(d)}`;
   }
 
   function delayClass(d) {

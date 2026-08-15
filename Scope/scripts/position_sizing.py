@@ -84,14 +84,60 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
+import requests
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from jpt_common import db_connection, normalize_ticker            # noqa: E402
+# `_YF_HEADERS` is imported rather than restated: Yahoo's chart endpoint answers 429 to a
+# bare client, so the browser User-Agent is load-bearing, and a second copy of it here is a
+# second thing to forget when that string next has to change.
 from scripts.rule_reddit_collector import (                       # noqa: E402
-    _cik_for, _companyfacts_units, _last_close, _market_cap_core, _shares_outstanding,
+    _YF_HEADERS, _cik_for, _companyfacts_units, _market_cap_core, _shares_outstanding,
 )
 
 TTL_HOURS = 24
+
+# ── liquidity ─────────────────────────────────────────────────────────────────
+#
+# ⚠️ NO NEW DATA SOURCE, AND NO NEW REQUEST. `_last_close` already calls Yahoo's chart
+# endpoint, and that response ALREADY carries a `volume` series beside `close` — it was
+# simply being discarded, and `range=5d` was too short to average anyway. So the fetch
+# below replaces that call rather than joining it: same host, same endpoint, same symbol,
+# one wider window (`range=3mo`, 63 points, ~7.6 KB measured). A cold resolve therefore
+# still makes exactly TWO Yahoo requests, the same as before this feature — one inside
+# `_market_cap_core` for the cap, one here for the published components.
+#
+# ⚠️ WHY 20 TRADING DAYS, stated rather than picked. Three reasons, in order of weight:
+#   1. It is the window Scope ALREADY reasons in. `alert_outcomes` labels a forward return
+#      at +20 trading days (`price_20d`, `return_20d`), so liquidity measured over 20 days
+#      is measured over the same horizon the outcome data uses. A 30-day ADV beside a
+#      20-day return would be two different months.
+#   2. ~20 trading days is one trading month, which is the conventional ADV window in
+#      execution analysis (ADV20).
+#   3. "30-day" is ambiguous in a way 20-trading-day is not — 30 CALENDAR days is ~21
+#      trading days, and the two get conflated constantly.
+# `range=3mo` is fetched rather than `1mo` so that a holiday-shortened month still yields a
+# full 20 sessions; the extra ~5 KB is not worth a second failure mode.
+ADV_WINDOW_DAYS = 20
+ADV_RANGE = "3mo"
+
+# ⚠️ A CONVENTION, NOT A LAW OF NATURE, AND IT IS LABELLED AS ONE IN THE UI. 10% of ADV is
+# the participation rate institutional execution desks commonly cap a single day's order at,
+# and market-impact models (the square-root law family) put impact rising materially above
+# roughly that level. It is a rule of thumb with real practitioner backing and NO precise
+# empirical claim behind it, so the panel reports it as "at a 10% participation rate" rather
+# than as a fact about what the market will bear. The bands below are the same convention
+# expressed in three steps.
+PARTICIPATION_RATE = 0.10
+_FILL_BANDS = (
+    (10.0,  "fillable in a day"),
+    (25.0,  "work it over several days"),
+    (None,  "will move the price"),
+)
+# Sizes the panel reports a ratio for. Round numbers spanning retail to institutional, so
+# the reader sees the SHAPE of the constraint rather than one arbitrary point on it.
+FILL_PROFILE_SIZES = (10_000, 100_000, 1_000_000)
 
 # Revenue is not one concept. A filer reporting under ASC 606 uses the contract-with-
 # customer tag; older and mixed filers use `Revenues`; some use the net variant. Order is
@@ -368,6 +414,92 @@ def _operating_cash_flow(facts: dict) -> tuple[float, str, str] | None:
     return None
 
 
+def _close_and_adv(symbol: str) -> tuple[float, float, int, str, str] | None:
+    """(last_close, adv_shares, sessions, period_start, period_end) from ONE chart call.
+
+    Replaces this module's `_last_close` call rather than adding to it — see ADV_WINDOW_DAYS
+    above on why this is not a second request. The close returned here is the same last
+    non-null close `_last_close` would have returned, so the cap reconciliation downstream
+    is unaffected.
+
+    ⚠️ VOLUME AND CLOSE ARE PAIRED BEFORE EITHER IS USED. Yahoo returns `close` and `volume`
+    as parallel arrays with independent nulls — a halted session can carry a close and no
+    volume, and a pre-market row the reverse. Zipping and dropping any row where EITHER is
+    null keeps the average over sessions that actually traded, and keeps `period_start`
+    honest about which sessions those were. Averaging the raw array instead would silently
+    divide a short sum by a long length.
+
+    Returns None rather than a partial answer: fewer than the full window of sessions means
+    a newly-listed or barely-traded name, and an ADV over 3 sessions is not an ADV. The
+    caller renders that as unavailable, which for a thinly-traded microcap is itself the
+    honest signal.
+    """
+    try:
+        r = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+            f"?interval=1d&range={ADV_RANGE}", headers=_YF_HEADERS, timeout=15)
+        if not r.ok:
+            return None
+        res = r.json()["chart"]["result"][0]
+        quote = res["indicators"]["quote"][0]
+        rows = [(t, c, v) for t, c, v in
+                zip(res["timestamp"], quote["close"], quote["volume"])
+                if c is not None and v is not None]
+    except Exception:
+        return None
+    if len(rows) < ADV_WINDOW_DAYS:
+        return None
+
+    window = rows[-ADV_WINDOW_DAYS:]
+    adv = sum(v for _, _, v in window) / len(window)
+    if adv <= 0:
+        return None
+    start = datetime.fromtimestamp(window[0][0], tz=timezone.utc).date().isoformat()
+    end = datetime.fromtimestamp(window[-1][0], tz=timezone.utc).date().isoformat()
+    return float(window[-1][1]), float(adv), len(window), start, end
+
+
+def fill_band(pct_of_adv: float | None) -> str | None:
+    """Which participation band a position size falls in. See PARTICIPATION_RATE."""
+    if pct_of_adv is None:
+        return None
+    for ceiling, label in _FILL_BANDS:
+        if ceiling is None or pct_of_adv <= ceiling:
+            return label
+    return _FILL_BANDS[-1][1]
+
+
+def fill_profile(adv_usd: float | None) -> list[dict] | None:
+    """What each standard position size costs in participation terms, or None.
+
+    ⚠️ COMPUTED SERVER-SIDE FOR FIXED SIZES, DELIBERATELY. The obvious alternative is a text
+    box where the reader types a size and the browser divides — but this page's standing rule
+    is that the client formats and never computes (see `renderPositionSizing`), and a live
+    input would be the browser deriving a number the server never saw. Fixed sizes keep the
+    arithmetic on one side of the wire and still show the reader the shape of the constraint.
+    """
+    if not adv_usd or adv_usd <= 0:
+        return None
+    out = []
+    for size in FILL_PROFILE_SIZES:
+        pct = size / adv_usd * 100
+        out.append({"size_usd": size, "pct_of_adv": round(pct, 4),
+                    "band": fill_band(pct)})
+    return out
+
+
+def max_fillable_usd(adv_usd: float | None) -> float | None:
+    """Dollars placeable in ONE session at PARTICIPATION_RATE of ADV.
+
+    The inverse framing of the ratio, and the one number that answers the question the panel
+    exists for: not "how big is this company" but "how much can I actually put to work here
+    today". A $181M micro-cap with $4.8M of daily dollar volume answers $484K.
+    """
+    if not adv_usd or adv_usd <= 0:
+        return None
+    return adv_usd * PARTICIPATION_RATE
+
+
 def cash_runway_months(cash: float | None, ocf: float | None,
                        start: str | None, end: str | None) -> float | None:
     """Months of cash at the reported burn rate, or None when the question does not apply.
@@ -419,14 +551,20 @@ _SELECT = """SELECT market_cap, fetched_at, cik, cap_updated, shares_outstanding
                     shares_as_of, last_close, public_float_usd, public_float_as_of,
                     ttm_revenue, ttm_revenue_as_of, ttm_revenue_basis, cash_usd,
                     cash_as_of, operating_cash_flow, ocf_period_start, ocf_period_end,
+                    adv_shares, adv_window_days, adv_period_start, adv_period_end,
                     symbol
              FROM position_sizing_cache WHERE symbol = ?"""
 
 
 # The two independently-failing legs, as column groups. `_CAP_COLS` is everything derived
 # from SEC shares x a Yahoo close; `_FACT_COLS` is everything read out of companyfacts.
+# ADV rides in `_CAP_COLS` because it comes out of the SAME Yahoo response as `last_close`.
+# A Yahoo outage takes the close and the volume together — they cannot fail independently —
+# so retaining one and blanking the other would publish a stale-close/no-volume row that
+# never existed at any instant.
 _CAP_COLS = ("market_cap", "cap_updated", "shares_outstanding", "shares_as_of",
-             "last_close")
+             "last_close", "adv_shares", "adv_window_days", "adv_period_start",
+             "adv_period_end")
 _FACT_COLS = ("public_float_usd", "public_float_as_of", "ttm_revenue",
               "ttm_revenue_as_of", "ttm_revenue_basis", "cash_usd", "cash_as_of",
               "operating_cash_flow", "ocf_period_start", "ocf_period_end")
@@ -445,7 +583,8 @@ def _fresh(row, ttl_hours: int = TTL_HOURS) -> bool:
 
 def _write(conn, symbol: str, **f) -> None:
     cols = ("cik", "market_cap", "cap_updated", "shares_outstanding", "shares_as_of",
-            "last_close", "public_float_usd", "public_float_as_of", "ttm_revenue",
+            "last_close", "adv_shares", "adv_window_days", "adv_period_start",
+            "adv_period_end", "public_float_usd", "public_float_as_of", "ttm_revenue",
             "ttm_revenue_as_of", "ttm_revenue_basis", "cash_usd", "cash_as_of",
             "operating_cash_flow", "ocf_period_start", "ocf_period_end", "fetched_at")
     conn.execute(
@@ -514,9 +653,14 @@ def resolve(conn, symbol: str, force: bool = False) -> dict | None:
 
     cik = _cik_for(symbol)
     shares = as_of = close = None
+    adv_shares = adv_sessions = adv_start = adv_end = None
     if cap and not cap_degraded:
         shares_fact = _shares_outstanding(cik) if cik else None
-        close = _last_close(symbol)
+        # ONE call, yielding the close AND the volume series. This REPLACES the former
+        # `_last_close(symbol)` — it is the same endpoint on the same symbol with a wider
+        # range, so the request count is unchanged. See ADV_WINDOW_DAYS.
+        chart = _close_and_adv(symbol)
+        close = chart[0] if chart else None
         shares, as_of = shares_fact if shares_fact else (None, None)
         # RECONCILIATION, NOT DECORATION. These components are re-fetched after the core
         # computed its cap, so a share count filed in between — or a Yahoo close that
@@ -525,6 +669,14 @@ def resolve(conn, symbol: str, force: bool = False) -> dict | None:
         # balance, the components are dropped and the cap stands alone.
         if not (shares and close) or abs(shares * close - cap) / cap > 0.005:
             shares = as_of = close = None
+        # ⚠️ ADV FALLS WITH THE CLOSE, ON PURPOSE. Dollar volume is ADV x that same close,
+        # so publishing volume once the close has been withdrawn would invite the reader to
+        # multiply it by a price from somewhere else — which for a foreign private issuer is
+        # the ADR mis-scale the cap guards exist to prevent, arriving through the liquidity
+        # panel instead. Share volume alone is a true fact, but it is not one this panel can
+        # show safely without the price beside it.
+        if close and chart:
+            _, adv_shares, adv_sessions, adv_start, adv_end = chart
 
     # ⚠️ AN EMPTY `companyfacts` FOR A REAL CIK IS ALSO A TRANSPORT FAILURE, NOT A VERDICT
     # OF "this company reports no revenue". `_companyfacts_units` swallows every exception
@@ -542,6 +694,8 @@ def resolve(conn, symbol: str, force: bool = False) -> dict | None:
         "cik": cik,
         "market_cap": cap, "cap_updated": now,
         "shares_outstanding": shares, "shares_as_of": as_of, "last_close": close,
+        "adv_shares": adv_shares, "adv_window_days": adv_sessions,
+        "adv_period_start": adv_start, "adv_period_end": adv_end,
         "public_float_usd": pub_float[0] if pub_float else None,
         "public_float_as_of": pub_float[1] if pub_float else None,
         "ttm_revenue": revenue[0] if revenue else None,
