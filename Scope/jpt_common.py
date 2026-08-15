@@ -681,6 +681,88 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m014_alert_corroborates')")
         conn.commit()
 
+    # m015: position_sizing_cache — the DISPLAY-ONLY materiality cache behind the ticker
+    # page's position-sizing panel. Market cap, shares outstanding, public float, TTM
+    # revenue, cash and operating cash flow, each stored WITH the date of the fact it came
+    # from.
+    #
+    # ⚠️ PHYSICALLY SEPARATE FROM `ticker_meta` AND `issuer_cap` ON PURPOSE, even though it
+    # holds a `market_cap` column too. Those two are read by the GATE —
+    # `contract_leg_weight` requires a live `ticker_meta` row before it will weight a
+    # contracts leg — so a table this one wrote into would be a display feature reaching
+    # into the scoring path. Nothing in `rule_*`, `RULE_CLUSTER`, `insert_alert`,
+    # `enrich_scores` or the corroboration gate reads this table, and nothing may be added
+    # that does. The panel is context for a human sizing a position; it is not evidence.
+    #
+    # ⚠️ EVERY VALUE CARRIES ITS OWN `*_as_of`, and that is the honesty property. A share
+    # count, a public float and a revenue figure are all point-in-time facts that go stale
+    # at completely different rates — Boeing's cover-page share count is days old while its
+    # `dei:EntityPublicFloat` is the prior June 30th by construction. A panel that printed
+    # them side by side undated would be inviting a reader to combine facts a year apart.
+    # There is deliberately NO dilution column: warrants/ATM/convertibles are not derivable
+    # from anything Scope ingests (see `scripts/position_sizing.py`), and a NULL column is
+    # an invitation to fill it in with an estimate later.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m015_position_sizing_cache'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS position_sizing_cache (
+                   symbol               TEXT PRIMARY KEY,
+                   cik                  TEXT,
+                   market_cap           INTEGER,
+                   cap_updated          TEXT,
+                   shares_outstanding   REAL,
+                   shares_as_of         TEXT,
+                   last_close           REAL,
+                   public_float_usd     REAL,
+                   public_float_as_of   TEXT,
+                   ttm_revenue          REAL,
+                   ttm_revenue_as_of    TEXT,
+                   ttm_revenue_basis    TEXT,
+                   cash_usd             REAL,
+                   cash_as_of           TEXT,
+                   operating_cash_flow  REAL,
+                   ocf_period_start     TEXT,
+                   ocf_period_end       TEXT,
+                   fetched_at           TEXT
+               )"""
+        )
+        conn.execute(
+            "INSERT INTO scope_migrations(name) VALUES('m015_position_sizing_cache')")
+        conn.commit()
+
+    # m016: average daily volume, on the SAME row as the rest of the position-sizing facts.
+    #
+    # ⚠️ COLUMNS ON `position_sizing_cache`, NOT A SECOND TABLE, AND THE REASON IS THE FETCH.
+    # ADV and `last_close` come out of ONE Yahoo chart response — the same response the
+    # panel already reads its close from. A separate `liquidity_cache` would have to either
+    # fire a second HTTP request for data already in hand, or write two tables from one
+    # response and then keep their TTLs, their degraded-retention rules and their
+    # `fetched_at` stamps in agreement forever. Those are the same fact about the same
+    # company at the same instant; splitting them would invent a synchronisation problem
+    # that does not otherwise exist.
+    #
+    # Still display-only and still outside the moat: `position_sizing_cache` is read by
+    # `scripts/position_sizing.py` and the ticker API and by nothing else. Adding columns
+    # does not widen that, and `test_no_rule_or_gate_module_reads_the_panel_cache` continues
+    # to hold the line.
+    #
+    # `adv_shares` is a 20-TRADING-DAY mean and `adv_window_days` records the count that
+    # actually went into it, because a holiday-shortened window is a different number and
+    # the panel must be able to say which one it got.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m016_position_sizing_adv'"
+    ).fetchone():
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(position_sizing_cache)")}
+        for col, decl in (("adv_shares", "REAL"), ("adv_window_days", "INTEGER"),
+                          ("adv_period_start", "TEXT"), ("adv_period_end", "TEXT")):
+            if col not in cols:
+                conn.execute(
+                    f"ALTER TABLE position_sizing_cache ADD COLUMN {col} {decl}")
+        conn.execute(
+            "INSERT INTO scope_migrations(name) VALUES('m016_position_sizing_adv')")
+        conn.commit()
+
     conn.commit()
 
 

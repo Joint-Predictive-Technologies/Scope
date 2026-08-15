@@ -44,6 +44,26 @@
     .sum-label { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; margin-top: 2px; }
 
     .section-label { font-family: var(--font-mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--amber); margin-bottom: 1rem; margin-top: 2.5rem; }
+
+    /* Position sizing. An UNAVAILABLE field is styled to read as an answer rather than as
+       an empty cell — muted and italic with the reason on hover — because a blank here
+       would be indistinguishable from "zero", which is the one thing it must never say. */
+    /* Separators are per-CELL borders, not a `gap` over a coloured container: seven cells
+       in a five-column auto-fit grid leave three empty slots on the last row, and with a
+       coloured container those rendered as a solid block that reads as a broken panel. */
+    .ps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+    .ps-cell { background: var(--bg2); padding: 0.85rem 1rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .ps-label { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
+    .ps-val { font-family: var(--font-sans); font-size: 1.25rem; font-weight: 700; color: var(--cream); margin-top: 4px; }
+    .ps-val.ps-none { font-size: 0.8rem; font-weight: 400; font-style: italic; color: var(--muted); cursor: help; }
+    .ps-sub { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); margin-top: 3px; }
+    .ps-events { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-family: var(--font-mono); font-size: 0.7rem; }
+    .ps-events th { text-align: left; color: var(--muted); font-weight: 400; font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
+    .ps-events td { padding: 0.55rem 0.6rem; border-bottom: 1px solid var(--border); color: var(--cream2); vertical-align: top; }
+    .ps-events td.ps-num { text-align: right; white-space: nowrap; color: var(--cream); }
+    .ps-events tr:last-child td { border-bottom: none; }
+    .ps-note { font-family: var(--font-mono); font-size: 0.62rem; color: var(--muted); margin-top: 0.7rem; line-height: 1.5; }
+    .ps-scroll { overflow-x: auto; }
     .show-more-btn { display: block; width: 100%; margin-top: 1rem; padding: 0.7rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; color: var(--amber); font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.04em; cursor: pointer; transition: border-color 0.15s, background 0.15s; }
     .show-more-btn:hover { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent); }
 
@@ -313,6 +333,234 @@ function renderReceipts(r){
     if (mc < 2e9)    return 'Small-cap';
     if (mc < 10e9)   return 'Mid-cap';
     return 'Large-cap';
+  }
+
+  /* ── POSITION SIZING ──────────────────────────────────────────────────────
+     Materiality context: what a dollar figure is worth against THIS company.
+
+     ⚠️ NOTHING HERE COMPUTES A NUMBER. Every value, every percentage and every
+     "unavailable" reason is served by /tickers/{sym}/position-sizing, which reads the
+     `position_sizing_cache` table. The browser formats and nothing else. This page has
+     already been the place where a server-side predicate got re-implemented in JS and
+     drifted (see the corroborates_gate comment in api/routers/tickers.py), so the standard
+     here is deliberately absolute: if a figure is not in the payload, it does not appear on
+     the page.
+
+     ⚠️ AN UNAVAILABLE FIELD RENDERS ITS REASON, NEVER A ZERO AND NEVER A BLANK. `0` and
+     `—` both read as "this company has none of that". The API always sends a `status`, so
+     the client never has to infer absence from a falsy value — and note the checks below
+     are `status === 'known'`, not truthiness: a genuine $0 cash balance is `known`. */
+
+  // The rest of this page interpolates headlines straight into innerHTML. That is survivable
+  // for element text; it is NOT survivable inside the `title="…"` attributes below, where a
+  // single quote in a recipient name ("O'BRIEN…") closes the attribute and swallows the rest
+  // of the markup. Scoped to the new panel rather than retrofitted across the file.
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function fmtUsd(v) {
+    if (v == null) return null;
+    const a = Math.abs(v);
+    if (a >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+    if (a >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`;
+    if (a >= 1e6)  return `$${(v / 1e6).toFixed(1)}M`;
+    if (a >= 1e3)  return `$${(v / 1e3).toFixed(0)}K`;
+    return `$${v.toFixed(0)}`;
+  }
+
+  function fmtPct(p) {
+    if (p == null) return null;
+    if (p >= 10)   return `${p.toFixed(1)}%`;
+    if (p >= 0.1)  return `${p.toFixed(2)}%`;
+    if (p > 0)     return `${p.toFixed(3)}%`;
+    return '0%';
+  }
+
+  // The cell rounds to keep the table readable; the tooltip carries the server's full
+  // precision, so a displayed "17.5%" can always be traced back to the 17.4615% the API
+  // computed. Rounding that cannot be undone is how a display figure stops being auditable.
+  function psPct(pct, label, note) {
+    if (pct == null) {
+      return `<td class="ps-num"><span class="ps-none" title="No ${esc(label)
+        } to compare against.">n/a</span></td>`;
+    }
+    return `<td class="ps-num" title="${pct}% of ${esc(label)}. ${esc(note || '')}">${
+      fmtPct(pct)}</td>`;
+  }
+
+  function psCell(label, field, fmt, sub) {
+    const known = field && field.status === 'known' && field.value != null;
+    const body = known
+      ? `<div class="ps-val">${fmt(field.value)}</div>`
+      : `<div class="ps-val ps-none" title="${esc((field && field.reason) || 'Not available.')}">${
+           field && field.status === 'not_burning' ? 'Not burning' : 'Unavailable'}</div>`;
+    const note = known && sub ? `<div class="ps-sub">${sub(field)}</div>` : '';
+    return `<div class="ps-cell"><div class="ps-label">${esc(label)}</div>${body}${note}</div>`;
+  }
+
+  // ⚠️ THE COLUMN HEADER MUST NAME THE DENOMINATOR IT ACTUALLY USED. It was hardcoded
+  // "% of TTM rev" for every ticker, but the server falls back to a reported fiscal-year
+  // figure when it cannot assemble a true trailing twelve months — and an `FY` figure can
+  // be up to eleven months stale. Calling that "TTM" is a false label on the one number
+  // whose meaning depends entirely on its denominator.
+  function revenueColumnLabel(rev) {
+    if (!rev || rev.status !== 'known') return '% of revenue';
+    return rev.basis === 'FY' ? '% of FY rev' : '% of TTM rev';
+  }
+
+  function revenueBasisNote(rev) {
+    if (!rev || rev.status !== 'known') return 'No revenue figure available for this filer.';
+    const when = String(rev.as_of || '').slice(0, 10);
+    return rev.basis === 'FY'
+      ? `Denominator is the last REPORTED FISCAL YEAR ending ${when} — not a trailing `
+        + 'twelve months. Scope could not assemble a true TTM for this filer.'
+      : `Denominator is trailing twelve months to ${when}, basis ${rev.basis}.`;
+  }
+
+  /* ── LIQUIDITY ────────────────────────────────────────────────────────────
+     Can this signal actually be traded at size? A strong convergence on a thin-float
+     micro-cap is an edge you cannot get into: GCTS carries a $181M market cap on ~$4.8M
+     of daily dollar volume, so $1M is ~21% of a whole day's tape.
+
+     Same rules as the panel above — the client formats, the server computes. The
+     percentages and band labels are served, not derived here, which is why there is no
+     "enter your position size" box: that would be the browser computing a number the
+     server never saw. Fixed sizes keep the arithmetic on one side of the wire.
+
+     The band thresholds are a stated CONVENTION (10% participation), not a claim about
+     what the market will bear, and the panel says so in words rather than implying
+     precision it does not have. */
+  function renderLiquidity(d) {
+    const adv = d.adv_shares, advUsd = d.adv_usd, fillable = d.max_fillable_usd;
+    const known = advUsd && advUsd.status === 'known';
+
+    const grid = `
+      <div class="ps-grid" style="margin-top:1px">
+        ${psCell(`Avg daily volume (${(adv && adv.window_days) || 20}d)`, adv,
+                 v => v.toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' sh',
+                 f => (f.period_start ? `${f.period_start} → ${f.period_end}` : ''))}
+        ${psCell('Avg daily volume ($)', advUsd, fmtUsd,
+                 f => `${f.window_days || 20} sessions × last close`)}
+        ${psCell('Fillable in one day', fillable, fmtUsd,
+                 f => `at ${Math.round((f.participation_rate || 0.10) * 100)}% participation`)}
+      </div>`;
+
+    const profile = d.fill_profile;
+    const table = (known && profile && profile.length) ? `
+      <div class="ps-scroll">
+      <table class="ps-events">
+        <thead><tr>
+          <th>Position size</th>
+          <th style="text-align:right">% of one day's volume</th>
+          <th>What that means</th>
+        </tr></thead>
+        <tbody>
+          ${profile.map(p => `
+            <tr>
+              <td class="ps-num" style="text-align:left">${fmtUsd(p.size_usd)}</td>
+              <td class="ps-num" title="${p.pct_of_adv}% of average daily dollar volume">${
+                fmtPct(p.pct_of_adv)}</td>
+              <td>${esc(p.band)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>` : '';
+
+    return `
+      <div class="section-label" style="margin-top:2rem">Liquidity — Can You Actually Fill It</div>
+      ${grid}${table}
+      <div class="ps-note">
+        Context only — liquidity does not affect severity, scoring or corroboration.
+        Average daily volume is the mean over the last ${(adv && adv.window_days) || 20}
+        <em>traded sessions</em>, the same 20-trading-day horizon Scope already uses for
+        forward returns. “Fillable in one day” assumes a
+        ${Math.round(((fillable && fillable.participation_rate) || 0.10) * 100)}%
+        participation rate — a common execution convention, <em>not</em> a measured limit
+        for this stock. Real capacity depends on spread, borrow and news, none of which
+        Scope models.
+      </div>`;
+  }
+
+  function renderPositionSizing(d) {
+    if (!d || d.available === false) {
+      return `<div class="ps-note">Position-sizing context unavailable — ${
+        esc((d && d.reason) || 'lookup failed')}.</div>`;
+    }
+    // `as_of` is the date of a FILED FACT; `resolved_at` is when Scope computed a derived
+    // figure. Market cap and last close have only the latter, and saying "as of" for them
+    // would claim a fact date that does not exist.
+    const asOf = f => (f && f.as_of ? `as of ${String(f.as_of).slice(0, 10)}` : '');
+    const resolved = f => (f && f.resolved_at
+      ? `resolved ${String(f.resolved_at).slice(0, 10)}` : '');
+
+    const grid = `
+      <div class="ps-grid">
+        ${psCell('Market cap', d.market_cap, fmtUsd,
+                 f => `${capLabel(f.value)} · ${resolved(f)}`)}
+        ${psCell('Shares outstanding', d.shares_outstanding,
+                 v => v.toLocaleString(undefined, { maximumFractionDigits: 0 }), asOf)}
+        ${psCell('Last close', d.last_close, v => `$${v.toFixed(2)}`, resolved)}
+        ${psCell('Public float (USD)', d.public_float_usd, fmtUsd, asOf)}
+        ${/* Labelled "Revenue", not "TTM revenue": the basis is not always TTM, and the
+              sub-line below carries which one it actually is. A fixed "TTM" label would be
+              the same false claim the events column header used to make. */''}
+        ${psCell('Revenue', d.ttm_revenue, fmtUsd,
+                 f => `${f.basis === 'FY' ? 'last fiscal year' : f.basis} · ${asOf(f)}`)}
+        ${psCell('Cash & equivalents', d.cash, fmtUsd, asOf)}
+        ${psCell('Cash runway', d.cash_runway_months, v => `${v.toFixed(1)} mo`,
+                 f => `at ${fmtUsd(f.monthly_burn)}/mo · ${f.period_start} → ${f.period_end}`)}
+        ${psCell('Dilution overhang', d.dilution_overhang, v => v)}
+      </div>`;
+
+    // ⚠️ THE RULE NAME IS DELIBERATELY NOT A LINK. It read `/feed?alert=<id>`, and the feed
+    // accepts severity/days/rule/ticker/sort/cap/watchlist — there is no `alert` param, so
+    // that link silently dropped the reader into an unfiltered feed while looking like a
+    // deep link to the row they clicked. Same class as the fabricated source URLs fixed in
+    // df5683a: a link is a real destination or it is nothing. Every alert listed here also
+    // appears in full under "All Alerts" further down this same page.
+    const events = d.events || [];
+    const table = events.length ? `
+      <div class="ps-scroll">
+      <table class="ps-events">
+        <thead><tr>
+          <th>Event</th><th style="text-align:right">Amount</th>
+          <th style="text-align:right">% of mkt cap</th>
+          <th style="text-align:right" title="${esc(revenueBasisNote(d.ttm_revenue))}">${
+            revenueColumnLabel(d.ttm_revenue)}</th>
+        </tr></thead>
+        <tbody>
+          ${events.map(e => `
+            <tr>
+              <td>${esc(ruleName(e.rule))} · ${esc(String(e.event_date || '').slice(0, 10))}
+                <div style="color:var(--muted);margin-top:2px">${esc(e.headline || '')}</div></td>
+              <td class="ps-num" title="${esc(e.amount_usd.toLocaleString(undefined,
+                  { style: 'currency', currency: 'USD' }))} — ${esc(e.amount_source)}">${
+                  fmtUsd(e.amount_usd)}</td>
+              ${psPct(e.pct_of_market_cap, 'market cap',
+                      `Denominator is the market cap above, ${resolved(d.market_cap)}.`)}
+              ${psPct(e.pct_of_ttm_revenue, 'revenue', revenueBasisNote(d.ttm_revenue))}
+            </tr>`).join('')}
+        </tbody>
+      </table></div>` : `
+      <div class="ps-note">No dollar-denominated events on record for this ticker.
+        Scope sizes federal contract awards (RULE_11) and 13F position disclosures
+        (RULE_16); other rules do not carry a structured dollar amount.</div>`;
+
+    return grid + table + `
+      <div class="ps-note">
+        Context only — these figures do not affect severity, scoring or corroboration.
+        Market cap is SEC shares outstanding × last close. Contract amounts are
+        <em>total obligated to date</em> across all modifications of the award, not the
+        new-award value, so a percentage can overstate a single announcement. Every figure
+        carries the date of the filing it came from; they are not all as of the same day.
+      </div>
+      ${/* Liquidity comes AFTER this panel's own events table and note, not between them.
+            Appending it to `grid` put the whole liquidity block in the middle of position
+            sizing, leaving "No dollar-denominated events on record" and the caveat above
+            stranded below it and reading as though they belonged to the fill table. */''}
+      ${renderLiquidity(d)}`;
   }
 
   function delayClass(d) {
@@ -849,6 +1097,13 @@ function renderReceipts(r){
       <div class="section-label">Congressional Trade History — ${txs.length} transactions</div>
       ${renderTransactions(txs)}` : '';
 
+    // Skipped for baskets on purpose: a multi-symbol page has no single issuer, so "% of
+    // market cap" has no referent. Hydrated after paint like the cap line, because a cold
+    // resolve costs several SEC calls and must not hold up the alert list.
+    const psSection = isBasket ? '' : `
+      <div class="section-label">Position Sizing — Materiality Context</div>
+      <div id="ps-panel"><div class="ps-note">Loading position-sizing context…</div></div>`;
+
     document.getElementById('content').innerHTML = `
       <div class="ticker-hero">
         <div>
@@ -866,6 +1121,7 @@ function renderReceipts(r){
           <div class="sum-stat"><div class="sum-val">${txs.length}</div><div class="sum-label">Trades on Record</div></div>
         </div>
       </div>
+      ${psSection}
       ${renderClusters(alerts)}
       ${renderTimeline(alerts)}
       ${renderRuleGraph(alerts)}
@@ -911,6 +1167,24 @@ function renderReceipts(r){
         const el = document.getElementById('cap-line');
         if (el) el.textContent = '';
       });
+
+    // Position sizing. Generous timeout: a cold ticker costs up to five SEC requests plus a
+    // Yahoo close, and the alternative to waiting is an "unavailable" that is really a
+    // client-side abort — the exact class of dishonest empty state this panel exists to
+    // avoid. Cached for 24h server-side, so this is the first view only.
+    if (!isBasket) {
+      fetch(`/tickers/${encodeURIComponent(queryKey)}/position-sizing`, { signal: withTimeout(25000) })
+        .then(r => r.json())
+        .then(d => {
+          const el = document.getElementById('ps-panel');
+          if (el) el.innerHTML = renderPositionSizing(d);
+        })
+        .catch(() => {
+          const el = document.getElementById('ps-panel');
+          if (el) el.innerHTML = '<div class="ps-note">Position-sizing context could not be '
+            + 'loaded. This says nothing about the company — the lookup itself failed.</div>';
+        });
+    }
 
     // Lazily load all window returns
     document.querySelectorAll('.window-return[data-sym]').forEach(td => loadWindowReturn(td));
