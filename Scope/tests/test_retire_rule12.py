@@ -189,9 +189,19 @@ def test_display_maps_retain_rule12(mapping, label):
 def test_evidence_router_still_labels_rule12():
     from api.routers.evidence import _SOURCE, _WHY
     assert "RULE_12" in _SOURCE
-    # The label must name the source the code ACTUALLY read, not the claimed one.
-    name, url = _SOURCE["RULE_12"]
-    assert "lda.senate.gov" in url
+    # The label must name the source the code ACTUALLY read, not the claimed one:
+    # RULE_12 read RULE_09's Senate LDA endpoint, never a FARA one.
+    #
+    # ⚠️ SHAPE CHANGED 2026-08-15 (source-links work): _SOURCE values were
+    # (label, front_door_url) tuples and this asserted on the URL. The front-door
+    # URLs were removed — a source system's homepage is not the document, and
+    # several were measured dead (lda.senate.gov 301s to a host that then blocks).
+    # The pin's MEANING is unchanged and now rides on the label, which is the only
+    # thing left that can misname the source.
+    label = _SOURCE["RULE_12"]
+    assert isinstance(label, str), "_SOURCE values are labels, not (label, url)"
+    assert "LDA" in label, f"RULE_12 must be labelled as Senate LDA, got {label!r}"
+    assert "FARA" not in label.upper(), "RULE_12 never read FARA — mislabelling it hides that"
     assert "RULE_12" in _WHY
 
 

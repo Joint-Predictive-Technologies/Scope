@@ -17,19 +17,20 @@ from jpt_common import (db_connection, rule10_rules_from_tags,
 
 router = APIRouter()
 
+# 🔴 LABELS ONLY — these used to carry a front-door URL per rule, surfaced as
+# "Verify at <label> ↗". A source system's homepage is not the document, and
+# several were measured dead or wrong: house.gov's ptr-pdfs directory 403s,
+# lda.senate.gov 301s to a domain that then blocks, and the EDGAR entry carried
+# no CIK at all. The real per-alert document is resolved server-side in
+# api/routers/alerts.py::_document_urls; naming the system is context, not a link.
 _SOURCE = {
-    "RULE_01B": ("House Clerk", "https://disclosures-clerk.house.gov"),
-    "RULE_02":  ("House Clerk", "https://disclosures-clerk.house.gov"),
-    "RULE_06":  ("SEC EDGAR", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=4"),
-    "RULE_07":  ("Polymarket", "https://polymarket.com/markets?category=politics"),
-    "RULE_08":  ("Federal Register", "https://www.federalregister.gov"),
-    "RULE_09":  ("Senate LDA", "https://lda.senate.gov"),
-    "RULE_11":  ("USASpending.gov", "https://www.usaspending.gov"),
-    "RULE_12":  ("Senate LDA (foreign)", "https://lda.senate.gov"),
-    "RULE_13":  ("FEC.gov", "https://www.fec.gov/data/"),
-    "RULE_14":  ("PatentsView", "https://patentsview.org"),
-    "RULE_15":  ("SEC EDGAR", "https://efts.sec.gov/LATEST/search-index?forms=8-K"),
-    "RULE_OSINT": ("GDELT / Google News", "https://www.gdeltproject.org"),
+    "RULE_01B": "House Clerk",   "RULE_02": "House Clerk",
+    "RULE_06":  "SEC EDGAR",     "RULE_07": "Polymarket",
+    "RULE_08":  "Federal Register",
+    "RULE_09":  "Senate LDA",    "RULE_12": "Senate LDA (foreign)",
+    "RULE_11":  "USASpending.gov",
+    "RULE_13":  "FEC.gov",       "RULE_14": "PatentsView",
+    "RULE_15":  "SEC EDGAR",     "RULE_OSINT": "GDELT / Google News",
 }
 
 _WHY = {
@@ -141,7 +142,7 @@ def alert_evidence(alert_id: int):
         ]
     conn.close()
 
-    src = _SOURCE.get(alert.get("rule", ""), ("Source", None))
+    src = _SOURCE.get(alert.get("rule", ""), "Source")
 
     # Contract mapping transparency (RULE_11): tags are
     # recipient|award_date|award_id|public_parent|mapping_confidence
@@ -152,8 +153,13 @@ def alert_evidence(alert_id: int):
         award_id = parts[2].strip() if len(parts) > 2 else ""
         parent = parts[3].strip() if len(parts) > 3 else ""
         conf = parts[4].strip() if len(parts) > 4 else ""
-        usa = (f"https://www.usaspending.gov/award/{award_id}/" if award_id
-               else f"https://www.usaspending.gov/search/?query={recipient.replace(' ', '%20')}")
+        # 🔴 NO SEARCH FALLBACK. A usaspending search for the recipient name is not
+        # the award; it is a guess wearing the award's clothes. Prefer the typed
+        # award_key column over positional tag parsing (tags[2] shifts whenever a
+        # recipient name contains a pipe).
+        key = (alert.get("award_key") or award_id or "").strip()
+        usa = (f"https://www.usaspending.gov/award/{key}/"
+               if key.upper().startswith(("CONT_AWD", "ASST_NON", "CONT_IDV")) else None)
         contract = {
             "recipient": recipient,
             "public_parent": parent or None,
@@ -170,7 +176,9 @@ def alert_evidence(alert_id: int):
         "alert": alert,
         "ticker": tk,
         "why": alert.get("why_matters") or _WHY.get(alert.get("rule", ""), ""),
-        "source": {"label": src[0], "url": alert.get("source_url") or src[1]},
+        # url deliberately absent: no front-door fallback, and alerts.source_url
+        # is a Google News SEARCH QUERY on all 387 RULE_OSINT rows.
+        "source": {"label": src},
         "confidence": _confidence_breakdown(alert, related),
         "contract": contract,
         "related": related,

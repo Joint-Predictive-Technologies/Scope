@@ -134,8 +134,12 @@ def entity_profile(q: str = Query(...)):
     ]
     conn.close()
 
-    lda_url = ("https://lda.senate.gov/filings/public/filing/search/?registrant_name="
-               + urllib.parse.quote(canonical))
+    # 🔴 WAS: a pre-filled lda.senate.gov search URL. That page is a SPA that does
+    # not read query params, so the prefill never applied — and the host now 301s
+    # to lda.gov. Meanwhile `lobbying_filings.document_url` is populated on
+    # 2113/2113 rows with real per-filing permalinks captured at ingestion.
+    # Link nothing rather than a search that cannot be pre-filled.
+    lda_url = None
     return {
         "entity": {
             "canonical": canonical,

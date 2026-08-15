@@ -284,17 +284,16 @@ function renderReceipts(r){
     return `${Math.floor(diff/86400)}d ago`;
   }
 
-  function sourceUrl(a) {
-    const rule = a.rule, tags = a.tags || '', ticker = (a.ticker || '').replace(/\$/g, '').split(' ')[0];
-    if (rule === 'RULE_02' || rule === 'RULE_01' || rule === 'RULE_01B')
-      return 'https://disclosures-clerk.house.gov/public_disc/ptr-pdfs/';
-    if (rule === 'RULE_06')
-      return `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${ticker}&type=4&dateb=&owner=include&count=40`;
-    if (rule === 'RULE_07') { const p = tags.split(','); const slug = p[p.length - 1].trim(); return slug ? `https://polymarket.com/event/${slug}` : 'https://polymarket.com/markets?category=politics'; }
-    if (rule === 'RULE_08') { const p = tags.split(', '); return `https://www.federalregister.gov/search?conditions%5Bterm%5D=${encodeURIComponent(p[1] || '')}`; }
-    if (rule === 'RULE_09') return 'https://lda.senate.gov/filings/public/filing/search/';
-    if (rule === 'RULE_10') return `/feed?ticker=${ticker}`;
-    return null;
+  // 🔴 THIS PAGE CARRIED A VERBATIM COPY of the feed's old URL-guessing function
+  // — house.gov's 403 directory, the ticker-in-CIK EDGAR guess, a guessed
+  // Polymarket slug, a Federal Register search, the LDA SPA. Fixing the feed
+  // alone left this page fabricating on every alert card, which is exactly how a
+  // "fixed" defect survives. It constructs nothing now: the server resolves
+  // `document_url` / `source_index_url` and returns null when neither is real.
+  function sourceLink(a) {
+    if (a.document_url) return { kind: 'document', url: a.document_url };
+    if (a.source_index_url) return { kind: 'index', url: a.source_index_url };
+    return { kind: 'none' };
   }
 
   function fmtCap(mc) {
@@ -387,7 +386,7 @@ function renderReceipts(r){
     if (!alerts.length) return '<div class="empty">No alerts found for this ticker.</div>';
     const shown = _alertsExpanded ? alerts : alerts.slice(0, ALERTS_PAGE_SIZE);
     const cards = shown.map((a, i) => {
-      const url = sourceUrl(a);
+      const _src = sourceLink(a);
       const receipts = a.receipts ? renderReceipts(a.receipts) : '';
       // AI-analysis block removed (vault: 2026-07-23-remove-war-room-ai-analysis).
       // The stored alert.detail LLM narrative is no longer surfaced — factual
@@ -395,7 +394,11 @@ function renderReceipts(r){
       // just unwired from the UI here.
       let detail = '';
       if (a.tags) detail = `<div class="detail-label">Tags</div>${a.tags}`;
-      const verifyBtn = url ? `<a href="${url}" target="_blank" rel="noopener" class="verify-link">Verify Source →</a>` : '';
+      const verifyBtn = _src.kind === 'document'
+        ? `<a href="${_src.url}" target="_blank" rel="noopener" class="verify-link">Verify → source document</a>`
+        : _src.kind === 'index'
+        ? `<a href="${_src.url}" target="_blank" rel="noopener" class="verify-link" style="color:var(--muted);border-color:color-mix(in srgb,var(--muted) 30%,transparent)">SEC EDGAR index ↗</a>`
+        : `<span style="display:inline-block;margin-top:0.7rem;font-family:var(--font-mono);font-size:0.62rem;color:var(--muted);opacity:0.62;font-style:italic;cursor:default">No source document</span>`;
       const enterClass = REDUCE_MOTION ? '' : ' enter';
       const enterStyle = REDUCE_MOTION ? '' : ` style="animation-delay:${Math.min(i,7)*40}ms"`;
       return `

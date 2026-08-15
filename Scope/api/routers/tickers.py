@@ -293,7 +293,7 @@ def get_ticker_alerts(
         """
         SELECT id, rule, severity, headline, detail, tags, ticker, member_id, created_at,
                lifecycle_stage, source_url, verify_url, theme_id,
-               corroborates, corroboration_note
+               corroborates, corroboration_note, event_date, award_key
         FROM alerts
         WHERE ticker LIKE ?
           AND datetime(created_at) >= datetime('now', ?)
@@ -302,6 +302,12 @@ def get_ticker_alerts(
         """,
         (f"%{sym}%", f"-{days} days", limit),
     ).fetchall()
+
+    # Same source-link resolution the feed uses — one implementation, not two.
+    # This page previously carried a verbatim COPY of the feed's old URL-guessing
+    # function, so fixing the feed alone left it fabricating.
+    from api.routers.alerts import _document_urls
+    _docs, _idx = _document_urls(alerts, conn)
 
     members = conn.execute(
         """
@@ -349,6 +355,8 @@ def get_ticker_alerts(
         d["corroborates_gate"] = ok
         d["corroborates_reason"] = why
         d["receipts"] = build_receipts(d, conn)
+        d["document_url"] = _docs.get(d["id"])
+        d["source_index_url"] = _idx.get(d["id"])
         alert_dicts.append(d)
     conn.close()
     return {
