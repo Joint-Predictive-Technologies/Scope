@@ -578,16 +578,27 @@ def test_the_adv_window_is_traded_sessions_not_calendar_rows(monkeypatch):
 
 
 def test_too_few_sessions_is_unavailable_not_a_short_average(monkeypatch):
-    """An ADV over 3 sessions is not an ADV. A newly-listed or barely-traded name gets an
-    honest unknown — which for a thin micro-cap is itself the signal the panel exists for."""
+    """An ADV over 3 sessions is not an ADV — but the CLOSE still is.
+
+    ⚠️ THE ASSERTION HERE CHANGED DELIBERATELY. It used to demand a bare `None` for the
+    whole tuple, which is what caused the regression pinned by
+    `test_a_short_adv_window_never_withdraws_the_close_or_the_share_count`: a short window
+    was taking `last_close` and `shares_outstanding` down with it. ADV goes unavailable;
+    the close survives, because a close is a fact that does not depend on having 20 of them.
+    """
     import scripts.position_sizing as ps
 
     monkeypatch.setattr(ps.requests, "get", _chart_stub([5.0] * 3, [100] * 3))
-    assert ps._close_and_adv("X") is None
+    assert ps._close_and_adv("X") == (5.0, None, None, None, None)
 
     # 20 rows but half of them untraded → 10 usable sessions → still not an ADV.
     monkeypatch.setattr(ps.requests, "get",
                         _chart_stub([5.0] * 20, ([100, None] * 10)))
+    assert ps._close_and_adv("X") == (5.0, None, None, None, None)
+
+    # No usable close at all is the one case that yields nothing.
+    monkeypatch.setattr(ps.requests, "get",
+                        _chart_stub([None] * 20, [100] * 20))
     assert ps._close_and_adv("X") is None
 
 
@@ -657,3 +668,118 @@ def test_liquidity_adds_no_column_the_moat_can_read():
         assert not [c for c in mcols if "adv" in c.lower()], (
             f"{moat} is read by the gate and must not gain a liquidity column")
     conn.close()
+
+
+def test_a_short_adv_window_never_withdraws_the_close_or_the_share_count(monkeypatch):
+    """A LIQUIDITY FEATURE MUST NOT BE ABLE TO DELETE A POSITION-SIZING FACT.
+
+    The first version returned a bare None whenever fewer than 20 sessions had traded, so a
+    name with a perfectly resolvable market cap but a short history lost `last_close` AND
+    `shares_outstanding` — both of which the commit before this one published fine — and the
+    panel then blamed "foreign private issuer, stale or implausible share count", none of
+    which was true. Only ADV may go unavailable, and under its own reason.
+    """
+    import scripts.position_sizing as ps
+    from api.routers.tickers import _position_sizing_payload
+
+    monkeypatch.setattr(ps, "_cik_for", lambda s: "0000012927")
+    monkeypatch.setattr(ps, "_market_cap_core",
+                        lambda *a, **k: (a[4](1_000_000_000), 1_000_000_000)[1])
+    monkeypatch.setattr(ps, "_shares_outstanding", lambda c: (10_000_000, "2026-06-30"))
+    monkeypatch.setattr(ps, "_companyfacts_units", lambda c: {})
+    # 15 traded sessions at $100 — a real cap, an unusable ADV window.
+    monkeypatch.setattr(ps.requests, "get", _chart_stub([100.0] * 15, [1000] * 15))
+
+    conn = db_connection()
+    payload = _position_sizing_payload(conn, "NEWIPO")
+    conn.close()
+
+    assert payload["last_close"]["status"] == "known", "the close was collateral damage"
+    assert payload["last_close"]["value"] == 100.0
+    assert payload["shares_outstanding"]["status"] == "known"
+    assert payload["market_cap"]["status"] == "known"
+
+    for f in ("adv_shares", "adv_usd", "max_fillable_usd"):
+        assert payload[f]["status"] == "unavailable"
+    assert payload["fill_profile"] is None
+    # ...and it must say WHY it is unavailable, not borrow the cap guards' explanation.
+    assert "traded sessions" in payload["adv_shares"]["reason"]
+    assert "foreign private issuer" not in payload["adv_shares"]["reason"]
+
+
+def test_the_last_close_comes_from_the_close_series_not_the_traded_rows(monkeypatch):
+    """A newest session with a close but a NULL VOLUME must not publish yesterday's close.
+
+    Reading the close off the last *traded* row silently rolled it back a day, and the 0.5%
+    cap reconciliation only catches that when the two sessions differ by more than 0.5%.
+    `_last_close`'s semantics — the last non-null close — are what the reconciliation
+    downstream assumes, so they are what this reproduces.
+    """
+    import scripts.position_sizing as ps
+
+    closes = [float(i) for i in range(1, 25)]     # …23.0, 24.0
+    vols = [1000] * 24
+    vols[-1] = None                               # newest session: close, no volume
+    monkeypatch.setattr(ps.requests, "get", _chart_stub(closes, vols))
+
+    last_close, adv, sessions, _s, _e = ps._close_and_adv("X")
+    assert last_close == 24.0, "published the prior session's close as 'last close'"
+    assert sessions == 20 and adv == 1000        # ADV still over traded sessions only
+
+
+def test_adv_is_withheld_at_the_api_layer_too_not_just_in_the_resolver(monkeypatch):
+    """Defence in depth. The comment claimed this coupling was enforced here; it was not.
+
+    A row carrying ADV with no close — hand-written, partially migrated, or produced by some
+    future path — would have rendered "Avg daily volume: 500,000 sh" beside "Last close:
+    Unavailable", the exact pairing the coupling exists to prevent.
+    """
+    from api.routers.tickers import _position_sizing_payload
+    import scripts.position_sizing as ps
+
+    monkeypatch.setattr(ps, "resolve", lambda conn, sym: {
+        "market_cap": None, "cap_updated": None,
+        "shares_outstanding": None, "shares_as_of": None, "last_close": None,
+        "adv_shares": 500_000.0, "adv_window_days": 20,
+        "adv_period_start": "2026-07-20", "adv_period_end": "2026-08-14",
+        "fetched_at": "2026-08-15T00:00:00+00:00",
+    })
+    conn = db_connection()
+    payload = _position_sizing_payload(conn, "ODD")
+    conn.close()
+
+    assert payload["adv_shares"]["status"] == "unavailable", (
+        "share volume published without the close it must be read beside")
+    assert payload["adv_usd"]["status"] == "unavailable"
+    assert payload["fill_profile"] is None
+
+
+def test_the_participation_convention_is_disclosed_in_the_API_not_only_the_page():
+    """`participation_rate: 0.1` is a PARAMETER, not a disclaimer.
+
+    Anything reading this endpoint that is not `ticker.html` — the brief, an export — would
+    otherwise get a confident dollar figure with nothing saying it rests on a rule of thumb.
+    """
+    from api.routers.tickers import _position_sizing_payload
+    import scripts.position_sizing as ps
+
+    monkeypatch_row = {
+        "market_cap": 1_000_000, "cap_updated": "2026-08-15T00:00:00+00:00",
+        "shares_outstanding": 100_000, "shares_as_of": "2026-06-30", "last_close": 10.0,
+        "adv_shares": 50_000.0, "adv_window_days": 20,
+        "adv_period_start": "2026-07-20", "adv_period_end": "2026-08-14",
+        "fetched_at": "2026-08-15T00:00:00+00:00",
+    }
+    orig = ps.resolve
+    ps.resolve = lambda conn, sym: monkeypatch_row
+    try:
+        conn = db_connection()
+        payload = _position_sizing_payload(conn, "X")
+        conn.close()
+    finally:
+        ps.resolve = orig
+
+    basis = payload["max_fillable_usd"]["basis"]
+    assert "convention" in basis.lower()
+    assert "not a measured" in basis.lower()
+    assert payload["max_fillable_usd"]["participation_rate"] == 0.10

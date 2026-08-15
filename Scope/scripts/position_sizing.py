@@ -414,25 +414,37 @@ def _operating_cash_flow(facts: dict) -> tuple[float, str, str] | None:
     return None
 
 
-def _close_and_adv(symbol: str) -> tuple[float, float, int, str, str] | None:
-    """(last_close, adv_shares, sessions, period_start, period_end) from ONE chart call.
+def _close_and_adv(symbol: str) -> tuple:
+    """(last_close, adv|None, sessions|None, start|None, end|None), or None for no close.
 
     Replaces this module's `_last_close` call rather than adding to it — see ADV_WINDOW_DAYS
-    above on why this is not a second request. The close returned here is the same last
-    non-null close `_last_close` would have returned, so the cap reconciliation downstream
-    is unaffected.
+    above on why this is not a second request.
 
-    ⚠️ VOLUME AND CLOSE ARE PAIRED BEFORE EITHER IS USED. Yahoo returns `close` and `volume`
-    as parallel arrays with independent nulls — a halted session can carry a close and no
-    volume, and a pre-market row the reverse. Zipping and dropping any row where EITHER is
-    null keeps the average over sessions that actually traded, and keeps `period_start`
-    honest about which sessions those were. Averaging the raw array instead would silently
-    divide a short sum by a long length.
+    ⚠️ THE CLOSE AND THE ADV FAIL SEPARATELY, AND AN EARLIER VERSION GOT THIS WRONG IN A WAY
+    THAT REGRESSED THE PANEL ABOVE. It returned a bare `None` whenever the ADV window was
+    short, so a name with a perfectly resolvable market cap but only 15 traded sessions lost
+    its `last_close` AND its `shares_outstanding` — facts the base commit published fine —
+    and the page then blamed "foreign private issuer, stale or implausible share count",
+    none of which was true. A liquidity feature must not be able to withdraw a
+    position-sizing fact. The close is now returned whenever one exists; only ADV goes
+    unavailable, under its own reason.
+    (Latent rather than live when found: every short-history symbol in prod's universe
+    currently has `market_cap IS NULL` anyway. It would have bitten the first recent IPO
+    with a resolvable cap.)
 
-    Returns None rather than a partial answer: fewer than the full window of sessions means
-    a newly-listed or barely-traded name, and an ADV over 3 sessions is not an ADV. The
-    caller renders that as unavailable, which for a thinly-traded microcap is itself the
-    honest signal.
+    ⚠️ THE CLOSE IS TAKEN FROM THE CLOSE SERIES ALONE, NOT FROM THE PAIRED ROWS. Yahoo
+    returns `close` and `volume` as parallel arrays with INDEPENDENT nulls. Reading the
+    close off the last *traded* row meant that a newest session carrying a close but a null
+    volume silently published YESTERDAY's close as "last close" — and the 0.5% cap
+    reconciliation only catches that when the two days differ by more than 0.5%. Taking it
+    from the last non-null close reproduces `_last_close`'s semantics exactly, which is what
+    the cap reconciliation downstream assumes.
+
+    ⚠️ ADV IS AVERAGED OVER SESSIONS THAT ACTUALLY TRADED. Dropping any row where EITHER
+    field is null keeps the mean over real sessions and keeps `period_start` honest about
+    which ones they were; averaging the raw array would divide a short sum by a long length.
+    Fewer than a full window means a newly-listed or barely-traded name, and an ADV over 6
+    sessions is not an ADV — for a thin micro-cap that unavailable IS the signal.
     """
     try:
         r = requests.get(
@@ -442,21 +454,26 @@ def _close_and_adv(symbol: str) -> tuple[float, float, int, str, str] | None:
             return None
         res = r.json()["chart"]["result"][0]
         quote = res["indicators"]["quote"][0]
-        rows = [(t, c, v) for t, c, v in
-                zip(res["timestamp"], quote["close"], quote["volume"])
-                if c is not None and v is not None]
+        series = list(zip(res["timestamp"], quote["close"], quote["volume"]))
     except Exception:
         return None
-    if len(rows) < ADV_WINDOW_DAYS:
-        return None
 
-    window = rows[-ADV_WINDOW_DAYS:]
+    closes = [c for _, c, _ in series if c is not None]
+    if not closes:
+        return None
+    last_close = float(closes[-1])
+
+    traded = [(t, c, v) for t, c, v in series if c is not None and v is not None]
+    if len(traded) < ADV_WINDOW_DAYS:
+        return last_close, None, None, None, None
+
+    window = traded[-ADV_WINDOW_DAYS:]
     adv = sum(v for _, _, v in window) / len(window)
     if adv <= 0:
-        return None
+        return last_close, None, None, None, None
     start = datetime.fromtimestamp(window[0][0], tz=timezone.utc).date().isoformat()
     end = datetime.fromtimestamp(window[-1][0], tz=timezone.utc).date().isoformat()
-    return float(window[-1][1]), float(adv), len(window), start, end
+    return last_close, float(adv), len(window), start, end
 
 
 def fill_band(pct_of_adv: float | None) -> str | None:

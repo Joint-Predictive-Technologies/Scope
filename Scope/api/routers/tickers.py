@@ -377,8 +377,15 @@ def _position_sizing_payload(conn, symbol: str) -> dict:
                   "plausibility guards (foreign private issuer, stale or implausible "
                   "share count, or no price).")
 
-    adv = row.get("adv_shares")
-    adv_usd = (adv * row["last_close"]) if adv and row.get("last_close") else None
+    # ⚠️ THE GUARD IS ACTUALLY APPLIED HERE, not merely described. A previous version set
+    # `adv = row.get("adv_shares")` and relied on the resolver never producing an
+    # ADV-without-close row — true of every live path, but the comment below claimed the
+    # coupling was enforced at this layer too, and it was not. A hand-written or
+    # partially-migrated row would have rendered "Avg daily volume: 500,000 sh" directly
+    # beside "Last close: Unavailable", which is the exact pairing the coupling exists to
+    # prevent. Defence in depth costs one conditional.
+    adv = row.get("adv_shares") if row.get("last_close") else None
+    adv_usd = (adv * row["last_close"]) if adv else None
     adv_reason = (
         f"Fewer than {ADV_WINDOW_DAYS} traded sessions available, or no usable last close. "
         "A thinly-traded name is exactly where this matters, so it is reported as unknown "
@@ -471,10 +478,20 @@ def _position_sizing_payload(conn, symbol: str) -> dict:
         "adv_usd": _field(adv_usd, "known" if adv_usd else "unavailable",
                           None if adv_usd else adv_reason,
                           window_days=row.get("adv_window_days")),
+        # ⚠️ THE CAVEAT TRAVELS WITH THE NUMBER, NOT ONLY IN THE PAGE COPY. `participation_
+        # rate: 0.1` is a machine-readable PARAMETER, not a disclaimer — a consumer reading
+        # this endpoint directly (the brief, a future export, anything that is not
+        # `ticker.html`) would otherwise receive a confident dollar figure with nothing
+        # saying it rests on a rule of thumb. The rendered panel says so in words; so does
+        # this.
         "max_fillable_usd": _field(
             max_fillable_usd(adv_usd), "known" if adv_usd else "unavailable",
             None if adv_usd else adv_reason,
-            participation_rate=PARTICIPATION_RATE, window_days=ADV_WINDOW_DAYS),
+            participation_rate=PARTICIPATION_RATE, window_days=ADV_WINDOW_DAYS,
+            basis=(f"{int(PARTICIPATION_RATE * 100)}% of {ADV_WINDOW_DAYS}-session average "
+                   "daily dollar volume. A common execution convention, NOT a measured "
+                   "impact limit for this stock — real capacity depends on spread, borrow "
+                   "and news, none of which Scope models.")),
         "fill_profile": fill_profile(adv_usd),
         "dilution_overhang": _field(None, "unavailable", _DILUTION_UNAVAILABLE),
         "events": _dollar_events(conn, symbol, cap, revenue),
