@@ -216,6 +216,240 @@ def get_ticker_meta(symbol: str):
     return _with_cap_flags(out)
 
 
+# ── position sizing (materiality context) ─────────────────────────────────────
+
+def _field(value, status="known", reason=None, **extra) -> dict:
+    """One panel field, ALWAYS carrying its own status.
+
+    ⚠️ THE STATUS IS NOT OPTIONAL AND IT IS NOT DERIVABLE FROM THE VALUE. A missing number
+    and a real zero are different facts, and every previous version of a Scope surface that
+    let the client infer one from the other rendered them identically — the
+    "Market cap unavailable" dead-end on this very page came from exactly that (see
+    `_fetch_market_cap`). `status` is `known`, `unavailable`, or a field-specific state like
+    `not_burning`; `reason` says WHY on everything that is not `known`, so the UI never has
+    to invent an explanation for an empty cell.
+    """
+    return {"value": value, "status": status, "reason": reason, **extra}
+
+
+# ⚠️ NOT DERIVABLE, AND THIS IS A FINDING RATHER THAN A TODO. Three independent
+# disqualifications, spelled out because the next person to look at this will see
+# `us-gaap:ClassOfWarrantOrRightOutstanding` in companyfacts and assume it is the answer:
+#   1. Scope ingests no SEC filing text. `filings` is the CONGRESSIONAL PTR table.
+#   2. ATM capacity lives in S-3/424B5 PROSE. There is no XBRL concept for shelf remaining.
+#   3. The warrant concept is normally DIMENSIONED per class, and the undimensioned fact
+#      companyfacts returns may be one class or the total with nothing to tell them apart.
+#      Measured on ONDS (CIK 0001646188) it reads 267,857 as of 2025-12-31, down from
+#      3,616,071 — a number that would render as a near-zero overhang and cannot be shown
+#      to be complete.
+# A partial overhang printed as THE overhang is a confident wrong number, which is strictly
+# worse than an empty state on a panel a human sizes a position from.
+_DILUTION_UNAVAILABLE = (
+    "Scope ingests no SEC filing text, ATM shelf capacity is disclosed only in S-3/424B5 "
+    "prose, and the XBRL warrant concept is dimensioned per class so an undimensioned "
+    "total cannot be shown to be complete. Not estimated."
+)
+
+
+def _dollar_events(conn, symbol: str, market_cap, ttm_revenue) -> list[dict]:
+    """Every dollar-denominated alert on this ticker, re-expressed against the company.
+
+    Two structured sources, and only structured ones:
+
+      RULE_11  `contracts.amount` reached through `alerts.award_key`.
+      RULE_16  `tags.value_usd` on the 13F whale disclosure.
+
+    ⚠️ RULE_09 IS DELIBERATELY ABSENT. Lobbying spend is dollar-denominated and
+    `lobbying_filings` even carries a ticker on 286 of 640 rows — but the RULE_09 ALERTS
+    have `ticker IS NULL` for every row in prod, and their amounts live in a positional
+    comma tag string (`"...,Defense,$30K→$80K"`), pre-rounded to the nearest thousand.
+    Joining `lobbying_filings.ticker` instead would put events on this panel that the
+    page's own alert list does not contain, sourced from a different key than everything
+    around them. Left out rather than half-wired.
+
+    ⚠️ EXACT TICKER MATCH, NOT THE PAGE'S `LIKE '%sym%'`. The alert list above matches
+    loosely because an alert's ticker field can hold a multi-symbol basket; that predicate
+    also matches BABA for BA. A loose match is survivable in a list a human reads and is
+    not survivable in an arithmetic claim about THIS company's market cap.
+
+    ⚠️ `MAX(amount)` PER AWARD, matching `jpt_common.contract_leg_weight`'s
+    `ORDER BY amount DESC LIMIT 1`. One `award_id` can hold several rows, and the panel
+    and the gate must not pick different ones for the same award.
+    """
+    events = []
+
+    for r in conn.execute(
+        """
+        SELECT a.id, a.rule, a.headline, a.event_date, a.created_at, a.award_key,
+               MAX(c.amount) AS amount_usd, c.recipient_name
+        FROM alerts a
+        JOIN contracts c ON c.award_id = a.award_key
+        WHERE a.rule = 'RULE_11' AND a.award_key IS NOT NULL AND a.ticker = ?
+        GROUP BY a.id
+        ORDER BY amount_usd DESC
+        """,
+        (symbol,),
+    ).fetchall():
+        events.append({
+            "alert_id": r["id"], "rule": r["rule"], "headline": r["headline"],
+            "event_date": r["event_date"] or r["created_at"],
+            "amount_usd": r["amount_usd"],
+            "amount_source": "contracts.amount (total obligated to date)",
+            "counterparty": r["recipient_name"],
+        })
+
+    for r in conn.execute(
+        "SELECT id, rule, headline, event_date, created_at, tags FROM alerts "
+        "WHERE rule = 'RULE_16' AND ticker = ?",
+        (symbol,),
+    ).fetchall():
+        # Parsed in Python, not with `json_extract`: RULE_16's tags are JSON today, but
+        # `tags` is a free TEXT column that several other rules fill with a positional
+        # comma string, and a malformed value must skip one event rather than 500 the
+        # whole panel.
+        try:
+            value_usd = (json.loads(r["tags"]) or {}).get("value_usd")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(value_usd, (int, float)) or value_usd <= 0:
+            continue
+        events.append({
+            "alert_id": r["id"], "rule": r["rule"], "headline": r["headline"],
+            "event_date": r["event_date"] or r["created_at"],
+            "amount_usd": float(value_usd),
+            "amount_source": "13F reported position value",
+            "counterparty": None,
+        })
+
+    for e in events:
+        amount = e["amount_usd"]
+        e["pct_of_market_cap"] = (
+            round(amount / market_cap * 100, 4) if market_cap and amount else None)
+        e["pct_of_ttm_revenue"] = (
+            round(amount / ttm_revenue * 100, 4) if ttm_revenue and amount else None)
+    events.sort(key=lambda e: e["amount_usd"], reverse=True)
+    return events
+
+
+@router.get("/{symbol}/position-sizing")
+def get_position_sizing(symbol: str):
+    """Materiality context for the ticker page. DISPLAY ONLY — never reaches the score.
+
+    Reads `position_sizing_cache`, which no rule, no instrument and no part of the
+    corroboration gate touches. It deliberately does NOT read `ticker_meta`, whose
+    freshness `contract_leg_weight` depends on: a page view must not decide whether a
+    contracts leg gets weighted.
+    """
+    symbol = symbol.upper()
+    conn = db_connection()
+    try:
+        return _position_sizing_payload(conn, symbol)
+    except Exception as exc:
+        # An honest failure state, not an empty panel that reads as "this company has none
+        # of these things". `available: False` is a THIRD state, distinct from a field-level
+        # `unavailable`: the lookup itself did not complete, which says nothing about the
+        # company.
+        return {"symbol": symbol, "available": False,
+                "reason": f"Position-sizing lookup failed: {type(exc).__name__}",
+                "events": []}
+    finally:
+        # `finally`, not a close on each path. The events query runs after the resolve, and
+        # on the previous shape an exception there returned through the endpoint without
+        # ever closing the handle — a leaked SQLite connection per failing page view.
+        conn.close()
+
+
+def _position_sizing_payload(conn, symbol: str) -> dict:
+    from scripts.position_sizing import (cash_runway_months, monthly_burn_rate,
+                                         resolve)
+    row = resolve(conn, symbol) or {}
+
+    cap = row.get("market_cap")
+    revenue = row.get("ttm_revenue")
+    ocf, ocf_start, ocf_end = (row.get("operating_cash_flow"),
+                               row.get("ocf_period_start"), row.get("ocf_period_end"))
+
+    # The cap gates the two numbers it is the product of — publishing SEC ordinary shares
+    # beside a US ADR price is the TSM mis-scale the resolver's guards exist to prevent,
+    # and a reader can perform that multiplication by hand. See `scripts/position_sizing`.
+    cap_reason = ("SEC shares outstanding x last close could not be resolved within the "
+                  "plausibility guards (foreign private issuer, stale or implausible "
+                  "share count, or no price).")
+
+    if ocf is None or not ocf_start:
+        runway = _field(None, "unavailable",
+                        "No operating cash flow reported in SEC XBRL data.")
+    elif ocf >= 0:
+        runway = _field(None, "not_burning",
+                        "Operating cash flow was positive over the reported period — "
+                        "there is no burn to divide cash by.",
+                        period_start=ocf_start, period_end=ocf_end,
+                        operating_cash_flow=ocf)
+    elif row.get("cash_usd") is None:
+        runway = _field(None, "unavailable",
+                        "Operating burn is known but no cash balance is reported.")
+    else:
+        runway = _field(
+            cash_runway_months(row.get("cash_usd"), ocf, ocf_start, ocf_end),
+            "known", None,
+            monthly_burn=monthly_burn_rate(ocf, ocf_start, ocf_end),
+            period_start=ocf_start, period_end=ocf_end, operating_cash_flow=ocf)
+
+    payload = {
+        "symbol": symbol,
+        "available": True,
+        "fetched_at": row.get("fetched_at"),
+        # ⚠️ `resolved_at`, NOT `as_of`, ON THESE TWO — the distinction is the honesty.
+        # `as_of` elsewhere is the date of the FILED FACT (a share count as of 2026-07-21, a
+        # public float as of the prior 30 June). A market cap has no such date: it is a
+        # freshly computed product, and its price leg is "the last close Yahoo served us".
+        # Labelling the resolve timestamp `as_of` implied a fact date and quietly claimed
+        # more precision than exists — on a panel whose entire premise is that every figure
+        # is dated. Truthiness rather than `is not None` here IS correct: the resolver's own
+        # floors (`MIN_PLAUSIBLE_CAP`, `MIN_PLAUSIBLE_SHARES`) make zero unreachable, and if
+        # one ever appeared, "unavailable" is the right rendering for it anyway.
+        "market_cap": _field(cap, "known" if cap else "unavailable",
+                             None if cap else cap_reason,
+                             resolved_at=row.get("cap_updated")),
+        "shares_outstanding": _field(
+            row.get("shares_outstanding"),
+            "known" if row.get("shares_outstanding") else "unavailable",
+            None if row.get("shares_outstanding") else cap_reason,
+            as_of=row.get("shares_as_of")),
+        "last_close": _field(row.get("last_close"),
+                             "known" if row.get("last_close") else "unavailable",
+                             None if row.get("last_close") else cap_reason,
+                             resolved_at=row.get("cap_updated")),
+        # ⚠️ `is not None`, NEVER TRUTHINESS. A filer that reported ZERO revenue — a
+        # pre-revenue biotech, a SPAC — is a company that ANSWERED, and `if revenue else`
+        # relabelled that answer as "No annual or interim revenue facts in SEC XBRL data",
+        # which is a factually false sentence shown to a user. `EntityPublicFloat = 0` is
+        # common for the same filers. The cell erred safe (it read "Unavailable" rather
+        # than inventing a number) but the REASON was a lie, and the reason is the whole
+        # point of the honest empty state.
+        "public_float_usd": _field(
+            row.get("public_float_usd"),
+            "known" if row.get("public_float_usd") is not None else "unavailable",
+            None if row.get("public_float_usd") is not None else
+            "No dei:EntityPublicFloat reported by this filer.",
+            as_of=row.get("public_float_as_of")),
+        "ttm_revenue": _field(
+            revenue, "known" if revenue is not None else "unavailable",
+            None if revenue is not None else
+            "No annual or interim revenue facts in SEC XBRL data for this filer.",
+            as_of=row.get("ttm_revenue_as_of"), basis=row.get("ttm_revenue_basis")),
+        "cash": _field(row.get("cash_usd"),
+                       "known" if row.get("cash_usd") is not None else "unavailable",
+                       None if row.get("cash_usd") is not None else
+                       "No cash and equivalents balance reported.",
+                       as_of=row.get("cash_as_of")),
+        "cash_runway_months": runway,
+        "dilution_overhang": _field(None, "unavailable", _DILUTION_UNAVAILABLE),
+        "events": _dollar_events(conn, symbol, cap, revenue),
+    }
+    return payload
+
+
 # ── price action during disclosure window ─────────────────────────────────────
 
 @router.get("/{symbol}/price-action")

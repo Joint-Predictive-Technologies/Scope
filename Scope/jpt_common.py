@@ -681,6 +681,56 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m014_alert_corroborates')")
         conn.commit()
 
+    # m015: position_sizing_cache — the DISPLAY-ONLY materiality cache behind the ticker
+    # page's position-sizing panel. Market cap, shares outstanding, public float, TTM
+    # revenue, cash and operating cash flow, each stored WITH the date of the fact it came
+    # from.
+    #
+    # ⚠️ PHYSICALLY SEPARATE FROM `ticker_meta` AND `issuer_cap` ON PURPOSE, even though it
+    # holds a `market_cap` column too. Those two are read by the GATE —
+    # `contract_leg_weight` requires a live `ticker_meta` row before it will weight a
+    # contracts leg — so a table this one wrote into would be a display feature reaching
+    # into the scoring path. Nothing in `rule_*`, `RULE_CLUSTER`, `insert_alert`,
+    # `enrich_scores` or the corroboration gate reads this table, and nothing may be added
+    # that does. The panel is context for a human sizing a position; it is not evidence.
+    #
+    # ⚠️ EVERY VALUE CARRIES ITS OWN `*_as_of`, and that is the honesty property. A share
+    # count, a public float and a revenue figure are all point-in-time facts that go stale
+    # at completely different rates — Boeing's cover-page share count is days old while its
+    # `dei:EntityPublicFloat` is the prior June 30th by construction. A panel that printed
+    # them side by side undated would be inviting a reader to combine facts a year apart.
+    # There is deliberately NO dilution column: warrants/ATM/convertibles are not derivable
+    # from anything Scope ingests (see `scripts/position_sizing.py`), and a NULL column is
+    # an invitation to fill it in with an estimate later.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m015_position_sizing_cache'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS position_sizing_cache (
+                   symbol               TEXT PRIMARY KEY,
+                   cik                  TEXT,
+                   market_cap           INTEGER,
+                   cap_updated          TEXT,
+                   shares_outstanding   REAL,
+                   shares_as_of         TEXT,
+                   last_close           REAL,
+                   public_float_usd     REAL,
+                   public_float_as_of   TEXT,
+                   ttm_revenue          REAL,
+                   ttm_revenue_as_of    TEXT,
+                   ttm_revenue_basis    TEXT,
+                   cash_usd             REAL,
+                   cash_as_of           TEXT,
+                   operating_cash_flow  REAL,
+                   ocf_period_start     TEXT,
+                   ocf_period_end       TEXT,
+                   fetched_at           TEXT
+               )"""
+        )
+        conn.execute(
+            "INSERT INTO scope_migrations(name) VALUES('m015_position_sizing_cache')")
+        conn.commit()
+
     conn.commit()
 
 
