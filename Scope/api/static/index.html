@@ -800,51 +800,57 @@
   }
 
   // ── Corroboration hero cards ──────────────────────────────────────────────
+  /* ⚠️ THE HOMEPAGE CARD READS THE STORED SCORE. IT USED TO RECOMPUTE ONE.
+     This was a JavaScript twin of the server's old `_confidence_breakdown` — the same
+     instruments x10 + severity + age-decay + insider + contract formula, reimplemented
+     client-side — and its own comment said it "must agree with the server's /api/evidence
+     breakdown". Both were the same wrong number: on prod alert 32990 the pair read 65
+     against a stored `evidence_confidence` of 46.0, and 80 on the day it fired, because
+     the timing term decays. Two copies of a heuristic agreeing with each other is not
+     agreement with the engine.
+
+     `evidence_confidence` is immutable, forward-only, and the column `alert_outcomes`
+     calibration is measured against. The feed payload already carries it
+     (`api/routers/alerts.py:312`), so this is a READ — no query added, nothing computed
+     here. Severity and age are still shown, as FACTS beside the score rather than as
+     points summed into it: they are not inputs to it and must not look like they are. */
   function corrConfidence(alert) {
     let tags = {};
     try { tags = JSON.parse(alert.tags || '{}'); } catch {}
     const rules = tags.rules || [];
-    // INSTRUMENTS, not rule names — this must agree with the server's
-    // /api/evidence breakdown, which counts jpt_common.rule10_instruments().
-    // Several rules can read ONE source (the congressional trio RULE_01B /
-    // RULE_02 / RULE_CLUSTER is one instrument), so rules.length over-counts and
-    // this card used to read 100/100 where the evidence drawer read 80/100 on the
-    // SAME alert. The emitter writes both counts into tags, so no map is
-    // reimplemented here — do NOT reintroduce one.
-    // Pre-D2 alerts carry no instrument_count; for those we fall back to the rule
-    // count, which is what their stored evidence_confidence was computed from, and
-    // the tooltip says so rather than claiming instruments it never counted.
+    // Instrument count comes from what the emitter WROTE, never re-derived here. Pre-D2
+    // alerts carry no `instrument_count`; the label says "rule count (legacy alert)" for
+    // those rather than claiming instruments that were never counted.
     const instrCount = tags.instrument_count
                     ?? (Array.isArray(tags.instruments) ? tags.instruments.length : null);
     const isLegacy   = instrCount === null;
-    const count      = isLegacy ? rules.length : instrCount;
-    // Scale with instrument count: 4 = 40pts, 6 = 60pts, cap 60
-    const ruleScore = Math.min(count * 10, 60);
-    const sevScore  = alert.severity === 'CRITICAL' ? 20 : 10;
-    // Recency bonus: decays from 15pts within 6h to 0 after 48h
-    const ageH = alert.created_at
-      ? (Date.now() - new Date(alert.created_at).getTime()) / 3600000
-      : 48;
-    const timePts = ageH < 6 ? 15 : ageH < 24 ? 10 : ageH < 48 ? 5 : 0;
-    const insScore  = rules.includes('RULE_06') ? 15 : 0;
-    const conScore  = rules.includes('RULE_11') ? 10 : 0;
+    const score      = alert.evidence_confidence;
+    const known      = score !== null && score !== undefined && score !== 0;
     return {
-      total:    Math.min(ruleScore + sevScore + timePts + insScore + conScore, 100),
-      breakdown: { rules: ruleScore, severity: sevScore, timing: timePts, insider: insScore, contract: conScore },
-      ruleCount: count,
+      score, known,
+      unscored:   score === 0,
+      ruleCount:  isLegacy ? rules.length : instrCount,
       countLabel: isLegacy ? 'Rule count (legacy alert)' : 'Distinct instruments',
+      severity:   alert.severity,
+      instruments: tags.instruments || null,
+      insider:    rules.includes('RULE_06'),
+      contract:   rules.includes('RULE_11'),
     };
   }
 
   function corrConfidenceTooltip(conf) {
-    const b = conf.breakdown;
+    /* Facts, not addends — see corrConfidence. Nothing here sums to the score, so nothing
+       here is written as "+N". */
+    const row = (k, v) => `<div class="ct-row"><span>${k}</span><span class="val">${v}</span></div>`;
     return `<div class="conf-tooltip">
-      <div class="ct-row"><span>${conf.countLabel} (${conf.ruleCount})</span><span class="val">+${b.rules}</span></div>
-      <div class="ct-row"><span>Severity</span><span class="val">+${b.severity}</span></div>
-      <div class="ct-row"><span>Signal timing</span><span class="val">+${b.timing}</span></div>
-      ${b.insider ? `<div class="ct-row"><span>Insider trade present</span><span class="val">+${b.insider}</span></div>` : ''}
-      ${b.contract ? `<div class="ct-row"><span>Gov contract present</span><span class="val">+${b.contract}</span></div>` : ''}
-      <div class="ct-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;color:var(--amber2)"><span>Confidence score</span><span class="val">${conf.total}/100</span></div>
+      ${row(conf.countLabel, conf.ruleCount)}
+      ${conf.instruments ? row('Instruments', conf.instruments.join(', ')) : ''}
+      ${row('Severity', conf.severity || '—')}
+      ${conf.insider  ? row('Insider leg', 'present') : ''}
+      ${conf.contract ? row('Contract leg', 'present') : ''}
+      <div class="ct-row" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px;color:var(--amber2)"><span>Evidence confidence (stored)</span><span class="val">${
+        conf.known ? conf.score + '/100' : (conf.unscored ? 'not yet scored' : 'unavailable')}</span></div>
+      <div class="ct-row" style="color:var(--muted)"><span>Frozen at detection; not recomputed.</span></div>
     </div>`;
   }
   function corrSentiment(rules) {
@@ -906,7 +912,7 @@
               <!-- Collapsed summary: ticker · severity · score · rule families -->
               <div class="corr-score-line">
                 <span class="conf-wrap">
-                  <strong style="cursor:help;border-bottom:1px dashed var(--amber)">${conf.total}/100</strong>
+                  <strong style="cursor:help;border-bottom:1px dashed var(--amber)">${conf.known ? conf.score + '/100' : (conf.unscored ? 'not yet scored' : 'unavailable')}</strong>
                   ${corrConfidenceTooltip(conf)}
                 </span>
                 · ${conf.ruleCount} ${conf.countLabel === 'Distinct instruments' ? 'independent instruments' : 'eligible rules'}
@@ -1349,12 +1355,28 @@
       <span class="t-meta">${timeAgo(r.created_at)}</span></div>`;
   }
   function renderAlertEvidence(d) {
-    const a = d.alert || {}; const c = d.confidence || {};
+    const a = d.alert || {}; const c = d.confidence || {}; const p = d.provenance || {};
     document.getElementById('ev-sev').outerHTML = `<span id="ev-sev" class="badge badge-${a.severity}">${a.severity||''}</span>`;
     document.getElementById('ev-rule').textContent = a.rule || '';
     document.getElementById('ev-title').textContent = a.headline || '';
-    const comps = Object.entries(c.components || {}).map(([k,v]) =>
-      `<div class="ev-comp"><span>${k}</span><span class="v">+${v}</span></div>`).join('');
+    /* ⚠️ FACTS, NOT "+N" POINTS. This rendered `+${v}` for each component of a recomputed
+       total that was displayed as "Confidence" — a number up to 34 points away from the
+       score the engine actually stored. The score below is now the stored one, so any
+       "+N" beside it would imply these parts sum to it; they do not and cannot. Each row
+       is a fact, and the server sends facts. */
+    const fact = (label, val) =>
+      (val === null || val === undefined || val === '')
+        ? '' : `<div class="ev-comp"><span>${label}</span><span class="v">${escH(String(val))}</span></div>`;
+    const comps = [
+      fact('Distinct instruments', p.instrument_count),
+      p.instruments && p.instruments.length ? fact('Instruments', p.instruments.join(', ')) : '',
+      fact('Severity', p.severity),
+      fact('Source quality', p.source_quality),
+      p.insider_leg !== undefined ? fact('Insider leg', p.insider_leg ? 'present' : 'absent') : '',
+      p.contract_leg !== undefined ? fact('Contract leg', p.contract_leg ? 'present' : 'absent') : '',
+      p.age_hours != null ? fact('Age', p.age_hours < 48
+        ? `${Math.round(p.age_hours)}h` : `${Math.round(p.age_hours / 24)}d`) : '',
+    ].join('');
     const verify = d.source && d.source.url
       ? `<div class="ev-src"><a href="${d.source.url}" target="_blank" rel="noopener">Verify at ${escH(d.source.label)} ↗</a></div>`
       : `<div class="ev-src" style="color:var(--muted);font-size:0.72rem">Source: ${escH((d.source&&d.source.label)||'internal')}</div>`;
@@ -1375,12 +1397,18 @@
       <div class="ev-label">Why this fired</div>
       <div class="ev-why">${escH(d.why || a.detail || '—')}</div>
       ${contractBlock}
-      <div class="ev-label">Confidence</div>
-      <div class="ev-conf-total">${c.total ?? '—'}<span style="font-size:0.8rem;color:var(--muted)">/100</span></div>
-      <div class="ev-conf-bar"><div class="ev-conf-fill" style="width:${c.total||0}%"></div></div>
+      <div class="ev-label">Evidence confidence</div>
+      ${c.status === 'known'
+        ? `<div class="ev-conf-total">${c.score}<span style="font-size:0.8rem;color:var(--muted)">/100</span></div>
+           <div class="ev-conf-bar"><div class="ev-conf-fill" style="width:${Math.max(0, Math.min(100, c.score))}%"></div></div>
+           <div class="ev-comp" style="color:var(--muted)"><span>${escH(c.basis||'')}</span></div>`
+        : `<div class="ev-conf-total" style="font-size:0.9rem;font-style:italic;color:var(--muted)">${
+             c.status === 'unscored' ? 'Not yet scored' : 'Unavailable'}</div>
+           <div class="ev-comp" style="color:var(--muted)"><span>${escH(c.reason||'')}</span></div>`}
+      <div class="ev-label">What&rsquo;s behind it</div>
       ${comps}
-      ${c.conflicting_signals ? `<div class="ev-comp" style="color:var(--red-light)"><span>Conflicting signals</span><span>${c.conflicting_signals}</span></div>` : ''}
-      ${(c.eligible_rules&&c.eligible_rules.length) ? `<div class="ev-label">Eligible rules</div><div>${c.eligible_rules.map(r=>`<span class="ev-chip">${r}</span>`).join('')}</div>` : ''}
+      ${p.conflicting_signals ? `<div class="ev-comp" style="color:var(--red-light)"><span>Conflicting signals</span><span>${p.conflicting_signals}</span></div>` : ''}
+      ${(p.eligible_rules&&p.eligible_rules.length) ? `<div class="ev-label">Eligible rules</div><div>${p.eligible_rules.map(r=>`<span class="ev-chip">${escH(r)}</span>`).join('')}</div>` : ''}
       <div class="ev-label">Source & timing</div>
       ${verify}
       <div style="font-family:var(--font-mono);font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Fired ${escH(a.created_at||'')} · ${timeAgo(a.created_at)}</div>

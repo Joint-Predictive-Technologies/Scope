@@ -54,65 +54,111 @@ def _first_ticker(t: str) -> str:
     return (t or "").replace("$", "").split(" ")[0]
 
 
-def _confidence_breakdown(alert: dict, related: list) -> dict:
-    """Component breakdown; RULE_10 uses the full eligibility model."""
+def _stored_confidence(alert: dict) -> dict:
+    """THE alert's confidence: the number the engine actually stored. Never recomputed.
+
+    ⚠️ THIS REPLACES A RECOMPUTED HEURISTIC THAT WAS LIVE ON THE HOMEPAGE AND WRONG BY UP
+    TO 34 POINTS. The drawer used to render its own parallel score — instruments x10 capped
+    at 60, plus severity, freshness, an insider bonus and a contract bonus — under the label
+    "Confidence" with a /100 bar. On alert 32990 that produced **65** where the stored
+    `evidence_confidence` is **46.0**, and because the freshness term decays with age it
+    showed **80** on the day the alert fired: the divergence was WIDEST exactly when a
+    reader was most likely to be looking.
+
+    Three separate problems, any one of which is disqualifying:
+
+      1. It was a different number wearing the real number's name. `evidence_confidence` is
+         immutable, forward-only, and the column `alert_outcomes` calibration is measured
+         against. A plausible reconstruction presented as that value is the confident-wrong-
+         number failure this codebase keeps paying for.
+      2. It MERGED THE TWO AXES THE ENGINE REFUSES TO MERGE. `evidence_confidence` answers
+         "how well supported"; `opportunity_score` answers "how much opportunity remains".
+         Freshness is an opportunity-side term, and folding it into a confidence figure
+         re-created the single blended score the scoring model exists to avoid.
+      3. It was uncalibrated and had no consumer. Nothing scored, ranked, briefed or
+         measured against it — it existed only to be displayed.
+
+    So the score is now READ, not derived: `alerts.evidence_confidence`, already present on
+    the row this endpoint loads with `SELECT *`. No new query, no new computation.
+
+    `unscored` is a real, distinct state and is reported as one rather than as a zero:
+    write-path (b) rules insert raw and the 10-minute `enrich_scores` job fills the score in
+    afterwards, so a very fresh alert genuinely has no score yet. Two rows were in exactly
+    that state in prod while this was being written.
+    """
+    score = alert.get("evidence_confidence")
+    if score is None:
+        return {"score": None, "status": "unavailable",
+                "reason": "No evidence_confidence stored for this alert."}
+    if not score:
+        return {"score": None, "status": "unscored",
+                "reason": "Not yet scored — alerts written by the raw-insert path are "
+                          "scored by the enrichment job within ~10 minutes."}
+    return {"score": score, "status": "known", "reason": None,
+            "basis": "Distinct corroborating instruments, weighted by source quality. "
+                     "Frozen at detection time and never recomputed."}
+
+
+def _evidence_provenance(alert: dict, related: list) -> dict:
+    """WHAT IS BEHIND THE SCORE, as facts rather than as points.
+
+    ⚠️ FACTS, NOT ADDENDS, AND THAT DISTINCTION IS THE WHOLE POINT. The previous version
+    returned these as weighted point values ("+30", "+15") that summed to a displayed total.
+    Once the displayed score is the stored one, any "+N" beside it would imply the parts add
+    up to it — and they do not, and cannot: `evidence_confidence` is a tier plus a source-
+    quality term, attributable to no individual rule family. So these are reported as what
+    they are — a count, a severity, a leg present or absent — and nothing here is summed.
+
+    ⚠️ THE INSTRUMENT COUNTING AND THE CORROBORATION CHECK ARE PRESERVED EXACTLY. They are
+    not decoration: this is the sixth place the gate's counting gets re-expressed, and both
+    branches were previously wrong in ways a verification pass caught — the RULE_10 branch
+    counted rule NAMES (five names off three instruments), and the single-rule branch counted
+    a leg that was present but did NOT corroborate, handing credit to a rejected
+    exercise-and-sell. `rule10_instruments` and the gate's own `alert_corroborates` remain
+    the only authorities; neither is re-derived here.
+    """
     import datetime as _dt
+
     rule = alert.get("rule", "")
-    sev = alert.get("severity", "MEDIUM")
-    # freshness from age
     try:
         ts = _dt.datetime.fromisoformat((alert.get("created_at") or "").replace(" ", "T"))
-        age_h = (_dt.datetime.utcnow() - ts).total_seconds() / 3600
+        age_h = (_dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None)
+                 - ts).total_seconds() / 3600
     except Exception:
-        age_h = 48
-    freshness = 15 if age_h < 6 else 10 if age_h < 24 else 5 if age_h < 48 else 0
+        age_h = None
+
+    facts = {
+        "severity": alert.get("severity"),
+        "age_hours": round(age_h, 1) if age_h is not None else None,
+        "source_quality": alert.get("source_quality"),
+    }
 
     if rule == "RULE_10":
         rules = rule10_eligible_rules(rule10_rules_from_tags(alert.get("tags") or ""))
-        # INSTRUMENTS, not rule names — same correction as jpt_common._distinct_rule_count.
-        # This drawer had its own parallel confidence breakdown that also counted names,
-        # so it showed a user a higher number than the corroboration deserved.
-        instruments = rule10_instruments(rules)
-        rule_pts = min(len(instruments) * 10, 60)
-        sev_pts = 20 if sev == "CRITICAL" else 10
-        insider = 15 if "RULE_06" in rules else 0
-        contract = 10 if "RULE_11" in rules else 0
-        conflicting = sum(1 for r in related if "sale" in (r.get("headline") or "").lower())
-        total = min(rule_pts + sev_pts + freshness + insider + contract, 100)
-        return {
-            "total": total,
-            "components": {
-                "Distinct instrument count": rule_pts,
-                "Severity": sev_pts,
-                "Freshness": freshness,
-                "Insider significance": insider,
-                "Historical / contract": contract,
-            },
+        instruments = sorted(rule10_instruments(rules))
+        facts.update({
+            "instruments": instruments,
+            "instrument_count": len(instruments),
+            "insider_leg": "RULE_06" in rules,
+            "contract_leg": "RULE_11" in rules,
+            "conflicting_signals": sum(
+                1 for r in related if "sale" in (r.get("headline") or "").lower()),
             "eligible_rules": rules,
-            "conflicting_signals": conflicting,
-        }
-    # Single-rule alert — lighter breakdown
-    sev_pts = 40 if sev == "CRITICAL" else 25 if sev == "HIGH" else 10
-    # INSTRUMENTS, not rule names — the same correction as the RULE_10 branch above.
-    # This branch scored a lone alert's support by distinct rule NAME, so the
-    # congressional trio paid three times for one source (24/24, the cap, off a single
-    # instrument). rule10_instruments is the gate's authority, imported, never copied.
-    # ⚠️ AND THE LEG MUST ALSO CORROBORATE, not merely be present. This branch counted
-    # instruments off rule NAMES alone, so it awarded confidence points for an insider SELL
-    # — a verification pass measured 8 points handed to a rejected exercise-and-sell. It is
-    # the sixth place the gate's counting is re-expressed; the verdict comes from the gate's
-    # own `alert_corroborates`, never re-derived here.
+        })
+        return facts
+
     from scripts.rule_10_corroboration import alert_corroborates as _corroborates
-    corrob = min(len(rule10_instruments(
-        rule10_eligible_rules({r.get("rule") for r in related
-                               if r.get("rule") and _corroborates(r)[0]}))) * 8, 24)
-    total = min(sev_pts + freshness + corrob, 100)
-    return {
-        "total": total,
-        "components": {"Severity": sev_pts, "Freshness": freshness, "Corroborating signals": corrob},
-        "eligible_rules": [rule] if rule else [],
+    corroborating = sorted(rule10_instruments(rule10_eligible_rules(
+        {r.get("rule") for r in related
+         if r.get("rule") and _corroborates(r)[0]})))
+    facts.update({
+        "instruments": corroborating,
+        "instrument_count": len(corroborating),
+        "corroborating_instruments": len(corroborating),
         "conflicting_signals": 0,
-    }
+        "eligible_rules": [rule] if rule else [],
+    })
+    return facts
 
 
 @router.get("/alert/{alert_id}")
@@ -179,7 +225,11 @@ def alert_evidence(alert_id: int):
         # url deliberately absent: no front-door fallback, and alerts.source_url
         # is a Google News SEARCH QUERY on all 387 RULE_OSINT rows.
         "source": {"label": src},
-        "confidence": _confidence_breakdown(alert, related),
+        # `confidence` is now the STORED score and nothing else; `provenance` is the
+        # supporting facts, deliberately unsummed. The old shape shipped a recomputed
+        # total under this key — see `_stored_confidence`.
+        "confidence": _stored_confidence(alert),
+        "provenance": _evidence_provenance(alert, related),
         "contract": contract,
         "related": related,
         "timeline": list(reversed(related))[-8:],

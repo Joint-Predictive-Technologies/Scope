@@ -263,11 +263,27 @@ it means a **fourth tier**, a formula-shape change needing sign-off; pinned in
 `tests/test_evidence_tier_ordering.py::test_the_top_tier_saturates_at_five_and_that_is_a_known_limitation`.
 **How often n>=5 actually occurs is `UNVERIFIED — needs prod`** (0 RULE_10 rows locally).
 
-⚠️ **Known, not fixed:** `api/routers/evidence.py::_confidence_breakdown` computes its
-own drawer number on a different scale (instruments x10 capped at 60, plus severity /
-freshness / insider / contract points). It is not `evidence_confidence` and does not
-track it — the drawer can read 80 where the stored score is 46. Pre-existing, flagged
-rather than silently unified. See `05_Decisions/2026-07-25-gate-redesign.md`.
+✅ **FIXED 2026-08-16 — the drawer now READS `evidence_confidence`.**
+`api/routers/evidence.py::_confidence_breakdown` used to compute its own number on a
+different scale (instruments x10 capped at 60, plus severity / freshness / insider /
+contract points) and render it under the label "Confidence" with a /100 bar. It read **65**
+where prod alert 32990 stores **46.0**, and **80** on the day that alert fired — the
+freshness term decayed, so the gap was widest exactly when a reader was most likely to be
+looking. `api/static/index.html::corrConfidence` was a JavaScript twin of the same formula,
+so the two agreed with each other and neither agreed with the engine.
+
+Both now read the stored `evidence_confidence` (`_stored_confidence`), which is immutable,
+forward-only, and the column `alert_outcomes` calibration is measured against. The old
+components survive as `_evidence_provenance` — **facts, not addends**: a count, a severity,
+a leg present or absent, never `+N`, because they do not and cannot sum to a score that is
+a tier plus a source-quality term. `unscored` (write-path (b), awaiting `enrich_scores`) is
+reported as its own state, never as a zero.
+
+⚠️ **The instrument-counting property is unchanged and still pinned** — it is the sixth
+place the gate's counting is re-expressed, and both branches were previously wrong (rule
+NAMES over instruments; and crediting a leg that was present but did not corroborate).
+`rule10_instruments` and the gate's own `alert_corroborates` remain the only authorities.
+See `05_Decisions/2026-07-25-gate-redesign.md`.
 
 **RULE_CLUSTER (`scripts/rule_cluster.py`, path a):** fires when 3+ DISTINCT
 members trade the same normalized ticker inside a rolling 72h window by
