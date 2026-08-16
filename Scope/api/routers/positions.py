@@ -58,6 +58,7 @@ moves, and this one is expected to move.
 from __future__ import annotations
 
 import hmac
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -87,6 +88,11 @@ WORTHINESS_VERSION = "unvalidated-v0"
 # being smoothed away by this threshold.
 MAX_QUOTE_AGE_SECONDS = 5 * 24 * 3600
 
+# Upper bound on a believable share price, used together with a finiteness check. BRK-A,
+# the most expensive listed share anywhere, trades near $7e5; $1e7 therefore rejects
+# corrupted-but-finite garbage without being reachable by any real security.
+MAX_PLAUSIBLE_PRICE = 1e7
+
 
 # ── schema ───────────────────────────────────────────────────────────────────────
 #
@@ -107,7 +113,10 @@ def ensure_table(conn) -> None:
             chat_id                   TEXT,
             ticker                    TEXT    NOT NULL,
             -- the price, and the two DIFFERENT times that matter about it
-            entry_price               REAL,                 -- NULL on 'pass', never NULL on a written 'buy'
+            -- NEVER NULL on a written 'buy' — that is the table's core invariant. On a
+            -- 'pass' it holds the live price too WHEN one resolved (useful later for
+            -- "what did declining cost?"), and NULL with a `quote_error` when it did not.
+            entry_price               REAL,
             entry_at                  TEXT    NOT NULL,     -- when the human decided
             quote_source              TEXT,
             quote_fetched_at          TEXT,                 -- when Scope asked
@@ -164,12 +173,32 @@ def _live_quote(symbol: str) -> tuple[float | None, str | None, str | None]:
 
     if price is None:
         return None, None, "quote response carried no regularMarketPrice"
-    try:
-        price = float(price)
-    except (TypeError, ValueError):
-        return None, None, "regularMarketPrice was not a number"
-    if not (price > 0):
-        # A zero or negative print is a broken feed, not a cheap stock.
+
+    # ⚠️ `bool` IS AN `int` SUBCLASS IN PYTHON, so `"regularMarketPrice": true` would
+    # otherwise reach the arithmetic below as 1.0 and be recorded as a one-dollar entry.
+    if isinstance(price, bool) or not isinstance(price, (int, float)):
+        # Deliberately strict: a numeric STRING ("495.40") would coerce cleanly, but this
+        # is the load-bearing field, and a response whose shape changed under us is
+        # something to be told about rather than to silently absorb.
+        return None, None, f"regularMarketPrice was not a number ({type(price).__name__})"
+    price = float(price)
+
+    # ⚠️ `not (price > 0)` IS NOT ENOUGH, AND THIS EXACT TRAP HAS BITTEN THIS CODEBASE
+    # BEFORE. `nan > 0` is False so NaN was already caught, but `inf > 0` is True, so an
+    # infinite price sailed straight through the gate that exists to stop implausible
+    # ones — and it does not take the non-standard `Infinity` token to produce one:
+    # `json.loads("1e999")` returns `inf` from ordinary, valid, standard JSON. The row was
+    # then COMMITTED, the operator was told "Recorded at inf", and only afterwards did the
+    # response fail to serialise — so a permanently wrong `entry_price` survived behind a
+    # 500, and Telegram's retry of that 500 came back "duplicate". Found by a verifier
+    # constructing the failure rather than by re-running the happy path. `CLAUDE.md`
+    # records the same non-finite-JSON trap in `leg_weights`; this is its second showing.
+    if not math.isfinite(price):
+        return None, None, f"non-finite quote price ({price})"
+    if not (0 < price < MAX_PLAUSIBLE_PRICE):
+        # A zero or negative print is a broken feed, not a cheap stock. The ceiling
+        # catches finite-but-absurd values (1e300) that `isfinite` alone admits; the
+        # most expensive real share on any exchange is BRK-A at roughly $7e5.
         return None, None, f"implausible quote price ({price})"
 
     if mtime is None:
@@ -205,10 +234,24 @@ def _secret_ok(request: Request) -> bool:
 
     Unset secret ⇒ False, not True. An endpoint that authenticates only when configured
     is an open write endpoint on any deploy where the env var was forgotten.
+
+    ⚠️ COMPARED AS BYTES, NOT AS STR, AND THAT IS A BUG FIX RATHER THAN A STYLE CHOICE.
+    `hmac.compare_digest` RAISES TypeError on a non-ASCII str, and ASGI servers hand
+    headers over latin-1-decoded — so one high byte on the wire (entirely legal to send)
+    turned this 403 into an unhandled 500 that wrote no denial row, quietly breaking the
+    "every rejected write leaves a trace" property on the one endpoint where it matters.
+    Encoding both sides first makes the comparison total over any string, and keeps it
+    constant-time.
     """
     expected = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+    if not expected:
+        return False
     supplied = request.headers.get("x-telegram-bot-api-secret-token", "")
-    return bool(expected) and hmac.compare_digest(supplied, expected)
+    try:
+        return hmac.compare_digest(supplied.encode("utf-8", "surrogatepass"),
+                                   expected.encode("utf-8", "surrogatepass"))
+    except Exception:
+        return False
 
 
 def _chat_allowed(chat_id) -> bool:
@@ -403,13 +446,27 @@ def _record(*, decision: str, callback_id: str, chat_id, ticker: str,
         conn.commit()
 
         if cur.rowcount == 0:
-            # Lost the race to a concurrent identical delivery. The other one wrote it.
+            # Normally: lost the race to a concurrent identical delivery, and the winner
+            # wrote the row. But `INSERT OR IGNORE` suppresses EVERY constraint violation,
+            # not only the idempotency UNIQUE — so "nothing was inserted" and "someone
+            # else inserted it" are not the same fact, and only a lookup can tell them
+            # apart. Unreachable today (that UNIQUE is the sole constraint that can fire),
+            # yet reporting a cheerful "already recorded" for a row that does not exist is
+            # precisely the lie this table cannot afford, and a future NOT NULL column
+            # would make it reachable.
             row = conn.execute(
                 "SELECT id FROM positions WHERE callback_query_id = ?", (callback_id,)
             ).fetchone()
+            if row is None:
+                _log_denied("POSITION_LEDGER_INSERT_SUPPRESSED",
+                            f"{ticker} alert={alert_id}: insert wrote no row and none exists")
+                _answer_callback(callback_id,
+                                 f"NOT recorded — the write was rejected for {ticker}. "
+                                 f"Nothing was saved.")
+                return {"ok": False, "recorded": False,
+                        "reason": "insert suppressed and no row present"}
             _answer_callback(callback_id, "Already recorded.")
-            return {"ok": True, "duplicate": True,
-                    "position_id": row["id"] if row else None}
+            return {"ok": True, "duplicate": True, "position_id": row["id"]}
 
         pos_id = cur.lastrowid
         if decision == "buy":

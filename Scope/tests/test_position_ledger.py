@@ -166,6 +166,88 @@ def test_no_quote_means_NO_ROW(client, monkeypatch, name, setup, _no_telegram_ca
     assert "NOT recorded" in _no_telegram_calls[0]
 
 
+@pytest.mark.parametrize("raw,label", [
+    (float("inf"), "positive infinity"),
+    (float("-inf"), "negative infinity"),
+    (float("nan"), "NaN"),
+    (1e300, "finite but absurd (1e300)"),
+    (True, "JSON true (bool is an int subclass)"),
+    ("495.40", "numeric string"),
+    ([495.4], "list"),
+])
+def test_non_finite_and_wrong_typed_prices_are_refused(client, monkeypatch, raw, label):
+    """Regression: `not (price > 0)` admitted +inf, because `inf > 0` is True.
+
+    A verifier reached it with `json.loads("1e999")` — ordinary, standard, valid JSON,
+    no exotic `Infinity` token required — and the resulting row was COMMITTED with
+    `entry_price = inf` before the response failed to serialise, so the poison survived
+    behind a 500 and Telegram's retry answered "duplicate". The gate written to stop
+    implausible prices was the one that let it through.
+    """
+    import time
+
+    class _R:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {"chart": {"result": [{"meta": {
+                "regularMarketPrice": raw,
+                "regularMarketTime": int(time.time())}}]}}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
+    r = client.post("/api/telegram/callback", json=_update("nf", "pos:buy:1:MSFT"),
+                    headers=HDR)
+    assert r.json()["recorded"] is False, label
+    assert _rows() == [], f"{label} leaked a row"
+
+
+def test_every_stored_price_is_finite(client, monkeypatch):
+    """The invariant the inf bug violated, stated over the table rather than the code."""
+    _stub_quote(monkeypatch, 495.4)
+    client.post("/api/telegram/callback", json=_update("f1", "pos:buy:1:MSFT"), headers=HDR)
+    import math as _m
+    for row in _rows():
+        if row["entry_price"] is not None:
+            assert _m.isfinite(row["entry_price"])
+
+
+def test_non_ascii_secret_header_is_rejected_not_raised(monkeypatch):
+    """Regression: `hmac.compare_digest` raises TypeError on a non-ASCII str, and ASGI
+    servers hand headers over latin-1-decoded — so one high byte on the wire (legal to
+    send) turned this 403 into an unhandled 500 that logged no denial, breaking the
+    'every rejected write leaves a trace' property on the app's only inbound write
+    endpoint.
+
+    Driven against `_secret_ok` directly rather than through TestClient, because httpx
+    ascii-encodes outgoing headers and so cannot even transmit the byte that triggers
+    it — the condition is reachable from a real client but not from this test client.
+    The string below is what the ASGI layer hands the app after latin-1 decoding.
+    """
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET)
+
+    class _Req:
+        headers = {"x-telegram-bot-api-secret-token": "s3cr3t-tok\xf1"}
+
+    assert positions._secret_ok(_Req()) is False       # must return, not raise
+
+
+def test_denial_paths_log_even_for_exotic_headers(client):
+    """The 'every rejected write leaves a trace' property, over the handler."""
+    from jpt_common import db_connection
+    r = client.post("/api/telegram/callback", json=_update("x", "pos:buy:1:MSFT"),
+                    headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-but-ascii"})
+    assert r.status_code == 403
+    assert _rows() == []
+    conn = db_connection()
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM activity_log "
+                         "WHERE source='POSITION_LEDGER_AUTH_DENIED'").fetchone()[0]
+    finally:
+        conn.close()
+    assert n >= 1
+
+
 def test_a_written_buy_row_can_never_have_a_null_price(client, monkeypatch):
     """The invariant that makes the table trustworthy, stated as a query."""
     _stub_quote(monkeypatch, 250.0)
