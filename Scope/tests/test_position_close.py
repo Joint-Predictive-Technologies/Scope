@@ -389,7 +389,10 @@ def test_a_rejected_benchmark_bar_is_disclosed_and_not_blamed_on_a_holiday(monke
     monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
     pc.close_position(_seed(cb="skipbar"))
     basis = _closes()[0]["benchmark_basis"]
-    assert "REJECTED as corrupt" in basis, "a dropped bar must be disclosed"
+    # Wording widened in round 2: a NULL bar shortens the window exactly as a corrupt one
+    # does, so the disclosure now covers both under "EXCLUDED" rather than naming only
+    # corruption. The property under test is unchanged — a dropped bar must be disclosed.
+    assert "EXCLUDED" in basis, "a dropped bar must be disclosed"
     # Assert the unconditional BLAME SENTENCE is gone — not merely that the words
     # "market was shut" never occur, since the corrective wording legitimately says
     # "...and NOT because the market was shut."
@@ -415,3 +418,110 @@ def test_an_unavailable_benchmark_is_stated_not_omitted():
                          n_closed=1, holding_days=5.2)
     assert "UNAVAILABLE" in text
     assert "SPY" in text, "the benchmark line must still appear, saying it is missing"
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# ROUND-2 REGRESSIONS — the empty-DB blind spot, and two defects beside it
+#
+# ⚠️ THE TESTS BELOW MUST NOT USE `_conn()` OR `_seed()`. That is the entire point.
+# Defect (1) survived a verifier pass on each branch AND a combined certification
+# because every harness in this file — and the certifier's own — called
+# `positions.ensure_table()` before asserting anything, destroying the empty-table
+# state before it was ever looked at. A regression test that reuses those helpers
+# would reproduce the blind spot rather than close it.
+# ════════════════════════════════════════════════════════════════════════════════
+
+def test_listing_commands_work_on_a_DB_where_no_buy_was_ever_tapped():
+    """The blocking defect: `open_positions()` created only the CLOSE table while its
+    query reads `FROM positions p`, so every listing command raised
+    `no such table: positions` — an unhandled 500 over the webhook, on production's
+    exact state (both tables are new, so no Buy has ever been tapped).
+
+    Deliberately touches NO ensure_* helper: the DB is whatever `jpt_common`'s normal
+    init path produced, which is the real first-deploy state.
+    """
+    from jpt_common import db_connection
+    conn = db_connection()
+    try:
+        present = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE name IN "
+            "('positions','position_closes')")]
+    finally:
+        conn.close()
+    assert present == [], "precondition broken: something pre-created the ledger tables"
+
+    # Assert the real response shape, not merely "did not raise".
+    assert pc.handle_command("/positions") == "No open positions."
+    assert "Usage: /sell <position_id>" in pc.handle_command("/sell")
+    assert "No open position for AAPL" in pc.handle_command("/sell AAPL")
+    assert "no position with id 1" in pc.handle_command("/sell 1")
+
+
+def test_open_positions_creates_both_tables_not_just_the_close_table():
+    """The structural half of the same fix: one helper ensures both, so a future third
+    reader cannot get it half-right the way `open_positions` did."""
+    from jpt_common import db_connection
+    conn = db_connection()
+    try:
+        pc.open_positions(conn)
+        made = sorted(r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE name IN "
+            "('positions','position_closes')"))
+    finally:
+        conn.close()
+    assert made == ["position_closes", "positions"]
+
+
+@pytest.mark.parametrize("payload,label", [
+    ({"message": "hello"}, "message is a string"),
+    ({"message": ["a"]}, "message is a list"),
+    ({"message": {"text": "/positions", "chat": "nope"}}, "chat is a string"),
+    ({"callback_query": "hello"}, "callback_query is a string"),
+    ("not-an-object", "the whole update is a string"),
+])
+def test_malformed_update_shapes_do_not_500(client, payload, label):
+    """Every level of the payload is attacker-shaped, and `.get` on a str is an
+    AttributeError — an unhandled 500 with no denial row, which Telegram then retries.
+    Reachable only POST-auth (the secret check returns before the body is even parsed),
+    which is why logging it here is safe rather than a spam vector."""
+    r = client.post("/api/telegram/callback", json=payload, headers=HDR)
+    assert r.status_code != 500, f"{label} produced an unhandled 500"
+    assert _closes() == [], f"{label} wrote a row"
+
+
+def test_a_null_benchmark_bar_is_disclosed_exactly_like_a_corrupt_one(monkeypatch):
+    """Regression on the first fix's own blind spot: `c is None` was filtered BEFORE the
+    validation gate and never counted, so a null bar shortened the window exactly as a
+    corrupt bar does while the basis still asserted 'the market was shut'. Measured side
+    by side, both give the same pct over the same span — only the corrupt one disclosed."""
+    import time
+
+    def _stub(closes):
+        class _R:
+            ok = True; status_code = 200
+            def json(self):
+                now = int(time.time())
+                return {"chart": {"result": [{
+                    "meta": {"regularMarketPrice": 495.4, "regularMarketTime": now},
+                    "timestamp": [now - 8*86400, now - 5*86400,
+                                  now - 3*86400, now - 1*86400],
+                    "indicators": {"quote": [{"close": list(closes)}]}}]}}
+        return lambda *a, **k: _R()
+
+    seen = {}
+    for label, closes in [("corrupt", (500.0, 502.0, 504.0, float("inf"))),
+                          ("null", (500.0, 502.0, 504.0, None)),
+                          ("clean", (500.0, 502.0, 504.0, 506.0))]:
+        monkeypatch.setattr(requests, "get", _stub(closes))
+        pid = _seed(cb=f"bar-{label}")
+        pc.close_position(pid)
+        row = [r for r in _closes() if r["position_id"] == pid][0]
+        seen[label] = row["benchmark_basis"] or ""
+
+    for label in ("corrupt", "null"):
+        assert "EXCLUDED" in seen[label], f"{label} bar not disclosed"
+        assert "the market was shut at one end" not in seen[label], \
+            f"{label} bar asserted a holiday it cannot know occurred"
+    # The clean case must KEEP the holiday explanation — it is correct there.
+    assert "the market was shut at one end" in seen["clean"]
+    assert "EXCLUDED" not in seen["clean"]

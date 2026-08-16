@@ -383,7 +383,34 @@ async def telegram_callback(request: Request):
     except Exception:
         return JSONResponse(status_code=400, content={"error": "malformed body"})
 
-    cq = (update or {}).get("callback_query")
+    # ⚠️ EVERY LEVEL OF THIS PAYLOAD IS ATTACKER-SHAPED AND MUST BE TYPE-CHECKED, NOT
+    # ASSUMED. `update`, `update.callback_query`, `update.message` and `message.chat` are
+    # each `.get()`-ed, and `.get` on a str or a list is an AttributeError — an unhandled
+    # 500 with no denial row, which Telegram then retries. A verifier reached this with a
+    # `message` that was a string; the same shape is reachable one level up (`update` or
+    # `callback_query` as a bare string), so all four are checked here rather than the one
+    # that happened to be demonstrated.
+    #
+    # ⚠️ THIS IS STRICTLY POST-AUTH — `_secret_ok` returns above, before the body is even
+    # parsed — so only a holder of the webhook secret can reach it. That is precisely why
+    # logging here is safe: it cannot be driven by an unauthenticated caller, so it is not
+    # a log-spam vector. An equivalent check placed BEFORE the secret comparison would
+    # have been, and is deliberately not added there.
+    def _d(v):
+        """The value if it is a dict, else an empty dict."""
+        return v if isinstance(v, dict) else {}
+
+    if not isinstance(update, dict):
+        _log_denied("POSITION_LEDGER_MALFORMED_UPDATE",
+                    f"update payload was {type(update).__name__}, not an object")
+        return {"ok": True, "ignored": "update payload is not an object"}
+
+    raw_cq = update.get("callback_query")
+    if raw_cq is not None and not isinstance(raw_cq, dict):
+        _log_denied("POSITION_LEDGER_MALFORMED_UPDATE",
+                    f"callback_query was {type(raw_cq).__name__}, not an object")
+        return {"ok": True, "ignored": "callback_query is not an object"}
+    cq = _d(raw_cq)
     if not cq:
         # ── a plain MESSAGE, which is how /sell and /positions arrive ────────────
         # Telegram delivers every update type to ONE webhook URL, so a text command
@@ -391,14 +418,19 @@ async def telegram_callback(request: Request):
         # above and the SAME chat allowlist below. That is why there is no second
         # inbound endpoint: a second surface would be a second auth gate to keep in
         # step, and this one cannot drift from itself.
-        msg = (update or {}).get("message") or {}
+        raw_msg = update.get("message")
+        if raw_msg is not None and not isinstance(raw_msg, dict):
+            _log_denied("POSITION_LEDGER_MALFORMED_UPDATE",
+                        f"message was {type(raw_msg).__name__}, not an object")
+            return {"ok": True, "ignored": "message is not an object"}
+        msg = _d(raw_msg)
         text = str(msg.get("text") or "")
         if not text.startswith("/"):
             # Not a command (an edit, a photo, a reply…). 200 so Telegram does not
             # retry a delivery that will never be actionable.
             return {"ok": True, "ignored": "not a callback_query or command"}
 
-        msg_chat = ((msg.get("chat")) or {}).get("id")
+        msg_chat = _d(msg.get("chat")).get("id")
         if not _chat_allowed(msg_chat):
             _log_denied("POSITION_LEDGER_CHAT_DENIED",
                         f"command from chat_id={msg_chat!r}")
@@ -411,7 +443,9 @@ async def telegram_callback(request: Request):
         delivered = _send_message(msg_chat, reply)
         return {"ok": True, "command": text.split()[0], "replied": delivered}
 
-    chat_id = (((cq.get("message") or {}).get("chat")) or {}).get("id")
+    # Same type-check as the message branch: `cq.message` and `.chat` are attacker-shaped
+    # too, and `.get` on a str is the same unhandled 500.
+    chat_id = _d(_d(cq.get("message")).get("chat")).get("id")
     if not _chat_allowed(chat_id):
         _log_denied("POSITION_LEDGER_CHAT_DENIED", f"callback from chat_id={chat_id!r}")
         return JSONResponse(status_code=403, content={"error": "forbidden"})
@@ -430,7 +464,7 @@ async def telegram_callback(request: Request):
         return JSONResponse(status_code=400, content={"error": "bad alert id"})
     ticker = normalize_ticker(parts[3]) or parts[3]
 
-    message_id = str(((cq.get("message") or {}).get("message_id")) or "")
+    message_id = str(_d(cq.get("message")).get("message_id") or "")
 
     return _record(decision=decision, callback_id=callback_id, chat_id=chat_id,
                    ticker=ticker, alert_id=alert_id, message_id=message_id)

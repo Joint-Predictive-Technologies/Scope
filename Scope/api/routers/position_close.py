@@ -151,10 +151,24 @@ def _spy_daily_closes(start: datetime,
     except Exception:
         return None, "benchmark response was not in the expected shape", 0
 
-    out, skipped = [], 0
+    out, skipped, empty = [], 0, 0
     for ts, c in zip(stamps, closes):
         if c is None:
-            continue                       # an untraded session, not a corrupt one
+            # ⚠️ COUNTED TOO, AND THIS WAS THE HOLE THE FIRST FIX LEFT BEHIND. A null bar
+            # was filtered out HERE, before the gate below, and was never counted — so it
+            # shortened the window exactly as a corrupt bar does while the basis string
+            # still went on to assert "the market was shut". Measured side by side: a
+            # corrupt newest bar and a NULL newest bar both give pct=0.8 over a 5-day
+            # span; only the corrupt one disclosed why. Same window, same number, and the
+            # null case printed a cause that may well be false.
+            #
+            # It is counted SEPARATELY rather than folded into `skipped` because the two
+            # are genuinely different facts and this module should not assert the one it
+            # cannot tell apart: a null close may be an untraded session (in which case a
+            # holiday IS the honest explanation) or missing data (in which case it is
+            # not). The disclosure below names the ambiguity instead of picking a side.
+            empty += 1
+            continue
         # Every benchmark close goes through the SAME gate as every other price in this
         # ledger. This is the third caller `validate_price` exists to prevent becoming a
         # third COPY of the +inf/bool check.
@@ -171,8 +185,8 @@ def _spy_daily_closes(start: datetime,
             continue
         out.append((datetime.fromtimestamp(ts, tz=timezone.utc).date(), price))
     if not out:
-        return None, "benchmark returned no usable closes", skipped
-    return out, None, skipped
+        return None, "benchmark returned no usable closes", skipped + empty
+    return out, None, skipped + empty
 
 
 def _close_at_or_before(series: list, when: datetime):
@@ -223,10 +237,11 @@ def benchmark_return(entry_at: datetime, exit_at: datetime):
     # dropped — the market was open that day. A wrong cause printed beside a wrong number
     # is worse than the wrong number alone, because it tells the reader not to look.
     if skipped:
-        basis += (f" ⚠️ {skipped} benchmark bar(s) in this window were REJECTED as "
-                  f"corrupt and excluded; if a rejected bar was the last one at or "
-                  f"before either endpoint, this window is shorter than the holding "
-                  f"period for that reason and not because the market was shut.")
+        basis += (f" ⚠️ {skipped} benchmark bar(s) in this window were EXCLUDED (rejected "
+                  f"as corrupt, or carried no close price); if an excluded bar was the "
+                  f"last one at or before either endpoint, this window is shorter than "
+                  f"the holding period for that reason — which may or may not be a market "
+                  f"holiday, and this row does not claim to know which.")
     else:
         basis += (" Where this span differs from holding_days, the market was shut at "
                   "one end of the holding window.")
@@ -235,8 +250,36 @@ def benchmark_return(entry_at: datetime, exit_at: datetime):
 
 # ── closing ──────────────────────────────────────────────────────────────────────
 
-def open_positions(conn) -> list[dict]:
+def ensure_ledger_tables(conn) -> None:
+    """Create BOTH ledger tables. The only way anything here should ask for either.
+
+    ⚠️ THIS EXISTS BECAUSE THE ASYMMETRY IT REMOVES SHIPPED PAST THREE REVIEWS.
+    `close_position()` called `ensure_table` AND `ensure_close_table`; `open_positions()`
+    called only the second, while `OPEN_POSITIONS_SQL` reads `FROM positions p`. So on any
+    database where no Buy had ever been tapped — production's exact state, both tables
+    being new — `/positions`, `/sell` and `/sell <TICKER>` raised
+    `no such table: positions`, which over the shared webhook is an unhandled HTTP 500
+    that Telegram then retries.
+
+    Neither branch's isolated verifier pass caught it, and nor did the combined
+    certification, for one shared reason: every harness — both test suites' `_conn()` and
+    the certifier's own `seed()` — called `ensure_table()` before asserting anything, so
+    the genuinely-empty state was destroyed before anything looked at it.
+
+    The fix is therefore NOT "remember to call both". It is that there is now one call, so
+    a future third reader cannot get it half-right. Same lesson as `person_partition` in
+    `scripts/insider_clusters.py`: make the correct thing the only expressible thing.
+
+    (`_record` in `positions.py` deliberately still calls `ensure_table` alone — it writes
+    only to `positions`, and importing this module from there would be circular.)
+    """
+    from api.routers.positions import ensure_table
+    ensure_table(conn)
     ensure_close_table(conn)
+
+
+def open_positions(conn) -> list[dict]:
+    ensure_ledger_tables(conn)
     return [dict(r) for r in conn.execute(OPEN_POSITIONS_SQL + " ORDER BY p.id")]
 
 
@@ -244,9 +287,7 @@ def close_position(position_id: int) -> dict:
     """Write exactly one close row, or none."""
     conn = db_connection()
     try:
-        from api.routers.positions import ensure_table
-        ensure_table(conn)
-        ensure_close_table(conn)
+        ensure_ledger_tables(conn)
 
         pos = conn.execute("SELECT * FROM positions WHERE id = ?",
                            (position_id,)).fetchone()
