@@ -18,6 +18,43 @@ raw. When an idea graduates, move it into the plan/roadmap and delete it here.
 > reasoning | product | meta]`. Triage during roadmap reconciliation. Big
 > strategic ideas belong in [[Master Plan]]; this is the scratchpad that feeds it.
 
+## Standalone notes in this folder
+
+- **[[the-whale-and-provenance-layer]]** — *The whale rule and the person-provenance
+  layer.* The through-line behind the refined instrument definitions: **the strongest
+  signals are not events but PEOPLE with provenance** — who the trader is and what they
+  plausibly know (win rate, relations, military background, prior employers, political
+  alignment). Recorded as the intended **moat**: nobody cross-references *"this
+  small-cap buyer is a military veteran who worked at Raytheon."* The **whale rule** is
+  a curated/earned watchlist whose **buys** are a concrete copy-trade signal, on two
+  dimensions — **track record** (realized win % *and* amount won, so a single lucky call
+  cannot mint a whale; **earned**, so it waits on [[Outcome Tracking Status]]) and
+  **provenance** (the *why* behind the record). ⚠️ **NOT actionable, and four questions
+  are deliberately left OPEN**: does provenance ever **gate** or only weight (*"yes,
+  dependent"* — undecided); **where provenance data comes from** (LinkedIn/public
+  bios/LLM-assembled — flagged **UNRESEARCHED**, with the scraping/ToS/accuracy
+  minefield noted and hand-built profiles as the safe MVP); the curated-vs-earned
+  threshold; and **inter-ticker cross-referencing**, recorded with the explicit warning
+  that **it is how baskets are born**. Definitions it feeds: [[Instrument Definitions]].
+
+- **[[the-world-web-vision]]** — *The World-Web: AI as connector, not oracle.* The
+  direction for the reasoning layer: AI that **assembles** sourced facts and maps
+  how they connect, never one that **judges**. Two piles — the calibrated numbers
+  as the objective relevance filter, a cited context-web as the *why*. One hard
+  rule: **every node and edge must come from a retrieved source and cite it**, or
+  it's a hallucinated web wearing the costume of research. **Explicitly sequenced
+  after convergence works in prod** — a web around a signal that hasn't fired is a
+  frame around an empty picture.
+  Its **UI directions** section now also holds **the ball pit** — the reddit
+  collector's native view. A black screen of floating tickers, **orderless on
+  purpose**, because the collector produces a *universe* and ranking would imply
+  the names are signals. Size = `times_seen`, brightness = recency, tint =
+  `cap_status`, so momentum is visible **without** ranking; a ball is a **doorway,
+  not a verdict** — click through to the ticker's real page. **Build it after the
+  collector is full and its caps are correct**, or you debug the visual and the
+  data at once. Same instinct as the globe and the relationship-graph: one
+  **spatial-UI language**, not three one-off toys.
+
 ---
 
 ## Near-term / engineering

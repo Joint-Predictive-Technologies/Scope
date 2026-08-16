@@ -80,4 +80,30 @@ disclosure periods.
 
 ---
 
-See also: [[Scoring System]], CLAUDE.md
+## ⚠️ Instrument definitions have been REFINED — read before repairing a rule
+
+These decisions describe how rules **work and get scored**. What each instrument is
+**for** has since been redefined in a design conversation, and several existing rules
+are now defined differently from how they were built:
+
+- **RULE_01B** — from "a member traded" to "a member **whose background makes this
+  trade plausibly informed** traded" (a consumer of the person-provenance layer)
+- **RULE_02** — from cluster size to **cross-partisan agreement** (a Democrat *and* a
+  Republican buying the same ticker)
+- **RULE_16** — **dual role**: confirmation/regime for big names, and **small-cap
+  discovery**, where 13F staleness stops mattering
+- **RULE_09** — **demoted to context**; lobbying measures influence on government, not
+  tickers, so it leaves the gate-instrument set
+- **RULE_08** — **context, door open** to a narrow instrument only under
+  document-names-a-company attribution ⚠️ *provisional*
+
+Full definitions, the person-provenance through-line, the convergence-value principle
+(the gate decides **IF**, ticker-relative weighting decides **HOW LOUD**), and the
+Tier 1–3 + context architecture: **[[Instrument Definitions]]**.
+
+> **When repairing a rule, target the definition there, not the rule as originally
+> built.** A repair that counts RULE_02's clusters more accurately has fixed the wrong
+> thing.
+
+See also: [[Instrument Definitions]], [[signed-signal-engine]],
+[[The Whale and Provenance Layer]], [[Scoring System]], CLAUDE.md
