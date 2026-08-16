@@ -107,7 +107,7 @@ def _connect(db_path: str | None) -> sqlite3.Connection:
     else:
         from jpt_common import _get_db_path
 
-        conn = sqlite3.connect(_get_db_path())
+        conn = sqlite3.connect(_get_db_path(None))
     conn.row_factory = sqlite3.Row
     return conn
 

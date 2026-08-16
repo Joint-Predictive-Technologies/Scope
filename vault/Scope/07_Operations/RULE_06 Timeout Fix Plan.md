@@ -1,18 +1,35 @@
 ---
 aliases: [RULE_06 Timeout Fix Plan]
 type: fix-plan
-status: proposed
+status: implemented-awaiting-merge
 priority: high
 tags: [operations, incident, rule-06, form4, human-gated]
 related: [[Production Health]], [[Current Blockers]], [[Master Plan]], [[RULE Design Decisions]]
 date-created: 2026-07-22
 ---
 
-# RULE_06 Timeout — Fix Plan (proposed, awaiting approval)
+# RULE_06 Timeout — Fix Plan (implemented, awaiting merge)
 
-> **Status: design only.** `rule_06_form4.py` is a rule script — **human-gated,
-> DATA-LOSS class** (see [[RULE Design Decisions]] / `Scope/CLAUDE.md`). Nothing
-> here is implemented. This plan exists for review before any code or prod change.
+> **Status: implemented on `fix/rule06-reliability`, NOT merged.**
+> `rule_06_form4.py` is a rule script — **human-gated, DATA-LOSS class** (see
+> [[RULE Design Decisions]] / `Scope/CLAUDE.md`). Merge/deploy is still the
+> human's act.
+>
+> **Both Phase A and Phase B below are done** — see
+> [[SESSION-2026-07-26-ws2-rule06-reliability]] for the diff, the proofs and the
+> UNVERIFIED rows. Deviations from this plan, all recorded in that note's Decision
+> Log: **Phase B needed no migration** (the seen-set lives in the existing
+> `filings` table under `source='sec_form4'`); the watermark comes from
+> `MAX(filings.filing_date)` rather than `activity_log MAX(run_at)`; cold start
+> stays 7 days rather than the 2-day floor; `SLEEP` is 0.2s rather than 0.15s.
+> Open question #1 (240s budget) was implemented as proposed. Open question #3
+> ("A first, then measure") was **not** followed — A and B shipped together,
+> because B turned out to need no schema change.
+>
+> ⚠️ This plan's cost estimate shares an error corrected in the session note: a
+> history filing costs **2** EDGAR calls, not 1 (`historical_avg` passes an empty
+> filename, so `fetch_filing_xml` spends `index.json` + document), making a
+> candidate 11 calls rather than 6.
 
 ## Problem
 
