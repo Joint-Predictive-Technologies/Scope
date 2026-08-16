@@ -295,6 +295,41 @@ def test_single_rule_branch_does_not_pay_three_times_for_one_source():
     assert p["instruments"] == ["congressional"], p
 
 
+def test_a_related_leg_that_does_not_corroborate_earns_no_credit():
+    """⚠️ THIS PROPERTY WAS GUARDED BY NOTHING UNTIL NOW.
+
+    Deleting `and _corroborates(r)[0]` from `_evidence_provenance` left the entire suite
+    green — the property held in the code and was pinned by no test. The gap was
+    pre-existing: the sibling test's trio all corroborate, so it never exercised the filter
+    either.
+
+    It matters because it already went wrong once. A verification pass measured the old
+    drawer handing 8 confidence points to a rejected **exercise-and-sell** — a leg that was
+    present but that the gate had explicitly refused. `alert_corroborates` is the gate's own
+    verdict and the only authority; a present-but-rejected leg must contribute nothing.
+    """
+    from api.routers.evidence import _evidence_provenance
+
+    alert = {"rule": "RULE_06", "ticker": "X", "severity": "HIGH",
+             "created_at": "2026-07-27 12:00:00", "tags": ""}
+
+    # A signed RULE_06 SELL: present, eligible by rule name, and explicitly NOT corroborating.
+    sell = {"rule": "RULE_06", "corroborates": 0,
+            "corroboration_note": "no genuine open-market buy (codes S)"}
+    p = _evidence_provenance(alert, [sell])
+    assert p["corroborating_instruments"] == 0, (
+        f"a rejected leg was credited: {p}. This is the exercise-and-sell regression.")
+    assert p["instruments"] == [], p
+
+    # The same rule, corroborating, DOES count — otherwise this test would pass on a
+    # function that simply always returns zero.
+    buy = {"rule": "RULE_06", "corroborates": 1, "corroboration_note": None}
+    assert _evidence_provenance(alert, [buy])["corroborating_instruments"] == 1
+
+    # And a mix credits only the accepted one.
+    assert _evidence_provenance(alert, [sell, buy])["corroborating_instruments"] == 1
+
+
 def test_the_drawer_publishes_the_STORED_score_and_never_a_recomputed_one():
     """THE REGRESSION THIS WORK ORDER EXISTS TO PREVENT.
 

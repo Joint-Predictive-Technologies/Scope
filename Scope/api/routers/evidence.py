@@ -94,9 +94,23 @@ def _stored_confidence(alert: dict) -> dict:
         return {"score": None, "status": "unscored",
                 "reason": "Not yet scored — alerts written by the raw-insert path are "
                           "scored by the enrichment job within ~10 minutes."}
-    return {"score": score, "status": "known", "reason": None,
-            "basis": "Distinct corroborating instruments, weighted by source quality. "
-                     "Frozen at detection time and never recomputed."}
+    # ⚠️ THE BASIS IS BRANCH-SPECIFIC, AND SAYING OTHERWISE WAS A FRESH INACCURACY.
+    # A single flat string — "distinct corroborating instruments, weighted by source
+    # quality" — is true of a RULE_10 convergence and FALSE of the ~99.99% of alerts that
+    # are single-rule. `_distinct_rule_count` returns a hard 1 for every non-RULE_10 rule,
+    # so their tier contribution is 0.0 and the score is the source-quality term ALONE.
+    # On alert 38842 the old wording credited corroboration for a 20.0 that corroboration
+    # contributed nothing to — the same class of confident-wrong sentence this whole change
+    # exists to remove, reintroduced in the fix for it.
+    if alert.get("rule") == "RULE_10":
+        basis = ("Distinct corroborating instruments, weighted by source quality. "
+                 "Frozen at detection time and never recomputed.")
+    else:
+        basis = (f"Single-instrument alert: this score is its source quality "
+                 f"({alert.get('source_quality') or 'unknown'}) alone — corroboration "
+                 f"contributes nothing to it. Frozen at detection time and never "
+                 f"recomputed.")
+    return {"score": score, "status": "known", "reason": None, "basis": basis}
 
 
 def _evidence_provenance(alert: dict, related: list) -> dict:
@@ -147,14 +161,34 @@ def _evidence_provenance(alert: dict, related: list) -> dict:
         })
         return facts
 
+    # ⚠️ THIS COUNT IS CONTEXT, NOT AN INPUT TO THE SCORE, AND IT MUST SAY SO.
+    # On the RULE_10 branch `instrument_count` IS the tier that drives
+    # `evidence_confidence`. Here it is something else entirely: how many OTHER alerts on
+    # the same ticker independently corroborate. `_distinct_rule_count` hands a hard 1 to
+    # every non-RULE_10 rule, so this number contributes **nothing** to the score printed
+    # beside it. Publishing both under the same key made one label mean two opposite things
+    # on adjacent screens — so this branch does not emit `instrument_count` at all, and its
+    # count is named for what it is.
+    #
+    # ⚠️ AND THE LEG MUST CORROBORATE, NOT MERELY BE PRESENT — pinned by
+    # `test_a_related_leg_that_does_not_corroborate_earns_no_credit`, which did not exist
+    # until a verification pass found that deleting this filter left the whole suite green.
+    # The old drawer credited a rejected exercise-and-sell 8 points.
+    #
+    # ⚠️ CAVEAT, PRE-EXISTING AND NOT INTRODUCED HERE: `related` is matched with
+    # `ticker LIKE '%tk%'` (see `alert_evidence`), so a PFE row can be returned for a P
+    # alert. That was survivable while this was a buried "+8"; it is more visible now that
+    # it renders as a labelled fact, and it is flagged for its own pass rather than being
+    # silently repaired inside a display change.
     from scripts.rule_10_corroboration import alert_corroborates as _corroborates
     corroborating = sorted(rule10_instruments(rule10_eligible_rules(
         {r.get("rule") for r in related
          if r.get("rule") and _corroborates(r)[0]})))
     facts.update({
-        "instruments": corroborating,
-        "instrument_count": len(corroborating),
         "corroborating_instruments": len(corroborating),
+        "corroborating_instrument_names": corroborating,
+        "instruments": corroborating,
+        "contributes_to_score": False,
         "conflicting_signals": 0,
         "eligible_rules": [rule] if rule else [],
     })

@@ -1367,8 +1367,16 @@
     const fact = (label, val) =>
       (val === null || val === undefined || val === '')
         ? '' : `<div class="ev-comp"><span>${label}</span><span class="v">${escH(String(val))}</span></div>`;
+    /* ⚠️ THE TWO BRANCHES REPORT DIFFERENT THINGS AND ARE LABELLED DIFFERENTLY.
+       On a RULE_10 convergence `instrument_count` IS the tier behind the score. On a
+       single-rule alert the server sends `corroborating_instruments` instead — how many
+       OTHER alerts on the ticker corroborate — which contributes NOTHING to the score
+       shown above it. Rendering both as "Distinct instruments" made one label mean two
+       opposite things directly beneath the number. */
     const comps = [
-      fact('Distinct instruments', p.instrument_count),
+      p.instrument_count !== undefined ? fact('Distinct instruments', p.instrument_count) : '',
+      p.corroborating_instruments !== undefined
+        ? fact('Corroborating signals nearby', `${p.corroborating_instruments} (context — not part of this score)`) : '',
       p.instruments && p.instruments.length ? fact('Instruments', p.instruments.join(', ')) : '',
       fact('Severity', p.severity),
       fact('Source quality', p.source_quality),

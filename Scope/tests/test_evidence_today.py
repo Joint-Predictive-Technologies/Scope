@@ -28,13 +28,38 @@ def _any_alert_id():
 
 
 def test_evidence_alert_shape():
-    aid = _any_alert_id()
-    if aid is None:
-        return  # empty DB — nothing to assert
-    d = _c.get(f"/api/evidence/alert/{aid}").json()
+    """⚠️ THIS TEST SEEDS ITS OWN ROW, AND THAT IS THE POINT.
+
+    It used to open with `if aid is None: return`, and `conftest.py` gives every test an
+    EMPTY disposable DB — so `_any_alert_id()` always returned None and the function
+    returned before asserting anything. It was the only integration-level guard on the
+    evidence payload's shape and it could not fail. That was proved the hard way: this
+    file kept asserting `confidence["total"]` and `confidence["components"]` for a whole
+    commit after both keys were deleted, and stayed green.
+
+    A test that cannot fail is worse than no test, because it is counted as coverage.
+    """
+    conn = db_connection()
+    conn.execute(
+        "INSERT INTO alerts (id, rule, ticker, severity, headline, created_at, "
+        "evidence_confidence, source_quality) "
+        "VALUES (91001, 'RULE_06', 'ZZTOP', 'HIGH', 'seeded shape probe', "
+        "datetime('now'), 20.0, 'Primary')")
+    conn.commit()
+    conn.close()
+
+    d = _c.get("/api/evidence/alert/91001").json()
     assert "alert" in d and "confidence" in d and "source" in d
-    assert 0 <= d["confidence"]["total"] <= 100
-    assert isinstance(d["confidence"]["components"], dict)
+    assert "provenance" in d, "the payload lost its provenance block"
+
+    # The score is READ, never recomputed — see api/routers/evidence.py::_stored_confidence.
+    c = d["confidence"]
+    assert c["status"] == "known" and c["score"] == 20.0, c
+    assert 0 <= c["score"] <= 100
+    # The recomputed heuristic that used to live here must never come back.
+    assert "total" not in c and "components" not in c, c
+
+    assert isinstance(d["provenance"], dict)
     assert "related" in d and isinstance(d["related"], list)
 
 
