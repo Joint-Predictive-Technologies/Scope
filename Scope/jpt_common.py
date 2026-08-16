@@ -800,6 +800,103 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO scope_migrations(name) VALUES('m017_member_terms')")
         conn.commit()
 
+    # m018: edgar_filings + edgar_cik_watch — EDGAR filing METADATA per CIK (form type,
+    # filing date, accession), broadly, rather than only the narrow slices individual
+    # rules already consume.
+    #
+    # ⚠️ WHY THIS EXISTS AT ALL. Filing velocity was refused at its go/no-go gate because
+    # the only form-type column in the database is `filings.report_type`, which holds
+    # exactly two values ('PTR' — congressional, and '4' — SEC Form 4). There is no 8-K,
+    # no S-1, no S-3 and no amendment marker anywhere. The blocker was never the display
+    # layer; the data did not exist. This creates it.
+    #
+    # ⚠️ OUTSIDE THE MOAT, AND STRUCTURALLY SO. Nothing in `rule_*`, `RULE_CLUSTER`,
+    # `insert_alert`, `enrich_scores` or the corroboration gate reads these tables, and
+    # nothing may be added that does — `test_no_rule_or_gate_module_reads_edgar_filings`
+    # holds that line the same way the position-sizing cache's test does. These are
+    # DELIBERATELY separate from `filings`: that table is the congressional-PTR corpus
+    # keyed on `member_id` and IS read by the moat, and widening it with SEC form metadata
+    # would put a new ingestion surface inside the scoring path on day one.
+    #
+    # ⚠️ `is_backfill` IS THE POINT OF THE TABLE, not a bookkeeping column. A rate-of-change
+    # metric computed over rows that arrived in a catch-up run measures the INGESTER'S
+    # start date, not the filer's behaviour — the exact defect that killed the previous
+    # attempt, where 71% of `earnings_sentiment` landed in a single run on 2026-07-11 and
+    # would have shown a four-month "burst" that was purely an ingestion event. A consumer
+    # of this table can and must exclude `is_backfill = 1` from any baseline.
+    #
+    # ⚠️ HOW BACKFILL IS DECIDED — by OBSERVATION, never by inference from the row alone.
+    # `edgar_cik_watch.monitoring_since` records the UTC instant Scope first pulled a given
+    # CIK. A row is backfill if EITHER:
+    #   (a) it was written by that CIK's first run — we did not watch the filing arrive, we
+    #       discovered it retroactively, and that includes anything filed the same day; or
+    #   (b) its `filing_date` predates `monitoring_since` — a later poll surfacing an older
+    #       document (EDGAR does add amendments and late documents after the fact) is still
+    #       a discovery, not new activity inside our observation window.
+    # Only a filing FIRST SEEN by a later poll AND dated on/after `monitoring_since` is
+    # organic. That is conservative on purpose: mislabelling a discovery as organic
+    # silently deforms a baseline, while mislabelling organic as backfill only costs
+    # history, and history is recoverable by waiting.
+    #
+    # ⚠️ `first_seen_run_id` IS KEPT EVEN THOUGH `is_backfill` IS DERIVED FROM IT. The flag
+    # is what consumers filter on; the run id is what makes the flag auditable after the
+    # fact. Without it, "why is this row marked backfill" is unanswerable a month later.
+    #
+    # 🔴 THE PRIMARY KEY IS (cik, accession_number), NOT THE ACCESSION ALONE, AND THAT IS A
+    # CORRECTNESS FIX RATHER THAN A PREFERENCE. An accession is unique per DOCUMENT, not per
+    # filer, and EDGAR lists one document under every CIK it concerns — Berkshire's 13G on
+    # Apple appears in both Apple's and Berkshire's submission index under the same
+    # accession `0001193125-24-036431`. Keyed on the accession alone, whichever CIK is
+    # ingested second silently loses that filing to `ON CONFLICT DO NOTHING`, and a per-CIK
+    # velocity metric then under-counts a filer for reasons invisible in its own row.
+    # Measured on the first 150-ticker pass: 96 of 204,053 filings were dropped exactly this
+    # way before the key was widened. Per-CIK rows keep re-polling idempotent while letting
+    # a shared document count for each filer it belongs to.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m018_edgar_filing_metadata'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS edgar_filings (
+                   accession_number  TEXT NOT NULL,
+                   cik               TEXT NOT NULL,
+                   form_type         TEXT NOT NULL,
+                   filing_date       TEXT NOT NULL,
+                   report_date       TEXT,
+                   primary_document  TEXT,
+                   is_amendment      INTEGER NOT NULL DEFAULT 0,
+                   is_backfill       INTEGER NOT NULL,
+                   first_seen_run_id TEXT NOT NULL,
+                   ingested_at       TEXT NOT NULL,
+                   PRIMARY KEY (cik, accession_number)
+               )"""
+        )
+        # The accession on its own is still worth an index: "who else filed this
+        # document" is the natural question once one document can span filers.
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_edgar_filings_accession
+                        ON edgar_filings(accession_number)""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_edgar_filings_cik_date
+                        ON edgar_filings(cik, filing_date)""")
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_edgar_filings_form
+                        ON edgar_filings(form_type, filing_date)""")
+        # Partial index: every velocity-shaped query filters backfill OUT, so the organic
+        # rows are the hot set and are worth their own index rather than a scan.
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_edgar_filings_organic
+                        ON edgar_filings(cik, filing_date) WHERE is_backfill = 0""")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS edgar_cik_watch (
+                   cik               TEXT PRIMARY KEY,
+                   ticker            TEXT,
+                   monitoring_since  TEXT NOT NULL,
+                   first_run_id      TEXT NOT NULL,
+                   last_polled_at    TEXT,
+                   last_run_id       TEXT,
+                   poll_count        INTEGER NOT NULL DEFAULT 0
+               )"""
+        )
+        conn.execute(
+            "INSERT INTO scope_migrations(name) VALUES('m018_edgar_filing_metadata')")
+        conn.commit()
+
     conn.commit()
 
 
