@@ -123,8 +123,9 @@ def ensure_close_table(conn) -> None:
 
 # ── the benchmark ────────────────────────────────────────────────────────────────
 
-def _spy_daily_closes(start: datetime, end: datetime) -> tuple[list | None, str | None]:
-    """[(date, close), …] over [start-pad, end+pad], or (None, error).
+def _spy_daily_closes(start: datetime,
+                      end: datetime) -> tuple[list | None, str | None, int]:
+    """([(date, close), …] | None, error, n_bars_rejected_as_corrupt).
 
     Same host, same `/v8/finance/chart/` endpoint and same `_YF_HEADERS` as the quote
     path — but `interval=1d` closes, because a price from weeks ago simply does not
@@ -140,30 +141,38 @@ def _spy_daily_closes(start: datetime, end: datetime) -> tuple[list | None, str 
             headers=_YF_HEADERS, timeout=15,
         )
     except Exception as exc:
-        return None, f"benchmark request failed: {type(exc).__name__}"
+        return None, f"benchmark request failed: {type(exc).__name__}", 0
     if not r.ok:
-        return None, f"benchmark endpoint returned HTTP {r.status_code}"
+        return None, f"benchmark endpoint returned HTTP {r.status_code}", 0
     try:
         res = r.json()["chart"]["result"][0]
         stamps = res["timestamp"]
         closes = res["indicators"]["quote"][0]["close"]
     except Exception:
-        return None, "benchmark response was not in the expected shape"
+        return None, "benchmark response was not in the expected shape", 0
 
-    out = []
+    out, skipped = [], 0
     for ts, c in zip(stamps, closes):
         if c is None:
-            continue
+            continue                       # an untraded session, not a corrupt one
         # Every benchmark close goes through the SAME gate as every other price in this
         # ledger. This is the third caller `validate_price` exists to prevent becoming a
         # third COPY of the +inf/bool check.
         price, err = validate_price(c, "benchmark close")
         if price is None:
-            continue                       # skip the bad bar, do not abort the window
+            # ⚠️ COUNTED, NOT JUST SKIPPED. Dropping a corrupt bar is right — one bad
+            # print should not void the whole comparison — but doing it SILENTLY was
+            # wrong in a specific and measurable way: if the dropped bar is the last one
+            # at-or-before the exit date, the window silently shortens and the benchmark
+            # changes (measured: 1.7964% -> 0.3992%, a 1.40pp error carried straight into
+            # the human-facing "vs benchmark" line). The count travels back so the basis
+            # can say a bar was rejected instead of blaming a market holiday for it.
+            skipped += 1
+            continue
         out.append((datetime.fromtimestamp(ts, tz=timezone.utc).date(), price))
     if not out:
-        return None, "benchmark returned no usable closes"
-    return out, None
+        return None, "benchmark returned no usable closes", skipped
+    return out, None, skipped
 
 
 def _close_at_or_before(series: list, when: datetime):
@@ -182,7 +191,7 @@ def benchmark_return(entry_at: datetime, exit_at: datetime):
     real window differs from the `holding_days` beside it, without saying so, is exactly
     the kind of quietly-wrong number this ledger exists to avoid.
     """
-    series, err = _spy_daily_closes(entry_at, exit_at)
+    series, err, skipped = _spy_daily_closes(entry_at, exit_at)
     if series is None:
         return None, None, err
     a = _close_at_or_before(series, entry_at)
@@ -207,8 +216,20 @@ def benchmark_return(entry_at: datetime, exit_at: datetime):
              f"spanning {bench_days} calendar days; source=yahoo:chart:close; "
              f"granularity=daily_close, while the position's own prices are tap-time "
              f"last-trade prints — the benchmark leg is coarser and was reconstructed "
-             f"after the fact, not captured at entry. Where this span differs from "
-             f"holding_days, the market was shut at one end of the holding window.")
+             f"after the fact, not captured at entry.")
+    # ⚠️ THE EXPLANATION FOR A SHORT WINDOW MUST NOT BE ASSERTED WHEN IT MIGHT BE FALSE.
+    # This sentence used to be unconditional, and a verifier showed it blaming a market
+    # holiday for a window that had actually been truncated by a CORRUPT bar being
+    # dropped — the market was open that day. A wrong cause printed beside a wrong number
+    # is worse than the wrong number alone, because it tells the reader not to look.
+    if skipped:
+        basis += (f" ⚠️ {skipped} benchmark bar(s) in this window were REJECTED as "
+                  f"corrupt and excluded; if a rejected bar was the last one at or "
+                  f"before either endpoint, this window is shorter than the holding "
+                  f"period for that reason and not because the market was shut.")
+    else:
+        basis += (" Where this span differs from holding_days, the market was shut at "
+                  "one end of the holding window.")
     return pct, basis, None
 
 
@@ -414,9 +435,16 @@ def handle_command(text: str) -> str:
             conn.close()
 
     arg = parts[1]
-    if not arg.isdigit():
-        # A ticker was passed. Refuse and list, never guess — several open positions on
-        # one ticker are explicitly allowed, so a ticker does not identify a position.
+    # ⚠️ `isdigit()` ALONE IS NOT A NUMBER CHECK, AND IT FAILED BOTH WAYS IN PRACTICE.
+    # `"²".isdigit()` is True while `int("²")` RAISES — which surfaced as an unhandled
+    # HTTP 500 that Telegram then retried. Worse, `"٢".isdigit()` is True AND
+    # `int("٢") == 2`, so an Arabic-Indic digit silently resolved to a real position id
+    # and CLOSED it. `isdecimal()` does not save this (also True for `٢`); only the
+    # ASCII restriction does. Both reached by a verifier feeding the parser exotic input.
+    if not (arg.isascii() and arg.isdigit()):
+        # A ticker (or junk) was passed. Refuse and list, never guess — several open
+        # positions on one ticker are explicitly allowed, so a ticker does not identify
+        # a position.
         conn = db_connection()
         try:
             rows = [r for r in open_positions(conn)
@@ -429,6 +457,12 @@ def handle_command(text: str) -> str:
         return (f"{arg} is ambiguous — a ticker does not identify a position, and "
                 f"{len(rows)} open position(s) match. Close by id:\n\n"
                 + format_open_positions(rows))
+
+    # SQLite's INTEGER tops out at 2**63-1; a larger id reached the query and raised
+    # OverflowError, i.e. another retried 500. Bounded here so it refuses like any
+    # other unknown id.
+    if len(arg) > 18:
+        return f"Not closed — no position with id {arg}."
 
     result = close_position(int(arg))
     if not result.get("closed"):

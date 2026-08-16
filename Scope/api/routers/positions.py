@@ -307,21 +307,28 @@ def _answer_callback(callback_id: str, text: str) -> None:
         pass
 
 
-def _send_message(chat_id, text: str) -> None:
-    """Reply to a command. Best-effort — a failure here must never decide whether the
-    close row was written, exactly as `_answer_callback` must not."""
+def _send_message(chat_id, text: str) -> bool:
+    """Reply to a command; True iff the reply actually went out.
+
+    Best-effort in the sense that a failure must never decide whether the close row was
+    written — but it RETURNS its outcome rather than swallowing it, because the caller
+    reports `replied` and a caller that always claims success is lying about the one
+    thing the operator can check. With no bot token configured, a close is recorded and
+    nobody is told; that has to be visible in the response, not asserted away.
+    """
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     if not token or chat_id is None:
-        return
+        return False
     try:
-        requests.post(
+        r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
             json={"chat_id": chat_id, "text": text,
                   "disable_web_page_preview": True},
             timeout=10,
         )
+        return r.status_code == 200
     except Exception:
-        pass
+        return False
 
 
 def build_alert_keyboard(alert_id: int, ticker: str) -> dict:
@@ -401,8 +408,8 @@ async def telegram_callback(request: Request):
         reply = handle_command(text)
         if not reply:
             return {"ok": True, "ignored": "unrecognised command"}
-        _send_message(msg_chat, reply)
-        return {"ok": True, "command": text.split()[0], "replied": True}
+        delivered = _send_message(msg_chat, reply)
+        return {"ok": True, "command": text.split()[0], "replied": delivered}
 
     chat_id = (((cq.get("message") or {}).get("chat")) or {}).get("id")
     if not _chat_allowed(chat_id):

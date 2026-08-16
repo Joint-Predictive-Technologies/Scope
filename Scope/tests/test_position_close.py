@@ -323,7 +323,16 @@ def test_pnl_has_exactly_one_rendering_surface():
     import re
     root = pathlib.Path(__file__).resolve().parent.parent
     consumers = []
-    for path in list(root.glob("api/**/*.py")) + list(root.glob("scripts/**/*.py")):
+    # ⚠️ THE GLOB IS THE TEST. An earlier version scanned only `api/**` and `scripts/**`,
+    # which a verifier pointed out would miss a new consumer in any of the 13 top-level
+    # `Scope/*.py` files or the 41 `.html`/`.js` UI files — i.e. the test read as a
+    # whole-tree guarantee while checking two subtrees. Everything a human could read a
+    # number from is scanned now.
+    paths = [p for pat in ("**/*.py", "**/*.html", "**/*.js")
+             for p in root.glob(pat)
+             if "tests" not in p.parts and "node_modules" not in p.parts
+             and ".venv" not in p.parts and "scope_env" not in p.parts]
+    for path in paths:
         if path.name in ("position_close.py",):
             continue
         src = path.read_text(encoding="utf-8")
@@ -333,6 +342,71 @@ def test_pnl_has_exactly_one_rendering_surface():
     assert consumers == ["api/routers/positions.py"], (
         f"P&L reached a new surface: {consumers}. Every surface must render through "
         f"format_pnl(), which cannot omit the benchmark or the sample size.")
+
+
+@pytest.mark.parametrize("arg,label", [
+    ("²", "superscript two — isdigit() True but int() raises"),
+    ("٢", "Arabic-Indic two — isdigit() AND int() both succeed"),
+    ("१", "Devanagari one"),
+    ("99999999999999999999", "id larger than SQLite's INTEGER"),
+])
+def test_exotic_numeric_arguments_are_refused_not_crashed(monkeypatch, arg, label):
+    """Regression: `str.isdigit()` is not a number check.
+
+    `"²".isdigit()` is True while `int("²")` raises — an unhandled 500 that Telegram
+    retries. Far worse, `"٢".isdigit()` is True AND `int("٢") == 2`, so an Arabic-Indic
+    digit silently resolved to a real position id and CLOSED it. `isdecimal()` does not
+    help (also True for `٢`); only the ASCII restriction does.
+    """
+    _stub_quote(monkeypatch, 495.4)
+    _seed(ticker="AAPL", cb=f"exotic-{label}")
+    reply = pc.handle_command(f"/sell {arg}")          # must not raise
+    assert _closes() == [], f"{label} closed a position"
+    assert reply, "a refusal must say something, not be silent"
+
+
+def test_a_rejected_benchmark_bar_is_disclosed_and_not_blamed_on_a_holiday(monkeypatch):
+    """Regression: a corrupt SPY bar was dropped silently, shortening the benchmark
+    window (measured 1.7964% -> 0.3992%, a 1.40pp error) while the row's own basis
+    string blamed the market being shut — on a day the market was open. A wrong cause
+    printed beside a wrong number is worse than the number alone: it tells the reader
+    not to look."""
+    import time
+
+    class _R:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            now = int(time.time())
+            return {"chart": {"result": [{
+                "meta": {"regularMarketPrice": 495.4, "regularMarketTime": now},
+                "timestamp": [now - 5 * 86400, now - 2 * 86400, now - 86400],
+                # the newest bar is corrupt and will be rejected
+                "indicators": {"quote": [{"close": [500.0, 503.0, float("inf")]}]},
+            }]}}
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: _R())
+    pc.close_position(_seed(cb="skipbar"))
+    basis = _closes()[0]["benchmark_basis"]
+    assert "REJECTED as corrupt" in basis, "a dropped bar must be disclosed"
+    # Assert the unconditional BLAME SENTENCE is gone — not merely that the words
+    # "market was shut" never occur, since the corrective wording legitimately says
+    # "...and NOT because the market was shut."
+    assert "Where this span differs from holding_days, the market was shut" not in basis, \
+        "must not assert a holiday as the cause when a bar was rejected as corrupt"
+
+
+def test_replied_is_not_claimed_when_no_message_was_sent(client, monkeypatch):
+    """Regression: the handler returned `replied: True` unconditionally, so with no bot
+    token a close was recorded and nobody was told, while the response said otherwise."""
+    _stub_quote(monkeypatch, 495.4)
+    _seed(cb="reply")
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    body = {"message": {"message_id": 1, "chat": {"id": CHAT}, "text": "/sell 1"}}
+    r = client.post("/api/telegram/callback", json=body, headers=HDR)
+    assert r.json()["replied"] is False
+    assert len(_closes()) == 1, "the close is still recorded — only the claim changes"
 
 
 def test_an_unavailable_benchmark_is_stated_not_omitted():
