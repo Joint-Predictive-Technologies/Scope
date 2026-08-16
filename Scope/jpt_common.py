@@ -849,9 +849,10 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
     # accession `0001193125-24-036431`. Keyed on the accession alone, whichever CIK is
     # ingested second silently loses that filing to `ON CONFLICT DO NOTHING`, and a per-CIK
     # velocity metric then under-counts a filer for reasons invisible in its own row.
-    # Measured on the first 150-ticker pass: 96 of 204,053 filings were dropped exactly this
-    # way before the key was widened. Per-CIK rows keep re-polling idempotent while letting
-    # a shared document count for each filer it belongs to.
+    # Measured 96 of 204,053 dropped this way on a prod-ticker pass, and 13 of 122,312 on a
+    # verifier's independent run over a different ticker list — the counts track the list,
+    # not the defect. Per-CIK rows keep re-polling idempotent while letting a shared document
+    # count for each filer it belongs to.
     if not conn.execute(
         "SELECT 1 FROM scope_migrations WHERE name='m018_edgar_filing_metadata'"
     ).fetchone():

@@ -69,8 +69,10 @@ to have this" rather than "what the last run happened to think".
 An accession is unique per document, not per filer, and EDGAR lists a document under
 every CIK it concerns — Berkshire's 13G on Apple is accession `0001193125-24-036431`
 in BOTH filers' indexes. Keyed on the accession alone, the CIK ingested second lost
-the filing entirely: 96 of 204,053 rows on the first 150-ticker pass, a silent
-per-filer under-count that no single row would reveal.
+the filing entirely — a silent per-filer under-count that no single row would
+reveal. Measured 96 of 204,053 on a prod-ticker pass; an independent verifier's
+equivalent run over a LOCAL ticker list measured 13 of 122,312. The counts differ
+because the ticker lists do; the phenomenon and the fix are what the tests pin.
 """
 from __future__ import annotations
 
@@ -181,8 +183,8 @@ def fetch_filings(cik: str, throttle: _Throttle,
                 "cik": cik,
                 "form_type": form,
                 "filing_date": date,
-                "report_date": (reports[i].strip() or None) if i < len(reports) else None,
-                "primary_document": (docs[i].strip() or None) if i < len(docs) else None,
+                "report_date": (reports[i] or "").strip() or None if i < len(reports) else None,
+                "primary_document": (docs[i] or "").strip() or None if i < len(docs) else None,
                 # EDGAR marks amendments with a '/A' suffix on the form type ('8-K/A').
                 # Stored as its own column so a consumer does not have to re-parse the
                 # string and get the edge cases wrong.

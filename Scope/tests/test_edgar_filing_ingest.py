@@ -62,12 +62,22 @@ def test_no_rule_or_gate_module_reads_edgar_filings():
     scoring engine, not a call today's tests happen to exercise. Reads specifically —
     `jpt_common` legitimately CREATEs these tables in m018, so the bare name would
     match the schema definition itself.
+
+    ⚠️ THE WATCH LIST COVERS THE API ROUTERS TOO, BECAUSE AN EARLIER VERSION DID NOT AND A
+    VERIFIER PROVED THE GAP BY MUTATION: injecting a read into `rule_10_corroboration.py` or
+    `enrich_scores.py` failed the guard as intended, but injecting the same read into
+    `api/routers/alerts.py` PASSED. The isolation claim was true at the time and the guard
+    would not have kept it true. A guard that only covers the modules you thought of is the
+    same shape of false comfort as `unmatched_filers` being blind to a confident wrong answer.
     """
     root = os.path.join(os.path.dirname(__file__), "..")
     watched = [os.path.join(root, "jpt_common.py")]
     watched += sorted(glob.glob(os.path.join(root, "rule_*.py")))
     watched += sorted(glob.glob(os.path.join(root, "scripts", "rule_*.py")))
-    for extra in ("enrich_scores.py", "insider_clusters.py", "rule_cluster.py"):
+    watched += sorted(glob.glob(os.path.join(root, "api", "routers", "*.py")))
+    watched.append(os.path.join(root, "api", "main.py"))
+    for extra in ("enrich_scores.py", "insider_clusters.py", "rule_cluster.py",
+                  "morning_brief.py", "check_convergence.py", "position_sizing.py"):
         watched.append(os.path.join(root, "scripts", extra))
 
     reads = re.compile(r"(FROM|JOIN|UPDATE|INTO)\s+edgar_(filings|cik_watch)", re.I)
