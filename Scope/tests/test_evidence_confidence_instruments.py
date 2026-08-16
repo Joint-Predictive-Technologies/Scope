@@ -258,25 +258,105 @@ def test_emitter_persists_the_instrument_count_not_the_rule_count():
 
 
 def test_evidence_router_breakdown_counts_instruments():
-    """api/routers/evidence.py — the drawer the homepage card must agree with."""
-    from api.routers.evidence import _confidence_breakdown
+    """api/routers/evidence.py — the drawer the homepage card must agree with.
+
+    ⚠️ RESHAPED, NOT RELAXED. This asserted on `_confidence_breakdown`, which returned
+    weighted POINTS ("Distinct instrument count": 30 = 3 instruments x 10) that summed to a
+    recomputed total displayed as "Confidence" — a figure up to 34 points from the stored
+    `evidence_confidence`. That total is gone; the drawer now renders the stored score and
+    reports these as unsummed facts. The property under test is unchanged and is the reason
+    this test exists: **three instruments, not five rule names.** It is now asserted on the
+    count itself rather than on the count times ten.
+    """
+    from api.routers.evidence import _evidence_provenance
     alert = {"rule": "RULE_10", "ticker": "TRIOPLUS", "severity": "HIGH",
              "created_at": "2026-07-27 12:00:00", "tags": _tags(TRIO_PLUS)}
-    b = _confidence_breakdown(alert, [])
-    # 3 instruments * 10 = 30. Five rule names would give 50.
-    assert b["components"]["Distinct instrument count"] == 30, b["components"]
-    assert "Eligible rule count" not in b["components"]
+    p = _evidence_provenance(alert, [])
+    # 3 instruments. Five rule names would give 5 — the regression this pins.
+    assert p["instrument_count"] == 3, p
+    assert len(TRIO_PLUS) == 5, "fixture must carry FIVE rule names over three instruments"
+    # And nothing may be published as a weighted point value any more.
+    assert "components" not in p and "total" not in p, p
 
 
 def test_single_rule_branch_does_not_pay_three_times_for_one_source():
-    """The OTHER branch of the same function — missed on the first pass."""
-    from api.routers.evidence import _confidence_breakdown
+    """The OTHER branch of the same function — missed on the first pass.
+
+    Same reshaping as above: the congressional trio is ONE instrument, and the assertion
+    moved from `8` (1 x 8 points) to `1` (the instrument itself).
+    """
+    from api.routers.evidence import _evidence_provenance
     alert = {"rule": "RULE_06", "ticker": "X", "severity": "HIGH",
              "created_at": "2026-07-27 12:00:00", "tags": ""}
     trio = [{"rule": r} for r in ("RULE_01B", "RULE_02", "RULE_CLUSTER")]
-    b = _confidence_breakdown(alert, trio)
-    # one instrument (congressional) * 8 = 8. Three rule names hit the 24 cap.
-    assert b["components"]["Corroborating signals"] == 8, b["components"]
+    p = _evidence_provenance(alert, trio)
+    # one instrument (congressional). Three rule names would give 3.
+    assert p["corroborating_instruments"] == 1, p
+    assert p["instruments"] == ["congressional"], p
+
+
+def test_a_related_leg_that_does_not_corroborate_earns_no_credit():
+    """⚠️ THIS PROPERTY WAS GUARDED BY NOTHING UNTIL NOW.
+
+    Deleting `and _corroborates(r)[0]` from `_evidence_provenance` left the entire suite
+    green — the property held in the code and was pinned by no test. The gap was
+    pre-existing: the sibling test's trio all corroborate, so it never exercised the filter
+    either.
+
+    It matters because it already went wrong once. A verification pass measured the old
+    drawer handing 8 confidence points to a rejected **exercise-and-sell** — a leg that was
+    present but that the gate had explicitly refused. `alert_corroborates` is the gate's own
+    verdict and the only authority; a present-but-rejected leg must contribute nothing.
+    """
+    from api.routers.evidence import _evidence_provenance
+
+    alert = {"rule": "RULE_06", "ticker": "X", "severity": "HIGH",
+             "created_at": "2026-07-27 12:00:00", "tags": ""}
+
+    # A signed RULE_06 SELL: present, eligible by rule name, and explicitly NOT corroborating.
+    sell = {"rule": "RULE_06", "corroborates": 0,
+            "corroboration_note": "no genuine open-market buy (codes S)"}
+    p = _evidence_provenance(alert, [sell])
+    assert p["corroborating_instruments"] == 0, (
+        f"a rejected leg was credited: {p}. This is the exercise-and-sell regression.")
+    assert p["instruments"] == [], p
+
+    # The same rule, corroborating, DOES count — otherwise this test would pass on a
+    # function that simply always returns zero.
+    buy = {"rule": "RULE_06", "corroborates": 1, "corroboration_note": None}
+    assert _evidence_provenance(alert, [buy])["corroborating_instruments"] == 1
+
+    # And a mix credits only the accepted one.
+    assert _evidence_provenance(alert, [sell, buy])["corroborating_instruments"] == 1
+
+
+def test_the_drawer_publishes_the_STORED_score_and_never_a_recomputed_one():
+    """THE REGRESSION THIS WORK ORDER EXISTS TO PREVENT.
+
+    The drawer shipped a recomputed confidence under the label "Confidence" with a /100 bar.
+    On prod alert 32990 it read 65 against a stored 46.0, and 80 on the day the alert fired,
+    because its freshness term decays with age — the divergence was widest exactly when a
+    reader was most likely to be looking. If this ever fails, a parallel score has come back.
+    """
+    from api.routers.evidence import _stored_confidence
+
+    # The real shape of prod alert 32990.
+    anchor = {"rule": "RULE_10", "severity": "HIGH", "evidence_confidence": 46.0,
+              "created_at": "2026-07-29 01:24:06", "source_quality": "Derived"}
+    c = _stored_confidence(anchor)
+    assert c["score"] == 46.0 and c["status"] == "known", c
+    # Age must not move it. The old heuristic returned 80 when fresh and 65 when stale.
+    fresh = dict(anchor, created_at="2026-08-16 12:00:00")
+    assert _stored_confidence(fresh)["score"] == 46.0, "the score moved with age"
+    # Severity must not move it either.
+    assert _stored_confidence(dict(anchor, severity="CRITICAL"))["score"] == 46.0
+
+    # A genuinely unscored alert is its own state, never a zero and never the heuristic.
+    unscored = _stored_confidence(dict(anchor, evidence_confidence=0))
+    assert unscored["score"] is None and unscored["status"] == "unscored", unscored
+    assert unscored["reason"], "an unscored alert must say why"
+    missing = _stored_confidence({"rule": "RULE_06", "severity": "HIGH"})
+    assert missing["score"] is None and missing["status"] == "unavailable", missing
 
 
 def test_receipt_calls_them_instruments_not_rule_names():
