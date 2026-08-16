@@ -140,6 +140,44 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# ── the one numeric gate ─────────────────────────────────────────────────────────
+
+def validate_price(raw, field: str = "price") -> tuple[float | None, str | None]:
+    """(price, error) — THE single validation every price in this ledger passes through.
+
+    ⚠️ EXTRACTED RATHER THAN COPIED, AND THAT IS THE WHOLE POINT. This exact trap has
+    now bitten this codebase TWICE: first as non-finite `leg_weights` (recorded in
+    `CLAUDE.md`), then as an `entry_price` of `+inf` that was COMMITTED and announced to
+    the operator as "Recorded at inf" before the response failed to serialise. Two
+    independent copies of a check meant two independent chances to get it wrong, and both
+    were taken. A third copy — for the exit price, or for the benchmark closes — would be
+    the third chance. There is now one gate, and every caller goes through it.
+
+    The three ways a JSON number lies, all of which have to be caught here:
+      * `bool` IS an `int` subclass in Python, so `true` arrives as 1.0 and would be
+        recorded as a one-dollar price.
+      * `not (x > 0)` looks like a plausibility check but admits `+inf`, because
+        `inf > 0` is True. It needs no exotic `Infinity` token — `json.loads("1e999")`
+        returns `inf` from ordinary, valid, standard JSON.
+      * A finite-but-absurd value (`1e300`) passes `isfinite` and every sign check.
+
+    Deliberately strict on type: a numeric STRING ("495.40") would coerce cleanly, but
+    these are load-bearing fields, and a response whose shape moved under us is something
+    to be told about rather than to silently absorb.
+    """
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None, f"{field} was not a number ({type(raw).__name__})"
+    price = float(raw)
+    if not math.isfinite(price):
+        return None, f"non-finite {field} ({price})"
+    if not (0 < price < MAX_PLAUSIBLE_PRICE):
+        # A zero or negative print is a broken feed, not a cheap stock. The ceiling
+        # catches finite-but-absurd values that `isfinite` alone admits; the most
+        # expensive real share on any exchange is BRK-A at roughly $7e5.
+        return None, f"implausible {field} ({price})"
+    return price, None
+
+
 # ── the live quote ───────────────────────────────────────────────────────────────
 
 def _live_quote(symbol: str) -> tuple[float | None, str | None, str | None]:
@@ -174,32 +212,9 @@ def _live_quote(symbol: str) -> tuple[float | None, str | None, str | None]:
     if price is None:
         return None, None, "quote response carried no regularMarketPrice"
 
-    # ⚠️ `bool` IS AN `int` SUBCLASS IN PYTHON, so `"regularMarketPrice": true` would
-    # otherwise reach the arithmetic below as 1.0 and be recorded as a one-dollar entry.
-    if isinstance(price, bool) or not isinstance(price, (int, float)):
-        # Deliberately strict: a numeric STRING ("495.40") would coerce cleanly, but this
-        # is the load-bearing field, and a response whose shape changed under us is
-        # something to be told about rather than to silently absorb.
-        return None, None, f"regularMarketPrice was not a number ({type(price).__name__})"
-    price = float(price)
-
-    # ⚠️ `not (price > 0)` IS NOT ENOUGH, AND THIS EXACT TRAP HAS BITTEN THIS CODEBASE
-    # BEFORE. `nan > 0` is False so NaN was already caught, but `inf > 0` is True, so an
-    # infinite price sailed straight through the gate that exists to stop implausible
-    # ones — and it does not take the non-standard `Infinity` token to produce one:
-    # `json.loads("1e999")` returns `inf` from ordinary, valid, standard JSON. The row was
-    # then COMMITTED, the operator was told "Recorded at inf", and only afterwards did the
-    # response fail to serialise — so a permanently wrong `entry_price` survived behind a
-    # 500, and Telegram's retry of that 500 came back "duplicate". Found by a verifier
-    # constructing the failure rather than by re-running the happy path. `CLAUDE.md`
-    # records the same non-finite-JSON trap in `leg_weights`; this is its second showing.
-    if not math.isfinite(price):
-        return None, None, f"non-finite quote price ({price})"
-    if not (0 < price < MAX_PLAUSIBLE_PRICE):
-        # A zero or negative print is a broken feed, not a cheap stock. The ceiling
-        # catches finite-but-absurd values (1e300) that `isfinite` alone admits; the
-        # most expensive real share on any exchange is BRK-A at roughly $7e5.
-        return None, None, f"implausible quote price ({price})"
+    price, perr = validate_price(price, "regularMarketPrice")
+    if price is None:
+        return None, None, perr
 
     if mtime is None:
         # Without the trade time there is no way to tell a live print from a stale
@@ -292,6 +307,23 @@ def _answer_callback(callback_id: str, text: str) -> None:
         pass
 
 
+def _send_message(chat_id, text: str) -> None:
+    """Reply to a command. Best-effort — a failure here must never decide whether the
+    close row was written, exactly as `_answer_callback` must not."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    if not token or chat_id is None:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text,
+                  "disable_web_page_preview": True},
+            timeout=10,
+        )
+    except Exception:
+        pass
+
+
 def build_alert_keyboard(alert_id: int, ticker: str) -> dict:
     """The two inline buttons. Callback data carries only ids — never a price, which
     would let the client propose the number this table exists to observe."""
@@ -346,9 +378,31 @@ async def telegram_callback(request: Request):
 
     cq = (update or {}).get("callback_query")
     if not cq:
-        # Not a button tap (an ordinary message, an edit, …). Nothing to record, and
-        # 200 so Telegram does not retry a delivery that will never be actionable.
-        return {"ok": True, "ignored": "not a callback_query"}
+        # ── a plain MESSAGE, which is how /sell and /positions arrive ────────────
+        # Telegram delivers every update type to ONE webhook URL, so a text command
+        # necessarily lands here — and therefore behind the SAME secret-token check
+        # above and the SAME chat allowlist below. That is why there is no second
+        # inbound endpoint: a second surface would be a second auth gate to keep in
+        # step, and this one cannot drift from itself.
+        msg = (update or {}).get("message") or {}
+        text = str(msg.get("text") or "")
+        if not text.startswith("/"):
+            # Not a command (an edit, a photo, a reply…). 200 so Telegram does not
+            # retry a delivery that will never be actionable.
+            return {"ok": True, "ignored": "not a callback_query or command"}
+
+        msg_chat = ((msg.get("chat")) or {}).get("id")
+        if not _chat_allowed(msg_chat):
+            _log_denied("POSITION_LEDGER_CHAT_DENIED",
+                        f"command from chat_id={msg_chat!r}")
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+
+        from api.routers.position_close import handle_command
+        reply = handle_command(text)
+        if not reply:
+            return {"ok": True, "ignored": "unrecognised command"}
+        _send_message(msg_chat, reply)
+        return {"ok": True, "command": text.split()[0], "replied": True}
 
     chat_id = (((cq.get("message") or {}).get("chat")) or {}).get("id")
     if not _chat_allowed(chat_id):
