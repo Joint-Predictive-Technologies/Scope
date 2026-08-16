@@ -58,23 +58,56 @@ def _format_message(alert: dict) -> str:
     return "\n".join(lines)
 
 
-def _send(bot_token: str, chat_id: str, text: str) -> bool:
+def _send(bot_token: str, chat_id: str, text: str, reply_markup: dict | None = None) -> bool:
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": False,
+    }
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
-        r = requests.post(
-            url,
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": False,
-            },
-            timeout=10,
-        )
+        r = requests.post(url, json=payload, timeout=10)
         return r.status_code == 200
     except Exception as exc:
         print(f"[telegram] request error: {exc}")
         return False
+
+
+def _decision_keyboard(alert: dict) -> dict | None:
+    """Buy/Pass buttons, but only where a decision is actually recordable.
+
+    ⚠️ NO TICKER ⇒ NO BUTTONS, and that is a correctness guard rather than a tidiness
+    one. The ledger's entry price comes from a live quote keyed on the symbol, so a
+    button on a tickerless alert (RULE_08's basket alerts, most OSINT rows) would offer
+    the human an action that can only ever fail at the quote step. Better no button
+    than a button that cannot work.
+
+    Buttons are also withheld unless the inbound webhook is actually configured — an
+    unanswerable button is worse than none, because a tap that silently does nothing
+    reads to the human exactly like a tap that recorded something.
+
+    ⚠️ AND NO BUTTONS ON A BASKET ALERT ("LMT RTX NOC"), WHICH IS THE LESS OBVIOUS
+    CASE. The rest of this codebase resolves a basket by taking the first symbol
+    (`firstTicker` in `alerts.html`), and that is right for a DISPLAY badge — it is
+    wrong for a decision. A basket alert does not identify one security, so a single
+    Buy button on it would silently commit the human to LMT for a signal that was
+    about three companies, and the resulting row would be indistinguishable from a
+    deliberate LMT decision forever after. The ambiguity is refused rather than
+    resolved on the human's behalf; a basket can still be acted on manually.
+    """
+    if not os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip():
+        return None
+    symbols = (alert.get("ticker") or "").replace("$", "").split()
+    if len(symbols) != 1:
+        return None
+    try:
+        from api.routers.positions import build_alert_keyboard
+        return build_alert_keyboard(int(alert["id"]), symbols[0])
+    except Exception:
+        return None
 
 
 def run() -> None:
@@ -112,7 +145,7 @@ def run() -> None:
             continue
 
         msg     = _format_message(alert)
-        success = _send(token, chat_id, msg)
+        success = _send(token, chat_id, msg, reply_markup=_decision_keyboard(alert))
         if success:
             pushed += 1
             print(f"[telegram] pushed alert {alert['id']} — {alert['rule']} {alert['ticker']}")
