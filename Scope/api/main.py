@@ -36,6 +36,7 @@ from api.routers import (
     warroom as warroom_router,
     forming as forming_router,
     insider_clusters as insider_clusters_router,
+    positions as positions_router,
  universe,)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -383,6 +384,10 @@ app.include_router(forming_router.router,  prefix="/api/forming", tags=["Forming
 app.include_router(warroom_router.router, prefix="/api", tags=["War Rooms"])
 app.include_router(insider_clusters_router.router, prefix="/api",
                    tags=["Insider Clusters"])
+# Position ledger — the inbound Telegram callback webhook. Authenticated by Telegram's
+# own `secret_token` header inside the router (NOT by a query-string key), and it is the
+# first inbound WRITE endpoint this app has ever exposed.
+app.include_router(positions_router.router, prefix="/api", tags=["Positions"])
 
 
 @app.get("/health", tags=["Health"])
