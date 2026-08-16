@@ -165,12 +165,31 @@
 </div>
 
 <script>
+  // Every field below can originate from a request Scope did not generate
+  // itself (a direct POST to /tickers/watchlist/{symbol} or /api/watchlist-rules
+  // bypasses whatever the UI's own input restricts) and lands in innerHTML.
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
   async function load() {
     const res = await fetch('/tickers/watchlist');
     const data = await res.json();
     render(data);
   }
 
+  // The Remove button reads its target from a `data-symbol` attribute plus one
+  // delegated listener, rather than an inline onclick="removeTicker('...')"
+  // built by string interpolation. That matters beyond the usual HTML-escaping:
+  // an inline event-handler attribute's value is HTML-entity-DECODED by the
+  // parser before the result is compiled as JS, so entity-escaping a quote
+  // character (' -> &#39;) does NOT stop it from breaking out of the JS string
+  // literal once the browser decodes the attribute — `esc()` alone would have
+  // been an incomplete fix for this specific sink. `dataset.symbol` has no such
+  // second decode step: it's read as a plain string value, never re-parsed as
+  // code, so it's safe however `esc()` renders the underlying character.
   function render(items) {
     const el = document.getElementById('wl-list');
     if (!items.length) {
@@ -178,15 +197,22 @@
       return;
     }
     el.innerHTML = items.map(w => `
-      <div class="wl-item" id="wl-${w.symbol}">
-        <div class="wl-symbol">${w.symbol}</div>
+      <div class="wl-item" id="wl-${esc(w.symbol)}" data-symbol="${esc(w.symbol)}">
+        <div class="wl-symbol">${esc(w.symbol)}</div>
         <div class="wl-actions">
-          <a href="/ticker/${w.symbol}" class="btn-view">View Signals →</a>
-          <button class="btn-remove" onclick="removeTicker('${w.symbol}')">Remove</button>
+          <a href="/ticker/${esc(w.symbol)}" class="btn-view">View Signals →</a>
+          <button class="btn-remove" data-action="remove-ticker">Remove</button>
         </div>
       </div>
     `).join('');
   }
+
+  document.getElementById('wl-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="remove-ticker"]');
+    if (!btn) return;
+    const sym = btn.closest('.wl-item')?.dataset.symbol;
+    if (sym) removeTicker(sym);
+  });
 
   async function addTicker() {
     const input = document.getElementById('ticker-input');
@@ -234,8 +260,8 @@
     }
     el.innerHTML = items.map(r => `
       <div class="wl-rule-item" id="rule-${r.id}">
-        <div class="wl-rule-label">${r.label}</div>
-        <span class="wl-rule-badge">${r.condition_type}: ${r.condition_value}</span>
+        <div class="wl-rule-label">${esc(r.label)}</div>
+        <span class="wl-rule-badge">${esc(r.condition_type)}: ${esc(r.condition_value)}</span>
         <button class="btn-remove" onclick="removeRule(${r.id})">Remove</button>
       </div>
     `).join('');
