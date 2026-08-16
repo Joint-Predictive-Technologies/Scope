@@ -67,8 +67,11 @@ def main() -> None:
     members = ih.load_members(conn)
 
     # Currently-unmatched house filings.
+    # `filing_date` comes along because the matcher now uses it to tell namesakes
+    # apart; without it every match here would fail open to the pre-2026-08-15
+    # behaviour that attached 2026 filings to members who left in 1973.
     null_filings = conn.execute(
-        "SELECT id, doc_id FROM filings WHERE source='house' AND member_id IS NULL"
+        "SELECT id, doc_id, filing_date FROM filings WHERE source='house' AND member_id IS NULL"
     ).fetchall()
     print(f"House filings with NULL member_id: {len(null_filings)}")
 
@@ -90,7 +93,7 @@ def main() -> None:
             no_name.append(doc)
             continue
         first, last = nm
-        mid = ih.match_member_id(first, last, members)
+        mid = ih.match_member_id(first, last, members, r["filing_date"])
         if mid:
             matched += 1
             updates.append((mid, r["id"]))
