@@ -12,6 +12,7 @@ import argparse
 import difflib
 import io
 import re
+import sqlite3
 import sys
 import unicodedata
 import zipfile
@@ -227,6 +228,27 @@ def load_members(conn) -> list[dict[str, Any]]:
         """
     ).fetchall()
 
+    # Service periods, so two people with the same name can be told apart by WHEN
+    # they served. Loaded in one query and attached per member rather than queried
+    # per candidate — `match_member_id` is called once per index entry (1,547 on a
+    # normal run) and must not become 1,547 x N round trips.
+    #
+    # ⚠️ A MISSING `member_terms` TABLE IS NOT AN ERROR. It does not exist until
+    # m017 has run, and it is EMPTY until `scripts/load_member_terms.py` has run.
+    # Both cases leave `terms` empty for every member, and `_covers` fails OPEN, so
+    # matching behaves exactly as it did before this change rather than rejecting
+    # every filer. The fix is inert until its data is present, by design.
+    terms: dict[str, list[tuple[str, str]]] = {}
+    try:
+        for t in conn.execute(
+            "SELECT bioguide_id, term_start, term_end FROM member_terms"
+        ):
+            terms.setdefault(t["bioguide_id"], []).append(
+                (t["term_start"], t["term_end"])
+            )
+    except sqlite3.OperationalError:
+        pass
+
     members: list[dict[str, Any]] = []
 
     for row in rows:
@@ -244,24 +266,94 @@ def load_members(conn) -> list[dict[str, Any]]:
                 "first_tokens": first_tokens,
                 "state": row["state"],
                 "chamber": row["chamber"],
+                "terms": terms.get(row["bioguide_id"], []),
             }
         )
 
     return members
 
 
+# A PTR filed shortly AFTER a member leaves office is normal, not a mistake: the
+# disclosure deadline runs 30-45 days from the transaction, so a departing member's
+# final filings legitimately land after their term ends. Measured over the whole
+# 866-filing corpus, exactly 6 filings fall outside their member's terms and they
+# separate by a factor of 71:
+#
+#     3 / 24 / 108 days   -> Waltz, Manning x2   LEGITIMATE final PTRs
+#     7,687 / 19,518 / 19,543 days  ->  the namesake errors (21 and 53 years)
+#
+# So this is not a tuned threshold sitting near the data; anything from ~120 days
+# to ~20 years separates the two classes identically. 180 is chosen as a round
+# number comfortably inside that gap. ⚠️ It is deliberately NOT applied before a
+# term starts — there is no legitimate reason to file before taking office, and a
+# symmetric window would re-admit a predecessor namesake.
+TERM_GRACE_DAYS = 180
+
+
+def _covers(member: dict[str, Any], filing_date: str | None) -> bool:
+    """Did this member hold office on `filing_date` (plus the post-term grace)?
+
+    ⚠️ FAILS OPEN, DELIBERATELY, IN EXACTLY TWO CASES: no filing date, or no term
+    data for this member. Both mean "this test cannot be applied", and a test that
+    cannot be applied must not be allowed to reject a filer — that would convert a
+    missing-data problem into mass unmatching, which is a worse failure than the
+    one being fixed. It fails CLOSED only when it has both facts and they disagree.
+
+    Dates are ISO `YYYY-MM-DD` on both sides (the feed's format, and
+    `parse_filing_date`'s output), so a lexicographic compare is a date compare.
+    Verified across all 12,768 feed records: every term boundary matches
+    ^\\d{4}-\\d{2}-\\d{2}$. The grace window needs real date arithmetic, so that
+    one comparison parses.
+    """
+    if not filing_date:
+        return True
+    spans = member.get("terms") or []
+    if not spans:
+        return True
+    day = str(filing_date)[:10]
+    if any(start <= day <= end for start, end in spans):
+        return True
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        # Unparseable date: the test cannot be applied, so it must not reject.
+        return True
+    for _start, end in spans:
+        try:
+            e = datetime.strptime(end[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            continue
+        if 0 < (d - e).days <= TERM_GRACE_DAYS:
+            return True
+    return False
+
+
 def _difflib_match(
     first_name: str | None,
     last_name: str | None,
     members: list[dict[str, Any]],
+    filing_date: str | None = None,
 ) -> str | None:
     """Original fuzzy fallback — preserved so previously-matching filers never
-    regress when the deterministic anchor doesn't yield a unique candidate."""
+    regress when the deterministic anchor doesn't yield a unique candidate.
+
+    ⚠️ THE CANDIDATE POOL IS DATE-FILTERED FIRST, and that is the point. This
+    function resolves by string similarity, which systematically prefers the
+    shorter, less specific name — i.e. the historical namesake over the serving
+    member with a middle initial. Filtering the pool by service period before
+    scoring removes the dead members from consideration entirely, rather than
+    scoring them and hoping they lose.
+    """
     first = normalize_name(first_name)
     last = normalize_name(last_name)
 
     if not last:
         return None
+
+    eligible = [m for m in members if _covers(m, filing_date)]
+    if not eligible:
+        return None
+    members = eligible
 
     target_variants = []
 
@@ -305,6 +397,7 @@ def match_member_id(
     first_name: str | None,
     last_name: str | None,
     members: list[dict[str, Any]],
+    filing_date: str | None = None,
 ) -> str | None:
     """Deterministic anchor match with credential/compound-surname handling.
 
@@ -312,14 +405,47 @@ def match_member_id(
     member's surname tokens (handles 'Delaney' ⊂ 'McClain Delaney') AND the
     filer's first given token equals the member's first given token. We accept
     ONLY when exactly one member qualifies — 0 candidates (roster gap, e.g.
-    Linda T. Sanchez) or ≥2 (genuine ambiguity) fall through to the difflib
-    fallback so nothing that matched before regresses.
+    Linda T. Sanchez) or ≥2 fall through to the difflib fallback so nothing that
+    matched before regresses.
+
+    ── 🔴 WHY `filing_date` EXISTS, AND WHY THE FILTER IS *HERE* ───────────────
+    The namesake defect was NOT that the anchor path picked the wrong member. It
+    was that the anchor path found TWO candidates and gave up:
+
+        ('Nicholas','Begich') -> B000315 "Begich, Nicholas"     (left office 1973)
+                                 B001323 "Begich, Nicholas J."  (serving, actually filed)
+
+    Two candidates means "ambiguous", which fell through to `_difflib_match`,
+    which resolves by string similarity — and "Begich, Nicholas" is a closer
+    string to "Nicholas Begich" than "Begich, Nicholas J." is. **The dead member
+    won BECAUSE his name is less specific**, and serving members are the ones who
+    carry a middle initial. Same mechanism produced ('Mark','Green') -> G000545
+    (left 2007) over G000590. It is a systematic bias toward the historical
+    namesake, not bad luck.
+
+    So the date filter is applied to the CANDIDATE SET BEFORE the uniqueness
+    test. That is what converts "2 candidates, guess by string" into "1 candidate,
+    decided by fact". Bolting a date check onto the return value would not fix it:
+    by then the wrong answer has already been chosen.
+
+    ⚠️ AND THE DIFFLIB RESULT IS DATE-CHECKED TOO. Otherwise the fallback stays a
+    hole straight back to the same bug for every filer the anchor path can't
+    resolve — which is how ('Michael','Collins') is matched today.
+
+    ⚠️ AMBIGUITY IS NOT RESOLVED, IT IS REPORTED. If two candidates both held
+    office on the filing date, this returns None rather than picking one. None
+    flows to `record_unmatched_filers`, so it surfaces to ROSTER_CHECK for a human
+    instead of being silently decided by string distance — which is the entire
+    failure mode above.
+
+    Backwards compatible: `filing_date=None` (and an unloaded `member_terms`)
+    reproduce the previous behaviour exactly.
     """
     filer_first = name_tokens(first_name)
     filer_last = name_tokens(last_name)
 
     if not filer_last:
-        return _difflib_match(first_name, last_name, members)
+        return _difflib_match(first_name, last_name, members, filing_date)
 
     filer_last_anchor = filer_last[-1]
     filer_first_anchor = filer_first[0] if filer_first else None
@@ -334,10 +460,32 @@ def match_member_id(
         candidates.append(member)
 
     if len(candidates) == 1:
-        return candidates[0]["bioguide_id"]
+        # Single anchor candidate: still date-checked. A lone candidate who was
+        # out of office on the filing date is wrong even without a rival — that
+        # is the Gallagher case (one 'James Gallagher' in the roster today, and
+        # it is the wrong one, who resigned in 2024).
+        return candidates[0]["bioguide_id"] if _covers(candidates[0], filing_date) else None
 
-    # 0 or ambiguous -> preserve original fuzzy behaviour.
-    return _difflib_match(first_name, last_name, members)
+    if len(candidates) > 1:
+        # ⚠️ THE DATE TEST MUST HAVE BEEN ABLE TO DISCRIMINATE BEFORE ITS RESULT
+        # MEANS ANYTHING. Without this guard, an unloaded `member_terms` makes
+        # every candidate "covered", len(dated) stays > 1, and the ambiguity rule
+        # returns None — turning "this test could not be applied" into "this is
+        # ambiguous" and unmatching every namesake pair in the corpus. That is a
+        # worse failure than the bug being fixed, and it is precisely what the
+        # fail-open contract in `_covers` exists to prevent; the contract has to
+        # hold HERE too, not only inside `_covers`. Caught by
+        # `test_fails_open_when_term_data_is_absent`.
+        if filing_date and any(m.get("terms") for m in candidates):
+            dated = [m for m in candidates if _covers(m, filing_date)]
+            if len(dated) == 1:
+                return dated[0]["bioguide_id"]
+            if len(dated) > 1:
+                return None      # genuine ambiguity — flag, never guess
+            # len(dated) == 0: nobody with this name held office then. Fall through
+            # to difflib, which is itself date-filtered, so it cannot resurrect them.
+
+    return _difflib_match(first_name, last_name, members, filing_date)
 
 
 def iter_xml_entries(xml_bytes: bytes) -> list[dict[str, str]]:
@@ -408,7 +556,7 @@ def parse_house_filings(
             get_field(entry, "FilingDate", "DateReceived", "Filing Date")
         )
 
-        member_id = match_member_id(first_name, last_name, members)
+        member_id = match_member_id(first_name, last_name, members, filing_date)
 
         if member_id is None:
             print(
@@ -449,10 +597,23 @@ def upsert_filing(conn, filing: HouseFiling) -> bool:
     ).fetchone()
 
     if existing:
+        # 🔴 `COALESCE(?, member_id)` — A NULL MATCH MUST NEVER ERASE A GOOD ONE.
+        # This UPDATE re-derives `member_id` on EVERY existing filing on EVERY run
+        # (6-hourly), which is what silently reverted the 2026-08-15 identity
+        # correction: the data was fixed, this line put the old answer back.
+        #
+        # Now that the matcher can legitimately return None (ambiguous, or nobody
+        # of that name held office on the filing date), an unconditional write
+        # would turn that into a NULL over a currently-correct `member_id` —
+        # converting the fix into a new data-loss path of exactly the same shape.
+        # A match is allowed to CORRECT an attribution, never to blank one.
+        # Genuinely-unmatched filers are still surfaced, via
+        # `record_unmatched_filers` + ROSTER_CHECK, which is the honest channel
+        # for "we don't know" — silently nulling the column is not.
         conn.execute(
             """
             UPDATE filings
-            SET member_id = ?,
+            SET member_id = COALESCE(?, member_id),
                 filing_date = ?,
                 report_type = 'PTR',
                 raw_url = ?

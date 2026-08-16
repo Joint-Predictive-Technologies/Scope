@@ -763,6 +763,43 @@ def _run_migrations(conn: sqlite3.Connection) -> None:
             "INSERT INTO scope_migrations(name) VALUES('m016_position_sizing_adv')")
         conn.commit()
 
+    # m017: member_terms — the service periods `match_member_id` needs to tell two
+    # people with the same name apart. Until now it could not: a 2026 PTR matched a
+    # member who left in 1973, because the only tiebreak was string similarity.
+    #
+    # ⚠️ A TABLE, NOT `term_start`/`term_end` COLUMNS ON `members`, AND THAT IS LOAD-BEARING.
+    # Members hold up to 30 terms, and 135 of the 2,692 in the roster have a genuine gap
+    # of more than a year between terms (the largest is 32 years). A single min..max span
+    # would assert service across a gap the member did not serve — the same
+    # plausible-looking-wrong shape this project has caught repeatedly. Measured: min..max
+    # and exact intervals disagree for ZERO members at the 2025-2026 filing dates in the
+    # corpus today, so the shortcut would look correct right now and break silently later.
+    #
+    # ⚠️ NOT populated here. This creates the table only; `scripts/load_member_terms.py`
+    # fills it from unitedstates/congress-legislators. An empty table is the honest
+    # default: `covers()` fails OPEN (see ingest_house_index) so an unloaded table leaves
+    # matching exactly as it is today rather than rejecting every filer.
+    if not conn.execute(
+        "SELECT 1 FROM scope_migrations WHERE name='m017_member_terms'"
+    ).fetchone():
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS member_terms (
+                   bioguide_id  TEXT NOT NULL,
+                   term_start   TEXT NOT NULL,
+                   term_end     TEXT NOT NULL,
+                   chamber      TEXT,
+                   state        TEXT,
+                   district     TEXT,
+                   source       TEXT,
+                   updated_at   TEXT,
+                   PRIMARY KEY (bioguide_id, term_start, term_end)
+               )"""
+        )
+        conn.execute("""CREATE INDEX IF NOT EXISTS idx_member_terms_bioguide
+                        ON member_terms(bioguide_id)""")
+        conn.execute("INSERT INTO scope_migrations(name) VALUES('m017_member_terms')")
+        conn.commit()
+
     conn.commit()
 
 
