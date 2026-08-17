@@ -216,50 +216,126 @@ def _ro_connection() -> sqlite3.Connection:
 #   RULE_ADSB          2 sites, RULE_10 2 sites, RULE_12 3 sites (retired)
 # Each entry below is now read off EVERY call site for that source, and where the
 # meaning differs by path the gloss says so.
+# 🔴 FOURTH TIME. The rule-only funnel did NOT fix the label — it moved the lie one
+# layer in, and a verifier found it there. I scoped the funnel to detection rules on the
+# stated ground that "the column labels are only true of them", and never checked whether
+# they are true of the RULES either. Read off every rule's own call site:
+#
+#   scanned == flagged, IDENTICAL by construction, so "of those, passed a filter" is
+#   meaningless:  RULE_01B (:474 len(rows)), RULE_09 (:507), RULE_10 (:610 found),
+#                 RULE_15 (:423 ingested), RULE_ANOMALY (:130 emitted)
+#   flagged is a DB-WRITE count, not a filter:  RULE_11 (:529 inserted+updated),
+#                                               RULE_16 (:697 stored)
+#   flagged is an AGGREGATE in a different unit: RULE_02 (:726 clusters over
+#                                                transactions), RULE_CLUSTER (:399)
+#   flagged IS genuinely a filter output:        RULE_06, RULE_07, RULE_08, RULE_OSINT,
+#                                                RULE_REDDIT
+#
+# 🔴 RULE_ANOMALY writes scanned=flagged=emitted — STRUCTURALLY IDENTICAL to
+# `decay_alerts.py:104`, the writer this module cites as proof that non-rule sources mean
+# something else. It is a detection rule, so the rule-only scoping waved it straight
+# through into "records examined by detection rules".
+#
+# ⇒ `events_flagged` HAS NO CONSISTENT MEANING ACROSS SOURCES. It is not a funnel stage
+# and this module no longer presents it as one. Two booleans per source now record
+# whether each column means what its name implies, the funnel sums ONLY sources where the
+# semantic holds, and every exclusion is disclosed with its real meaning.
+#
+# Tuple: (scanned_means, flagged_means, emitted_means, scanned_is_record_count,
+#         flagged_is_filter_output)
 _COUNTER_MEANING = {
-    # source: (what events_scanned counts, what events_flagged counts, what alerts_emitted counts)
-    "REFRESH_TICKERS":       ("tickers upserted", "unused (always 0)", "tickers upserted"),
-    "LABEL_OUTCOMES":        ("alerts eligible for labelling", "unpriceable alerts", "outcomes labelled"),
-    "SCORING":               ("alerts scored", "unused (unset)", "unused (always 0)"),
-    # `monitor_enrich_stall.py:87` writes the same count to all three, and that count
-    # is alerts unscored BEYOND A 30-MINUTE GRACE (`:36-38`), not simply unscored —
-    # the two differ on prod today.
+    # ── DETECTION RULES ──────────────────────────────────────────────────────
+    "RULE_OSINT":            ("GDELT events examined", "events passing the mention/hostility filter",
+                              "alerts written", True,  True),
+    "RULE_REDDIT":           ("reddit posts examined", "posts passing the filter",
+                              "alerts written", True,  True),
+    "RULE_07":               ("Polymarket markets examined", "markets that triggered",
+                              "alerts written", True,  True),
+    "RULE_06":               ("Form 4 filings examined", "filings judged significant",
+                              "alerts written", True,  True),
+    "RULE_08":               ("Federal Register documents examined", "documents matching a sector keyword",
+                              "alerts written", True,  True),
+    "RULE_01B":              ("congressional transaction rows examined",
+                              "IDENTICAL to scanned (rule_01b_first_touch.py:474 passes len(rows) to "
+                              "both) — NOT a filter output", "alerts written", True,  False),
+    "RULE_02":              ("transactions examined",
+                              "CLUSTERS found (rule_02_cluster.py:726) — an aggregate in a different "
+                              "unit from scanned, not a subset of it", "alerts written", True,  False),
+    "RULE_CLUSTER":          ("tickers examined",
+                              "QUALIFYING GROUPS (rule_cluster.py:399) — an aggregate, not records",
+                              "alerts written", True,  False),
+    "RULE_11":               ("award records examined",
+                              "contract rows INSERTED+UPDATED in the contracts table "
+                              "(rule_11_contracts.py:529) — a DB-write count, not a filter",
+                              "alerts written", True,  False),
+    "RULE_16":               ("13F records examined",
+                              "holdings STORED (rule_16_institutional.py:697) — a DB-write count",
+                              "alerts written", True,  False),
+    "RULE_ANOMALY":          ("IDENTICAL to alerts emitted (rule_anomaly.py:130 passes `emitted` to "
+                              "all three columns) — NOT a count of records examined",
+                              "IDENTICAL to alerts emitted — NOT a filter output",
+                              "alerts written", False, False),
+    "RULE_09":               ("IDENTICAL to flagged (rule_09_lobbying.py:507 passes total_triggered "
+                              "to both)", "IDENTICAL to scanned — NOT a filter output",
+                              "alerts written", False, False),
+    "RULE_10":               ("IDENTICAL to flagged (rule_10_corroboration.py:610 passes `found` to "
+                              "both)", "IDENTICAL to scanned — NOT a filter output",
+                              "corroborations written", False, False),
+    "RULE_15":               ("IDENTICAL to flagged (rule_15_earnings_nlp.py:423 passes `ingested` to "
+                              "both)", "IDENTICAL to scanned — NOT a filter output",
+                              "alerts written", False, False),
+    "RULE_ADSB":             ("flights examined", "unused (not passed)", "alerts written", True,  False),
+    "RULE_TELEGRAM_OSINT":   ("unused (not passed)", "unused (not passed)", "alerts written",
+                              False, False),
+    # a collector, not a detector — see _NON_DETECTION_RULE_SOURCES
+    "RULE_COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
+                              "ticker names collected", "0 by design", False, False),
+    "RULE COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
+                              "ticker names collected", "0 by design", False, False),
+
+    # ── INFRASTRUCTURE (never in the funnel; kept so the excluded table can gloss them) ──
+    "REFRESH_TICKERS":       ("tickers upserted", "unused (always 0)", "tickers upserted", False, False),
+    "LABEL_OUTCOMES":        ("alerts eligible for labelling",
+                              "alerts with NO USABLE SYMBOL OR NO PRICE — 'unavailable', which is "
+                              "mostly basket/multi-ticker and no-ticker, NOT merely 'unpriceable'",
+                              "outcomes labelled", False, False),
+    "SCORING":               ("alerts scored", "unused (unset)", "unused (always 0)", False, False),
     "MONITOR_ENRICH_STALL":  ("alerts unscored >30 min", "alerts unscored >30 min",
-                              "alerts unscored >30 min"),
+                              "alerts unscored >30 min", False, False),
     "MONITOR_BACKUP_STALL":  ("1 per check", "PROBLEMS FOUND (higher is worse)",
-                              "PROBLEMS FOUND (higher is worse)"),
-    # 🔴 THREE call sites, and `flagged` INVERTS. :285 success writes
-    # scanned=1/flagged=0/emitted=1; :222 (backup raised) and :256
-    # (integrity_check FAILED, snapshot discarded) both write
-    # scanned=0/flagged=1/emitted=0. A non-zero `flagged` here means THE BACKUP
-    # FAILED — the opposite of "passed a filter".
+                              "PROBLEMS FOUND (higher is worse)", False, False),
     "DB_BACKUP":             ("1 per SUCCESSFUL backup run (0 on a failed run)",
                               "BACKUP FAILURES (higher is worse; 1 = backup raised or "
                               "integrity_check failed and the snapshot was discarded)",
-                              "snapshot FILE written (0 on a failed run)"),
-    "DECAY":                 ("alerts downgraded", "alerts downgraded", "unused (always 0)"),
-    "INGEST_HOUSE_INDEX":    ("index entries seen (0 on an early-exit run)",
-                              "PTRs registered", "new filings"),
-    "PARSE_HOUSE_PDFS":      ("filings processed (0 on an early-exit run)",
-                              "PDFs downloaded", "TRANSACTIONS parsed"),
-    "DAILY_BRIEF":           ("brief sections populated", "active theses", "1 brief generated"),
-    "BRIEF":                 ("alerts in the brief", "evidence alerts cited", "1 brief generated"),
-    "BACKTEST":              ("alerts ok + skipped", "alerts ok", "unused (always 0)"),
-    "SCHEDULER_JOB_FAILURE": ("unused", "unused", "unused"),
-    # A collector, not a detector: `scripts/rule_reddit_collector.py:1190` sets
-    # scanned=0 and emitted=0 deliberately — its own comment says writing a count
-    # there "would present a lookup-table write as though the system had found
-    # something". It collects NAMES into ticker_universe and has never written a row
-    # to `alerts`, which is why it is in _NON_DETECTION_RULE_SOURCES.
-    "RULE_COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
-                              "ticker names collected", "0 by design"),
-    "RULE COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
-                              "ticker names collected", "0 by design"),
-    # RULE_DISCOVERY is excluded from the funnel as a collector but has NEVER been
-    # written to prod `activity_log` (verified: 0 rows), so there is no call site to
-    # read a gloss off. Left absent deliberately — it would render "not documented",
-    # which is the truth, rather than a guess copied from RULE_COLLECTOR.
+                              "snapshot FILE written (0 on a failed run)", False, False),
+    "DECAY":                 ("alerts downgraded", "alerts downgraded", "unused (always 0)", False, False),
+    "INGEST_HOUSE_INDEX":    ("index entries seen (0 on an early-exit run)", "PTRs registered",
+                              "new filings", False, False),
+    "PARSE_HOUSE_PDFS":      ("filings processed (0 on an early-exit run)", "PDFs downloaded",
+                              "TRANSACTIONS parsed", False, False),
+    "DAILY_BRIEF":           ("brief sections populated", "active theses", "1 brief generated",
+                              False, False),
+    "BRIEF":                 ("alerts in the brief", "evidence alerts cited", "1 brief generated",
+                              False, False),
+    "BACKTEST":              ("alerts ok + skipped", "alerts ok", "unused (always 0)", False, False),
+    "SCHEDULER_JOB_FAILURE": ("unused", "unused", "unused", False, False),
 }
+
+
+def _meaning(source):
+    """The 5-tuple for a source, or None. Absent => rendered "not documented"."""
+    return _COUNTER_MEANING.get(str(source or "").upper().strip())
+
+
+def _scanned_is_records(source):
+    m = _meaning(source)
+    return bool(m and m[3])
+
+
+def _flagged_is_filter(source):
+    m = _meaning(source)
+    return bool(m and m[4])
+
 
 # ── source classification ────────────────────────────────────────────────────
 # Explicit, because `LIKE 'RULE_%'` is a wildcard match (see the module note) and
@@ -460,8 +536,31 @@ SQL_BACKLOG = """
            AND datetime(created_at) < datetime('now','-30 minutes')) AS unscored_over_30min
 """
 
+# 🔴 FOUR statuses exist, not three, and the fourth is semantically loud.
+# `scripts/label_outcomes.py` writes:
+#   complete    — a 20-day close exists (`:211`)
+#   pending     — it does not yet (`:211`)
+#   unavailable — no usable single-equity symbol OR no price series (`:192`, `:198`)
+#   excluded    — the alert was QUARANTINED (`:190`, and an UPDATE at `:229`) because its
+#                 rule's attribution was known-bad. Prod holds 0 of these today, so the
+#                 gap was latent — but a quarantine would have shrunk the other bars with
+#                 nothing on the page to say why. Same shape as the DB_BACKUP gloss defect.
+# The page now renders whatever statuses come back, so a fifth cannot go missing either.
 SQL_OUTCOMES = """
-    SELECT status, COUNT(*) AS n FROM alert_outcomes GROUP BY status
+    SELECT status, COUNT(*) AS n FROM alert_outcomes GROUP BY status ORDER BY n DESC
+"""
+
+# ⚠️ AND "unavailable" IS NOT "unpriceable" — that gloss was right for a minority.
+# Measured on prod: of 1,705 `unavailable` rows, only **546** are "no price data
+# (delisted / unpriceable)". The other 1,159 are **1,026** "non-single-equity
+# (basket/multi-ticker)" and **133** "no ticker" — the alert never had a usable symbol,
+# which is a different fact from the market not having a price. The reason breakdown is
+# returned so the page can state it instead of averaging three causes into one word.
+SQL_OUTCOME_REASONS = """
+    SELECT status, COALESCE(note, '(no note)') AS reason, COUNT(*) AS n
+    FROM alert_outcomes
+    WHERE status NOT IN ('complete','pending')
+    GROUP BY status, reason ORDER BY n DESC
 """
 
 SQL_ALL_SOURCES = """
@@ -611,6 +710,7 @@ def telemetry():
         corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL, "SQL_CORROBORATION_DETAIL")
         backlog      = _one(conn, SQL_BACKLOG, "SQL_BACKLOG")
         outcomes     = _rows(conn, SQL_OUTCOMES, "SQL_OUTCOMES")
+        out_reasons  = _rows(conn, SQL_OUTCOME_REASONS, "SQL_OUTCOME_REASONS")
         all_sources  = _rows(conn, SQL_ALL_SOURCES, "SQL_ALL_SOURCES")
         coverage     = _one(conn, SQL_COVERAGE, "SQL_COVERAGE")
     finally:
@@ -621,25 +721,33 @@ def telemetry():
     rule_runs = sum(r["runs"] for r in per_source if _is_rule_source(r["source"]))
     all_runs  = sum(r["runs"] for r in per_source)
 
-    # 🔴 THE FUNNEL IS RULE-ONLY. See module note 0: the scanned/flagged labels are
-    # only true of detection rules, and non-rule sources supply ~31% of `flagged`.
-    # Both halves are returned so the exclusion is disclosed, not silent.
+    # 🔴 THE FUNNEL IS SCOPED BY SEMANTICS, NOT BY SOURCE TYPE. Scoping to "detection
+    # rules" was the previous fix and it was not enough: `events_flagged` means a filter
+    # output in only 5 sources, a DB-write count in 2, an aggregate in 2, and is byte-
+    # identical to `scanned` in 5 more. So each column is now summed over exactly the
+    # sources where THAT column means what its name says, and everything else is
+    # disclosed with what it actually counts.
     def _sum(rows, key, pred):
         return sum((r[key] or 0) for r in rows if pred(r["source"]))
-    rule_scanned = _sum(per_source, "scanned", _is_rule_source)
-    rule_flagged = _sum(per_source, "flagged", _is_rule_source)
-    non_scanned  = _sum(per_source, "scanned", lambda s: not _is_rule_source(s))
-    non_flagged  = _sum(per_source, "flagged", lambda s: not _is_rule_source(s))
 
-    # What each EXCLUDED source's counters actually mean, so the page can show the
-    # reason per source instead of a positional sentence.
+    rule_scanned = _sum(per_source, "scanned", _scanned_is_records)
+    rule_flagged = _sum(per_source, "flagged", _flagged_is_filter)
+    # what the OLD, wrong scoping would have produced — kept so the page can show the
+    # size of the correction rather than quietly restating the number
+    old_rule_scanned = _sum(per_source, "scanned", _is_rule_source)
+    old_rule_flagged = _sum(per_source, "flagged", _is_rule_source)
+    non_scanned  = _sum(per_source, "scanned", lambda x: not _scanned_is_records(x))
+    non_flagged  = _sum(per_source, "flagged", lambda x: not _flagged_is_filter(x))
+
+    # Every source excluded from EITHER sum, with what its counters really are.
     excluded_detail = []
     for r in per_source:
-        if _is_rule_source(r["source"]):
+        sc_ok, fl_ok = _scanned_is_records(r["source"]), _flagged_is_filter(r["source"])
+        if sc_ok and fl_ok:
             continue
         if not ((r["scanned"] or 0) or (r["flagged"] or 0) or (r["emitted_counter"] or 0)):
             continue
-        meaning = _COUNTER_MEANING.get(str(r["source"]).upper())
+        meaning = _meaning(r["source"])
         excluded_detail.append({
             "source": r["source"],
             "scanned": r["scanned"], "flagged": r["flagged"],
@@ -647,6 +755,9 @@ def telemetry():
             "scanned_means": meaning[0] if meaning else None,
             "flagged_means": meaning[1] if meaning else None,
             "emitted_means": meaning[2] if meaning else None,
+            "scanned_counted": sc_ok,
+            "flagged_counted": fl_ok,
+            "is_detection_rule": _is_rule_source(r["source"]),
         })
     excluded_detail.sort(key=lambda r: -((r["scanned"] or 0) + (r["flagged"] or 0)))
 
@@ -693,7 +804,7 @@ def telemetry():
         "corroborations":               ["SQL_CORROBORATIONS"],
         "corroboration_detail":         ["SQL_CORROBORATION_DETAIL"],
         "scoring_backlog":              ["SQL_BACKLOG"],
-        "outcome_labeling":             ["SQL_OUTCOMES"],
+        "outcome_labeling":             ["SQL_OUTCOMES", "SQL_OUTCOME_REASONS"],
         "coverage":                     ["SQL_COVERAGE"],
     }
 
@@ -774,18 +885,28 @@ def telemetry():
             },
             "rule_funnel_24h": {
                 "sql": _flat(SQL_PER_SOURCE) + "  -- summed over DETECTION rules only, in Python",
-                "why": ("🔴 SCOPED TO DETECTION RULES because the column labels are only "
-                        "true of them. DB_BACKUP's events_scanned is one backup RUN; "
-                        "DECAY's is alerts DOWNGRADED; MONITOR_BACKUP_STALL's "
-                        "events_flagged is PROBLEMS FOUND, which inverts the metric; "
-                        "INGEST_HOUSE_INDEX's is PTRs registered. Mixing them into a "
-                        "'records examined -> passed the quality filter' funnel makes both "
-                        "labels false. The excluded totals are reported here too, so the "
-                        "exclusion is visible rather than silent."),
+                "why": ("🔴 SCOPED BY SEMANTICS, NOT BY SOURCE TYPE — and that correction is "
+                        "the FOURTH time this surface shipped a real number under a false "
+                        "label. Scoping to detection rules was the previous fix; a verifier "
+                        "showed it left a LARGER error than it removed, because "
+                        "`events_flagged` is a genuine filter output in only 5 sources. "
+                        "RULE_01B/RULE_09/RULE_10/RULE_15/RULE_ANOMALY pass the SAME value to "
+                        "scanned and flagged; RULE_11/RULE_16 pass a DB-write count; "
+                        "RULE_02/RULE_CLUSTER pass an aggregate in a different unit. "
+                        "RULE_ANOMALY is the sharpest case: it writes scanned=flagged=emitted, "
+                        "structurally identical to decay_alerts.py, which this module cites as "
+                        "its reason for excluding NON-rule sources — and being a rule, the old "
+                        "scoping let it through. Each column is now summed over exactly the "
+                        "sources where that column means what its name says; every exclusion "
+                        "is listed with what it actually counts; and the figures the old "
+                        "scoping would have produced are returned alongside so the size of "
+                        "the correction is visible rather than quietly restated."),
                 "row": {"rule_scanned": rule_scanned, "rule_flagged": rule_flagged,
                         "alerts_written": written.get("alerts_written_24h"),
                         "excluded_non_rule_scanned": non_scanned,
-                        "excluded_non_rule_flagged": non_flagged},
+                        "excluded_non_rule_flagged": non_flagged,
+                        "scanned_if_scoped_by_source_type_only": old_rule_scanned,
+                        "flagged_if_scoped_by_source_type_only": old_rule_flagged},
                 "excluded_sources": excluded_detail,
                 "counter_meaning_note": (
                     "scanned_means / flagged_means / emitted_means are read off each "
@@ -872,10 +993,23 @@ def telemetry():
             },
             "outcome_labeling": {
                 "sql": _flat(SQL_OUTCOMES),
+                "reasons_sql": _flat(SQL_OUTCOME_REASONS),
                 "fields": "alert_outcomes.status, written only by scripts/label_outcomes.py",
                 "why": ("Labelling PROGRESS only. No win rate is derived from it here — "
                         "see the omissions table on the page."),
+                "status_meaning": {
+                    "complete":    "a 20-trading-day close exists, so the forward return is measured",
+                    "pending":     "the +20-day horizon has not elapsed yet",
+                    "unavailable": ("no usable single-equity symbol, or no price series — see the "
+                                    "reason breakdown; it is NOT simply 'unpriceable'"),
+                    "excluded":    ("QUARANTINED: the alert's rule had known-bad attribution, so "
+                                    "measuring it would score the wrong company"),
+                },
                 "rows": outcomes,
+                "reasons": out_reasons,
+                "note": ("Statuses are rendered from the data, not from a hardcoded list of "
+                         "three — `excluded` existed in the writer and in no version of this "
+                         "page until a re-audit found it."),
             },
             "coverage": {
                 "sql": _flat(SQL_COVERAGE), "row": coverage,

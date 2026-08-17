@@ -269,7 +269,18 @@
 
   /* ── render ─────────────────────────────────────────────────────────────── */
   function render(d) {
-    var m = d.metrics, out = [];
+    var m = d.metrics || {};
+    /* A connection-level failure returns `metrics: {}` by design. Bail to an honest
+       message rather than throwing halfway through and leaving a half-built page —
+       a verifier caught render() dying at the first block access. */
+    if (!m.ingest_hourly_24h) {
+      el("tele").innerHTML = '<div class="card"><div class="cbody"><div class="warn">' +
+        '⚠️ <b>Telemetry unavailable.</b> ' +
+        esc((d.degraded_reasons || []).join('; ') || 'the database could not be opened') +
+        ' — nothing is shown rather than showing a guess.</div></div></div>';
+      return;
+    }
+    var out = [];
     var hourly = m.ingest_hourly_24h.rows;
     var scanned = hourly.reduce(function (a,r){ return a + (r.scanned||0); }, 0);
     var flagged = hourly.reduce(function (a,r){ return a + (r.flagged||0); }, 0);
@@ -300,9 +311,10 @@
        ' distinct tickers<br><span class="dim">case- and <code>$</code>-normalised, and ' +
        'excluding <b>' + n(cov.multi_symbol_baskets) + '</b> multi-symbol basket strings ' +
        '(the raw <code>COUNT(DISTINCT ticker)</code> is ' + n(cov.distinct_ticker_values_raw) +
-       ')</span><br><span class="dim">every all-time figure on this page is bounded by ' +
-       'the activity log, which starts <b>' + esc(cov.activity_since) + '</b></span></div>',
-       m.coverage.sql]
+       ')</span><br><span class="dim">the activity log starts <b>' + esc(cov.activity_since) +
+       '</b> — that bounds the <b>24 h and per-source</b> figures on this page, but <b>NOT</b> ' +
+       'the all-time ones: alerts predate it, and this tile counts every alert ever ' +
+       'written.</span></div>', m.coverage.sql]
     ].map(function (t) {
       return '<div class="card"><div class="cbody">' + t[0] + '</div>' + prov(0, t[1]) + '</div>';
     }).join("") + '</div>');
@@ -375,7 +387,7 @@
 
     el("tele").innerHTML = out.join("");
 
-    drawIngest(hourly, peak);
+    drawIngest(hourly, peak, m.rule_funnel_24h.row);
     drawStages(scanned, flagged, written, counter, m);
     drawHeat(m);
     drawSource(m, d);
@@ -387,7 +399,8 @@
   }
 
   /* ── ingest bars ────────────────────────────────────────────────────────── */
-  function drawIngest(hourly, peak) {
+  function drawIngest(hourly, peak, fnRow) {
+    fnRow = fnRow || {};
     var svg = el("chIngest"); if (!svg) return;
     /* ⚠️ AN EMPTY WINDOW IS A REAL STATE, NOT AN ERROR — a fresh deploy, the
        period after a DB restore, or any genuinely quiet 24 h all produce zero
@@ -471,10 +484,14 @@
     svg.appendChild(cap);
     el("ingLegend").innerHTML =
       '<span>one bar = one clock hour · hover for exact counts</span>' +
-      '<span class="dim">⚠️ this chart sums <b>every</b> source, unlike the stages card ' +
-      'and the tile above, which are detection-rule-only — non-rule jobs are ~2.6% of ' +
-      'scanned, so the shape is unaffected, but the scoping differs and is stated ' +
-      'rather than assumed</span>' +
+      '<span class="dim">⚠️ this chart sums <b>every</b> source, unlike the stages card and the ' +
+      'tile above, which are scoped by meaning. The non-counted share of <code>scanned</code> ' +
+      'right now is <b>' +
+      (function () { var t = (fnRow.rule_scanned || 0) + (fnRow.excluded_non_rule_scanned || 0);
+                     return t ? (fnRow.excluded_non_rule_scanned / t * 100).toFixed(1) + '%'
+                              : 'n/a'; })() +
+      '</b> — computed live, not a frozen constant (it was hardcoded at "~2.6%" and a verifier ' +
+      'measured the true daily figure ranging 0.09–6.74% over 30 days)</span>' +
       '<span><span class="swatch" style="background:var(--cat-primary);opacity:0.42;outline:1px dashed var(--chart-label)"></span>' +
       'first &amp; last are <b>partial</b> hours — not comparable to a full hour</span>' +
       (gaps ? '<span><span class="swatch" style="background:var(--severity-high);opacity:0.3"></span>' +
@@ -496,8 +513,10 @@
     var fnr = m.rule_funnel_24h.row;
     var scanned = fnr.rule_scanned, flagged = fnr.rule_flagged;
     var rows = [
-      ["events_scanned", scanned, "records examined by detection rules"],
-      ["events_flagged", flagged, "of those, passed the rule's own quality filter"],
+      ["events_scanned", scanned,
+       "records examined — summed ONLY over sources whose scanned really is a record count"],
+      ["events_flagged", flagged,
+       "passed a filter — summed ONLY over the 5 sources whose flagged really is a filter output"],
       ["COUNT(*) FROM alerts", written, "alert rows actually written"]
     ].map(function (s) {
       return '<div style="display:flex;justify-content:space-between;align-items:baseline;' +
@@ -550,22 +569,30 @@
         'producing", and what that unit IS differs per job — see the table below. ' +
         'All-time it reads <b>' + n(truth.emitted_counter_all_time) +
         '</b> against <b>' + n(truth.alert_rows_all_time) + '</b> alert rows.</div>' +
-      '<div class="warn" style="margin-top:0.5rem">⚠️ <b>These stages count DETECTION RULES ' +
-        'only.</b> Non-rule jobs write to the same three columns but mean different things by ' +
-        'them, so they are excluded: they would have added <b>' +
-        n(fnr.excluded_non_rule_scanned) + '</b> to scanned and <b>' +
-        n(fnr.excluded_non_rule_flagged) + '</b> to flagged — ' +
-        (scanned + flagged ? '<b>' +
-          ((fnr.excluded_non_rule_flagged /
-            ((fnr.excluded_non_rule_flagged || 0) + (flagged || 0)) * 100) || 0).toFixed(1) +
-          '%</b> of the flagged figure alone' : 'a material share') + '.</div>' +
+      '<div class="warn" style="margin-top:0.5rem">🔴 <b>These stages are scoped by MEANING, not ' +
+        'by source type — and that correction is the fourth time this page shipped a real number ' +
+        'under a false label.</b> <code>events_flagged</code> is a genuine filter output in only ' +
+        'five sources. Others pass the SAME value to scanned and flagged (RULE_01B, RULE_09, ' +
+        'RULE_10, RULE_15, RULE_ANOMALY), or a DB-write count (RULE_11, RULE_16), or an aggregate ' +
+        'in a different unit (RULE_02, RULE_CLUSTER). Scoping to "detection rules" — the previous ' +
+        'fix — would have shown <b>' + n(fnr.flagged_if_scoped_by_source_type_only) +
+        '</b> here instead of <b>' + n(fnr.rule_flagged) + '</b>: ' +
+        (fnr.flagged_if_scoped_by_source_type_only ? '<b>' +
+          ((fnr.flagged_if_scoped_by_source_type_only - fnr.rule_flagged) /
+            fnr.flagged_if_scoped_by_source_type_only * 100).toFixed(1) + '%</b>' : 'much') +
+        ' of that figure was not "passed a filter". Every excluded source is listed below with ' +
+        'what its counters actually are.</div>' +
       (excluded.length ? '<div class="scroll" style="margin-top:0.5rem">' +
-        '<table><thead><tr><th>excluded source</th><th>scanned</th><th>what that IS</th>' +
-        '<th>flagged</th><th>what that IS</th></tr></thead><tbody>' +
+        '<table><thead><tr><th>source</th><th>rule?</th><th>scanned</th><th>counted</th>' +
+        '<th>what scanned IS</th><th>flagged</th><th>counted</th><th>what flagged IS</th>' +
+        '</tr></thead><tbody>' +
         excluded.map(function (s) {
-          return '<tr><td>' + esc(s.source) + '</td><td>' + n(s.scanned) + '</td><td>' +
+          var yn = function (v) { return v ? '<span class="fresh">yes</span>'
+                                           : '<span class="flag">no</span>'; };
+          return '<tr><td>' + esc(s.source) + '</td><td>' + (s.is_detection_rule ? 'rule' : 'infra') +
+            '</td><td>' + n(s.scanned) + '</td><td>' + yn(s.scanned_counted) + '</td><td>' +
             meaningRow(s, "scanned") + '</td><td>' + n(s.flagged) + '</td><td>' +
-            meaningRow(s, "flagged") + '</td></tr>';
+            yn(s.flagged_counted) + '</td><td>' + meaningRow(s, "flagged") + '</td></tr>';
         }).join("") + '</tbody></table></div>' : "") +
       (v.length ? '<div class="warn" style="margin-top:0.5rem">⚠️ <b>And it is not a strict ' +
         'funnel.</b> These sources have logged <code>flagged &gt; scanned</code>, so the stages ' +
@@ -781,8 +808,20 @@
        absent STATUS — a real DB with no 'pending' row rendered width:NaN%, which
        CSS silently ignores, so a segment vanished while the legend printed "—".
        Found by a verifier on a real database. */
-    var o = { complete: 0, pending: 0, unavailable: 0 }, oTot = 0;
-    m.outcome_labeling.rows.forEach(function (r) { o[r.status] = r.n || 0; oTot += (r.n || 0); });
+    /* 🔴 RENDER WHATEVER STATUSES COME BACK, not a hardcoded set. `alert_outcomes`
+       defines one this page never showed: `excluded`, meaning the alert was
+       QUARANTINED because its source had known-bad attribution. Prod holds 0 today, so
+       a quarantine would have silently shrunk the other bars with nothing to explain
+       the gap. A re-audit found it by reading `label_outcomes.py` rather than the
+       values that happened to be present in the data.
+       (Worded to avoid tripping test_cleanup_pass's stale-gate-wording guard, which
+       greps user-facing pages for "four ... rule" — a real guard that my prose
+       coincidentally matched.) */
+    var oRows = (m.outcome_labeling.rows || []).slice();
+    var oTot = oRows.reduce(function (a, r) { return a + (r.n || 0); }, 0);
+    var oMeaning = m.outcome_labeling.status_meaning || {};
+    var oReasons = m.outcome_labeling.reasons || [];
+    var SEG_FILL = { complete: "var(--cat-primary)", pending: "var(--cat-neutral)" };
     var det = m.scheduler_failure_detail_7d.rows;
     el("health").innerHTML =
       '<div style="display:flex;gap:1.1rem;flex-wrap:wrap">' +
@@ -809,13 +848,32 @@
         '<div class="unit" style="margin-bottom:0.3rem">forward-return labelling (<code>alert_outcomes</code>)</div>' +
         (outDown ? downNote(m.outcome_labeling, "Forward-return labelling") :
         '<div style="display:flex;gap:2px;height:16px;margin-bottom:0.4rem">' +
-          '<div style="background:var(--cat-primary);width:' + (oTot ? (o.complete/oTot*100).toFixed(1) : 0) + '%"></div>' +
-          '<div style="background:var(--cat-neutral);width:' + (oTot ? (o.pending/oTot*100).toFixed(1) : 0) + '%"></div>' +
-          '<div class="hatch-key" style="width:' + (oTot ? (o.unavailable/oTot*100).toFixed(1) : 0) + '%"></div></div>' +
-        '<div class="legend">' +
-          '<span><span class="swatch" style="background:var(--cat-primary)"></span>complete <b>' + n(o.complete) + '</b></span>' +
-          '<span><span class="swatch" style="background:var(--cat-neutral)"></span>pending <b>' + n(o.pending) + '</b></span>' +
-          '<span><span class="swatch hatch-key"></span>unpriceable <b>' + n(o.unavailable) + '</b></span></div>' +
+          oRows.map(function (r) {
+            var fill = SEG_FILL[r.status];
+            var st = fill ? "background:" + fill
+                          : "background-image:repeating-linear-gradient(45deg,var(--cat-unknown) 0 3px,var(--surface-1) 3px 5px)";
+            return '<div title="' + esc(r.status) + ': ' + n(r.n) + '" style="' + st +
+                   ';width:' + (oTot ? (r.n/oTot*100).toFixed(1) : 0) + '%"></div>';
+          }).join("") + '</div>' +
+        '<div class="legend">' + oRows.map(function (r) {
+            var fill = SEG_FILL[r.status];
+            return '<span><span class="swatch' + (fill ? '' : ' hatch-key') + '"' +
+              (fill ? ' style="background:' + fill + '"' : '') + '></span>' +
+              esc(r.status) + ' <b>' + n(r.n) + '</b></span>';
+          }).join("") + '</div>' +
+        /* ⚠️ "unavailable" is NOT "unpriceable" — measured on prod, only ~1/3 of those
+           rows are a missing price; the rest never had a usable symbol. Show the real
+           reasons rather than averaging three causes into one word. */
+        (oReasons.length ? '<div class="qual" style="margin-top:0.3rem">why not measured: ' +
+          oReasons.map(function (r) { return '<b>' + n(r.n) + '</b> ' + esc(r.reason); })
+                  .join(' · ') + '</div>' : "") +
+        '<div class="qual">' + oRows.map(function (r) {
+            var mean = oMeaning[r.status];
+            return '<code>' + esc(r.status) + '</code> — ' +
+              (mean ? esc(mean)
+                    : '<span class="dim">status not documented; deliberately not given ' +
+                      'another status\'s meaning</span>');
+          }).join('<br>') + '</div>' +
         '<div class="qual">Labelling progress only. <b>No win rate is derived from it</b> — see the omissions table.</div>') +
       '</div>';
   }
@@ -977,8 +1035,15 @@
     return fetch('/api/telemetry', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
       .then(function (d) {
+        /* 🔴 RENDER FIRST, THEN claim success. `lastAsOf` used to be assigned BEFORE
+           render(), so when render() threw — which it does on the connection-degraded
+           payload, where `metrics` is {} — the catch below reported "showing the last
+           good reading" about a load that had rendered nothing, and the `if (!lastAsOf)`
+           guard suppressed the honest "Telemetry unavailable" message. Found by a
+           verifier executing this IIFE against the real empty-metrics payload. */
+        render(d);
         lastAsOf = d.as_of_utc; lastFetchMs = Date.now();
-        render(d); paintLiveBar(d, null);
+        paintLiveBar(d, null);
         window.__TELEMETRY__ = d;      /* seam for verification, not for display */
       })
       .catch(function (e) {

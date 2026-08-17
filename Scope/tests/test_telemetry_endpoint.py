@@ -173,10 +173,13 @@ def test_counter_meaning_never_gives_a_source_another_sources_gloss():
     top-3, so when PARSE_HOUSE_PDFS displaced DB_BACKUP the page called 703 parsed
     congressional transactions "a snapshot file".
     """
-    # every entry is a 3-tuple of non-empty strings
+    # every entry is a 5-tuple: three glosses plus two semantic booleans. (It was a
+    # 3-tuple until a verifier showed the glosses alone were not enough — the page also
+    # has to know WHETHER each column means what its name says.)
     for source, means in _COUNTER_MEANING.items():
-        assert isinstance(means, tuple) and len(means) == 3, source
-        assert all(isinstance(m, str) and m.strip() for m in means), source
+        assert isinstance(means, tuple) and len(means) == 5, source
+        assert all(isinstance(m, str) and m.strip() for m in means[:3]), source
+        assert isinstance(means[3], bool) and isinstance(means[4], bool), source
     # the two glosses the false-label defect confused must be distinct and correct
     assert "snapshot" in _COUNTER_MEANING["DB_BACKUP"][2].lower()
     assert "transaction" in _COUNTER_MEANING["PARSE_HOUSE_PDFS"][2].lower()
@@ -353,9 +356,119 @@ def test_db_backup_flagged_is_glossed_as_a_FAILURE_not_as_unused():
     when the backup RAISED or integrity_check FAILED. The gloss said "unused (always
     0)" — a false label on the highest-severity signal on the page. Pinned so the
     one-call-site assumption cannot come back."""
-    scanned, flagged, emitted = _COUNTER_MEANING["DB_BACKUP"]
+    scanned, flagged, emitted = _COUNTER_MEANING["DB_BACKUP"][:3]
     low = flagged.lower()
     assert "fail" in low, f"flagged must be described as a failure signal, got {flagged!r}"
     assert "worse" in low, "and its polarity must be stated"
     assert "unused" not in low and "always 0" not in low
     assert "success" in scanned.lower() or "0 on a failed" in scanned.lower()
+
+
+# ── the outcome-status gloss, found by a re-audit AFTER the first verifier ──────
+def test_all_four_outcome_statuses_are_documented_not_just_the_three_in_the_data():
+    """`alert_outcomes` has FOUR statuses; prod currently holds three.
+
+    `scripts/label_outcomes.py` writes `excluded` when an alert's rule was
+    QUARANTINED for known-bad attribution (`:190`, and an UPDATE at `:229`). Prod has
+    0 such rows, so every version of this page rendered a hardcoded three and would
+    have silently shrunk the other bars if a quarantine ever happened. Pinned so the
+    absence of a value in today's data cannot again be mistaken for its absence from
+    the schema.
+    """
+    from api.routers import telemetry as mod
+    meanings = None
+    # the map lives on the response, so build one against the disposable test DB
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    meanings = TestClient(app).get("/api/telemetry").json()["metrics"] \
+        ["outcome_labeling"]["status_meaning"]
+    for st in ("complete", "pending", "unavailable", "excluded"):
+        assert st in meanings, f"{st!r} is a real status that label_outcomes.py writes"
+        assert meanings[st].strip(), f"{st!r} has no meaning documented"
+    # the one that matters most must say WHY it exists
+    assert "quarantin" in meanings["excluded"].lower(), \
+        "'excluded' means quarantined for known-bad attribution — say so"
+
+
+def test_unavailable_is_not_glossed_as_merely_unpriceable():
+    """Measured on prod: of 1,705 `unavailable` rows only 546 are a missing price.
+
+    1,026 are 'non-single-equity (basket/multi-ticker)' and 133 are 'no ticker' — the
+    alert never had a usable symbol, which is a different fact from the market not
+    having a price. The page called all of them 'unpriceable'.
+    """
+    from fastapi.testclient import TestClient
+
+    from api.main import app
+    block = TestClient(app).get("/api/telemetry").json()["metrics"]["outcome_labeling"]
+    mean = block["status_meaning"]["unavailable"].lower()
+    assert "not" in mean and "unpriceable" in mean, \
+        "the gloss must explicitly reject the 'unpriceable' shorthand"
+    assert "symbol" in mean or "single-equity" in mean, \
+        "it must name the real dominant cause (no usable single-equity symbol)"
+    # and the reason breakdown must be served so the page can show it
+    assert "reasons" in block and isinstance(block["reasons"], list)
+    assert "reasons_sql" in block and block["reasons_sql"].strip()
+
+
+# ── the FOURTH occurrence of the false-label defect, found one layer inside the fix ──
+def test_flagged_is_only_counted_where_it_is_actually_a_filter_output():
+    """`events_flagged` has no consistent meaning across sources.
+
+    A verifier proved the rule-only funnel left a LARGER error than it removed: on prod
+    46.7% of the displayed "passed the quality filter" figure was not that. Read off the
+    call sites — RULE_01B/RULE_09/RULE_10/RULE_15/RULE_ANOMALY pass the SAME value to
+    scanned and flagged; RULE_11/RULE_16 pass a DB-write count; RULE_02/RULE_CLUSTER pass
+    an aggregate in a different unit.
+    """
+    from api.routers.telemetry import _flagged_is_filter, _scanned_is_records
+
+    # genuine filter outputs — these five and no more
+    for src in ("RULE_OSINT", "RULE_REDDIT", "RULE_07", "RULE_06", "RULE_08"):
+        assert _flagged_is_filter(src), f"{src}'s flagged IS a filter output"
+    # NOT filter outputs, each for a different documented reason
+    for src in ("RULE_01B", "RULE_09", "RULE_10", "RULE_15", "RULE_ANOMALY",
+                "RULE_11", "RULE_16", "RULE_02", "RULE_CLUSTER"):
+        assert not _flagged_is_filter(src), (
+            f"{src}'s flagged is NOT 'passed a filter' — counting it reproduces the defect")
+
+
+def test_rule_anomaly_is_excluded_from_records_examined():
+    """`rule_anomaly.py:130` writes scanned=flagged=emitted — all three are the ALERTS IT
+    WROTE. It is structurally identical to `decay_alerts.py:104`, the writer this module
+    cites as its reason for excluding non-rule sources; being a detection rule, the old
+    source-type scoping waved it straight through into "records examined"."""
+    from api.routers.telemetry import _COUNTER_MEANING, _flagged_is_filter, _scanned_is_records
+    assert not _scanned_is_records("RULE_ANOMALY")
+    assert not _flagged_is_filter("RULE_ANOMALY")
+    means = _COUNTER_MEANING["RULE_ANOMALY"]
+    assert "identical" in means[0].lower() and "emitted" in means[0].lower(), \
+        "its scanned gloss must say it is identical to the emitted count"
+
+
+def test_every_source_that_logs_to_prod_has_a_documented_meaning():
+    """A source with no entry renders 'not documented' — acceptable — but the ones we
+    know log to prod should all be covered, or the excluded table is mostly blanks."""
+    from api.routers.telemetry import _COUNTER_MEANING
+    for src in ("RULE_01B", "RULE_02", "RULE_06", "RULE_07", "RULE_08", "RULE_09",
+                "RULE_10", "RULE_11", "RULE_15", "RULE_16", "RULE_ADSB", "RULE_ANOMALY",
+                "RULE_CLUSTER", "RULE_OSINT", "RULE_REDDIT", "RULE_COLLECTOR",
+                "SCORING", "DB_BACKUP", "DECAY", "MONITOR_BACKUP_STALL",
+                "MONITOR_ENRICH_STALL", "INGEST_HOUSE_INDEX", "PARSE_HOUSE_PDFS",
+                "REFRESH_TICKERS", "LABEL_OUTCOMES", "BRIEF", "DAILY_BRIEF",
+                "BACKTEST", "SCHEDULER_JOB_FAILURE"):
+        m = _COUNTER_MEANING.get(src)
+        assert m and len(m) == 5, f"{src} has no 5-tuple meaning"
+        assert isinstance(m[3], bool) and isinstance(m[4], bool), \
+            f"{src} must declare whether each column means what its name says"
+
+
+def test_label_outcomes_flagged_gloss_no_longer_says_merely_unpriceable():
+    """The twin of the outcome-status defect: `_COUNTER_MEANING['LABEL_OUTCOMES'][1]`
+    described the same column as 'unpriceable alerts', which is wrong for ~68% of them."""
+    from api.routers.telemetry import _COUNTER_MEANING
+    gloss = _COUNTER_MEANING["LABEL_OUTCOMES"][1].lower()
+    assert "not merely 'unpriceable'" in gloss or "not merely \"unpriceable\"" in gloss, \
+        "the gloss must reject the 'unpriceable' shorthand outright"
+    assert "symbol" in gloss, "and name the real dominant cause"
