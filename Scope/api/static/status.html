@@ -10,87 +10,910 @@
   <link rel="stylesheet" href="/tokens.css"/>
   <script src="/rule-names.js"></script>
   <style>
-* { box-sizing:border-box; margin:0; padding:0; }
-    body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; min-height:100vh; }
-    nav { position:sticky; top:0; border-bottom:1px solid var(--border); background:var(--surface-nav); padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; }
-    .nav-brand { font-family:var(--font-sans); font-weight:900; font-size:1.2rem; color:var(--amber); text-decoration:none; }
-    nav a { font-family:var(--font-mono); font-size:0.68rem; color:var(--cream2); text-decoration:none; letter-spacing:0.06em; text-transform:uppercase; }
-    nav a:hover { color:var(--amber); }
-    .page { max-width:1000px; margin:0 auto; padding:2.5rem 2rem; }
-    .page-title { font-family:var(--font-sans); font-size:2rem; font-weight:700; margin-bottom:0.3rem; }
-    .page-sub { color:var(--cream2); font-size:0.85rem; margin-bottom:1.5rem; }
-    .status-pill { display:inline-block; font-family:var(--font-mono); font-size:0.66rem; padding:3px 10px; border-radius:20px; margin-bottom:1.5rem; }
-    .ok { background:color-mix(in srgb, var(--direction-buy) 15%, transparent); color:var(--green); } .bad { background:color-mix(in srgb, var(--severity-critical) 15%, transparent); color:var(--red); }
-    table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:0.7rem; }
-    th { text-align:left; color:var(--muted); font-size:0.58rem; letter-spacing:0.06em; text-transform:uppercase; padding:0.5rem 0.6rem; border-bottom:1px solid var(--border2); }
-    td { padding:0.55rem 0.6rem; border-bottom:1px solid var(--border); }
-    tr.stale td { background:color-mix(in srgb, var(--severity-critical) 6%, transparent); }
-    .flag { color:var(--red); font-weight:600; }
-    .fresh { color:var(--green); }
-    .src { color:var(--amber2); }
-    .loading { padding:3rem; text-align:center; color:var(--muted); font-family:var(--font-mono); }
+  /* ── chart palette ──────────────────────────────────────────────────────
+     Sequential ramp for magnitude: ONE hue (Scope's copper), stepped by
+     luminance. Dark steps RISE 0.0106 -> 0.3501 with the top at 7.06:1 on
+     --surface-1; light steps FALL 0.8725 -> 0.0677 with the top at 7.84:1.
+
+     ⚠️ THE LIGHT RAMP IS SELECTED, NOT FLIPPED. Against a light surface a
+     rising ramp reads BACKWARDS — the "no run" step becomes the most prominent
+     cell and the busiest hour the faintest.
+
+     ⚠️ In-cell number ink is near-black vs near-WHITE at a luminance threshold
+     of 0.18, chosen by computing the worst case over all ten numbered steps in
+     both themes: worst 4.80:1 (dark) / 5.20:1 (light). An earlier version used
+     a MID gray and fell to 1.41:1 on a third of cells, which silently voided
+     the redundant-number encoding this grid depends on.
+
+     Categorical slots avoid a red/green pair: copper-vs-neutral measures CVD
+     separation dE 17.8 (protan) / 20.8 normal-vision, where green/red reached
+     only dE 7.1 (deutan). Method: OKLab dE x100 under Machado-Oliveira-
+     Fernandes (2009) severity 1.0. Every segment is also directly labelled, so
+     identity never rests on hue. */
+  :root {
+    --seq-0:#1b1a1c; --seq-1:#2f2822; --seq-2:#4a3a26; --seq-3:#6b512e;
+    --seq-4:#8f6c3c; --seq-5:#b0854c; --seq-6:#c89664;
+    --cat-primary:#c89664; --cat-neutral:#6a6a72; --cat-unknown:#3a3a42;
+    --chart-label:#8a8a92;      /* 5.41:1 on dark --surface-1 */
+    --ink-on-light:#141310; --ink-on-dark:#ffffff;
+  }
+  :root[data-theme="light"] {
+    --seq-0:#f2f0ec; --seq-1:#eadfd0; --seq-2:#dcc4a3; --seq-3:#c8a274;
+    --seq-4:#ab7f4e; --seq-5:#8a6134; --seq-6:#63431f;
+    --cat-primary:#96683a;      /* 4.25:1 light; #c89664 was 2.31:1 — below the 3:1 floor */
+    --chart-label:#5f5f68;      /* 5.55:1 light; #8a8a92 was 3.01:1 at 9px */
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--cream); font-family:Inter,sans-serif; min-height:100vh; }
+  nav { position:sticky; top:0; border-bottom:1px solid var(--border); background:var(--surface-nav);
+        padding:0 2rem; display:flex; align-items:center; gap:1.4rem; height:56px; z-index:20; }
+  .page { max-width:1240px; margin:0 auto; padding:2.2rem 2rem 5rem; }
+  .page-title { font-family:var(--font-sans); font-size:2rem; font-weight:700; margin-bottom:0.3rem; }
+  .page-sub { color:var(--cream2); font-size:0.85rem; margin-bottom:1.1rem; max-width:80ch; line-height:1.5; }
+
+  /* live state, not a capture stamp */
+  .livebar { display:flex; gap:1rem; flex-wrap:wrap; align-items:center;
+             font-family:var(--font-mono); font-size:0.66rem; color:var(--muted);
+             border:1px solid var(--border); background:var(--surface-1);
+             padding:0.6rem 0.85rem; margin-bottom:1.4rem; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block;
+         margin-right:5px; vertical-align:middle; }
+  .dot.stale { background:var(--red); }
+  .livebar b { color:var(--cream); font-weight:500; }
+
+  .grid { display:grid; gap:0.9rem; margin-bottom:0.9rem; }
+  .g4 { grid-template-columns:repeat(4,1fr); } .g3 { grid-template-columns:repeat(3,1fr); }
+  .g2 { grid-template-columns:1fr 1fr; }
+  @media (max-width:1000px){ .g4{grid-template-columns:repeat(2,1fr);} .g3,.g2{grid-template-columns:1fr;} }
+
+  .card { border:1px solid var(--border); background:var(--surface-1); display:flex; flex-direction:column; }
+  .card > h2 { font-family:var(--font-mono); font-size:0.6rem; text-transform:uppercase;
+               letter-spacing:0.07em; color:var(--muted); font-weight:600;
+               padding:0.55rem 0.75rem; border-bottom:1px solid var(--border); }
+  .cbody { padding:0.75rem; flex:1; }
+  .stat { font-family:var(--font-mono); font-size:1.8rem; letter-spacing:-0.02em; color:var(--cream); line-height:1.05; }
+  .stat.sm { font-size:1.3rem; }
+  .unit { font-size:0.68rem; color:var(--cream2); }
+  .qual { font-size:0.65rem; color:var(--muted); margin-top:0.35rem; line-height:1.5; }
+
+  details.prov { margin:0.5rem 0.75rem 0.6rem; border-top:1px dashed var(--border); padding-top:0.45rem; }
+  details.prov summary { font-family:var(--font-mono); font-size:0.57rem; text-transform:uppercase;
+                         letter-spacing:0.07em; color:var(--muted); cursor:pointer; }
+  details.prov pre { font-family:var(--font-mono); font-size:0.58rem; color:var(--cream2);
+                     white-space:pre-wrap; margin-top:0.4rem; line-height:1.5; }
+
+  table { width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:0.65rem; }
+  th { text-align:right; color:var(--muted); font-size:0.55rem; letter-spacing:0.06em;
+       text-transform:uppercase; padding:0.4rem 0.5rem; border-bottom:1px solid var(--border2);
+       position:sticky; top:0; background:var(--surface-1); }
+  td { padding:0.42rem 0.5rem; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  tr.stale td { background:color-mix(in srgb, var(--severity-critical) 6%, transparent); }
+  .flag { color:var(--red); font-weight:600; } .fresh { color:var(--green); }
+  .src { color:var(--amber2); } .dim { color:var(--muted); }
+  .scroll { max-height:22rem; overflow:auto; }
+
+  svg { display:block; width:100%; overflow:visible; }
+  .bar { fill:var(--cat-primary); }
+  .cell { stroke:var(--surface-1); stroke-width:2; }
+  .bar:hover, .cell:hover { stroke:var(--cream); stroke-width:1.5; }
+  .cellnum { font-family:var(--font-mono); font-size:8px; pointer-events:none; }
+  .legend { display:flex; gap:0.9rem; flex-wrap:wrap; font-size:0.63rem; color:var(--cream2); margin-top:0.6rem; }
+  .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .swatch { width:10px; height:10px; display:inline-block; }
+  .hatch-key { background-image:repeating-linear-gradient(45deg,var(--cat-unknown) 0 3px,var(--surface-1) 3px 5px); }
+
+  .warn { border-left:3px solid var(--severity-high); background:color-mix(in srgb,var(--severity-high) 7%,transparent);
+          padding:0.55rem 0.75rem; font-size:0.66rem; line-height:1.55; color:var(--cream2); }
+  .warn b { color:var(--severity-high); }
+  .omit td { text-align:left; white-space:normal; font-family:Inter,sans-serif; font-size:0.7rem; line-height:1.5; }
+  .omit td:first-child { font-family:var(--font-mono); color:var(--cream); width:14rem; vertical-align:top; }
+  code { font-family:var(--font-mono); color:var(--amber2); font-size:0.95em; }
+  .tip { position:fixed; pointer-events:none; z-index:60; display:none; background:var(--surface-3);
+         border:1px solid var(--border2); padding:0.4rem 0.6rem; font-family:var(--font-mono);
+         font-size:0.64rem; color:var(--cream); line-height:1.5; max-width:22rem; }
+  .loading { padding:2rem; text-align:center; color:var(--muted); font-family:var(--font-mono); font-size:0.7rem; }
+  h3.sec { font-family:var(--font-mono); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.08em;
+           color:var(--cream2); margin:1.8rem 0 0.7rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border); }
   </style>
 </head>
 <body>
-<nav>
-  <a href="/" class="nav-brand">◈ SCOPE</a>
-  <a href="/">Brief</a><a href="/home">Dashboard</a><a href="/performance">Performance</a><a href="/feed">Alerts</a>
-</nav>
+<nav><a href="/" class="nav-brand">◈ SCOPE</a></nav>
+<div class="tip" id="tip"></div>
+
 <div class="page">
   <div class="page-title">System Status</div>
-  <div class="page-sub">Scheduler health — every job's cadence and when it last actually ran. A job that hasn't run in more than 2× its interval is flagged (it may be silently failing).</div>
+  <div class="page-sub">
+    Live operational telemetry — throughput, per-rule activity, scheduler health and the
+    corroboration engine's own counters, read from <code>activity_log</code>, <code>alerts</code>,
+    <code>alert_outcomes</code> and <code>themes</code>. Every card carries the SQL behind its
+    number in a <b>provenance</b> row, because a label is a claim and should be checkable.
+  </div>
+
+  <div class="livebar" id="livebar">
+    <span><span class="dot" id="dot"></span><b id="liveState">connecting…</b></span>
+  </div>
+
+  <div id="tele"><div class="loading">Loading live telemetry…</div></div>
+
+  <h3 class="sec">Scheduler health — cadence and staleness per source</h3>
+  <div class="page-sub" style="font-size:0.72rem;margin-bottom:0.8rem">
+    Every job's expected cadence and when it last actually ran. A job that hasn't run in more than
+    2× its interval is flagged — it may be silently failing.
+  </div>
   <div id="pill"></div>
-  <div id="content"><div class="loading">Loading scheduler status…</div></div>
+  <div id="sched"><div class="loading">Loading scheduler status…</div></div>
 </div>
+
 <script>
-  // Expected cadence (seconds) per activity_log source — used to flag staleness.
-  const EXPECTED = {
+(function () {
+  "use strict";
+  var POLL_MS = 60000;   /* justified in the report: measured endpoint cost is
+                            ~139 ms median, so this is a ~0.23% duty cycle, and
+                            the finest thing displayed is an hourly bucket while
+                            the fastest rule cadence is 5 minutes — 60 s is
+                            already far finer than anything can change. */
+  var el = function (id) { return document.getElementById(id); };
+  var tip = el("tip");
+  var lastAsOf = null, lastFetchMs = 0, pollTimer = null;
+
+  function n(v) { return (v === null || v === undefined) ? "—" : Number(v).toLocaleString("en-US"); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function seq() {
+    var cs = getComputedStyle(document.documentElement);
+    return [0,1,2,3,4,5,6].map(function (i) { return cs.getPropertyValue("--seq-" + i).trim(); });
+  }
+  function relLum(hex) {
+    var h = String(hex).replace("#", ""); if (h.length !== 6) return 0;
+    var p = [0,2,4].map(function (i) { var c = parseInt(h.substr(i,2),16)/255;
+      return c <= 0.04045 ? c/12.92 : Math.pow((c+0.055)/1.055, 2.4); });
+    return 0.2126*p[0] + 0.7152*p[1] + 0.0722*p[2];
+  }
+  /* Ink from the CELL's own luminance, so it stays legible in either theme
+     without a second rule that could drift out of sync with the ramp. */
+  function inkFor(bg) {
+    var cs = getComputedStyle(document.documentElement);
+    return relLum(bg) > 0.18 ? (cs.getPropertyValue("--ink-on-light").trim() || "#141310")
+                             : (cs.getPropertyValue("--ink-on-dark").trim()  || "#ffffff");
+  }
+  function svgEl(t, a) {
+    var e = document.createElementNS("http://www.w3.org/2000/svg", t);
+    for (var k in a) e.setAttribute(k, a[k]);
+    return e;
+  }
+  function hover(node, html) {
+    node.addEventListener("mousemove", function (ev) {
+      tip.innerHTML = html; tip.style.display = "block";
+      tip.style.left = Math.min(ev.clientX + 14, innerWidth - 360) + "px";
+      tip.style.top = (ev.clientY + 14) + "px";
+    });
+    node.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+  }
+  function prov(id, text) {
+    return '<details class="prov"><summary>provenance</summary><pre>' + esc(text) + '</pre></details>';
+  }
+  function ageStr(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    return s < 90 ? s + "s ago" : s < 5400 ? Math.round(s/60) + "m ago" : Math.round(s/3600) + "h ago";
+  }
+
+  /* ── the live bar: refresh state, never a capture stamp ─────────────────── */
+  function paintLiveBar(d, err) {
+    var bar = el("livebar");
+    if (err) {
+      bar.innerHTML = '<span><span class="dot stale"></span><b>refresh FAILED</b></span>' +
+        '<span>' + esc(String(err)) + '</span>' +
+        (lastAsOf ? '<span>showing the last good reading, as of <b>' + esc(lastAsOf) +
+                    '</b> (' + ageStr(Date.now() - lastFetchMs) + ') — <b>this is now stale</b></span>'
+                  : '<span>no reading has succeeded yet — nothing below is trustworthy</span>');
+      return;
+    }
+    bar.innerHTML =
+      '<span><span class="dot"></span><b>LIVE</b></span>' +
+      '<span>as of <b>' + esc(d.as_of_utc) + '</b></span>' +
+      '<span>polling every <b>' + Math.round(POLL_MS/1000) + 's</b></span>' +
+      '<span>server query <b>' + d.query_ms + ' ms</b></span>' +
+      '<span id="ageTick" class="dim"></span>';
+    tickAge();
+  }
+  function tickAge() {
+    var t = el("ageTick");
+    if (t && lastFetchMs) t.textContent = "· fetched " + ageStr(Date.now() - lastFetchMs);
+  }
+  setInterval(tickAge, 5000);
+
+  /* ── render ─────────────────────────────────────────────────────────────── */
+  function render(d) {
+    var m = d.metrics, out = [];
+    var hourly = m.ingest_hourly_24h.rows;
+    var scanned = hourly.reduce(function (a,r){ return a + (r.scanned||0); }, 0);
+    var flagged = hourly.reduce(function (a,r){ return a + (r.flagged||0); }, 0);
+    var counter = hourly.reduce(function (a,r){ return a + (r.emitted_counter||0); }, 0);
+    var split   = m.run_split_24h.row;
+    var written = m.alerts_written_24h.row.alerts_written_24h;
+    var cov     = m.coverage.row;
+    var peak    = m.scale_reference_30d.row;
+
+    /* ── tiles ── */
+    out.push('<div class="grid g4">' + [
+      ['<div class="stat">' + n(m.rule_funnel_24h.row.rule_scanned) + '</div>' +
+       '<div class="unit">records scanned by detection rules, last 24 h</div>' +
+       '<div class="qual"><code>SUM(events_scanned)</code> over <b>detection rules only</b>. ' +
+       'Non-rule jobs write the same column meaning different things, and would add <b>' +
+       n(m.rule_funnel_24h.row.excluded_non_rule_scanned) + '</b> — see the stages card.</div>',
+       m.rule_funnel_24h.sql + "\n\n" + m.rule_funnel_24h.why],
+      ['<div class="stat">' + n(split.rule_runs) + '</div><div class="unit">rule runs, last 24 h</div>' +
+       '<div class="qual">A further <b>' + n(split.non_rule_runs) + '</b> of the ' + n(split.all_runs) +
+       ' logged runs are <b>not rules</b> (scoring, backups, monitors, ingest) and are excluded here.</div>',
+       m.run_split_24h.sql + "\n\n" + m.run_split_24h.why],
+      ['<div class="stat">' + n(written) + '</div><div class="unit">alert rows written, last 24 h</div>' +
+       '<div class="qual"><code>COUNT(*) FROM alerts</code> — <b>not</b> <code>alerts_emitted</code>, ' +
+       'which reads ' + n(counter) + ' here. See the stages card.</div>',
+       m.alerts_written_24h.sql + "\n\n" + m.alerts_written_24h.why],
+      ['<div class="stat">' + n(cov.alerts) + '</div><div class="unit">alerts stored, all time</div>' +
+       '<div class="qual">newest <b>' + esc(cov.newest_alert) + '</b> · ' + n(cov.distinct_tickers) +
+       ' distinct tickers<br><span class="dim">case- and <code>$</code>-normalised, and ' +
+       'excluding <b>' + n(cov.multi_symbol_baskets) + '</b> multi-symbol basket strings ' +
+       '(the raw <code>COUNT(DISTINCT ticker)</code> is ' + n(cov.distinct_ticker_values_raw) +
+       ')</span></div>', m.coverage.sql]
+    ].map(function (t) {
+      return '<div class="card"><div class="cbody">' + t[0] + '</div>' + prov(0, t[1]) + '</div>';
+    }).join("") + '</div>');
+
+    /* ── ingest chart + stages ── */
+    out.push('<div class="grid g2">' +
+      '<div class="card"><h2>Ingest throughput — records scanned per hour, last 24 h</h2>' +
+      '<div class="cbody"><svg id="chIngest" height="190" role="img" aria-label="Records scanned per hour, last 24 hours"></svg>' +
+      '<div class="legend" id="ingLegend"></div></div>' +
+      prov(0, m.ingest_hourly_24h.sql + "\n\nFIELDS  " + m.ingest_hourly_24h.fields +
+              "\n\nNOTE  " + m.ingest_hourly_24h.note +
+              "\n\nY-AXIS  " + m.scale_reference_30d.sql + "\n  -> peak " +
+              n(peak.peak_hourly_scanned) + " / mean " + n(peak.mean_hourly_scanned) +
+              " over " + n(peak.hours_observed) + " hours\n  " + m.scale_reference_30d.why) +
+      '</div>' +
+      '<div class="card"><h2>The stages — scanned → flagged → written, last 24 h</h2>' +
+      '<div class="cbody" id="stages"></div>' +
+      prov(0, "SCANNED / FLAGGED  " + m.ingest_hourly_24h.sql +
+              "\n\nWRITTEN  " + m.alerts_written_24h.sql +
+              "\n\nCOUNTER TRUTH  " + m.emitted_counter_truth.sql +
+              "\n  " + m.emitted_counter_truth.why +
+              "\n  by source: " + m.emitted_counter_truth.by_source_sql +
+              "\n\nNOT A STRICT FUNNEL  " + m.funnel_monotonic_violations.sql +
+              "\n  " + m.funnel_monotonic_violations.why) +
+      '</div></div>');
+
+    /* ── heat grid ── */
+    out.push('<div class="card"><h2>Action heat grid — source × hour, by records scanned (last 24 h)</h2>' +
+      '<div class="cbody" style="overflow-x:auto"><svg id="chHeat" role="img" aria-label="Heat grid of records scanned by source and hour"></svg>' +
+      '<div class="legend" id="heatLegend"></div></div>' +
+      prov(0, m.heat_grid_24h.sql + "\n\nFIELDS  " + m.heat_grid_24h.fields) + '</div>');
+
+    /* ── per-source + per-rule ── */
+    out.push('<div class="grid g2" style="margin-top:0.9rem">' +
+      '<div class="card"><h2>Per-source volume, last 24 h</h2>' +
+      '<div class="cbody" style="padding:0"><div class="scroll"><table id="tblSource"></table></div></div>' +
+      prov(0, m.per_source_24h.sql + "\n\nFIELDS  " + m.per_source_24h.fields +
+              "\n\nNOTE  " + m.per_source_24h.note) + '</div>' +
+      '<div class="card"><h2>Alerts per rule</h2>' +
+      '<div class="cbody"><svg id="chRules" role="img" aria-label="Alerts per rule, all time"></svg></div>' +
+      prov(0, m.alerts_per_rule.sql + "\n\nFIELDS  " + m.alerts_per_rule.fields) + '</div></div>');
+
+    /* ── engine + health ── */
+    out.push('<div class="grid g3" style="margin-top:0.9rem">' +
+      '<div class="card"><h2>Signed-leg verdict — RULE_06 insider legs</h2>' +
+      '<div class="cbody" id="signed"></div>' +
+      prov(0, m.signed_leg_verdict_rule06.sql + "\n\nFIELDS  " + m.signed_leg_verdict_rule06.fields +
+              "\n\nWHY  " + m.signed_leg_verdict_rule06.why +
+              "\n\nPOPULATED BY RULE  " + m.signed_leg_verdict_rule06.populated_by_rule_sql +
+              "\n  -> " + m.signed_leg_verdict_rule06.populated_by_rule.map(function (r) {
+                  return r.rule + " " + r.populated + "/" + r.total; }).join(", ")) + '</div>' +
+      '<div class="card"><h2>Corroboration engine</h2><div class="cbody" id="corr"></div>' +
+      prov(0, m.corroborations.sql + "\n\nWHY  " + m.corroborations.why +
+              "\n\nDETAIL  " + m.corroboration_detail.sql + "\n  " + m.corroboration_detail.fields) + '</div>' +
+      '<div class="card"><h2>Pipeline health</h2><div class="cbody" id="health"></div>' +
+      prov(0, "FAILURES  " + m.scheduler_failures.sql + "\n  " + m.scheduler_failures.fields +
+              "\n\nDETAIL  " + m.scheduler_failure_detail_7d.sql +
+              "\n\nBACKLOG  " + m.scoring_backlog.sql + "\n  " + m.scoring_backlog.why +
+              "\n\nOUTCOMES  " + m.outcome_labeling.sql + "\n  " + m.outcome_labeling.fields) + '</div></div>');
+
+    /* ── data-quality disclosures ── */
+    out.push('<div class="card" style="margin-top:0.9rem"><h2>Data-quality caveats this page found in its own sources</h2>' +
+      '<div class="cbody" id="dq"></div>' +
+      prov(0, "LABEL VARIANTS  " + m.source_label_variants.sql + "\n  " + m.source_label_variants.why +
+              "\n\nFUNNEL  " + m.funnel_monotonic_violations.sql + "\n  " + m.funnel_monotonic_violations.why +
+              "\n\nSEVERITY  " + m.severity_24h.sql + "\n  " + m.severity_24h.note) + '</div>');
+
+    /* ── omissions ── */
+    out.push(omissionsHtml(m));
+
+    el("tele").innerHTML = out.join("");
+
+    drawIngest(hourly, peak);
+    drawStages(scanned, flagged, written, counter, m);
+    drawHeat(m);
+    drawSource(m, d);
+    drawRules(m);
+    drawSigned(m);
+    drawCorr(m);
+    drawHealth(m);
+    drawDQ(m);
+  }
+
+  /* ── ingest bars ────────────────────────────────────────────────────────── */
+  function drawIngest(hourly, peak) {
+    var svg = el("chIngest"); if (!svg) return;
+    /* ⚠️ AN EMPTY WINDOW IS A REAL STATE, NOT AN ERROR — a fresh deploy, the
+       period after a DB restore, or any genuinely quiet 24 h all produce zero
+       activity_log rows. This used to read hourly[0].hour and throw, which blanked
+       the ENTIRE panel and made the live bar cry "refresh FAILED" about a
+       perfectly good response. Say "nothing ran" instead of breaking. */
+    if (!hourly.length) {
+      svg.setAttribute("viewBox", "0 0 400 60"); svg.setAttribute("height", 60);
+      var msg = svgEl("text", { x: 0, y: 20, fill: "var(--chart-label)", "font-size": 11,
+        "font-family": "monospace" });
+      msg.textContent = "no activity_log rows in the last 24 h";
+      svg.appendChild(msg);
+      var msg2 = svgEl("text", { x: 0, y: 38, fill: "var(--chart-label)", "font-size": 9,
+        "font-family": "monospace" });
+      msg2.textContent = "this is a real reading, not a failed one — nothing logged a run";
+      svg.appendChild(msg2);
+      el("ingLegend").innerHTML = '<span class="dim">no bars to draw</span>';
+      return;
+    }
+    var W = svg.clientWidth || 560, H = 190, padL = 48, padB = 24, padT = 14, padR = 6;
+    var iw = W - padL - padR, ih = H - padB - padT;
+    /* Keep the DIVISOR safe at 1 but report the TRUE observed peak, so the caption
+       cannot read "y max = 1 = peak hour observed in 30 d" when the peak is 0. */
+    var peakObserved = peak.peak_hourly_scanned || 0;
+    var maxObs = peakObserved || 1;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    [0, 0.5, 1].forEach(function (f) {
+      var y = padT + ih - f * ih;
+      svg.appendChild(svgEl("line", { x1: padL, x2: padL+iw, y1: y, y2: y,
+        stroke: "var(--border)", "stroke-width": 1 }));
+      var t = svgEl("text", { x: padL-6, y: y+3, "text-anchor": "end",
+        fill: "var(--chart-label)", "font-size": 9, "font-family": "monospace" });
+      t.textContent = Math.round(f * maxObs).toLocaleString("en-US");
+      svg.appendChild(t);
+    });
+    var bw = iw / hourly.length;
+    /* first and last buckets are PARTIAL clock hours, clipped by the rolling
+       window edge; drawn full-width and unmarked they read as a throughput
+       collapse at both ends that is an artefact. Marked, never dropped. */
+    /* An hour in which NOTHING ran arrives with no_runs=true (the endpoint fills
+       the gap). It must NOT look like "ran and scanned zero" — a verifier showed
+       the old chart deleted such hours entirely, so a 4-hour outage rendered
+       identically to a 1-hour gap on an axis labelled "one bar = one clock hour".
+       An outage is exactly when someone opens /status. */
+    var gaps = 0;
+    hourly.forEach(function (r, i) {
+      var partial = (i === 0 || i === hourly.length - 1);
+      if (r.no_runs) {
+        gaps++;
+        var mark = svgEl("rect", { x: padL + i*bw + 1, y: padT, width: Math.max(1, bw - 2),
+          height: ih, fill: "var(--severity-high)", opacity: "0.10" });
+        hover(mark, "<b>" + esc(r.hour) + "</b><br><i>NO RUN LOGGED IN THIS HOUR</i>" +
+          "<br>not the same as 'ran and scanned nothing' — no job reported at all");
+        svg.appendChild(mark);
+        return;
+      }
+      var h = Math.max(1, ((r.scanned||0) / maxObs) * ih);
+      var rect = svgEl("rect", { class: "bar", x: padL + i*bw + 1, y: padT + ih - h,
+        width: Math.max(1, bw - 2), height: h, rx: 3 });
+      if (partial) { rect.setAttribute("opacity", "0.42");
+        rect.setAttribute("stroke", "var(--chart-label)");
+        rect.setAttribute("stroke-dasharray", "2 2"); }
+      hover(rect, "<b>" + esc(r.hour) + "</b>" +
+        (partial ? "<br><i>PARTIAL hour — clipped by the 24 h window edge, not comparable to a full hour</i>" : "") +
+        "<br>scanned " + n(r.scanned) + "<br>flagged " + n(r.flagged) + "<br>runs " + n(r.runs) +
+        "<br><span class='dim'>alerts_emitted counter " + n(r.emitted_counter) +
+        " — a job-reported counter, NOT an alert count</span>");
+      svg.appendChild(rect);
+    });
+    [0, Math.floor(hourly.length/2), hourly.length-1].forEach(function (i) {
+      var t = svgEl("text", { x: padL + i*bw + bw/2, y: H-8, "text-anchor": "middle",
+        fill: "var(--chart-label)", "font-size": 9, "font-family": "monospace" });
+      t.textContent = String(hourly[i].hour).slice(11, 16);
+      svg.appendChild(t);
+    });
+    var cap = svgEl("text", { x: padL, y: 9, fill: "var(--chart-label)", "font-size": 9,
+      "font-family": "monospace" });
+    cap.textContent = peakObserved
+      ? "y max = " + n(peakObserved) + " = peak hour observed in 30 d (NOT a capacity limit)"
+      : "no hour in the last 30 d scanned anything — axis shown at unit scale";
+    svg.appendChild(cap);
+    el("ingLegend").innerHTML =
+      '<span>one bar = one clock hour · hover for exact counts</span>' +
+      '<span><span class="swatch" style="background:var(--cat-primary);opacity:0.42;outline:1px dashed var(--chart-label)"></span>' +
+      'first &amp; last are <b>partial</b> hours — not comparable to a full hour</span>' +
+      (gaps ? '<span><span class="swatch" style="background:var(--severity-high);opacity:0.3"></span>' +
+              '<b>' + n(gaps) + '</b> hour' + (gaps === 1 ? '' : 's') +
+              ' with <b>no run logged at all</b> — shown in place, not omitted</span>' : '');
+  }
+
+  /* ── the stages (three magnitudes, not one chart) ───────────────────────── */
+  function drawStages(scannedMixed, flaggedMixed, written, counter, m) {
+    /* 🔴 THE STAGES ARE NOW DETECTION-RULE-ONLY. The old version summed EVERY
+       source and labelled the result "raw records examined" / "passed the quality
+       filter" — inherited from the activity-log contract and false for a
+       meaningful share of the total. A verifier read the writers: DB_BACKUP's
+       events_scanned is one BACKUP RUN, DECAY's is alerts DOWNGRADED,
+       MONITOR_BACKUP_STALL's events_flagged is PROBLEMS FOUND (so the metric
+       inverts), INGEST_HOUSE_INDEX's is PTRs registered. Non-rule sources are only
+       ~2.6% of scanned but ~31% of flagged, so the displayed ratio was materially
+       wrong for the thing it appeared to describe. */
+    var fnr = m.rule_funnel_24h.row;
+    var scanned = fnr.rule_scanned, flagged = fnr.rule_flagged;
+    var rows = [
+      ["events_scanned", scanned, "records examined by detection rules"],
+      ["events_flagged", flagged, "of those, passed the rule's own quality filter"],
+      ["COUNT(*) FROM alerts", written, "alert rows actually written"]
+    ].map(function (s) {
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;' +
+             'padding:0.4rem 0;border-bottom:1px solid var(--border)">' +
+             '<span><code>' + esc(s[0]) + '</code><br><span class="qual">' + esc(s[2]) + '</span></span>' +
+             '<span class="stat sm">' + n(s[1]) + '</span></div>';
+    }).join("");
+    var v = m.funnel_monotonic_violations.rows;
+    var gap = counter - written;
+    var truth = m.emitted_counter_truth.row;
+    /* 🔴 THE GLOSS IS NOW PER-SOURCE DATA, NOT A POSITIONAL SENTENCE.
+       This used to take the top-three non-rule contributors — which are
+       DATA-ORDERED — and append a hardcoded three-item sentence ("a refreshed
+       ticker, a labelled outcome and a snapshot file") bound to them by position.
+       When PARSE_HOUSE_PDFS (parsed congressional transactions) displaced
+       DB_BACKUP from third place, the page called it "a snapshot file". A verifier
+       caught it: a REAL number under a FALSE label, which is the exact defect this
+       page exists to prevent — written inside the warning about that defect.
+       Now each source carries its own meaning from the endpoint, and a source with
+       no documented meaning says so instead of borrowing its neighbour's. */
+    var fn = m.rule_funnel_24h;
+    var excluded = fn.excluded_sources || [];
+    function meaningRow(s, which) {
+      var mean = s[which + "_means"];
+      return mean ? esc(mean)
+                  : '<span class="dim">not documented — deliberately NOT given another ' +
+                    'source\'s meaning</span>';
+    }
+    /* A ratio over a zero denominator is not 0% and not NaN — it is undefined, and
+       printing either would be a claim the data does not support. */
+    var pctOr = function (num, den, what) {
+      return den ? (num/den*100).toFixed(2) + "%"
+                 : '<span class="dim">n/a (nothing ' + what + ' in this window)</span>';
+    };
+    el("stages").innerHTML = rows +
+      '<div class="qual" style="margin-top:0.5rem">flagged / scanned = <b>' +
+        pctOr(flagged, scanned, "scanned") + '</b> · written / flagged = <b>' +
+        pctOr(written, flagged, "flagged") + '</b><br>' +
+        'Three numbers, not one chart: they span four orders of magnitude, so a shared axis ' +
+        'would flatten two of them and a second axis would be worse.</div>' +
+      '<div class="warn" style="margin-top:0.6rem">⚠️ <b>The last stage is not ' +
+        '<code>alerts_emitted</code>.</b> That counter reads <b>' + n(counter) +
+        '</b> over this window against <b>' + n(written) + '</b> real alert rows' +
+        (gap > 0 ? ' — a gap of <b>' + n(gap) + '</b>' : '') +
+        '. It is not an alert count: it means "units of work this job reported ' +
+        'producing", and what that unit IS differs per job — see the table below. ' +
+        'All-time it reads <b>' + n(truth.emitted_counter_all_time) +
+        '</b> against <b>' + n(truth.alert_rows_all_time) + '</b> alert rows.</div>' +
+      '<div class="warn" style="margin-top:0.5rem">⚠️ <b>These stages count DETECTION RULES ' +
+        'only.</b> Non-rule jobs write to the same three columns but mean different things by ' +
+        'them, so they are excluded: they would have added <b>' +
+        n(fnr.excluded_non_rule_scanned) + '</b> to scanned and <b>' +
+        n(fnr.excluded_non_rule_flagged) + '</b> to flagged — ' +
+        (scanned + flagged ? '<b>' +
+          ((fnr.excluded_non_rule_flagged /
+            ((fnr.excluded_non_rule_flagged || 0) + (flagged || 0)) * 100) || 0).toFixed(1) +
+          '%</b> of the flagged figure alone' : 'a material share') + '.</div>' +
+      (excluded.length ? '<div class="scroll" style="margin-top:0.5rem">' +
+        '<table><thead><tr><th>excluded source</th><th>scanned</th><th>what that IS</th>' +
+        '<th>flagged</th><th>what that IS</th></tr></thead><tbody>' +
+        excluded.map(function (s) {
+          return '<tr><td>' + esc(s.source) + '</td><td>' + n(s.scanned) + '</td><td>' +
+            meaningRow(s, "scanned") + '</td><td>' + n(s.flagged) + '</td><td>' +
+            meaningRow(s, "flagged") + '</td></tr>';
+        }).join("") + '</tbody></table></div>' : "") +
+      (v.length ? '<div class="warn" style="margin-top:0.5rem">⚠️ <b>And it is not a strict ' +
+        'funnel.</b> These sources have logged <code>flagged &gt; scanned</code>, so the stages ' +
+        'are not a clean subset chain: ' + v.map(function (r) {
+          return "<code>" + esc(r.source) + "</code> (" + n(r.n) + " rows, worst +" + n(r.worst) + ")";
+        }).join(", ") + '.</div>' : "");
+  }
+
+  /* ── heat grid ──────────────────────────────────────────────────────────── */
+  var HEAT_STATE = null;
+  function drawHeat(m) {
+    if (m) HEAT_STATE = m;
+    m = HEAT_STATE; if (!m) return;
+    var svg = el("chHeat"); if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var SEQ = seq();
+    var rows = m.heat_grid_24h.rows, sources = [], hours = [], map = {}, totals = {};
+    rows.forEach(function (r) {
+      if (sources.indexOf(r.source) < 0) sources.push(r.source);
+      if (hours.indexOf(r.hour) < 0) hours.push(r.hour);
+      map[r.source + "|" + r.hour] = r;
+      totals[r.source] = (totals[r.source]||0) + (r.scanned||0);
+    });
+    hours.sort();
+    sources.sort(function (a,b) { return (totals[b]||0) - (totals[a]||0); });
+    /* Same empty-window state as the ingest chart. Math.max.apply of an empty
+       array is -Infinity, which would poison every step index. */
+    if (!rows.length) {
+      svg.setAttribute("viewBox", "0 0 400 40"); svg.setAttribute("height", 40);
+      var em = svgEl("text", { x: 0, y: 18, fill: "var(--chart-label)", "font-size": 11,
+        "font-family": "monospace" });
+      em.textContent = "no runs logged in the last 24 h — nothing to grid";
+      svg.appendChild(em);
+      el("heatLegend").innerHTML = '<span class="dim">no cells to draw</span>';
+      return;
+    }
+    var maxCell = Math.max.apply(null, rows.map(function (r) { return r.scanned||0; })) || 1;
+    var labelW = 176, cw = 33, ch = 16, top = 20;
+    var W = labelW + hours.length*cw + 8, H = top + sources.length*ch + 6;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+    svg.setAttribute("height", H); svg.style.minWidth = W + "px";
+    hours.forEach(function (h, j) {
+      var t = svgEl("text", { x: labelW + j*cw + cw/2, y: 13, "text-anchor": "middle",
+        fill: "var(--chart-label)", "font-size": 9, "font-family": "monospace" });
+      t.textContent = String(h).slice(11); svg.appendChild(t);
+    });
+    sources.forEach(function (s, i) {
+      var y = top + i*ch;
+      var lt = svgEl("text", { x: 0, y: y+11, fill: "var(--chart-label)", "font-size": 9,
+        "font-family": "monospace" });
+      lt.textContent = s.length > 23 ? s.slice(0,22) + "…" : s;
+      svg.appendChild(lt);
+      hours.forEach(function (h, j) {
+        var r = map[s + "|" + h], v = r ? (r.scanned||0) : null, step;
+        if (r == null) step = 0; else if (v === 0) step = 1;
+        else step = 2 + Math.min(4, Math.floor(Math.sqrt(v/maxCell) * 5));
+        var cell = svgEl("rect", { class: "cell", x: labelW + j*cw, y: y, width: cw, height: ch,
+          fill: SEQ[step] });
+        hover(cell, "<b>" + esc(s) + "</b><br>" + esc(h) + ":00 UTC<br>" +
+          (r == null ? "<i>no run logged this hour</i>"
+                     : "scanned " + n(v) + "<br>runs " + n(r.runs)));
+        svg.appendChild(cell);
+        if (r && v > 0) {
+          var nt = svgEl("text", { class: "cellnum", x: labelW + j*cw + cw/2, y: y + ch/2 + 3,
+            "text-anchor": "middle", fill: inkFor(SEQ[step]) });
+          nt.textContent = v >= 1000 ? Math.round(v/1000) + "k" : v;
+          svg.appendChild(nt);
+        }
+      });
+    });
+    el("heatLegend").innerHTML =
+      '<span>fewer ' + SEQ.slice(2).map(function (c) {
+        return '<span class="swatch" style="background:' + c + '"></span>'; }).join("") +
+      ' more records scanned</span>' +
+      '<span><span class="swatch" style="background:' + SEQ[0] + ';outline:1px solid var(--border2)"></span>no run logged that hour</span>' +
+      '<span><span class="swatch" style="background:' + SEQ[1] + '"></span>ran, scanned 0</span>' +
+      '<span class="dim">the count is printed in every populated cell, so magnitude never rests on colour alone</span>';
+  }
+  document.addEventListener("scope:themechange", function () { drawHeat(null); });
+  new MutationObserver(function () { drawHeat(null); })
+    .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+  /* ── per-source table ───────────────────────────────────────────────────── */
+  function drawSource(m, d) {
+    var asOf = Date.parse(d.as_of_utc);
+    var variants = m.source_label_variants.row || {};
+    var dupLabels = {};
+    Object.keys(variants).forEach(function (k) {
+      variants[k].forEach(function (lbl) { dupLabels[lbl] = variants[k]; });
+    });
+    el("tblSource").innerHTML =
+      "<thead><tr><th>source</th><th>runs</th><th>scanned</th><th>flagged</th>" +
+      "<th>emitted<br>counter</th>" +
+      "<th title='AVG(duration_seconds) — how long the JOB took. Not request latency, " +
+      "and this table includes non-rule jobs, so it is not only rule runs.'>avg job s</th>" +
+      "<th>last run</th></tr></thead><tbody>" +
+      m.per_source_24h.rows.map(function (r) {
+        var age = r.last_run ? ageStr(asOf - Date.parse(String(r.last_run).replace(" ","T")+"Z")) : "—";
+        var dup = dupLabels[r.source]
+          ? ' <span class="flag" title="This rule is also logged under: ' +
+            esc(dupLabels[r.source].join(", ")) + '">⚠dup</span>' : "";
+        return "<tr><td>" + esc(r.source) + dup + "</td><td>" + n(r.runs) + "</td><td>" +
+          n(r.scanned) + "</td><td>" + n(r.flagged) + "</td><td>" + n(r.emitted_counter) +
+          "</td><td>" + (r.avg_duration_s == null ? '<span class="dim">not recorded</span>'
+                                                  : r.avg_duration_s) +
+          "</td><td>" + age + "</td></tr>";
+      }).join("") + "</tbody>";
+  }
+
+  /* ── alerts per rule ────────────────────────────────────────────────────── */
+  function drawRules(m) {
+    var svg = el("chRules"); if (!svg) return;
+    var rows = m.alerts_per_rule.rows.slice().sort(function (a,b){ return b.all_time - a.all_time; });
+    var W = svg.clientWidth || 520, rowH = 17, labelW = 104, padR = 58;
+    var H = rows.length*rowH + 20, iw = W - labelW - padR;
+    svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("height", H);
+    /* `rows.length ? …` guarded an empty list but not a ZERO max, which produced
+       width="NaN" and real console errors. Not reachable from this endpoint's SQL
+       (GROUP BY cannot return a 0 count) but a one-token guard is cheaper than the
+       assumption that it never will be. */
+    var max = (rows.length && rows[0].all_time) ? rows[0].all_time : 1;
+    var note = svgEl("text", { x: 0, y: 9, fill: "var(--chart-label)", "font-size": 9,
+      "font-family": "monospace" });
+    note.textContent = "bar = alerts all time (linear, max " + max.toLocaleString("en-US") + ")";
+    svg.appendChild(note);
+    rows.forEach(function (r, i) {
+      var y = 17 + i*rowH;
+      var lt = svgEl("text", { x: 0, y: y+11, fill: "var(--chart-label)", "font-size": 9,
+        "font-family": "monospace" });
+      lt.textContent = r.rule; svg.appendChild(lt);
+      var w = Math.max(1, r.all_time/max*iw);
+      var bar = svgEl("rect", { class: "bar", x: labelW, y: y+2, width: w, height: rowH-6, rx: 3 });
+      hover(bar, "<b>" + esc(r.rule) + "</b><br>all time " + n(r.all_time) +
+        "<br>last 7 d " + n(r.d7) + "<br>last 24 h " + n(r.d1));
+      svg.appendChild(bar);
+      var vt = svgEl("text", { x: labelW + w + 5, y: y+11, fill: "var(--chart-label)",
+        "font-size": 9, "font-family": "monospace" });
+      vt.textContent = r.all_time.toLocaleString("en-US");
+      svg.appendChild(vt);
+    });
+  }
+
+  /* ── signed leg: the one real percentage, tri-state ─────────────────────── */
+  function drawSigned(m) {
+    var r = m.signed_leg_verdict_rule06.row;
+    var adj = (r.corroborates||0) + (r.does_not||0);
+    var pct = adj ? (r.corroborates/adj*100) : null;
+    var segs = [
+      { v: r.corroborates,  label: "corroborates",  fill: "var(--cat-primary)", hatch: false },
+      { v: r.does_not,      label: "does not",      fill: "var(--cat-neutral)", hatch: false },
+      { v: r.unadjudicated, label: "unadjudicated", fill: "var(--cat-unknown)", hatch: true }
+    ];
+    var other = (m.signed_leg_verdict_rule06.populated_by_rule || [])
+      .filter(function (x) { return x.rule !== "RULE_06"; });
+    el("signed").innerHTML =
+      '<div class="stat">' + (pct == null ? "—" : pct.toFixed(1)) + '<span class="unit">%</span></div>' +
+      '<div class="unit">of ADJUDICATED insider legs genuinely corroborate</div>' +
+      '<div class="qual">' + n(r.corroborates) + ' of ' + n(adj) + ' adjudicated. The denominator ' +
+        'excludes the ' + n(r.unadjudicated) + ' unadjudicated legs on purpose — <code>NULL</code> ' +
+        'means <b>unknown</b>, not <b>no</b>, and folding unknowns in would report ' +
+        (r.total ? (r.corroborates/r.total*100).toFixed(1) : "—") + '% instead, which is a floor ' +
+        'rather than a rate.</div>' +
+      '<div style="display:flex;gap:2px;height:22px;margin:0.5rem 0">' + segs.map(function (s) {
+        var st = s.hatch ? "background-image:repeating-linear-gradient(45deg," +
+          "var(--cat-unknown) 0 3px,var(--surface-1) 3px 5px)" : "background:" + s.fill;
+        return '<div title="' + s.label + ': ' + s.v + '" style="' + st + ';width:' +
+          (r.total ? (s.v/r.total*100).toFixed(2) : 0) + '%"></div>'; }).join("") + '</div>' +
+      '<div class="legend">' + segs.map(function (s) {
+        return '<span><span class="swatch' + (s.hatch ? " hatch-key" : "") + '" style="' +
+          (s.hatch ? "" : "background:" + s.fill) + '"></span>' + s.label + ' <b>' + n(s.v) +
+          '</b></span>'; }).join("") + '</div>' +
+      (other.length ? '<div class="warn" style="margin-top:0.6rem">⚠️ <b>Scoped to RULE_06 ' +
+        'deliberately.</b> <code>corroborates</code> is also populated on ' +
+        other.map(function (x) { return "<code>" + esc(x.rule) + "</code> (" + n(x.populated) +
+          " of " + n(x.total) + " rows)"; }).join(", ") + ', which is <b>written but inert</b> — ' +
+        'that rule is not in <code>SIGNED_RULES</code>, so the gate ignores its verdict. Counting ' +
+        'every populated row would fold those in as if they had been adjudicated.</div>' : "");
+  }
+
+  /* ── corroboration engine ───────────────────────────────────────────────── */
+  function drawCorr(m) {
+    var c = m.corroborations.row, d = m.corroboration_detail.rows;
+    el("corr").innerHTML =
+      '<div class="stat">' + n(c.all_time) + '</div>' +
+      '<div class="unit">corroborations (RULE_10 alerts) all time</div>' +
+      '<div class="qual">' + n(c.d30) + ' in 30 d · ' + n(c.d7) + ' in 7 d · ' + n(c.themes) +
+        ' theme' + (c.themes === 1 ? "" : "s") + ' created.<br>A <b>count, not a rate</b> — ' +
+        'see the omissions table.</div>' +
+      (d.length ? '<div style="margin-top:0.6rem;border-top:1px solid var(--border);padding-top:0.5rem">' +
+        d.map(function (r) {
+          var tg = {}; try { tg = JSON.parse(r.tags) || {}; } catch (_) {}
+          return '<div style="font-family:var(--font-mono);font-size:0.62rem;line-height:1.6">' +
+            'alert <b>' + n(r.id) + '</b> · ' + esc(r.ticker) + ' · ' + esc(r.created_at) + '<br>' +
+            '<span class="dim">instruments (' + (tg.instrument_count != null ? tg.instrument_count : "?") +
+            '): ' + esc((tg.instruments||[]).join(", ")) + '</span><br>' +
+            '<span class="dim">stored evidence_confidence: <b>' + r.evidence_confidence +
+            '</b></span></div>'; }).join("") + '</div>' : "");
+  }
+
+  /* ── pipeline health ────────────────────────────────────────────────────── */
+  function drawHealth(m) {
+    var f = m.scheduler_failures.row, b = m.scoring_backlog.row;
+    /* ⚠️ Default EACH status to 0. The oTot guard covered an empty TABLE, not an
+       absent STATUS — a real DB with no 'pending' row rendered width:NaN%, which
+       CSS silently ignores, so a segment vanished while the legend printed "—".
+       Found by a verifier on a real database. */
+    var o = { complete: 0, pending: 0, unavailable: 0 }, oTot = 0;
+    m.outcome_labeling.rows.forEach(function (r) { o[r.status] = r.n || 0; oTot += (r.n || 0); });
+    var det = m.scheduler_failure_detail_7d.rows;
+    el("health").innerHTML =
+      '<div style="display:flex;gap:1.1rem;flex-wrap:wrap">' +
+        '<div><div class="stat sm ' + (f.failures_24h ? "flag" : "fresh") + '">' + n(f.failures_24h) +
+          '</div><div class="unit">job failures, 24 h</div></div>' +
+        '<div><div class="stat sm ' + (f.failures_7d ? "flag" : "fresh") + '">' + n(f.failures_7d) +
+          '</div><div class="unit">job failures, 7 d</div></div>' +
+        '<div><div class="stat sm ' + (b.unscored_over_30min ? "flag" : "fresh") + '">' +
+          n(b.unscored_over_30min) + '</div><div class="unit">unscored &gt;30 min</div></div>' +
+      '</div>' +
+      '<div class="qual" style="margin-top:0.5rem">Failures are real <code>activity_log</code> rows ' +
+        'with <code>source=\'SCHEDULER_JOB_FAILURE\'</code> — the universal safety net, so no ' +
+        'scheduled-job failure can be silent. The backlog figure is the ' +
+        '<code>MONITOR_ENRICH_STALL</code> criterion verbatim.</div>' +
+      (det.length ? '<div style="margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.45rem">' +
+        '<div class="unit" style="margin-bottom:0.3rem">what actually failed (last 7 d)</div>' +
+        det.slice(0,5).map(function (r) {
+          return '<div style="font-family:var(--font-mono);font-size:0.58rem;color:var(--cream2);' +
+            'line-height:1.5;padding:1px 0">' + esc(r.run_at) + " — " +
+            esc(String(r.notes||"").slice(0,104)) + '</div>'; }).join("") +
+        (det.length > 5 ? '<div class="dim" style="font-size:0.58rem">… ' + (det.length-5) +
+          ' more</div>' : "") + '</div>' : "") +
+      '<div style="margin-top:0.6rem;border-top:1px solid var(--border);padding-top:0.5rem">' +
+        '<div class="unit" style="margin-bottom:0.3rem">forward-return labelling (<code>alert_outcomes</code>)</div>' +
+        '<div style="display:flex;gap:2px;height:16px;margin-bottom:0.4rem">' +
+          '<div style="background:var(--cat-primary);width:' + (oTot ? (o.complete/oTot*100).toFixed(1) : 0) + '%"></div>' +
+          '<div style="background:var(--cat-neutral);width:' + (oTot ? (o.pending/oTot*100).toFixed(1) : 0) + '%"></div>' +
+          '<div class="hatch-key" style="width:' + (oTot ? (o.unavailable/oTot*100).toFixed(1) : 0) + '%"></div></div>' +
+        '<div class="legend">' +
+          '<span><span class="swatch" style="background:var(--cat-primary)"></span>complete <b>' + n(o.complete) + '</b></span>' +
+          '<span><span class="swatch" style="background:var(--cat-neutral)"></span>pending <b>' + n(o.pending) + '</b></span>' +
+          '<span><span class="swatch hatch-key"></span>unpriceable <b>' + n(o.unavailable) + '</b></span></div>' +
+        '<div class="qual">Labelling progress only. <b>No win rate is derived from it</b> — see the omissions table.</div>' +
+      '</div>';
+  }
+
+  /* ── data-quality caveats ───────────────────────────────────────────────── */
+  function drawDQ(m) {
+    var variants = m.source_label_variants.row || {};
+    var vk = Object.keys(variants);
+    var fv = m.funnel_monotonic_violations.rows;
+    el("dq").innerHTML =
+      (vk.length ? '<div class="warn">⚠️ <b>The same rule is logged under more than one source ' +
+        'label.</b> A per-source table therefore lists one rule twice, and these are <b>not</b> ' +
+        'merged here — merging would assert an identity nobody verified. Affected: ' +
+        vk.map(function (k) {
+          /* escape each LABEL, then join with markup — escaping the joined string
+             would print the tags as text, which it did until this was caught. */
+          return variants[k].map(function (lbl) { return "<code>" + esc(lbl) + "</code>"; })
+                            .join(" / ");
+        }).join(", ") + '. Rows above carry a <span class="flag">⚠dup</span> marker.</div>'
+        : '<div class="qual">No duplicate source labels detected.</div>') +
+      (fv.length ? '<div class="warn" style="margin-top:0.5rem">⚠️ <b>scanned → flagged is not a ' +
+        'strict subset chain.</b> ' + fv.map(function (r) { return "<code>" + esc(r.source) +
+        "</code> has " + n(r.n) + " rows with flagged &gt; scanned (worst +" + n(r.worst) + ")";
+        }).join(", ") + '. The stages card says so rather than calling itself a funnel.</div>' : "") +
+      '<div class="warn" style="margin-top:0.5rem">⚠️ <b>Severity is mutable.</b> ' +
+        esc(m.severity_24h.note) +
+        /* an empty severity list used to leave the sentence "The 24 h mix is ." */
+        (m.severity_24h.rows.length
+           ? ' The 24 h mix is ' + m.severity_24h.rows.map(function (r) {
+               return "<b>" + n(r.n) + "</b> " + esc(r.severity); }).join(" · ") + '.'
+           : ' <b>No alerts were written in the last 24 h</b>, so there is no mix to show.') +
+        '</div>';
+  }
+
+  /* ── omissions: what this page will NOT show, and the real reason ───────── */
+  function omissionsHtml(m) {
+    var out = (m.outcome_labeling.rows || []).reduce(function (a,r) {
+      a[r.status] = r.n; return a; }, {});
+    return '<div class="card" style="margin-top:0.9rem"><h2>Deliberately omitted — the reason ' +
+      'differs by row</h2><div class="cbody" style="padding:0"><table class="omit"><tbody>' +
+      [
+       ["CPU / memory / GPU load",
+        "No process metrics are recorded anywhere in the schema. A load gauge would be decoration."],
+       ["Request latency (p50/p99)<br>requests per second<br>HTTP error rate",
+        "There is no request-log table and access logs are not persisted, so no percentile, rate " +
+        "or error ratio can be computed. <b>The <code>avg run s</code> column above is a RULE " +
+        "RUN's duration, not request latency</b> — a different thing, labelled as such."],
+       ["Uptime / availability %",
+        "Not recorded. <code>activity_log</code> proves individual jobs ran; that is not " +
+        "availability, and inferring one from the other would be a guess with a percent sign."],
+       ["Queue depth / backpressure",
+        "There is no queue — APScheduler fires on fixed intervals with no depth to read."],
+       ["Corroboration <b>rate</b> (a %)",
+        "Prod holds so few RULE_10 rows that a percentage would be a one-row statistic dressed " +
+        "as a trend. The <b>count</b> is shown instead. The one real percentage available is the " +
+        "signed-leg verdict, which is shown."],
+       ["Per-rule win rate / precision",
+        "🔴 <b>NOT because there is no source — there is one.</b> <code>alert_outcomes</code> holds " +
+        "<b>" + n(out.complete) + "</b> <code>complete</code> rows and a per-rule realised hit rate " +
+        "computes today. It is omitted because <b>an uncalibrated hit rate reads as a track " +
+        "record</b>: <code>CLAUDE.md</code> warns against interpreting small per-rule samples " +
+        "early, and the <b>" + n(out.unavailable) + "</b> <code>unavailable</code> rows make " +
+        "excluding them a survivorship choice. Separately the scoring model's own " +
+        "<code>win_rate</code> term is a fixed <b>0.5 placeholder</b> — that one really is a " +
+        "constant, and showing it as a measurement would be the lie. <b>This is a maturity " +
+        "judgement, not an absence of data.</b>"],
+       ["Ingest bandwidth (bytes/s)",
+        "<code>events_scanned</code> counts records, not bytes. No byte counter exists."],
+       ["A push / streaming feed",
+        "There is no push channel anywhere in the app. This page <b>polls</b>, and the bar at the " +
+        "top says so with the interval and the age of the current reading."]
+      ].map(function (r) { return "<tr><td>" + r[0] + "</td><td>" + r[1] + "</td></tr>"; }).join("") +
+      '</tbody></table></div></div>';
+  }
+
+  /* ── the scheduler staleness table — PRESERVED from the previous /status ──
+     This page existed before the telemetry panel and its job was this table.
+     It is kept, on its own endpoint, rather than replaced.
+     ⚠️ One label corrected: the old column header read "Last emitted", reading
+     activity_log.alerts_emitted — which is NOT an alert count (a DB_BACKUP row
+     reports a snapshot FILE). It now says what the column is. */
+  var EXPECTED = {
     RULE_OSINT:900, RULE_ADSB:300, RULE_07:1200, RULE_REDDIT:1800, RULE_01B:7200,
     RULE_06:7200, RULE_10:3600, RULE_ANOMALY:10800, RULE_11:21600, RULE_08:14400,
     RULE_15:21600, RULE_CLUSTER:14400, SCORING:600, RULE_09:86400, RULE_12:604800,
     RULE_13:86400, RULE_14:302400, DECAY:86400, BACKTEST:604800, BRIEF:86400,
     RULE_COLLECTOR:21600,
   };
-  // Doorways to the ticker-universe ball pit (/universe) — a browsable field of
-  // collected NAMES, not a signal surface. Only RULE_COLLECTOR writes
-  // ticker_universe; RULE_REDDIT links too because it ingests the reddit
-  // mentions the collector evaluates — but it is a separate, alert-emitting rule.
-  const UNIVERSE_LINKED = new Set(['RULE_COLLECTOR', 'RULE_REDDIT']);
-  const ago = s => { if(!s) return null; const t=new Date(String(s).replace(' ','T')+(String(s).includes('Z')?'':'Z')).getTime(); return isNaN(t)?null:(Date.now()-t)/1000; };
-  const fmtAgo = sec => sec==null?'never':sec<3600?Math.floor(sec/60)+'m ago':sec<86400?Math.floor(sec/3600)+'h ago':Math.floor(sec/86400)+'d ago';
-  const fmtInt = sec => sec==null?'—':sec<3600?Math.round(sec/60)+'m':sec<86400?Math.round(sec/3600)+'h':Math.round(sec/86400)+'d';
+  var UNIVERSE_LINKED = new Set(['RULE_COLLECTOR', 'RULE_REDDIT']);
+  var ago = function (s) { if (!s) return null;
+    var t = new Date(String(s).replace(' ','T') + (String(s).includes('Z')?'':'Z')).getTime();
+    return isNaN(t) ? null : (Date.now()-t)/1000; };
+  var fmtAgo = function (sec) { return sec==null?'never':sec<3600?Math.floor(sec/60)+'m ago':
+    sec<86400?Math.floor(sec/3600)+'h ago':Math.floor(sec/86400)+'d ago'; };
+  var fmtInt = function (sec) { return sec==null?'—':sec<3600?Math.round(sec/60)+'m':
+    sec<86400?Math.round(sec/3600)+'h':Math.round(sec/86400)+'d'; };
 
-  fetch('/api/scheduler-status').then(r=>r.json()).then(d => {
-    document.getElementById('pill').innerHTML =
-      `<span class="status-pill ${d.status==='running'?'ok':'bad'}">Scheduler ${d.status} · ${d.job_count||0} jobs</span>`;
-    const act = d.activity || {};
-    // Build a row per known source using activity_log ground truth.
-    const sources = Object.keys(EXPECTED).filter(s => act[s] || EXPECTED[s]);
-    const rows = sources.map(src => {
-      const a = act[src] || {};
-      const sec = ago(a.last_run);
-      const exp = EXPECTED[src];
-      const stale = a.last_run ? (sec > exp*2) : true;
-      return {src, sec, exp, stale, last_run:a.last_run, emitted:a.last_emitted};
-    }).sort((x,y)=> (y.stale-x.stale) || ((y.sec||1e12)-(x.sec||1e12)));
-    document.getElementById('content').innerHTML = `
-      <table>
-        <thead><tr><th>Source</th><th>Expected every</th><th>Last run</th><th>Last emitted</th><th>Status</th></tr></thead>
-        <tbody>${rows.map(r=>`
-          <tr class="${r.stale?'stale':''}">
-            <td class="src">${UNIVERSE_LINKED.has(r.src)
-              ? `<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — the coverage list built from reddit mentions (currently a seeded demo; live wiring pending)">${ruleName(r.src)} ◍</a>`
-              : `<span title="${r.src}">${ruleName(r.src)}</span>`}</td>
-            <td>${fmtInt(r.exp)}</td>
-            <td>${fmtAgo(r.sec)}</td>
-            <td>${r.emitted!=null?r.emitted:'—'}</td>
-            <td>${r.stale?'<span class="flag">⚠ STALE</span>':'<span class="fresh">✓ healthy</span>'}</td>
-          </tr>`).join('')}</tbody>
-      </table>
-      <div style="margin-top:1.5rem;color:var(--muted);font-family:var(--font-mono);font-size:0.62rem">
-        Note: "last run" reflects the activity_log written by each rule's run(). A source with no row has never logged a run in this environment.
-      </div>`;
-  }).catch(()=>{ document.getElementById('content').innerHTML = '<div class="loading">Status unavailable.</div>'; });
+  function loadScheduler() {
+    return fetch('/api/scheduler-status', { cache: 'no-store' }).then(function (r) { return r.json(); })
+      .then(function (d) {
+        el('pill').innerHTML = '<span class="livebar" style="display:inline-flex;margin-bottom:0.7rem">' +
+          '<span><span class="dot' + (d.status==='running'?'':' stale') + '"></span>Scheduler <b>' +
+          esc(d.status) + '</b> · ' + n(d.job_count||0) + ' jobs</span></span>';
+        var act = d.activity || {};
+        var rows = Object.keys(EXPECTED).filter(function (s) { return act[s] || EXPECTED[s]; })
+          .map(function (src) {
+            var a = act[src] || {}, sec = ago(a.last_run), exp = EXPECTED[src];
+            return { src: src, sec: sec, exp: exp,
+                     stale: a.last_run ? (sec > exp*2) : true,
+                     emitted: a.last_emitted };
+          }).sort(function (x,y) { return (y.stale-x.stale) || ((y.sec||1e12)-(x.sec||1e12)); });
+        el('sched').innerHTML =
+          '<div class="card"><div class="cbody" style="padding:0"><div class="scroll"><table>' +
+          '<thead><tr><th>Source</th><th>Expected every</th><th>Last run</th>' +
+          '<th title="activity_log.alerts_emitted from the most recent run. This is a job-reported ' +
+          'work counter, NOT an alert count — a DB_BACKUP row reports a snapshot file.">' +
+          'Last run\'s emitted counter</th><th>Status</th></tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr class="' + (r.stale?'stale':'') + '"><td class="src">' +
+              (UNIVERSE_LINKED.has(r.src)
+                ? '<a href="/universe" class="src" style="text-decoration:none;border-bottom:1px dotted var(--border2)" title="Open the ticker universe — the coverage list built from reddit mentions (currently a seeded demo; live wiring pending)">' + ruleName(r.src) + ' ◍</a>'
+                : '<span title="' + esc(r.src) + '">' + ruleName(r.src) + '</span>') +
+              '</td><td>' + fmtInt(r.exp) + '</td><td>' + fmtAgo(r.sec) + '</td><td>' +
+              (r.emitted != null ? n(r.emitted) : '—') + '</td><td>' +
+              (r.stale ? '<span class="flag">⚠ STALE</span>' : '<span class="fresh">✓ healthy</span>') +
+              '</td></tr>'; }).join("") +
+          '</tbody></table></div></div>' +
+          '<div class="qual" style="padding:0.6rem 0.75rem">"Last run" reflects the ' +
+          '<code>activity_log</code> row each rule\'s <code>run()</code> writes. A source with no ' +
+          'row has never logged a run in this environment. The emitted column is a job-reported ' +
+          'work counter, not an alert count — see the stages card above.</div></div>';
+      }).catch(function () {
+        el('sched').innerHTML = '<div class="loading">Scheduler status unavailable.</div>';
+      });
+  }
+
+  /* ── poll ───────────────────────────────────────────────────────────────── */
+  function tick() {
+    return fetch('/api/telemetry', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+      .then(function (d) {
+        lastAsOf = d.as_of_utc; lastFetchMs = Date.now();
+        render(d); paintLiveBar(d, null);
+        window.__TELEMETRY__ = d;      /* seam for verification, not for display */
+      })
+      .catch(function (e) {
+        paintLiveBar(null, e && e.message ? e.message : e);
+        if (!lastAsOf) el("tele").innerHTML =
+          '<div class="loading">Telemetry unavailable — nothing is shown rather than showing a guess.</div>';
+      });
+  }
+
+  tick(); loadScheduler();
+  pollTimer = setInterval(function () { tick(); loadScheduler(); }, POLL_MS);
+  document.addEventListener("visibilitychange", function () {
+    /* Don't poll a page nobody is looking at — the query is ~139 ms of real DB
+       work and a hidden tab cannot show the result. Refresh on return. */
+    if (document.visibilityState === "hidden") { clearInterval(pollTimer); pollTimer = null; }
+    else if (!pollTimer) { tick(); loadScheduler();
+      pollTimer = setInterval(function () { tick(); loadScheduler(); }, POLL_MS); }
+  });
+})();
 </script>
 <script src="/cmdk.js" defer></script>
 </body>

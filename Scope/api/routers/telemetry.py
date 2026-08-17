@@ -1,0 +1,722 @@
+"""Live operational telemetry for `/status`.
+
+ONE request, many aggregates, each returned WITH THE SQL THAT PRODUCED IT so the
+page can render provenance instead of asking to be trusted. Read-only: this
+module contains no INSERT/UPDATE/DELETE and touches no rule, gate, scoring or
+detection code.
+
+── WHY AN ENDPOINT AT ALL ────────────────────────────────────────────────────
+Nothing existing can serve this. `/api/activity-log` caps at 100 rows
+(`main.py:718`, `min(limit, 100)`) while a 24 h window holds ~790 rows — measured
+12.6% coverage, so no 24 h aggregate can be derived from it. `/api/stats` serves
+six homepage counters and none of the per-source, per-hour or funnel figures.
+`/api/scheduler-status` gives last-run-per-source but no volumes. So the choice
+was build-or-drop per metric, and every metric here was BUILDABLE — nothing was
+dropped for want of a source.
+
+── LABEL SEMANTICS, RE-DERIVED AGAINST THE LIVE COLUMNS ──────────────────────
+Every label below was re-tested against prod rather than inherited from the
+column's documentation. Four things the documentation would have got wrong.
+
+⚠️ The figures quoted in this docstring are MEASUREMENTS TAKEN 2026-08-17 and
+will drift — they are here to show the reasoning, not as current values. The
+endpoint always returns live numbers, and the page renders only those. If you are
+checking whether a claim still holds, re-run the query, don't trust the comment.
+
+0. 🔴 `events_scanned` AND `events_flagged` ARE NOT "RECORDS EXAMINED" AND
+   "PASSED THE QUALITY FILTER" EITHER — and this is the finding I nearly missed.
+   The first version of this module applied hard scepticism to `alerts_emitted`
+   and then inherited the contract's wording for the two columns BESIDE IT in the
+   same table. A verifier caught it. Read off the call sites:
+     • `scripts/db_backup.py:285`        scanned=1        -> one BACKUP RUN
+     • `scripts/decay_alerts.py:104`     scanned=flagged  -> ALERTS DOWNGRADED
+     • `scripts/monitor_backup_stall.py:157` flagged=len(problems) -> PROBLEMS
+       FOUND, i.e. the metric is INVERTED: a higher "flagged" is worse
+     • `ingest_house_index.py:779`       flagged=registered_count -> PTRs
+     • `scripts/morning_brief.py:856`    scanned=sections_populated
+     • `resolve_tickers.py:301`          scanned=count    -> TICKERS UPSERTED
+   Measured share: non-rule sources are only ~2.6% of `scanned` but ~31% of
+   `flagged`, so a mixed `flagged/scanned` ratio is materially wrong for the
+   thing it appears to describe (measured 1.94% mixed vs 1.37% rule-only).
+   ⇒ The FUNNEL IS NOW RULE-ONLY (`rule_funnel_24h`), the excluded non-rule
+   contribution is returned alongside it so the exclusion is visible, and
+   `_COUNTER_MEANING` documents what every non-rule source's counters really are.
+
+1. ⚠️ `alerts_emitted` IS NOT AN ALERT COUNT. The activity-log contract calls it
+   "alerts inserted". Measured: in 24 h `SUM(alerts_emitted)` = 89 against 62
+   real alert rows; all-time 64,644 against 37,818, with 36,274 of it from
+   NON-RULE sources — REFRESH_TICKERS alone contributes 31,197 (a refreshed
+   ticker), LABEL_OUTCOMES 3,677 (a labelled outcome), DB_BACKUP 529 (a snapshot
+   FILE). The column means "units of work this job reported producing".
+   ⇒ `alerts_written` here is `COUNT(*) FROM alerts`, never the counter.
+   The counter is still returned, under a name that says what it is, so the
+   discrepancy can be shown rather than hidden.
+
+2. ⚠️ `LIKE 'RULE_%'` DOES NOT MEAN "starts with RULE_". In SQL LIKE, `_` is a
+   single-character WILDCARD, so that pattern is really `RULE?%` — it would also
+   match `RULES_ANYTHING`. Prod additionally holds SPACE spellings beside the
+   underscore ones. Two consequences: the pattern only works by accident, and
+   **the same rule appears under two different source labels**, so a per-source
+   table lists one rule twice.
+   ⇒ classification is explicit in `_is_rule_source()`, never by LIKE.
+   ⚠️ Precisely which pairs exist, since an earlier version of this comment
+   overclaimed and a verifier checked every one:
+     • detected by the underscore<->space rule — `RULE ADSB`/`RULE_ADSB`,
+       `RULE OSINT`/`RULE_OSINT`, `RULE REDDIT`/`RULE_REDDIT`;
+     • NOT detectable by any spelling rule, so carried in
+       `_KNOWN_SOURCE_ALIASES` — `RULE 07 POLYMARKET`/`RULE_07` (both from
+       `rule_07_polymarket.py`) and `ENRICH SCORES`/`SCORING` (both from
+       `scripts/enrich_scores.py`);
+     • `RULE OPTIONS CORRELATION` has NO underscore twin in prod at all —
+       `rule_options_correlation.py:167` logs `RULE_OPTIONS`, which has never
+       been written to prod `activity_log`. It is not a duplicate, it is a
+       different label for a job that has not logged under its own name.
+
+3. ⚠️ THE FUNNEL IS NOT STRICTLY MONOTONIC. scanned → flagged → written reads as
+   a subset chain, but `RULE_COLLECTOR` has 33 rows all-time (1 in the last 24 h)
+   with `events_flagged > events_scanned` (scanned 0, flagged 1). Small, but the
+   *shape* claim is false, so `funnel_monotonic_violations` is returned and the
+   page must not call this a strict funnel.
+
+4. ⚠️ `corroborates` IS POPULATED ON A RULE THAT IS NOT SIGNED. `SIGNED_RULES` is
+   `{"RULE_06"}`, yet RULE_01B has 1,474 of 2,168 rows with a non-NULL verdict
+   (written but inert — the gate ignores it for an unsigned rule). A
+   "signed-leg verdict" computed over every populated row would silently fold in
+   1,474 RULE_01B rows as if adjudicated. ⇒ the verdict block is scoped to
+   RULE_06 explicitly and reports the RULE_01B population separately so the
+   distinction is visible.
+
+── COST ─────────────────────────────────────────────────────────────────────
+Measured on the prod host against 28.8k activity_log / 37.8k alerts rows.
+⚠️ THE FIGURE MOVED WHEN THE LABEL FIXES LANDED, and the honest number is the
+current one: median **178.7 ms** over 9 runs (min 144.7, max 192.1), payload
+~50 KB. It was 138.7 ms (independently re-measured at 131.2 ms) before this round;
+the increase is the cost of correctness — an all-time `SELECT DISTINCT source` scan
+for the duplicate-label detection, and two extra `alerts` subqueries to compute a
+ticker count that excludes basket strings. At 60 s that is a ~0.30% duty cycle.
+Almost every query plans as a full table SCAN because no index exists on
+`activity_log(run_at)`, `alerts(created_at)` or `alerts(rule)` — the only index on
+`alerts` is `idx_alerts_award_key`.
+⚠️ "EVERY query is a full scan" is very slightly overstated and a verifier caught
+it: `SQL_COVERAGE`'s members subquery uses `sqlite_autoindex_members_1`, and its
+MIN/MAX subqueries plan as SEARCH.
+The data cannot move faster than the poll anyway — the
+finest granularity shown is an hourly bucket while the fastest rule cadence is
+5 minutes.
+⚠️ Note for the record: `db_connection()` opens a READ-WRITE connection and runs
+the idempotent migration guards with one commit — measured at only 0.7 ms, so it
+does not move the cost, but "read-only" is true of this module's SQL rather than of
+the connection it is handed.
+
+🔴 DO NOT "FIX" THIS WITH AN INDEX. Adding one is a migration, and Scope has a
+recorded instance of an ordinary `alerts(severity, created_at)` index silently
+RESHUFFLING the morning brief's hero selection by changing SQL row order. If the
+poll ever needs to go sub-10s, that is a human-gated decision with its own
+determinism review — not a convenience change made from here.
+"""
+from __future__ import annotations
+
+import time
+from datetime import datetime, timezone
+
+from fastapi import APIRouter
+
+from jpt_common import db_connection
+
+router = APIRouter()
+
+
+# ── WHAT EACH SOURCE'S COUNTERS ACTUALLY MEAN ────────────────────────────────
+# 🔴 THIS MAP EXISTS BECAUSE A VERIFIER CAUGHT THE PAGE GLOSSING A REAL NUMBER
+# WRONG. An earlier version printed a hardcoded three-item sentence ("a refreshed
+# ticker, a labelled outcome and a snapshot file") bound POSITIONALLY to the
+# top-three non-rule contributors, which are DATA-ORDERED. When PARSE_HOUSE_PDFS
+# (703 parsed congressional transactions) displaced DB_BACKUP from third place,
+# the page called it "a snapshot file" — a false label on a real number, which is
+# the exact defect this whole surface exists to prevent, committed inside the
+# warning about it.
+#
+# So the gloss is now DATA, keyed by source, harvested by reading each writer.
+# Anything absent renders as "not documented" — a new source can never inherit
+# another source's meaning by position.
+#
+# Every entry below was read off the call site, not inferred from the column name.
+_COUNTER_MEANING = {
+    # source: (what events_scanned counts, what events_flagged counts, what alerts_emitted counts)
+    "REFRESH_TICKERS":       ("tickers upserted", "unused (always 0)", "tickers upserted"),
+    "LABEL_OUTCOMES":        ("alerts eligible for labelling", "unpriceable alerts", "outcomes labelled"),
+    "SCORING":               ("alerts scored", "unused (unset)", "unused (always 0)"),
+    "MONITOR_ENRICH_STALL":  ("unscored alerts found", "unscored alerts found", "unscored alerts found"),
+    "MONITOR_BACKUP_STALL":  ("1 per check", "PROBLEMS FOUND (higher is worse)",
+                              "PROBLEMS FOUND (higher is worse)"),
+    "DB_BACKUP":             ("1 per backup run", "unused (always 0)", "snapshot FILE written"),
+    "DECAY":                 ("alerts downgraded", "alerts downgraded", "unused (always 0)"),
+    "INGEST_HOUSE_INDEX":    ("index entries seen", "PTRs registered", "new filings"),
+    "PARSE_HOUSE_PDFS":      ("filings processed", "PDFs downloaded", "TRANSACTIONS parsed"),
+    "DAILY_BRIEF":           ("brief sections populated", "active theses", "1 brief generated"),
+    "BRIEF":                 ("alerts in the brief", "evidence alerts cited", "1 brief generated"),
+    "BACKTEST":              ("alerts ok + skipped", "alerts ok", "unused (always 0)"),
+    "SCHEDULER_JOB_FAILURE": ("unused", "unused", "unused"),
+    # A collector, not a detector: `scripts/rule_reddit_collector.py:1190` sets
+    # scanned=0 and emitted=0 deliberately — its own comment says writing a count
+    # there "would present a lookup-table write as though the system had found
+    # something". It collects NAMES into ticker_universe and has never written a row
+    # to `alerts`, which is why it is in _NON_DETECTION_RULE_SOURCES.
+    "RULE_COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
+                              "ticker names collected", "0 by design"),
+    "RULE COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
+                              "ticker names collected", "0 by design"),
+}
+
+# ── source classification ────────────────────────────────────────────────────
+# Explicit, because `LIKE 'RULE_%'` is a wildcard match (see the module note) and
+# because "is this a rule run?" is a claim the page makes out loud.
+#
+# ⚠️ A verifier pointed out that the previous version of this set was INERT: the
+# prefix test short-circuited before it was consulted, so a missing entry could
+# not cause a misclassification but the set could not fix one either. It is now
+# load-bearing and checked FIRST.
+_NON_RULE_SOURCES = {
+    "SCORING", "DB_BACKUP", "MONITOR_BACKUP_STALL", "MONITOR_ENRICH_STALL",
+    "PARSE_HOUSE_PDFS", "INGEST_HOUSE_INDEX", "SCHEDULER_JOB_FAILURE",
+    "DECAY", "BRIEF", "DAILY_BRIEF", "BACKTEST", "REFRESH_TICKERS",
+    "LABEL_OUTCOMES", "POSITION_LEDGER_AUTH_DENIED", "ROSTER_CHECK",
+    "INGEST_LOBBYING", "TELEGRAM_BOT", "INGEST_SENATE", "ENRICH SCORES",
+}
+
+# 🔴 Sources that START with RULE but are NOT detection rules, so counting them as
+# "rule runs" overstates detection activity. Both were found by a verifier:
+#   RULE_COLLECTOR  — a coverage collector. It has written ZERO rows to `alerts`
+#                     in prod history and logs emitted=0; it collects NAMES.
+#   RULE_OPTIONS*   — an ENRICHER. It decorates existing alerts, so its emitted
+#                     count is enrichments, not detections.
+# RULE_DISCOVERY is included for the same reason the gate excludes it: a collected
+# name is "this exists", not "watch this".
+_NON_DETECTION_RULE_SOURCES = {
+    "RULE_COLLECTOR", "RULE COLLECTOR",
+    "RULE_DISCOVERY", "RULE DISCOVERY",
+    "RULE_OPTIONS", "RULE OPTIONS", "RULE OPTIONS CORRELATION",
+}
+
+# Same job, two labels, where no spelling rule can pair them. Harvested by
+# reading the writers, not guessed from the strings.
+_KNOWN_SOURCE_ALIASES = {
+    "RULE 07 POLYMARKET": "RULE_07",        # rule_07_polymarket.py
+    "ENRICH SCORES":      "SCORING",        # scripts/enrich_scores.py
+}
+
+
+def _norm_source(source: str) -> str:
+    """Collapse a source label to its identity, for DETECTING collisions.
+
+    Two mechanisms, because one is not enough:
+      1. underscore <-> space, which pairs `RULE_ADSB` with `RULE ADSB`;
+      2. `_KNOWN_SOURCE_ALIASES`, because `RULE 07 POLYMARKET` and `RULE_07` are
+         the same rule and NO spelling rule pairs them — a verifier found that
+         gap, and the page was under-disclosing as a result.
+
+    Normalising is for detection only. The page shows the REAL labels and
+    discloses the pairs; merging them would assert an identity nobody verified.
+    """
+    s = str(source or "").upper().strip()
+    s = _KNOWN_SOURCE_ALIASES.get(s, s)
+    return s.replace("_", " ").strip()
+
+
+def _is_rule_source(source: str) -> bool:
+    """True only for a DETECTION rule — one that can write to `alerts`."""
+    s = str(source or "").upper().strip()
+    if s in _NON_RULE_SOURCES or s in _NON_DETECTION_RULE_SOURCES:
+        return False
+    # Literal 'RULE' prefix on either spelling, checked in Python so no LIKE
+    # wildcard can widen it (`LIKE 'RULE_%'` would also match RULES_ANYTHING).
+    return s.startswith("RULE_") or s.startswith("RULE ")
+
+
+# ── SQL, kept as named constants so the exact text can travel to the client ───
+SQL_HOURLY = """
+    SELECT strftime('%Y-%m-%d %H:00', run_at) AS hour,
+           SUM(events_scanned) AS scanned,
+           SUM(events_flagged) AS flagged,
+           SUM(alerts_emitted) AS emitted_counter,
+           COUNT(*)            AS runs
+    FROM activity_log
+    WHERE datetime(run_at) >= datetime('now','-24 hours')
+    GROUP BY hour ORDER BY hour ASC
+"""
+
+SQL_PER_SOURCE = """
+    SELECT source,
+           COUNT(*)                       AS runs,
+           SUM(events_scanned)            AS scanned,
+           SUM(events_flagged)            AS flagged,
+           SUM(alerts_emitted)            AS emitted_counter,
+           ROUND(AVG(duration_seconds),2) AS avg_duration_s,
+           SUM(duration_seconds IS NULL)  AS duration_missing,
+           MAX(run_at)                    AS last_run
+    FROM activity_log
+    WHERE datetime(run_at) >= datetime('now','-24 hours')
+    GROUP BY source ORDER BY scanned DESC, runs DESC
+"""
+
+SQL_HEAT = """
+    SELECT source, strftime('%Y-%m-%d %H', run_at) AS hour,
+           SUM(events_scanned) AS scanned, COUNT(*) AS runs
+    FROM activity_log
+    WHERE datetime(run_at) >= datetime('now','-24 hours')
+    GROUP BY source, hour
+"""
+
+SQL_PEAK = """
+    SELECT MAX(s) AS peak_hourly_scanned,
+           ROUND(AVG(s),1) AS mean_hourly_scanned,
+           COUNT(*) AS hours_observed
+    FROM (SELECT SUM(events_scanned) s FROM activity_log
+          WHERE datetime(run_at) >= datetime('now','-30 days')
+          GROUP BY strftime('%Y-%m-%d %H', run_at))
+"""
+
+SQL_ALERTS_WRITTEN = """
+    SELECT COUNT(*) AS alerts_written_24h FROM alerts
+    WHERE datetime(created_at) >= datetime('now','-24 hours')
+"""
+
+SQL_EMITTED_TRUTH = """
+    SELECT (SELECT SUM(alerts_emitted) FROM activity_log) AS emitted_counter_all_time,
+           (SELECT COUNT(*) FROM alerts)                  AS alert_rows_all_time
+"""
+
+SQL_EMITTED_NON_RULE = """
+    SELECT source, SUM(alerts_emitted) AS emitted FROM activity_log
+    WHERE alerts_emitted > 0 GROUP BY source ORDER BY emitted DESC
+"""
+
+SQL_FUNNEL_VIOLATIONS = """
+    SELECT source, COUNT(*) AS n, MAX(events_flagged - events_scanned) AS worst
+    FROM activity_log WHERE events_flagged > events_scanned
+    GROUP BY source ORDER BY n DESC
+"""
+
+SQL_FAILURES = """
+    SELECT
+      (SELECT COUNT(*) FROM activity_log WHERE source='SCHEDULER_JOB_FAILURE'
+         AND datetime(run_at) >= datetime('now','-24 hours')) AS failures_24h,
+      (SELECT COUNT(*) FROM activity_log WHERE source='SCHEDULER_JOB_FAILURE'
+         AND datetime(run_at) >= datetime('now','-7 days'))   AS failures_7d
+"""
+
+SQL_FAILURE_DETAIL = """
+    SELECT run_at, notes FROM activity_log
+    WHERE source='SCHEDULER_JOB_FAILURE'
+      AND datetime(run_at) >= datetime('now','-7 days')
+    ORDER BY datetime(run_at) DESC LIMIT 15
+"""
+
+SQL_ALERTS_PER_RULE = """
+    SELECT rule,
+           COUNT(*) AS all_time,
+           SUM(CASE WHEN datetime(created_at) >= datetime('now','-24 hours') THEN 1 ELSE 0 END) AS d1,
+           SUM(CASE WHEN datetime(created_at) >= datetime('now','-7 days')   THEN 1 ELSE 0 END) AS d7
+    FROM alerts GROUP BY rule ORDER BY all_time DESC
+"""
+
+SQL_SEVERITY = """
+    SELECT severity, COUNT(*) AS n FROM alerts
+    WHERE datetime(created_at) >= datetime('now','-24 hours')
+    GROUP BY severity
+"""
+
+SQL_SIGNED = """
+    SELECT SUM(CASE WHEN corroborates=1 THEN 1 ELSE 0 END)      AS corroborates,
+           SUM(CASE WHEN corroborates=0 THEN 1 ELSE 0 END)      AS does_not,
+           SUM(CASE WHEN corroborates IS NULL THEN 1 ELSE 0 END) AS unadjudicated,
+           COUNT(*) AS total
+    FROM alerts WHERE rule='RULE_06'
+"""
+
+SQL_CORROBORATES_POPULATED = """
+    SELECT rule, SUM(corroborates IS NOT NULL) AS populated, COUNT(*) AS total
+    FROM alerts GROUP BY rule HAVING populated > 0 ORDER BY populated DESC
+"""
+
+SQL_CORROBORATIONS = """
+    SELECT (SELECT COUNT(*) FROM alerts WHERE rule='RULE_10') AS all_time,
+           (SELECT COUNT(*) FROM alerts WHERE rule='RULE_10'
+              AND datetime(created_at) >= datetime('now','-30 days')) AS d30,
+           (SELECT COUNT(*) FROM alerts WHERE rule='RULE_10'
+              AND datetime(created_at) >= datetime('now','-7 days'))  AS d7,
+           (SELECT COUNT(*) FROM themes) AS themes
+"""
+
+SQL_CORROBORATION_DETAIL = """
+    SELECT id, ticker, created_at, tags, evidence_confidence
+    FROM alerts WHERE rule='RULE_10' ORDER BY datetime(created_at) DESC LIMIT 10
+"""
+
+# ⚠️ COALESCE and the STRICT `<` are not decoration — they make this the same
+# predicate `scripts/monitor_enrich_stall.py:36-38` uses. The first version
+# omitted both and still called itself "the criterion verbatim"; a verifier
+# checked and it was not. On current data both forms return 0 (there are no NULL
+# scores), so the NUMBER was right and the CLAIM of equivalence was not.
+SQL_BACKLOG = """
+    SELECT
+      (SELECT COUNT(*) FROM alerts
+         WHERE COALESCE(opportunity_score,0)=0 AND COALESCE(evidence_confidence,0)=0) AS unscored,
+      (SELECT COUNT(*) FROM alerts
+         WHERE COALESCE(opportunity_score,0)=0 AND COALESCE(evidence_confidence,0)=0
+           AND datetime(created_at) < datetime('now','-30 minutes')) AS unscored_over_30min
+"""
+
+SQL_OUTCOMES = """
+    SELECT status, COUNT(*) AS n FROM alert_outcomes GROUP BY status
+"""
+
+SQL_ALL_SOURCES = """
+    SELECT DISTINCT source FROM activity_log ORDER BY source
+"""
+
+# ⚠️ `distinct_tickers` USED TO COUNT THINGS THAT ARE NOT TICKERS. A verifier found
+# 42 distinct values containing a SPACE — `$USO $XLE $LMT $RTX $NOC`,
+# `$COIN $MSTR $IBIT` — which `CLAUDE.md` documents as multi-symbol BASKETS
+# (`_is_equity_ticker` excludes exactly "contains a space"), plus `$SPY`/`SPY` and
+# `$USO`/`USO` counted twice each because of the `$` prefix. ~2.7% of the figure.
+# Both the raw and the cleaned count are returned so the page can show the real
+# number and say what it excluded.
+SQL_COVERAGE = """
+    SELECT (SELECT COUNT(*) FROM alerts) AS alerts,
+           (SELECT COUNT(*) FROM activity_log) AS activity_rows,
+           (SELECT COUNT(DISTINCT ticker) FROM alerts
+              WHERE ticker IS NOT NULL AND ticker != '') AS distinct_ticker_values_raw,
+           (SELECT COUNT(DISTINCT REPLACE(UPPER(TRIM(ticker)),'$',''))
+              FROM alerts
+              WHERE ticker IS NOT NULL AND TRIM(ticker) != ''
+                AND INSTR(TRIM(ticker),' ') = 0) AS distinct_tickers,
+           (SELECT COUNT(DISTINCT ticker) FROM alerts
+              WHERE ticker IS NOT NULL AND INSTR(TRIM(ticker),' ') > 0) AS multi_symbol_baskets,
+           (SELECT COUNT(*) FROM members) AS members,
+           (SELECT MIN(run_at) FROM activity_log) AS activity_since,
+           (SELECT MAX(created_at) FROM alerts) AS newest_alert
+"""
+
+
+def _fill_hour_gaps(rows):
+    """Insert explicit zero rows for hours in which NOTHING ran.
+
+    🔴 `GROUP BY` only emits populated hours, and the chart spaces bars by array
+    INDEX. So an hour with no runs was silently DELETED from an axis the legend
+    calls "one bar = one clock hour": a four-hour outage rendered identically to a
+    one-hour gap, and since only three x-labels are printed it was invisible. A
+    verifier reproduced it. An outage is exactly when someone opens /status, so
+    this is the worst possible thing for that axis to hide.
+
+    A filled hour is marked `no_runs: True` so the page can draw it as a real gap
+    rather than as a genuine zero-volume hour — "nothing ran" and "ran and found
+    nothing" are different facts.
+    """
+    if not rows:
+        return rows
+    from datetime import datetime as _dt, timedelta as _td
+    fmt = "%Y-%m-%d %H:00"
+    try:
+        first = _dt.strptime(rows[0]["hour"], fmt)
+        last  = _dt.strptime(rows[-1]["hour"], fmt)
+    except (ValueError, KeyError, TypeError):
+        return rows                      # unparseable: return untouched, never guess
+    have = {r["hour"]: r for r in rows}
+    out, cur = [], first
+    while cur <= last:
+        key = cur.strftime(fmt)
+        if key in have:
+            r = dict(have[key]); r["no_runs"] = False
+        else:
+            r = {"hour": key, "scanned": 0, "flagged": 0, "emitted_counter": 0,
+                 "runs": 0, "no_runs": True}
+        out.append(r)
+        cur += _td(hours=1)
+    return out
+
+
+def _rows(conn, sql, args=()):
+    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def _one(conn, sql, args=()):
+    r = conn.execute(sql, args).fetchone()
+    return dict(r) if r is not None else {}
+
+
+@router.get("/telemetry", tags=["Meta"])
+def telemetry():
+    """Every aggregate the /status telemetry panel renders, with its own SQL.
+
+    `sql` travels with each block on purpose: the page shows it in a provenance
+    disclosure, so a reader can check the number rather than trust the label.
+    That is the whole design, and it exists because this panel's predecessor
+    shipped two REAL numbers under FALSE labels.
+    """
+    t0 = time.perf_counter()
+    conn = db_connection()
+    try:
+        hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY))
+        per_source   = _rows(conn, SQL_PER_SOURCE)
+        heat         = _rows(conn, SQL_HEAT)
+        peak         = _one(conn,  SQL_PEAK)
+        written      = _one(conn,  SQL_ALERTS_WRITTEN)
+        emit_truth   = _one(conn,  SQL_EMITTED_TRUTH)
+        emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE)
+        violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS)
+        failures     = _one(conn,  SQL_FAILURES)
+        fail_detail  = _rows(conn, SQL_FAILURE_DETAIL)
+        per_rule     = _rows(conn, SQL_ALERTS_PER_RULE)
+        severity     = _rows(conn, SQL_SEVERITY)
+        signed       = _one(conn,  SQL_SIGNED)
+        corr_pop     = _rows(conn, SQL_CORROBORATES_POPULATED)
+        corr         = _one(conn,  SQL_CORROBORATIONS)
+        corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL)
+        backlog      = _one(conn,  SQL_BACKLOG)
+        outcomes     = _rows(conn, SQL_OUTCOMES)
+        all_sources  = _rows(conn, SQL_ALL_SOURCES)
+        coverage     = _one(conn,  SQL_COVERAGE)
+    finally:
+        conn.close()
+
+    # ── derived, in Python, from the rows above — never a second query ────────
+    # Rule vs non-rule run split, classified explicitly (see module note 2).
+    rule_runs = sum(r["runs"] for r in per_source if _is_rule_source(r["source"]))
+    all_runs  = sum(r["runs"] for r in per_source)
+
+    # 🔴 THE FUNNEL IS RULE-ONLY. See module note 0: the scanned/flagged labels are
+    # only true of detection rules, and non-rule sources supply ~31% of `flagged`.
+    # Both halves are returned so the exclusion is disclosed, not silent.
+    def _sum(rows, key, pred):
+        return sum((r[key] or 0) for r in rows if pred(r["source"]))
+    rule_scanned = _sum(per_source, "scanned", _is_rule_source)
+    rule_flagged = _sum(per_source, "flagged", _is_rule_source)
+    non_scanned  = _sum(per_source, "scanned", lambda s: not _is_rule_source(s))
+    non_flagged  = _sum(per_source, "flagged", lambda s: not _is_rule_source(s))
+
+    # What each EXCLUDED source's counters actually mean, so the page can show the
+    # reason per source instead of a positional sentence.
+    excluded_detail = []
+    for r in per_source:
+        if _is_rule_source(r["source"]):
+            continue
+        if not ((r["scanned"] or 0) or (r["flagged"] or 0) or (r["emitted_counter"] or 0)):
+            continue
+        meaning = _COUNTER_MEANING.get(str(r["source"]).upper())
+        excluded_detail.append({
+            "source": r["source"],
+            "scanned": r["scanned"], "flagged": r["flagged"],
+            "emitted_counter": r["emitted_counter"],
+            "scanned_means": meaning[0] if meaning else None,
+            "flagged_means": meaning[1] if meaning else None,
+            "emitted_means": meaning[2] if meaning else None,
+        })
+    excluded_detail.sort(key=lambda r: -((r["scanned"] or 0) + (r["flagged"] or 0)))
+
+    # The emitted counter's non-rule contributors, which is WHY it is not an
+    # alert count. Split by the same explicit classifier.
+    non_rule_emitted = [r for r in emit_by_src if not _is_rule_source(r["source"])]
+    rule_emitted     = sum(r["emitted"] or 0 for r in emit_by_src if _is_rule_source(r["source"]))
+
+    # Duplicate source labels for the same rule — a real data-quality issue that
+    # makes a per-source table list one rule twice. Disclosed, never merged.
+    #
+    # ⚠️ Computed over ALL-TIME distinct sources, not over the 24 h window. The
+    # space-spelled labels are LEGACY: they exist in the table but have not been
+    # written recently, so a window-scoped check returns empty and would report
+    # "no collision" about a table that contains several. Scoping this to the
+    # window would have made the disclosure quietly false.
+    seen: dict[str, list[str]] = {}
+    for r in (row["source"] for row in all_sources):
+        seen.setdefault(_norm_source(r), []).append(r)
+    variants = {k: v for k, v in seen.items() if len(v) > 1}
+
+    elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+    return {
+        # `as_of` is the moment THIS response was computed. The page prints it on
+        # every refresh; it is not a capture timestamp baked into a file.
+        "as_of_utc": datetime.now(timezone.utc).isoformat(),
+        "query_ms": elapsed_ms,
+        "poll_hint_seconds": 60,
+        "metrics": {
+            "ingest_hourly_24h": {
+                "sql": _flat(SQL_HOURLY),
+                "fields": ("activity_log.events_scanned / events_flagged / "
+                           "alerts_emitted / run_at"),
+                "note": ("The first and last buckets are PARTIAL clock hours, clipped by "
+                         "the rolling 24 h window edge — not comparable to a full hour. "
+                         "Hours in which NOTHING ran are returned explicitly with "
+                         "no_runs=true rather than omitted, so the axis stays a real time "
+                         "axis: GROUP BY emits only populated hours, and a chart that "
+                         "spaces bars by index would render a 4-hour outage identically to "
+                         "a 1-hour gap. 'nothing ran' and 'ran and found nothing' are "
+                         "different facts and are drawn differently."),
+                "rows": hourly,
+            },
+            "per_source_24h": {
+                "sql": _flat(SQL_PER_SOURCE),
+                "fields": "activity_log.source + counters + duration_seconds",
+                "note": ("avg_duration_s is how long a RULE RUN took. It is NOT request "
+                         "latency — Scope stores no request timings at all. "
+                         "duration_missing counts rows where the column is NULL."),
+                "rows": per_source,
+            },
+            "heat_grid_24h": {
+                "sql": _flat(SQL_HEAT),
+                "fields": "activity_log.source x hour bucket of run_at, SUM(events_scanned)",
+                "rows": heat,
+            },
+            "scale_reference_30d": {
+                "sql": _flat(SQL_PEAK),
+                "why": ("Scope declares NO throughput capacity, so the only honest "
+                        "full-scale mark for a gauge is the peak hour actually observed "
+                        "in the last 30 days. It is a high-water mark, not a limit."),
+                "row": peak,
+            },
+            "run_split_24h": {
+                "sql": _flat(SQL_PER_SOURCE) + "  -- classified in Python, see below",
+                "why": ("'Rule runs' must exclude infrastructure. Classification is "
+                        "explicit in telemetry._is_rule_source because SQL's "
+                        "LIKE 'RULE_%' treats _ as a WILDCARD and would also match "
+                        "unrelated sources; prod additionally holds space-spelled "
+                        "labels (RULE ADSB) beside underscore ones (RULE_ADSB)."),
+                "row": {"rule_runs": rule_runs,
+                        "non_rule_runs": all_runs - rule_runs,
+                        "all_runs": all_runs},
+            },
+            "source_label_variants": {
+                "sql": _flat(SQL_ALL_SOURCES) + "  -- collision detected in Python",
+                "why": ("The SAME rule is logged under two different source labels in "
+                        "prod (underscore and space spellings). Reported so a per-source "
+                        "table can say so, rather than merging two labels into an "
+                        "identity nobody verified. Computed ALL-TIME, not over the 24 h "
+                        "window: the space spellings are legacy, so a window-scoped check "
+                        "would report no collision about a table that has several."),
+                "row": variants,
+            },
+            "alerts_written_24h": {
+                "sql": _flat(SQL_ALERTS_WRITTEN),
+                "why": ("🔴 THE FUNNEL'S LAST STAGE IS THIS, NOT SUM(alerts_emitted). "
+                        "The counter is not an alert count — see emitted_counter_truth."),
+                "row": written,
+            },
+            "rule_funnel_24h": {
+                "sql": _flat(SQL_PER_SOURCE) + "  -- summed over DETECTION rules only, in Python",
+                "why": ("🔴 SCOPED TO DETECTION RULES because the column labels are only "
+                        "true of them. DB_BACKUP's events_scanned is one backup RUN; "
+                        "DECAY's is alerts DOWNGRADED; MONITOR_BACKUP_STALL's "
+                        "events_flagged is PROBLEMS FOUND, which inverts the metric; "
+                        "INGEST_HOUSE_INDEX's is PTRs registered. Mixing them into a "
+                        "'records examined -> passed the quality filter' funnel makes both "
+                        "labels false. The excluded totals are reported here too, so the "
+                        "exclusion is visible rather than silent."),
+                "row": {"rule_scanned": rule_scanned, "rule_flagged": rule_flagged,
+                        "alerts_written": written.get("alerts_written_24h"),
+                        "excluded_non_rule_scanned": non_scanned,
+                        "excluded_non_rule_flagged": non_flagged},
+                "excluded_sources": excluded_detail,
+                "counter_meaning_note": (
+                    "scanned_means / flagged_means / emitted_means are read off each "
+                    "writer's own record_activity() call site. A source with null "
+                    "meanings is NOT documented — it is never given another source's "
+                    "gloss, because doing exactly that produced a false label here."),
+            },
+            "emitted_counter_truth": {
+                "sql": _flat(SQL_EMITTED_TRUTH),
+                "by_source_sql": _flat(SQL_EMITTED_NON_RULE),
+                "why": ("activity_log.alerts_emitted is documented as 'alerts inserted'. "
+                        "Measured against prod that is FALSE: it means 'units of work "
+                        "this job reported producing', which for REFRESH_TICKERS is a "
+                        "refreshed ticker, for LABEL_OUTCOMES a labelled outcome and for "
+                        "DB_BACKUP a snapshot FILE. It is not an alert count in either "
+                        "direction — non-rule jobs inflate it, while activity_log starts "
+                        "later than the alerts table so the rule-only subtotal "
+                        "under-counts all-time."),
+                "row": emit_truth,
+                "non_rule_contributors": non_rule_emitted,
+                "rule_emitted_all_time": rule_emitted,
+            },
+            "funnel_monotonic_violations": {
+                "sql": _flat(SQL_FUNNEL_VIOLATIONS),
+                "why": ("scanned -> flagged -> written reads as a SUBSET chain. It is not "
+                        "strictly one: these sources have logged flagged > scanned. The "
+                        "page must therefore not call it a strict funnel."),
+                "rows": violations,
+            },
+            "scheduler_failures": {
+                "sql": _flat(SQL_FAILURES),
+                "fields": ("activity_log rows with source='SCHEDULER_JOB_FAILURE' — the "
+                           "universal safety net, so no scheduled-job failure is silent"),
+                "row": failures,
+            },
+            "scheduler_failure_detail_7d": {
+                "sql": _flat(SQL_FAILURE_DETAIL), "rows": fail_detail,
+            },
+            "alerts_per_rule": {
+                "sql": _flat(SQL_ALERTS_PER_RULE),
+                "fields": "alerts.rule + alerts.created_at",
+                "rows": per_rule,
+            },
+            "severity_24h": {
+                "sql": _flat(SQL_SEVERITY),
+                "note": ("severity is MUTABLE — scripts/decay_alerts.py runs nightly and "
+                         "can change it, so this mix is a current reading, not a "
+                         "historical record of what fired at what severity."),
+                "rows": severity,
+            },
+            "signed_leg_verdict_rule06": {
+                "sql": _flat(SQL_SIGNED),
+                "populated_by_rule_sql": _flat(SQL_CORROBORATES_POPULATED),
+                "fields": ("alerts.corroborates (m014) — the signed-leg verdict. "
+                           "TRI-STATE: 1 corroborates, 0 does not, NULL = UNKNOWN and "
+                           "fails closed."),
+                "why": ("Scoped to RULE_06 on purpose: SIGNED_RULES is {'RULE_06'}, but "
+                        "the column is also POPULATED on RULE_01B (written but inert — "
+                        "the gate ignores it for an unsigned rule). A verdict computed "
+                        "over every populated row would fold in RULE_01B as if it had "
+                        "been adjudicated. The rate's denominator excludes NULLs because "
+                        "unknown is not the same as no."),
+                "row": signed,
+                "populated_by_rule": corr_pop,
+            },
+            "corroborations": {
+                "sql": _flat(SQL_CORROBORATIONS),
+                "why": ("A COUNT, never a rate. With this few RULE_10 rows a percentage "
+                        "would be a one-row statistic dressed as a trend."),
+                "row": corr,
+            },
+            "corroboration_detail": {
+                "sql": _flat(SQL_CORROBORATION_DETAIL),
+                "fields": ("alerts.tags (instruments[] + instrument_count, written by the "
+                           "gate) + evidence_confidence. Never re-derived here — the "
+                           "corroboration model must not be reimplemented outside it."),
+                "rows": corr_detail,
+            },
+            "scoring_backlog": {
+                "sql": _flat(SQL_BACKLOG),
+                "fields": "alerts.opportunity_score / evidence_confidence",
+                "why": "The MONITOR_ENRICH_STALL criterion verbatim.",
+                "row": backlog,
+            },
+            "outcome_labeling": {
+                "sql": _flat(SQL_OUTCOMES),
+                "fields": "alert_outcomes.status, written only by scripts/label_outcomes.py",
+                "why": ("Labelling PROGRESS only. No win rate is derived from it here — "
+                        "see the omissions table on the page."),
+                "rows": outcomes,
+            },
+            "coverage": {
+                "sql": _flat(SQL_COVERAGE), "row": coverage,
+            },
+        },
+    }
+
+
+def per_rule_labels(per_source_rows) -> list[str]:
+    return [r["source"] for r in per_source_rows]
+
+
+def _flat(sql: str) -> str:
+    return " ".join(sql.split())

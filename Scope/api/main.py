@@ -37,6 +37,7 @@ from api.routers import (
     forming as forming_router,
     insider_clusters as insider_clusters_router,
     positions as positions_router,
+    telemetry as telemetry_router,
  universe,)
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -388,6 +389,9 @@ app.include_router(insider_clusters_router.router, prefix="/api",
 # own `secret_token` header inside the router (NOT by a query-string key), and it is the
 # first inbound WRITE endpoint this app has ever exposed.
 app.include_router(positions_router.router, prefix="/api", tags=["Positions"])
+# Live operational aggregates for /status. Read-only; nothing existing could
+# serve them (/api/activity-log caps at 100 rows against a ~790-row 24h window).
+app.include_router(telemetry_router.router, prefix="/api", tags=["Meta"])
 
 
 @app.get("/health", tags=["Health"])
