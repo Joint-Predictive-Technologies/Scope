@@ -256,3 +256,106 @@ def test_the_connection_is_read_only():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert "db_connection" not in called, "db_connection() is still CALLED, not just discussed"
+
+
+# ── the FUNNEL WIRING, not just its helpers ─────────────────────────────────
+# A verifier proved the 45 tests above all stayed green under two mutations that
+# change behaviour: replacing the rule filter with `lambda s: True`, and reverting
+# the last stage to `SUM(alerts_emitted)`. Those are precisely the two regressions
+# this endpoint exists to prevent, so they get end-to-end tests over seeded rows.
+def _seed(db_path):
+    """A minimal activity_log + alerts pair: one DETECTION rule, one non-rule job."""
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
+            events_scanned INTEGER DEFAULT 0, events_flagged INTEGER DEFAULT 0,
+            alerts_emitted INTEGER DEFAULT 0, run_at TEXT DEFAULT (datetime('now')),
+            duration_seconds REAL, notes TEXT);
+        CREATE TABLE IF NOT EXISTS alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, rule TEXT, ticker TEXT,
+            severity TEXT, headline TEXT, tags TEXT, created_at TEXT,
+            corroborates INTEGER, opportunity_score REAL DEFAULT 0,
+            evidence_confidence REAL DEFAULT 0, theme_id INTEGER);
+        """
+    )
+    conn.execute(
+        "INSERT INTO activity_log (source, events_scanned, events_flagged, alerts_emitted,"
+        " run_at, duration_seconds) VALUES ('RULE_06', 1000, 10, 2, datetime('now'), 1.0)")
+    # a NON-rule job with large counters: if the funnel is not rule-scoped these leak in
+    conn.execute(
+        "INSERT INTO activity_log (source, events_scanned, events_flagged, alerts_emitted,"
+        " run_at, duration_seconds) VALUES ('INGEST_HOUSE_INDEX', 500, 400, 7,"
+        " datetime('now'), 1.0)")
+    # exactly THREE real alert rows — SUM(alerts_emitted) above is 9, so the two
+    # cannot be confused by coincidence
+    for i in range(3):
+        conn.execute("INSERT INTO alerts (rule, ticker, severity, created_at)"
+                     " VALUES ('RULE_06','AAA','HIGH', datetime('now'))")
+    conn.commit()
+    conn.close()
+
+
+def _telemetry_over_seeded_db(tmp_path, monkeypatch):
+    db = tmp_path / "seeded.db"
+    _seed(str(db))
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    import importlib
+
+    from api.routers import telemetry as mod
+    importlib.reload(mod)          # rebind _get_db_path against the new env
+    return mod.telemetry()
+
+
+def test_the_funnel_excludes_non_rule_sources_end_to_end(tmp_path, monkeypatch):
+    """`rule_scanned` must be the RULE row only — 1000, not 1500."""
+    d = _telemetry_over_seeded_db(tmp_path, monkeypatch)
+    fn = d["metrics"]["rule_funnel_24h"]["row"]
+    assert fn["rule_scanned"] == 1000, (
+        f"expected the RULE_06 row only; got {fn['rule_scanned']} "
+        "(1500 means the non-rule job leaked into 'records examined by detection rules')"
+    )
+    assert fn["rule_flagged"] == 10, f"expected 10, got {fn['rule_flagged']}"
+    # and the exclusion is reported, not silently dropped
+    assert fn["excluded_non_rule_scanned"] == 500
+    assert fn["excluded_non_rule_flagged"] == 400
+
+
+def test_the_last_stage_counts_alert_ROWS_not_the_emitted_counter(tmp_path, monkeypatch):
+    """3 real alert rows against SUM(alerts_emitted)=9. The stage must say 3.
+
+    This is the original headline defect: `alerts_emitted` is a job-reported work
+    counter, so reverting the stage to it would print 9 alerts where 3 exist.
+    """
+    d = _telemetry_over_seeded_db(tmp_path, monkeypatch)
+    assert d["metrics"]["alerts_written_24h"]["row"]["alerts_written_24h"] == 3
+    assert d["metrics"]["rule_funnel_24h"]["row"]["alerts_written"] == 3
+    truth = d["metrics"]["emitted_counter_truth"]["row"]
+    assert truth["emitted_counter_all_time"] == 9, "the counter is still reported, as itself"
+    assert truth["alert_rows_all_time"] == 3
+
+
+def test_a_failed_block_is_marked_unavailable_and_not_reported_as_zero(tmp_path, monkeypatch):
+    """`alert_outcomes` is created lazily by label_outcomes.py, so it is genuinely
+    absent on a fresh deploy. The block must say so rather than render 0/0/0."""
+    d = _telemetry_over_seeded_db(tmp_path, monkeypatch)   # seeded DB has no alert_outcomes
+    block = d["metrics"]["outcome_labeling"]
+    assert block.get("unavailable"), "a missing table must mark the block unavailable"
+    assert "alert_outcomes" in block["unavailable"]
+    assert block["rows"] == [], "and it must be empty, not fabricated"
+    assert d["degraded"], "the reason must travel on the payload"
+
+
+def test_db_backup_flagged_is_glossed_as_a_FAILURE_not_as_unused():
+    """Three call sites, and `flagged` inverts: db_backup.py:222/:256 write flagged=1
+    when the backup RAISED or integrity_check FAILED. The gloss said "unused (always
+    0)" — a false label on the highest-severity signal on the page. Pinned so the
+    one-call-site assumption cannot come back."""
+    scanned, flagged, emitted = _COUNTER_MEANING["DB_BACKUP"]
+    low = flagged.lower()
+    assert "fail" in low, f"flagged must be described as a failure signal, got {flagged!r}"
+    assert "worse" in low, "and its polarity must be stated"
+    assert "unused" not in low and "always 0" not in low
+    assert "success" in scanned.lower() or "0 on a failed" in scanned.lower()

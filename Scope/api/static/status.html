@@ -113,6 +113,10 @@
          border:1px solid var(--border2); padding:0.4rem 0.6rem; font-family:var(--font-mono);
          font-size:0.64rem; color:var(--cream); line-height:1.5; max-width:22rem; }
   .loading { padding:2rem; text-align:center; color:var(--muted); font-family:var(--font-mono); font-size:0.7rem; }
+  button { font:inherit; font-size:0.66rem; font-family:var(--font-mono); background:var(--surface-3);
+           color:var(--cream); border:1px solid var(--border2); padding:0.3rem 0.7rem; cursor:pointer; }
+  button:hover { border-color:var(--border-emphasis, var(--border2)); }
+  button[disabled] { opacity:0.45; cursor:default; }
   h3.sec { font-family:var(--font-mono); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.08em;
            color:var(--cream2); margin:1.8rem 0 0.7rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border); }
   </style>
@@ -143,6 +147,10 @@
   </div>
   <div id="pill"></div>
   <div id="sched"><div class="loading">Loading scheduler status…</div></div>
+  <div style="margin-top:0.6rem;display:flex;gap:0.7rem;align-items:center;flex-wrap:wrap">
+    <button id="btnSched">Refresh scheduler table</button>
+    <span id="schedAsOf" class="qual"></span>
+  </div>
 </div>
 
 <script>
@@ -200,6 +208,20 @@
     });
     node.addEventListener("mouseleave", function () { tip.style.display = "none"; });
   }
+  /* 🔴 A block whose SQL failed is NOT a block that measured zero, and the first
+     version of this page broke that promise one line under the bar that made it: the
+     live bar said "shown empty, not as zero" while `drawHealth` rendered 0/0/0 and
+     `drawDQ` asserted "No alerts were written in the last 24 h" from a metric that had
+     never loaded. Both found by a verifier on a real partially-restored DB.
+     `alert_outcomes` is NOT in `schema_sqlite.sql` — it is created lazily by
+     `scripts/label_outcomes.py`, so it is genuinely absent on a fresh deploy. */
+  function isDown(block) { return !!(block && block.unavailable); }
+  function downNote(block, what) {
+    return '<div class="warn">⚠️ <b>' + esc(what) + ' UNAVAILABLE.</b> ' +
+      esc(block.unavailable) + ' — this metric did not load. It is <b>not</b> zero, and ' +
+      'nothing is shown in its place.</div>';
+  }
+
   function prov(id, text) {
     return '<details class="prov"><summary>provenance</summary><pre>' + esc(text) + '</pre></details>';
   }
@@ -222,7 +244,11 @@
     /* A block that failed to read is NOT a block that measured zero. The endpoint
        reports which ones degraded (a missing table on a fresh or partially restored
        DB), and the bar says so rather than letting an empty card read as "quiet". */
-    var deg = (d.degraded || []);
+    /* ⚠️ `degraded` is a DICT keyed by SQL constant (it was a flat list before the
+       per-block refactor), so `.length` on it is `undefined` and the badge silently
+       stopped rendering — caught by re-testing the degraded path rather than assuming
+       the refactor was safe. `degraded_reasons` is the flat list for exactly this. */
+    var deg = (d.degraded_reasons || []);
     bar.innerHTML =
       '<span><span class="dot' + (deg.length ? ' stale' : '') + '"></span><b>' +
         (deg.length ? 'LIVE (DEGRADED)' : 'LIVE') + '</b></span>' +
@@ -445,6 +471,10 @@
     svg.appendChild(cap);
     el("ingLegend").innerHTML =
       '<span>one bar = one clock hour · hover for exact counts</span>' +
+      '<span class="dim">⚠️ this chart sums <b>every</b> source, unlike the stages card ' +
+      'and the tile above, which are detection-rule-only — non-rule jobs are ~2.6% of ' +
+      'scanned, so the shape is unaffected, but the scoping differs and is stated ' +
+      'rather than assumed</span>' +
       '<span><span class="swatch" style="background:var(--cat-primary);opacity:0.42;outline:1px dashed var(--chart-label)"></span>' +
       'first &amp; last are <b>partial</b> hours — not comparable to a full hour</span>' +
       (gaps ? '<span><span class="swatch" style="background:var(--severity-high);opacity:0.3"></span>' +
@@ -498,9 +528,13 @@
     }
     /* A ratio over a zero denominator is not 0% and not NaN — it is undefined, and
        printing either would be a claim the data does not support. */
+    /* Guards BOTH sides. The first version guarded a zero denominator but not an
+       ABSENT numerator, so a degraded `alerts` read rendered a literal `NaN%`. */
     var pctOr = function (num, den, what) {
-      return den ? (num/den*100).toFixed(2) + "%"
-                 : '<span class="dim">n/a (nothing ' + what + ' in this window)</span>';
+      if (typeof num !== "number" || !isFinite(num))
+        return '<span class="dim">n/a (the numerator did not load)</span>';
+      if (!den) return '<span class="dim">n/a (nothing ' + what + ' in this window)</span>';
+      return (num/den*100).toFixed(2) + "%";
     };
     el("stages").innerHTML = rows +
       '<div class="qual" style="margin-top:0.5rem">flagged / scanned = <b>' +
@@ -676,6 +710,10 @@
 
   /* ── signed leg: the one real percentage, tri-state ─────────────────────── */
   function drawSigned(m) {
+    if (isDown(m.signed_leg_verdict_rule06)) {
+      el("signed").innerHTML = downNote(m.signed_leg_verdict_rule06, "Signed-leg verdict");
+      return;
+    }
     var r = m.signed_leg_verdict_rule06.row;
     var adj = (r.corroborates||0) + (r.does_not||0);
     var pct = adj ? (r.corroborates/adj*100) : null;
@@ -714,6 +752,10 @@
   /* ── corroboration engine ───────────────────────────────────────────────── */
   function drawCorr(m) {
     var c = m.corroborations.row, d = m.corroboration_detail.rows;
+    if (isDown(m.corroborations)) {
+      el("corr").innerHTML = downNote(m.corroborations, "Corroboration engine");
+      return;
+    }
     el("corr").innerHTML =
       '<div class="stat">' + n(c.all_time) + '</div>' +
       '<div class="unit">corroborations (RULE_10 alerts) all time</div>' +
@@ -734,6 +776,7 @@
   /* ── pipeline health ────────────────────────────────────────────────────── */
   function drawHealth(m) {
     var f = m.scheduler_failures.row, b = m.scoring_backlog.row;
+    var outDown = isDown(m.outcome_labeling);
     /* ⚠️ Default EACH status to 0. The oTot guard covered an empty TABLE, not an
        absent STATUS — a real DB with no 'pending' row rendered width:NaN%, which
        CSS silently ignores, so a segment vanished while the legend printed "—".
@@ -764,6 +807,7 @@
           ' more</div>' : "") + '</div>' : "") +
       '<div style="margin-top:0.6rem;border-top:1px solid var(--border);padding-top:0.5rem">' +
         '<div class="unit" style="margin-bottom:0.3rem">forward-return labelling (<code>alert_outcomes</code>)</div>' +
+        (outDown ? downNote(m.outcome_labeling, "Forward-return labelling") :
         '<div style="display:flex;gap:2px;height:16px;margin-bottom:0.4rem">' +
           '<div style="background:var(--cat-primary);width:' + (oTot ? (o.complete/oTot*100).toFixed(1) : 0) + '%"></div>' +
           '<div style="background:var(--cat-neutral);width:' + (oTot ? (o.pending/oTot*100).toFixed(1) : 0) + '%"></div>' +
@@ -772,7 +816,7 @@
           '<span><span class="swatch" style="background:var(--cat-primary)"></span>complete <b>' + n(o.complete) + '</b></span>' +
           '<span><span class="swatch" style="background:var(--cat-neutral)"></span>pending <b>' + n(o.pending) + '</b></span>' +
           '<span><span class="swatch hatch-key"></span>unpriceable <b>' + n(o.unavailable) + '</b></span></div>' +
-        '<div class="qual">Labelling progress only. <b>No win rate is derived from it</b> — see the omissions table.</div>' +
+        '<div class="qual">Labelling progress only. <b>No win rate is derived from it</b> — see the omissions table.</div>') +
       '</div>';
   }
 
@@ -799,10 +843,13 @@
       '<div class="warn" style="margin-top:0.5rem">⚠️ <b>Severity is mutable.</b> ' +
         esc(m.severity_24h.note) +
         /* an empty severity list used to leave the sentence "The 24 h mix is ." */
-        (m.severity_24h.rows.length
-           ? ' The 24 h mix is ' + m.severity_24h.rows.map(function (r) {
-               return "<b>" + n(r.n) + "</b> " + esc(r.severity); }).join(" · ") + '.'
-           : ' <b>No alerts were written in the last 24 h</b>, so there is no mix to show.') +
+        (isDown(m.severity_24h)
+           ? ' <b>The severity mix did not load</b> (' + esc(m.severity_24h.unavailable) +
+             '), so nothing is claimed about it either way.'
+           : m.severity_24h.rows.length
+             ? ' The 24 h mix is ' + m.severity_24h.rows.map(function (r) {
+                 return "<b>" + n(r.n) + "</b> " + esc(r.severity); }).join(" · ") + '.'
+             : ' <b>No alerts were written in the last 24 h</b>, so there is no mix to show.') +
         '</div>';
   }
 
@@ -817,7 +864,7 @@
         "No process metrics are recorded anywhere in the schema. A load gauge would be decoration."],
        ["Request latency (p50/p99)<br>requests per second<br>HTTP error rate",
         "There is no request-log table and access logs are not persisted, so no percentile, rate " +
-        "or error ratio can be computed. <b>The <code>avg run s</code> column above is a RULE " +
+        "or error ratio can be computed. <b>The <code>avg job s</code> column above is a JOB " +
         "RUN's duration, not request latency</b> — a different thing, labelled as such."],
        ["Uptime / availability %",
         "Not recorded. <code>activity_log</code> proves individual jobs ran; that is not " +
@@ -909,10 +956,21 @@
           '<code>activity_log</code> row each rule\'s <code>run()</code> writes. A source with no ' +
           'row has never logged a run in this environment. The emitted column is a job-reported ' +
           'work counter, not an alert count — see the stages card above.</div></div>';
+        var stamp = el('schedAsOf');
+        if (stamp) stamp.innerHTML = 'fetched <b>' + new Date().toISOString() +
+          '</b> — this table is <b>not polled</b>: each fetch takes a brief whole-DB ' +
+          'write lock, so it refreshes only when you ask.';
       }).catch(function () {
         el('sched').innerHTML = '<div class="loading">Scheduler status unavailable.</div>';
       });
   }
+  document.addEventListener("DOMContentLoaded", function () {
+    var b = el("btnSched");
+    if (b) b.addEventListener("click", function () {
+      b.disabled = true;
+      loadScheduler().then(function () { b.disabled = false; });
+    });
+  });
 
   /* ── poll ───────────────────────────────────────────────────────────────── */
   function tick() {
@@ -930,33 +988,34 @@
       });
   }
 
-  /* ⚠️ THE SCHEDULER TABLE IS ON ITS OWN, SLOWER TIMER, and a pre-merge review was
-     right to insist. On `main` `/api/scheduler-status` fired ONCE per page load; a
-     naive port put it in the 60 s loop. Measured on prod it costs **46.8 ms median**
-     — a correlated scalar subquery per source group with two temp b-tree sorts, so
-     its cost grows as rows x distinct-sources, making it the WORSE-SCALING of the
-     two queries. Polling it at 60 s would have added ~27% to the page's real cost
-     while buying nothing: the fastest cadence in `EXPECTED` is 5 minutes, so a
-     staleness table cannot change faster than that. */
-  var SCHED_POLL_MS = 300000;   /* 5 min = the fastest cadence in EXPECTED */
-  var schedTimer = null;
-
-  function startPolling() {
-    if (!pollTimer)  pollTimer  = setInterval(tick, POLL_MS);
-    if (!schedTimer) schedTimer = setInterval(loadScheduler, SCHED_POLL_MS);
-  }
-  function stopPolling() {
-    clearInterval(pollTimer);  pollTimer  = null;
-    clearInterval(schedTimer); schedTimer = null;
-  }
+  /* 🔴 THE SCHEDULER TABLE IS FETCHED ONCE PER LOAD, ON PURPOSE, AND IS NOT POLLED.
+     Two review rounds shaped this. Round one: a naive port put
+     `/api/scheduler-status` in the 60 s loop, where `main` had fetched it once per
+     page load. It measures **46.8 ms** on prod — a correlated scalar subquery per
+     source group with two temp b-tree sorts, so it scales as rows x distinct-sources
+     and is the worse-scaling of the two queries. I moved it to a 5-minute timer.
+     Round two caught what that still missed: **`/api/scheduler-status` uses
+     `db_connection()`**, which re-runs the schema script and COMMITS, so on prod's
+     `journal_mode=delete` every fetch takes a whole-database write lock. A 5-minute
+     timer plus a fetch per tab-focus turns `main`'s ONE lock per load into ~12 per
+     hour per open tab — reintroducing, through a different door, exactly the
+     contention the `mode=ro` fix was made to remove.
+     I cannot fix `/api/scheduler-status` from here (it is a shared endpoint and out
+     of this change's scope), so the page stops asking: **once on load, then only when
+     the reader clicks Refresh.** That is `main`'s lock profile exactly, plus an
+     explicit "as of" and a user-controlled refresh, which is strictly more honest
+     than main's silent staleness. Only `/api/telemetry` — now genuinely read-only —
+     is polled. */
+  function startPolling() { if (!pollTimer) pollTimer = setInterval(tick, POLL_MS); }
+  function stopPolling()  { clearInterval(pollTimer); pollTimer = null; }
 
   tick(); loadScheduler(); startPolling();
   document.addEventListener("visibilitychange", function () {
-    /* Don't poll a page nobody is looking at — a poll is ~170 ms of real DB work
-       (plus ~47 ms when the scheduler timer coincides) and a hidden tab cannot show
-       the result. Both timers stop; both resume with a fresh read on return. */
+    /* Don't poll a page nobody is looking at — a poll is ~165 ms of real DB work and
+       a hidden tab cannot show the result. The SCHEDULER is deliberately NOT refetched
+       here: each fetch takes a write lock, and a tab-switch is not new information. */
     if (document.visibilityState === "hidden") stopPolling();
-    else { tick(); loadScheduler(); startPolling(); }
+    else { tick(); startPolling(); }
   });
 })();
 </script>

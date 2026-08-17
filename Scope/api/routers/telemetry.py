@@ -92,10 +92,10 @@ THE FIGURE HAS MOVED TWICE AND THE CURRENT ONE IS THE ONLY ONE TO QUOTE:
   • 138.7 ms  — first build (independently re-measured at 131.2 ms)
   • 178.7 ms  — after the label fixes added an all-time `SELECT DISTINCT source`
                 scan and two `alerts` subqueries for a basket-free ticker count
-  • **162.7 ms** — current, median of 9 runs (min 150.2, max 179.2), payload ~49 KB.
-                Correctness got CHEAPER here: dropping `mode=ro`'s schema-script
-                overhead and a never-rendered `COUNT(*) FROM members` more than paid
-                for the fixes.
+  • 162.7 ms  — after `mode=ro` and dropping a never-rendered COUNT over `members`
+  • **180.0 ms** — current, median of 9 runs (min 164.7, max 201.7), payload ~51 KB,
+                independently re-measured by a verifier at 164.9 ms. The last rise is
+                the per-block degradation tracking added after review.
 
 ⚠️ THE PAGE'S REAL PER-POLL COST IS NOT JUST THIS ENDPOINT, and a pre-merge review
 was right that the first version hid it. `/status` also fetches
@@ -104,7 +104,12 @@ subquery per source group with two temp b-tree sorts, so it scales as
 rows x distinct-sources and is the WORSE-SCALING of the two. It is therefore on its
 own **5-minute** timer (the fastest cadence in the page's own `EXPECTED` map), not the
 60 s loop. Honest combined figure: 162.7/60 s + 46.8/300 s ≈ **2.87 ms/s ≈ 0.29% duty
-cycle**. Polling in the 60 s loop would have made it 0.38%.
+cycle** — and `/api/scheduler-status` is now fetched ONCE PER LOAD plus on an explicit
+Refresh click, not on any timer, because it still uses `db_connection()` and therefore
+takes a whole-DB write lock on a `journal_mode=delete` database. A 5-minute timer
+turned `main`'s one lock per page load into ~12 per hour per open tab, which would have
+reintroduced through a side door exactly the contention `_ro_connection` removed. So
+the honest steady-state figure is **180.0/60 s ≈ 0.30%**, from this endpoint alone.
 Almost every query plans as a full table SCAN because no index exists on
 `activity_log(run_at)`, `alerts(created_at)` or `alerts(rule)` — the only index on
 `alerts` is `idx_alerts_award_key`.
@@ -196,19 +201,47 @@ def _ro_connection() -> sqlite3.Connection:
 # Anything absent renders as "not documented" — a new source can never inherit
 # another source's meaning by position.
 #
-# Every entry below was read off the call site, not inferred from the column name.
+# 🔴 AND THE SAME DEFECT SHIPPED A THIRD TIME HERE, caught by a verifier: this
+# comment used to claim "every entry was read off the call site", and it was false
+# because I assumed ONE call site per source. Several sources have more than one, and
+# the values differ by PATH, not just by run:
+#   DB_BACKUP          3 sites — :285 success (scanned=1, flagged=0, emitted=1),
+#                      :222 backup raised and :256 integrity_check FAILED, BOTH of
+#                      which write flagged=1. So `flagged` is a FAILURE FLAG with
+#                      inverted polarity, and the old gloss called it "unused
+#                      (always 0)" — a false label on the single highest-severity
+#                      operational signal on this page.
+#   PARSE_HOUSE_PDFS   3 sites — :708 real, :669/:729 all-zero early exits
+#   INGEST_HOUSE_INDEX 2 sites — :779 real, :798 all-zero early exit
+#   RULE_ADSB          2 sites, RULE_10 2 sites, RULE_12 3 sites (retired)
+# Each entry below is now read off EVERY call site for that source, and where the
+# meaning differs by path the gloss says so.
 _COUNTER_MEANING = {
     # source: (what events_scanned counts, what events_flagged counts, what alerts_emitted counts)
     "REFRESH_TICKERS":       ("tickers upserted", "unused (always 0)", "tickers upserted"),
     "LABEL_OUTCOMES":        ("alerts eligible for labelling", "unpriceable alerts", "outcomes labelled"),
     "SCORING":               ("alerts scored", "unused (unset)", "unused (always 0)"),
-    "MONITOR_ENRICH_STALL":  ("unscored alerts found", "unscored alerts found", "unscored alerts found"),
+    # `monitor_enrich_stall.py:87` writes the same count to all three, and that count
+    # is alerts unscored BEYOND A 30-MINUTE GRACE (`:36-38`), not simply unscored —
+    # the two differ on prod today.
+    "MONITOR_ENRICH_STALL":  ("alerts unscored >30 min", "alerts unscored >30 min",
+                              "alerts unscored >30 min"),
     "MONITOR_BACKUP_STALL":  ("1 per check", "PROBLEMS FOUND (higher is worse)",
                               "PROBLEMS FOUND (higher is worse)"),
-    "DB_BACKUP":             ("1 per backup run", "unused (always 0)", "snapshot FILE written"),
+    # 🔴 THREE call sites, and `flagged` INVERTS. :285 success writes
+    # scanned=1/flagged=0/emitted=1; :222 (backup raised) and :256
+    # (integrity_check FAILED, snapshot discarded) both write
+    # scanned=0/flagged=1/emitted=0. A non-zero `flagged` here means THE BACKUP
+    # FAILED — the opposite of "passed a filter".
+    "DB_BACKUP":             ("1 per SUCCESSFUL backup run (0 on a failed run)",
+                              "BACKUP FAILURES (higher is worse; 1 = backup raised or "
+                              "integrity_check failed and the snapshot was discarded)",
+                              "snapshot FILE written (0 on a failed run)"),
     "DECAY":                 ("alerts downgraded", "alerts downgraded", "unused (always 0)"),
-    "INGEST_HOUSE_INDEX":    ("index entries seen", "PTRs registered", "new filings"),
-    "PARSE_HOUSE_PDFS":      ("filings processed", "PDFs downloaded", "TRANSACTIONS parsed"),
+    "INGEST_HOUSE_INDEX":    ("index entries seen (0 on an early-exit run)",
+                              "PTRs registered", "new filings"),
+    "PARSE_HOUSE_PDFS":      ("filings processed (0 on an early-exit run)",
+                              "PDFs downloaded", "TRANSACTIONS parsed"),
     "DAILY_BRIEF":           ("brief sections populated", "active theses", "1 brief generated"),
     "BRIEF":                 ("alerts in the brief", "evidence alerts cited", "1 brief generated"),
     "BACKTEST":              ("alerts ok + skipped", "alerts ok", "unused (always 0)"),
@@ -507,23 +540,27 @@ def _flat(sql: str) -> str:
 # EMPTY and its reason is RECORDED in `degraded`, never swallowed: the page then says
 # "unavailable: no such table X" instead of either dying or inventing a zero.
 # Reachable on a fresh deploy, a partially-restored DB, or a disposable test DB.
-_DEGRADED: list = []
+# Keyed by the SQL constant's name, so the page can mark the exact block that failed
+# rather than guessing from an error string. A verifier found the first version's
+# flat list was not enough: `drawHealth` still rendered 0/0/0 for a block listed as
+# unavailable, and the live bar promised "shown empty, not as zero" one line above it.
+_DEGRADED: dict = {}
 
 
-def _rows(conn, sql, args=()):
+def _rows(conn, sql, label, args=()):
     try:
         return [dict(r) for r in conn.execute(sql, args).fetchall()]
     except sqlite3.Error as exc:
-        _DEGRADED.append(str(exc))
+        _DEGRADED[label] = str(exc)
         return []
 
 
-def _one(conn, sql, args=()):
+def _one(conn, sql, label, args=()):
     try:
         r = conn.execute(sql, args).fetchone()
         return dict(r) if r is not None else {}
     except sqlite3.Error as exc:
-        _DEGRADED.append(str(exc))
+        _DEGRADED[label] = str(exc)
         return {}
 
 
@@ -538,28 +575,44 @@ def telemetry():
     """
     t0 = time.perf_counter()
     _DEGRADED.clear()
-    conn = _ro_connection()
     try:
-        hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY))
-        per_source   = _rows(conn, SQL_PER_SOURCE)
-        heat         = _rows(conn, SQL_HEAT)
-        peak         = _one(conn,  SQL_PEAK)
-        written      = _one(conn,  SQL_ALERTS_WRITTEN)
-        emit_truth   = _one(conn,  SQL_EMITTED_TRUTH)
-        emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE)
-        violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS)
-        failures     = _one(conn,  SQL_FAILURES)
-        fail_detail  = _rows(conn, SQL_FAILURE_DETAIL)
-        per_rule     = _rows(conn, SQL_ALERTS_PER_RULE)
-        severity     = _rows(conn, SQL_SEVERITY)
-        signed       = _one(conn,  SQL_SIGNED)
-        corr_pop     = _rows(conn, SQL_CORROBORATES_POPULATED)
-        corr         = _one(conn,  SQL_CORROBORATIONS)
-        corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL)
-        backlog      = _one(conn,  SQL_BACKLOG)
-        outcomes     = _rows(conn, SQL_OUTCOMES)
-        all_sources  = _rows(conn, SQL_ALL_SOURCES)
-        coverage     = _one(conn,  SQL_COVERAGE)
+        conn = _ro_connection()
+    except sqlite3.Error as exc:
+        # ⚠️ `_ro_connection()` sits OUTSIDE the per-block guards, so an absent DB file
+        # was a bare 500 rather than a reported degradation — the stated contract
+        # ("degrades to EMPTY and reports the reason") did not cover it, and a verifier
+        # hit it. `mode=ro` cannot create the file, which is correct for a diagnostic;
+        # what was wrong was not SAYING so. Now every block is empty and the reason
+        # travels, so the page renders "unavailable" rather than a blank or a guess.
+        return {
+            "as_of_utc": datetime.now(timezone.utc).isoformat(),
+            "query_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "poll_hint_seconds": 60,
+            "degraded": {"CONNECTION": str(exc)},
+            "degraded_reasons": [str(exc)],
+            "metrics": {},
+        }
+    try:
+        hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY, "SQL_HOURLY"))
+        per_source   = _rows(conn, SQL_PER_SOURCE, "SQL_PER_SOURCE")
+        heat         = _rows(conn, SQL_HEAT, "SQL_HEAT")
+        peak         = _one(conn, SQL_PEAK, "SQL_PEAK")
+        written      = _one(conn, SQL_ALERTS_WRITTEN, "SQL_ALERTS_WRITTEN")
+        emit_truth   = _one(conn, SQL_EMITTED_TRUTH, "SQL_EMITTED_TRUTH")
+        emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE, "SQL_EMITTED_NON_RULE")
+        violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS, "SQL_FUNNEL_VIOLATIONS")
+        failures     = _one(conn, SQL_FAILURES, "SQL_FAILURES")
+        fail_detail  = _rows(conn, SQL_FAILURE_DETAIL, "SQL_FAILURE_DETAIL")
+        per_rule     = _rows(conn, SQL_ALERTS_PER_RULE, "SQL_ALERTS_PER_RULE")
+        severity     = _rows(conn, SQL_SEVERITY, "SQL_SEVERITY")
+        signed       = _one(conn, SQL_SIGNED, "SQL_SIGNED")
+        corr_pop     = _rows(conn, SQL_CORROBORATES_POPULATED, "SQL_CORROBORATES_POPULATED")
+        corr         = _one(conn, SQL_CORROBORATIONS, "SQL_CORROBORATIONS")
+        corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL, "SQL_CORROBORATION_DETAIL")
+        backlog      = _one(conn, SQL_BACKLOG, "SQL_BACKLOG")
+        outcomes     = _rows(conn, SQL_OUTCOMES, "SQL_OUTCOMES")
+        all_sources  = _rows(conn, SQL_ALL_SOURCES, "SQL_ALL_SOURCES")
+        coverage     = _one(conn, SQL_COVERAGE, "SQL_COVERAGE")
     finally:
         conn.close()
 
@@ -617,7 +670,34 @@ def telemetry():
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 
-    return {
+    # Which BLOCK depends on which SQL, so a failed read marks the exact card the
+    # page renders. Explicit rather than inferred from the `sql` strings: a block
+    # that quietly stopped being marked would put us straight back to rendering
+    # zeros for a metric that never loaded.
+    _BLOCK_SQL = {
+        "ingest_hourly_24h":            ["SQL_HOURLY"],
+        "per_source_24h":               ["SQL_PER_SOURCE"],
+        "heat_grid_24h":                ["SQL_HEAT"],
+        "scale_reference_30d":          ["SQL_PEAK"],
+        "run_split_24h":                ["SQL_PER_SOURCE"],
+        "source_label_variants":        ["SQL_ALL_SOURCES"],
+        "alerts_written_24h":           ["SQL_ALERTS_WRITTEN"],
+        "rule_funnel_24h":              ["SQL_PER_SOURCE", "SQL_ALERTS_WRITTEN"],
+        "emitted_counter_truth":        ["SQL_EMITTED_TRUTH", "SQL_EMITTED_NON_RULE"],
+        "funnel_monotonic_violations":  ["SQL_FUNNEL_VIOLATIONS"],
+        "scheduler_failures":           ["SQL_FAILURES"],
+        "scheduler_failure_detail_7d":  ["SQL_FAILURE_DETAIL"],
+        "alerts_per_rule":              ["SQL_ALERTS_PER_RULE"],
+        "severity_24h":                 ["SQL_SEVERITY"],
+        "signed_leg_verdict_rule06":    ["SQL_SIGNED", "SQL_CORROBORATES_POPULATED"],
+        "corroborations":               ["SQL_CORROBORATIONS"],
+        "corroboration_detail":         ["SQL_CORROBORATION_DETAIL"],
+        "scoring_backlog":              ["SQL_BACKLOG"],
+        "outcome_labeling":             ["SQL_OUTCOMES"],
+        "coverage":                     ["SQL_COVERAGE"],
+    }
+
+    payload = {
         # `as_of` is the moment THIS response was computed. The page prints it on
         # every refresh; it is not a capture timestamp baked into a file.
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
@@ -625,8 +705,11 @@ def telemetry():
         "poll_hint_seconds": 60,
         # Non-empty only when a block could not be read. Surfaced on the page as
         # "unavailable", because a metric that failed to load is not a metric that
-        # measured zero.
-        "degraded": sorted(set(_DEGRADED)),
+        # measured zero. Keyed by SQL constant so the page can mark the exact card;
+        # `degraded_reasons` is the flat list for the status bar.
+        "degraded": dict(_DEGRADED),
+        "degraded_reasons": sorted(set(_DEGRADED.values())),
+        "_block_sql": _BLOCK_SQL,
         "metrics": {
             "ingest_hourly_24h": {
                 "sql": _flat(SQL_HOURLY),
@@ -799,5 +882,13 @@ def telemetry():
             },
         },
     }
+
+    # A block whose SQL failed carries `unavailable` with the reason. The page must
+    # render that as "unavailable", never as a measured zero.
+    for block, labels in _BLOCK_SQL.items():
+        reasons = [_DEGRADED[l] for l in labels if l in _DEGRADED]
+        if reasons and block in payload["metrics"]:
+            payload["metrics"][block]["unavailable"] = "; ".join(sorted(set(reasons)))
+    return payload
 
 
