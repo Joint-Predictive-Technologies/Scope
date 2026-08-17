@@ -119,7 +119,8 @@
   button[disabled] { opacity:0.45; cursor:default; }
   h3.sec { font-family:var(--font-mono); font-size:0.62rem; text-transform:uppercase; letter-spacing:0.08em;
            color:var(--cream2); margin:1.8rem 0 0.7rem; padding-bottom:0.3rem; border-bottom:1px solid var(--border); }
-  </style>
+    .warn-inline { display:block; margin-top:0.4rem; color:var(--severity-high); }
+</style>
 </head>
 <body>
 <nav><a href="/" class="nav-brand">◈ SCOPE</a></nav>
@@ -142,8 +143,16 @@
 
   <h3 class="sec">Scheduler health — cadence and staleness per source</h3>
   <div class="page-sub" style="font-size:0.72rem;margin-bottom:0.8rem">
-    Every job's expected cadence and when it last actually ran. A job that hasn't run in more than
-    2× its interval is flagged — it may be silently failing.
+    The expected cadence and last actual run for the <b>21 jobs listed below</b>, and a job that
+    hasn't run in more than 2× its interval is flagged — it may be silently failing.
+    <span class="warn-inline">⚠️ <b>This is NOT every scheduled job.</b> The list is a
+    hand-maintained literal in this page, not derived from the scheduler, so it neither covers
+    everything that runs nor drops what stopped: measured against prod, <b>11 sources logged runs
+    in the last 24 h without appearing here</b> — including the live detection rules
+    <code>RULE_02</code>, <code>RULE_16</code> and <code>RULE_TELEGRAM_OSINT</code>, whose silence
+    this table could therefore never flag — while <code>RULE_12/13/14</code> and <code>BRIEF</code>
+    are listed but retired, so their permanent <b>STALE</b> is expected, not a fault. Deriving this
+    from the scheduler is tracked work, not done here.</span>
   </div>
   <div id="pill"></div>
   <div id="sched"><div class="loading">Loading scheduler status…</div></div>
@@ -216,6 +225,13 @@
      `alert_outcomes` is NOT in `schema_sqlite.sql` — it is created lazily by
      `scripts/label_outcomes.py`, so it is genuinely absent on a fresh deploy. */
   function isDown(block) { return !!(block && block.unavailable); }
+  /* Opening markup for a small stat tile whose colour must reflect three states,
+     not two: absent (unknown), zero (all clear), non-zero (flagged). */
+  function okClass(v) {
+    var cls = (v === null || v === undefined) ? "dim"
+            : (v ? "flag" : "fresh");
+    return '<div><div class="stat sm ' + cls + '">';
+  }
   function downNote(block, what) {
     return '<div class="warn">⚠️ <b>' + esc(what) + ' UNAVAILABLE.</b> ' +
       esc(block.unavailable) + ' — this metric did not load. It is <b>not</b> zero, and ' +
@@ -249,6 +265,7 @@
        stopped rendering — caught by re-testing the degraded path rather than assuming
        the refactor was safe. `degraded_reasons` is the flat list for exactly this. */
     var deg = (d.degraded_reasons || []);
+    var nBlocks = Object.keys(d.degraded || {}).length || deg.length;
     bar.innerHTML =
       '<span><span class="dot' + (deg.length ? ' stale' : '') + '"></span><b>' +
         (deg.length ? 'LIVE (DEGRADED)' : 'LIVE') + '</b></span>' +
@@ -256,8 +273,11 @@
       '<span>polling every <b>' + Math.round(POLL_MS/1000) + 's</b></span>' +
       '<span>server query <b>' + d.query_ms + ' ms</b></span>' +
       '<span id="ageTick" class="dim"></span>' +
-      (deg.length ? '<span class="flag">' + deg.length + ' metric' +
-        (deg.length === 1 ? '' : 's') + ' UNAVAILABLE: ' +
+      /* ⚠️ `degraded_reasons` is a DEDUPED set of error MESSAGES, so 11 blocks
+         failing on one missing table collapsed to "1 metric UNAVAILABLE" — a count
+         of distinct strings printed under the word "metrics". Count the blocks. */
+      (deg.length ? '<span class="flag">' + nBlocks + ' metric' +
+        (nBlocks === 1 ? '' : 's') + ' UNAVAILABLE: ' +
         esc(deg.join('; ')) + ' — shown empty, not as zero</span>' : '');
     tickAge();
   }
@@ -290,31 +310,46 @@
     var cov     = m.coverage.row;
     var peak    = m.scale_reference_30d.row;
 
+    /* 🔴 A DOWN BLOCK STILL RENDERED ITS TILE, GLOSS AND ALL. n() prints "—" for an
+       absent value, but the sentence UNDER it kept asserting what the number was
+       measured over — a caption describing a reading that never happened. Every
+       tile whose block can fail now carries the reason instead of the gloss. */
+    function tileNote(block, gloss) {
+      return isDown(block)
+        ? '<div class="qual flag">UNAVAILABLE — ' + esc(block.unavailable) +
+          '. Nothing is claimed about this number; it did not load.</div>'
+        : '<div class="qual">' + gloss + '</div>';
+    }
+
     /* ── tiles ── */
     out.push('<div class="grid g4">' + [
       ['<div class="stat">' + n(m.rule_funnel_24h.row.rule_scanned) + '</div>' +
        '<div class="unit">records scanned by detection rules, last 24 h</div>' +
-       '<div class="qual"><code>SUM(events_scanned)</code> over <b>detection rules only</b>. ' +
-       'Non-rule jobs write the same column meaning different things, and would add <b>' +
-       n(m.rule_funnel_24h.row.excluded_non_rule_scanned) + '</b> — see the stages card.</div>',
+       tileNote(m.rule_funnel_24h,
+         '<code>SUM(events_scanned)</code> over <b>detection rules only</b>. ' +
+         'Non-rule jobs write the same column meaning different things, and would add <b>' +
+         n(m.rule_funnel_24h.row.excluded_non_rule_scanned) + '</b> — see the stages card.'),
        m.rule_funnel_24h.sql + "\n\n" + m.rule_funnel_24h.why],
       ['<div class="stat">' + n(split.rule_runs) + '</div><div class="unit">rule runs, last 24 h</div>' +
-       '<div class="qual">A further <b>' + n(split.non_rule_runs) + '</b> of the ' + n(split.all_runs) +
-       ' logged runs are <b>not rules</b> (scoring, backups, monitors, ingest) and are excluded here.</div>',
+       tileNote(m.run_split_24h,
+         'A further <b>' + n(split.non_rule_runs) + '</b> of the ' + n(split.all_runs) +
+         ' logged runs are <b>not rules</b> (scoring, backups, monitors, ingest) and are excluded here.'),
        m.run_split_24h.sql + "\n\n" + m.run_split_24h.why],
       ['<div class="stat">' + n(written) + '</div><div class="unit">alert rows written, last 24 h</div>' +
-       '<div class="qual"><code>COUNT(*) FROM alerts</code> — <b>not</b> <code>alerts_emitted</code>, ' +
-       'which reads ' + n(counter) + ' here. See the stages card.</div>',
+       tileNote(m.alerts_written_24h,
+         '<code>COUNT(*) FROM alerts</code> — <b>not</b> <code>alerts_emitted</code>, ' +
+         'which reads ' + n(counter) + ' here. See the stages card.'),
        m.alerts_written_24h.sql + "\n\n" + m.alerts_written_24h.why],
       ['<div class="stat">' + n(cov.alerts) + '</div><div class="unit">alerts stored, all time</div>' +
-       '<div class="qual">newest <b>' + esc(cov.newest_alert) + '</b> · ' + n(cov.distinct_tickers) +
+       tileNote(m.coverage,
+         'newest <b>' + esc(cov.newest_alert) + '</b> · ' + n(cov.distinct_tickers) +
        ' distinct tickers<br><span class="dim">case- and <code>$</code>-normalised, and ' +
        'excluding <b>' + n(cov.multi_symbol_baskets) + '</b> multi-symbol basket strings ' +
        '(the raw <code>COUNT(DISTINCT ticker)</code> is ' + n(cov.distinct_ticker_values_raw) +
        ')</span><br><span class="dim">the activity log starts <b>' + esc(cov.activity_since) +
        '</b> — that bounds the <b>24 h and per-source</b> figures on this page, but <b>NOT</b> ' +
        'the all-time ones: alerts predate it, and this tile counts every alert ever ' +
-       'written.</span></div>', m.coverage.sql]
+       'written.</span>'), m.coverage.sql]
     ].map(function (t) {
       return '<div class="card"><div class="cbody">' + t[0] + '</div>' + prov(0, t[1]) + '</div>';
     }).join("") + '</div>');
@@ -387,7 +422,7 @@
 
     el("tele").innerHTML = out.join("");
 
-    drawIngest(hourly, peak, m.rule_funnel_24h.row);
+    drawIngest(hourly, peak, m.rule_funnel_24h.row, m.ingest_hourly_24h);
     drawStages(scanned, flagged, written, counter, m);
     drawHeat(m);
     drawSource(m, d);
@@ -399,7 +434,7 @@
   }
 
   /* ── ingest bars ────────────────────────────────────────────────────────── */
-  function drawIngest(hourly, peak, fnRow) {
+  function drawIngest(hourly, peak, fnRow, block) {
     fnRow = fnRow || {};
     var svg = el("chIngest"); if (!svg) return;
     /* ⚠️ AN EMPTY WINDOW IS A REAL STATE, NOT AN ERROR — a fresh deploy, the
@@ -407,6 +442,23 @@
        activity_log rows. This used to read hourly[0].hour and throw, which blanked
        the ENTIRE panel and made the live bar cry "refresh FAILED" about a
        perfectly good response. Say "nothing ran" instead of breaking. */
+    /* 🔴 "EMPTY" AND "COULD NOT BE READ" ARE DIFFERENT STATES AND THIS TOLD THEM
+       APART BY NOTHING. A degraded block also arrives with zero rows, so a failed
+       read rendered the sentence below — an affirmative certification that the
+       silence was real. Check the block's own flag before saying so. */
+    if (isDown(block)) {
+      svg.setAttribute("viewBox", "0 0 400 60"); svg.setAttribute("height", 60);
+      var dmsg = svgEl("text", { x: 0, y: 20, fill: "var(--severity-high)", "font-size": 11,
+        "font-family": "monospace" });
+      dmsg.textContent = "activity_log could not be read";
+      svg.appendChild(dmsg);
+      var dmsg2 = svgEl("text", { x: 0, y: 38, fill: "var(--chart-label)", "font-size": 9,
+        "font-family": "monospace" });
+      dmsg2.textContent = "this is a FAILED read, not a quiet window — the value is unknown";
+      svg.appendChild(dmsg2);
+      el("ingLegend").innerHTML = '<span class="flag">unavailable — not zero</span>';
+      return;
+    }
     if (!hourly.length) {
       svg.setAttribute("viewBox", "0 0 400 60"); svg.setAttribute("height", 60);
       var msg = svgEl("text", { x: 0, y: 20, fill: "var(--chart-label)", "font-size": 11,
@@ -555,12 +607,62 @@
       if (!den) return '<span class="dim">n/a (nothing ' + what + ' in this window)</span>';
       return (num/den*100).toFixed(2) + "%";
     };
+    /* 🔴 A FIFTH VERIFIER FOUND THE DEFECT AGAIN, IN THE RATIO ITSELF.
+       The three totals above are each summed over the sources where THAT column is
+       honest — which makes each of them true alone and makes any ratio BETWEEN them
+       a category error. `written` was `COUNT(*) FROM alerts`, scoped by nothing, so
+       `written / flagged` counted rules in the numerator that the denominator
+       excludes by this page's own decision: on prod 19.4% of the day's alerts and
+       67.9% of the week's, RULE_ANOMALY alone being 58.7% of the week — a source
+       declared to contribute to NEITHER upstream stage. The printed rate was
+       overstated 1.24x on the day, 3.11x over the week.
+       Ratios are now computed ONLY over the intersection population, which is named
+       on the page, and the alerts outside it are shown as their own number rather
+       than folded into a numerator. */
+    var rp = fn.ratio_population || [];
+    var outside = fn.row.alerts_outside_ratio_population;
+    var outDetail = fn.alerts_outside_ratio_population_detail || [];
+    var fnDown = isDown(fn);
+    /* 🔴 MY OWN FIX SHIPPED THE SAME DEFECT AND THE DEGRADED RENDER CAUGHT IT.
+       The first version of this block fell back to "every alert row came from the
+       rate population" whenever `outside` was not a positive number — which is
+       also true when the funnel did not load. An affirmative all-clear derived
+       from an absent value is precisely the thing this card exists to warn about.
+       Three states, never two: unknown / none / some. */
     el("stages").innerHTML = rows +
-      '<div class="qual" style="margin-top:0.5rem">flagged / scanned = <b>' +
-        pctOr(flagged, scanned, "scanned") + '</b> · written / flagged = <b>' +
-        pctOr(written, flagged, "flagged") + '</b><br>' +
-        'Three numbers, not one chart: they span four orders of magnitude, so a shared axis ' +
-        'would flatten two of them and a second axis would be worse.</div>' +
+      (fnDown
+        ? '<div class="warn" style="margin-top:0.5rem">⚠️ <b>No rates are shown.</b> The funnel ' +
+          'could not be read (' + esc(fn.unavailable) + '), so the population these rates ' +
+          'would be computed over is unknown — and an unknown population is not an empty one.</div>'
+        : '<div class="qual" style="margin-top:0.5rem">' +
+          '<b>Rates, over the ' + rp.length + ' sources where both columns mean what they say</b> (' +
+          (rp.length ? rp.map(esc).join(", ") : "none") + '):<br>' +
+          'flagged / scanned = <b>' + pctOr(fn.row.ratio_flagged, fn.row.ratio_scanned, "scanned") +
+          '</b> · written / flagged = <b>' +
+          pctOr(fn.row.ratio_written, fn.row.ratio_flagged, "flagged") + '</b> ' +
+          '<span class="dim">(' + n(fn.row.ratio_scanned) + ' → ' + n(fn.row.ratio_flagged) +
+          ' → ' + n(fn.row.ratio_written) + ')</span><br>' +
+          'Three numbers, not one chart: they span four orders of magnitude, so a shared axis ' +
+          'would flatten two of them and a second axis would be worse.</div>' +
+        '<div class="warn" style="margin-top:0.6rem">⚠️ <b>These rates are NOT over the ' +
+          'three totals above.</b> Each total is summed over the sources where its own column ' +
+          'is honest, and those sets differ — so dividing one by another would count sources ' +
+          'in the numerator that the denominator excludes. ' +
+          (typeof outside !== "number"
+            ? '<b>Whether any alert rows fell outside that population is unknown here</b> — ' +
+              'the figure did not load, and this page will not read that as "none". '
+            : outside > 0
+              ? '<b>' + n(outside) + '</b> of the ' + n(written) + ' alert rows written in this ' +
+                'window came from rules outside the rate population and are therefore NOT in the ' +
+                'numerator above' +
+                (outDetail.length
+                  ? ': ' + outDetail.map(function (d) {
+                      return esc(d.rule || "(null)") + ' ' + n(d.n); }).join(" · ")
+                  : '') + '. '
+              : 'In this window every alert row came from the rate population. ') +
+          'A previous version divided the unscoped alert count by the scoped ' +
+          '<code>flagged</code> and called it a conversion — measured on prod that overstated ' +
+          'the rate by 1.24x over 24 h and 3.11x over 7 days.</div>') +
       '<div class="warn" style="margin-top:0.6rem">⚠️ <b>The last stage is not ' +
         '<code>alerts_emitted</code>.</b> That counter reads <b>' + n(counter) +
         '</b> over this window against <b>' + n(written) + '</b> real alert rows' +
@@ -570,8 +672,9 @@
         'All-time it reads <b>' + n(truth.emitted_counter_all_time) +
         '</b> against <b>' + n(truth.alert_rows_all_time) + '</b> alert rows.</div>' +
       '<div class="warn" style="margin-top:0.5rem">🔴 <b>These stages are scoped by MEANING, not ' +
-        'by source type — and that correction is the fourth time this page shipped a real number ' +
-        'under a false label.</b> <code>events_flagged</code> is a genuine filter output in only ' +
+        'by source type — the fourth of FIVE times this page shipped a real number under a ' +
+        'false label. The fifth was the RATE computed from these stages, fixed above.</b> ' +
+        '<code>events_flagged</code> is a genuine filter output in only ' +
         'five sources. Others pass the SAME value to scanned and flagged (RULE_01B, RULE_09, ' +
         'RULE_10, RULE_15, RULE_ANOMALY), or a DB-write count (RULE_11, RULE_16), or an aggregate ' +
         'in a different unit (RULE_02, RULE_CLUSTER). Scoping to "detection rules" — the previous ' +
@@ -825,11 +928,14 @@
     var det = m.scheduler_failure_detail_7d.rows;
     el("health").innerHTML =
       '<div style="display:flex;gap:1.1rem;flex-wrap:wrap">' +
-        '<div><div class="stat sm ' + (f.failures_24h ? "flag" : "fresh") + '">' + n(f.failures_24h) +
+        /* 🔴 `undefined ? "flag" : "fresh"` PAINTED A FAILED READ GREEN. A value
+           that did not load is not a zero and must never wear the all-clear
+           colour, so absence gets its own neutral class and "—" from n(). */
+        okClass(f.failures_24h) + n(f.failures_24h) +
           '</div><div class="unit">job failures, 24 h</div></div>' +
-        '<div><div class="stat sm ' + (f.failures_7d ? "flag" : "fresh") + '">' + n(f.failures_7d) +
+        okClass(f.failures_7d) + n(f.failures_7d) +
           '</div><div class="unit">job failures, 7 d</div></div>' +
-        '<div><div class="stat sm ' + (b.unscored_over_30min ? "flag" : "fresh") + '">' +
+        okClass(b.unscored_over_30min) +
           n(b.unscored_over_30min) + '</div><div class="unit">unscored &gt;30 min</div></div>' +
       '</div>' +
       '<div class="qual" style="margin-top:0.5rem">Failures are real <code>activity_log</code> rows ' +
@@ -882,7 +988,7 @@
   function drawDQ(m) {
     var variants = m.source_label_variants.row || {};
     var vk = Object.keys(variants);
-    var fv = m.funnel_monotonic_violations.rows;
+    var fv = m.funnel_monotonic_violations.rows || [];
     el("dq").innerHTML =
       (vk.length ? '<div class="warn">⚠️ <b>The same rule is logged under more than one source ' +
         'label.</b> A per-source table therefore lists one rule twice, and these are <b>not</b> ' +
@@ -893,7 +999,13 @@
           return variants[k].map(function (lbl) { return "<code>" + esc(lbl) + "</code>"; })
                             .join(" / ");
         }).join(", ") + '. Rows above carry a <span class="flag">⚠dup</span> marker.</div>'
-        : '<div class="qual">No duplicate source labels detected.</div>') +
+        : isDown(m.source_label_variants)
+            /* 🔴 AN AFFIRMATIVE NEGATIVE FROM A QUERY THAT ERRORED. "None detected"
+               is a finding; a failed read is not. Say which one this is. */
+            ? '<div class="flag">The duplicate-label check could not run (' +
+              esc(m.source_label_variants.unavailable) + '), so this page is NOT ' +
+              'claiming there are none.</div>'
+            : '<div class="qual">No duplicate source labels detected.</div>') +
       (fv.length ? '<div class="warn" style="margin-top:0.5rem">⚠️ <b>scanned → flagged is not a ' +
         'strict subset chain.</b> ' + fv.map(function (r) { return "<code>" + esc(r.source) +
         "</code> has " + n(r.n) + " rows with flagged &gt; scanned (worst +" + n(r.worst) + ")";

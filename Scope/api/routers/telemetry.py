@@ -42,6 +42,36 @@ checking whether a claim still holds, re-run the query, don't trust the comment.
    contribution is returned alongside it so the exclusion is visible, and
    `_COUNTER_MEANING` documents what every non-rule source's counters really are.
 
+   ⚠️ THAT FIX WAS ITSELF WRONG, AND SO WAS THE FIX AFTER IT. The history matters
+   more than any one of them, because the defect changed shape each time and the
+   next one will too:
+     • v1 trusted the column names.               Caught: labels false for 31% of
+       `flagged`.
+     • v2 scoped the funnel BY SOURCE TYPE — rules in, non-rule jobs out — on the
+       assumption that the labels are true of rules. Nobody checked. Caught: the
+       labels are false for 9 of 14 RULES too (`flagged` is identical to `scanned`
+       in five, a DB-write count in two, an aggregate in two), leaving a residual
+       error of 46.7% — LARGER than the 31% v2 removed.
+     • v3 scoped each COLUMN by its own semantics, which is correct, and each of
+       the three totals is true. Caught: the page then DIVIDED them. Every total
+       is summed over a different (correct) set of sources, so a ratio between two
+       of them counts sources the denominator excludes. `alerts_written` was
+       `COUNT(*) FROM alerts`, scoped by nothing, and `written / flagged` was
+       printed as a conversion rate: 19.4% of that numerator was outside the
+       denominator's population over 24 h and 67.9% over 7 days (RULE_ANOMALY
+       alone being 58.7% of the week — a source declared to contribute to NEITHER
+       upstream stage). Overstated 1.24x on the day, 3.11x over the week.
+   ⇒ Ratios are now computed ONLY over `ratio_population` — the intersection where
+   BOTH columns mean what their names say — and the alert rows outside it are
+   returned and displayed as their own named number.
+
+   ⭐ THE TRANSFERABLE LESSON, five occurrences in: correcting each number is not
+   enough, because the false claim can live in the RELATIONSHIP between numbers
+   that are each individually true. Scoping fixes the terms; it does not fix the
+   arithmetic performed on them. Before any two figures on this page are divided,
+   subtracted or compared, check that they are drawn from the same population —
+   and if they are not, say so instead of computing.
+
 1. ⚠️ `alerts_emitted` IS NOT AN ALERT COUNT. The activity-log contract calls it
    "alerts inserted". Measured: in 24 h `SUM(alerts_emitted)` = 89 against 62
    real alert rows; all-time 64,644 against 37,818, with 36,274 of it from
@@ -284,7 +314,23 @@ _COUNTER_MEANING = {
     "RULE_15":               ("IDENTICAL to flagged (rule_15_earnings_nlp.py:423 passes `ingested` to "
                               "both)", "IDENTICAL to scanned — NOT a filter output",
                               "alerts written", False, False),
-    "RULE_ADSB":             ("flights examined", "unused (not passed)", "alerts written", True,  False),
+    # 🔴 READ OFF THE WRONG CALL SITE. `rule_adsb.py` has TWO record_activity()
+    # calls and the gloss was taken from the early-exit one (`:121`, flagged=0,
+    # emitted=0). The site that runs on a normal pass is `:170`:
+    #   scanned=len(flights), flagged=len(concentrations), emitted=len(concentrations)
+    # so `flagged` is not "unused" — it is a count of concentration ZONES, an
+    # aggregate in a different unit from `scanned` (flights), which is the same
+    # shape as RULE_02/RULE_CLUSTER and must not be summed as a filter output.
+    # And `emitted` is not an alert count either: the loop at `:126` writes up to
+    # TWO alert rows per zone (`for ticker in tickers[:2]`) and skips zones that
+    # dedup out, so it can sit either side of the true alert count.
+    # Magnitude today: prod holds 10,522 RULE_ADSB rows, ALL with flagged=0, and
+    # RULE_ADSB has written 0 alerts ever — a latent mislabel, not a live one.
+    "RULE_ADSB":             ("flights examined",
+                              "concentration ZONES over the threshold — an aggregate over "
+                              "flights, not a subset of them",
+                              "concentration zones, NOT alert rows (up to 2 alerts per zone)",
+                              True,  False),
     "RULE_TELEGRAM_OSINT":   ("unused (not passed)", "unused (not passed)", "alerts written",
                               False, False),
     # a collector, not a detector — see _NON_DETECTION_RULE_SOURCES
@@ -448,6 +494,30 @@ SQL_PEAK = """
 SQL_ALERTS_WRITTEN = """
     SELECT COUNT(*) AS alerts_written_24h FROM alerts
     WHERE datetime(created_at) >= datetime('now','-24 hours')
+"""
+
+# ⚠️ THE RATIO POPULATION — a fifth verifier found the page dividing across two
+# different populations and calling the result a conversion rate.
+#
+# `rule_scanned` is summed over the sources whose `scanned` really is a record
+# count; `rule_flagged` over the (smaller) set whose `flagged` really is a filter
+# output. `alerts_written` was `COUNT(*) FROM alerts` — scoped by NOTHING. The
+# page then printed `written / flagged` as a funnel conversion.
+#
+# On prod that numerator is 19.4% rules that contribute zero to the denominator
+# over 24 h, and 67.9% over 7 days (RULE_ANOMALY alone is 58.7% of the week) —
+# and RULE_ANOMALY is a source this module explicitly declares contributes to
+# NEITHER upstream stage. The printed rate was overstated 1.24x on the day and
+# 3.11x over the week.
+#
+# A ratio is only meaningful between two numbers drawn from the SAME sources, so
+# the ratios are now computed over the intersection — the sources where BOTH
+# columns mean what their names say — and the alert rows written by rules outside
+# it are reported separately rather than folded into a numerator.
+SQL_ALERTS_BY_RULE = """
+    SELECT rule, COUNT(*) AS n FROM alerts
+    WHERE datetime(created_at) >= datetime('now','-24 hours')
+    GROUP BY rule
 """
 
 SQL_EMITTED_TRUTH = """
@@ -697,6 +767,7 @@ def telemetry():
         heat         = _rows(conn, SQL_HEAT, "SQL_HEAT")
         peak         = _one(conn, SQL_PEAK, "SQL_PEAK")
         written      = _one(conn, SQL_ALERTS_WRITTEN, "SQL_ALERTS_WRITTEN")
+        alerts_by_rule = _rows(conn, SQL_ALERTS_BY_RULE, "SQL_ALERTS_BY_RULE")
         emit_truth   = _one(conn, SQL_EMITTED_TRUTH, "SQL_EMITTED_TRUTH")
         emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE, "SQL_EMITTED_NON_RULE")
         violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS, "SQL_FUNNEL_VIOLATIONS")
@@ -738,6 +809,35 @@ def telemetry():
     old_rule_flagged = _sum(per_source, "flagged", _is_rule_source)
     non_scanned  = _sum(per_source, "scanned", lambda x: not _scanned_is_records(x))
     non_flagged  = _sum(per_source, "flagged", lambda x: not _flagged_is_filter(x))
+
+    # ── THE RATIO POPULATION ─────────────────────────────────────────────────
+    # The three headline totals above are each summed over the sources where THAT
+    # column is honest, which makes each of them true on its own and makes any
+    # ratio BETWEEN them a category error: the numerator counts sources the
+    # denominator excludes. So ratios are computed only over the intersection,
+    # and the page is given the population by name so it can say whose rate it is.
+    def _in_ratio_pop(source):
+        return _scanned_is_records(source) and _flagged_is_filter(source)
+
+    ratio_sources = sorted({r["source"] for r in per_source if _in_ratio_pop(r["source"])})
+    ratio_scanned = _sum(per_source, "scanned", _in_ratio_pop)
+    ratio_flagged = _sum(per_source, "flagged", _in_ratio_pop)
+    # Alert ROWS written by exactly those rules — the only numerator that shares a
+    # population with `ratio_flagged`. `alerts.rule` is the source label, so this
+    # is a direct match, not a mapping.
+    _pop = set(ratio_sources)
+    ratio_written = sum((r["n"] or 0) for r in alerts_by_rule if r["rule"] in _pop)
+    written_total = written.get("alerts_written_24h")
+    written_outside = (
+        None if written_total is None else written_total - ratio_written)
+    # What is in the unscoped alert count but not in the ratio's population —
+    # named and counted, because "the rest" is how the last four defects hid.
+    written_outside_detail = sorted(
+        ({"rule": r["rule"], "n": r["n"],
+          "scanned_counted": _scanned_is_records(r["rule"]),
+          "flagged_counted": _flagged_is_filter(r["rule"])}
+         for r in alerts_by_rule if r["rule"] not in _pop),
+        key=lambda r: -(r["n"] or 0))
 
     # Every source excluded from EITHER sum, with what its counters really are.
     excluded_detail = []
@@ -793,7 +893,8 @@ def telemetry():
         "run_split_24h":                ["SQL_PER_SOURCE"],
         "source_label_variants":        ["SQL_ALL_SOURCES"],
         "alerts_written_24h":           ["SQL_ALERTS_WRITTEN"],
-        "rule_funnel_24h":              ["SQL_PER_SOURCE", "SQL_ALERTS_WRITTEN"],
+        "rule_funnel_24h":              ["SQL_PER_SOURCE", "SQL_ALERTS_WRITTEN",
+                                         "SQL_ALERTS_BY_RULE"],
         "emitted_counter_truth":        ["SQL_EMITTED_TRUTH", "SQL_EMITTED_NON_RULE"],
         "funnel_monotonic_violations":  ["SQL_FUNNEL_VIOLATIONS"],
         "scheduler_failures":           ["SQL_FAILURES"],
@@ -906,7 +1007,20 @@ def telemetry():
                         "excluded_non_rule_scanned": non_scanned,
                         "excluded_non_rule_flagged": non_flagged,
                         "scanned_if_scoped_by_source_type_only": old_rule_scanned,
-                        "flagged_if_scoped_by_source_type_only": old_rule_flagged},
+                        "flagged_if_scoped_by_source_type_only": old_rule_flagged,
+                        # the only three numbers between which a ratio is defined
+                        "ratio_scanned": ratio_scanned,
+                        "ratio_flagged": ratio_flagged,
+                        "ratio_written": ratio_written,
+                        "alerts_outside_ratio_population": written_outside},
+                "ratio_population": ratio_sources,
+                "ratio_population_note": (
+                    "Ratios are computed ONLY over these sources — the ones where "
+                    "`scanned` really is a record count AND `flagged` really is a "
+                    "filter output. The three headline totals are each summed over a "
+                    "different (correct) set, so dividing one by another would count "
+                    "sources in the numerator that the denominator excludes."),
+                "alerts_outside_ratio_population_detail": written_outside_detail,
                 "excluded_sources": excluded_detail,
                 "counter_meaning_note": (
                     "scanned_means / flagged_means / emitted_means are read off each "
@@ -1019,10 +1133,29 @@ def telemetry():
 
     # A block whose SQL failed carries `unavailable` with the reason. The page must
     # render that as "unavailable", never as a measured zero.
+    #
+    # 🔴 MARKING THE BLOCK WAS NOT ENOUGH, AND A TEST WRITTEN FOR THE PAGE CAUGHT IT
+    # HERE INSTEAD. A failed read leaves `per_source` as an empty list, and every
+    # figure derived from it — `SUM(...)` over nothing, `len(...)` of nothing — is a
+    # perfectly well-formed **0**. So the payload handed the page a real zero for a
+    # measurement that never happened, and the page had no way to tell it from a
+    # genuine quiet window. The `unavailable` flag existed; the zero sat right beside
+    # it and won, because a renderer prints the number in front of it.
+    #
+    # Derived scalars on an unavailable block are therefore nulled: unknown is None,
+    # never 0. This is the same defect as the labels — a real-looking number standing
+    # in for something that is not that — reached through arithmetic instead of prose.
     for block, labels in _BLOCK_SQL.items():
         reasons = [_DEGRADED[l] for l in labels if l in _DEGRADED]
-        if reasons and block in payload["metrics"]:
-            payload["metrics"][block]["unavailable"] = "; ".join(sorted(set(reasons)))
+        if not (reasons and block in payload["metrics"]):
+            continue
+        blk = payload["metrics"][block]
+        blk["unavailable"] = "; ".join(sorted(set(reasons)))
+        if isinstance(blk.get("row"), dict):
+            blk["row"] = {k: None for k in blk["row"]}
+        for k, v in list(blk.items()):
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                blk[k] = None
     return payload
 
 

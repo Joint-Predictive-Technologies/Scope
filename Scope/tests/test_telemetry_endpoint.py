@@ -472,3 +472,133 @@ def test_label_outcomes_flagged_gloss_no_longer_says_merely_unpriceable():
     assert "not merely 'unpriceable'" in gloss or "not merely \"unpriceable\"" in gloss, \
         "the gloss must reject the 'unpriceable' shorthand outright"
     assert "symbol" in gloss, "and name the real dominant cause"
+
+
+# ── the FIFTH occurrence: a ratio between two different populations ──────────
+
+def test_the_ratios_are_computed_over_one_population_not_across_three(tmp_path, monkeypatch):
+    """🔴 THE DEFECT'S FIFTH FORM — the numbers were right and the DIVISION was wrong.
+
+    `rule_scanned` is summed over the sources whose `scanned` is a record count,
+    `rule_flagged` over the (smaller) set whose `flagged` is a filter output, and
+    `alerts_written` was `COUNT(*) FROM alerts` — scoped by nothing. The page then
+    printed `written / flagged` as a funnel conversion, so the numerator counted rules
+    the denominator excludes. On prod that was 19.4% of the day's alerts and 67.9% of
+    the week's; RULE_ANOMALY alone was 58.7% of the week, and RULE_ANOMALY is declared
+    to contribute to NEITHER upstream stage.
+
+    This seeds exactly that shape: one in-population rule and one rule that writes
+    alerts but is excluded from both counters.
+    """
+    import sqlite3
+    from api.routers import telemetry as T
+
+    db = tmp_path / "ratio.db"
+    _seed(str(db))
+    conn = sqlite3.connect(str(db))
+    # RULE_ANOMALY: writes alerts, contributes to neither scanned nor flagged
+    conn.execute(
+        "INSERT INTO activity_log (source, events_scanned, events_flagged, alerts_emitted,"
+        " run_at, duration_seconds) VALUES ('RULE_ANOMALY', 40, 40, 40, datetime('now'), 1.0)")
+    for _ in range(40):
+        conn.execute("INSERT INTO alerts (rule, ticker, severity, created_at)"
+                     " VALUES ('RULE_ANOMALY','BBB','HIGH', datetime('now'))")
+    conn.commit(); conn.close()
+
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    row = T.telemetry()["metrics"]["rule_funnel_24h"]["row"]
+
+    # the unscoped count still exists and still counts everything
+    assert row["alerts_written"] == 43, "the headline alert count stays unscoped"
+    # ...but the RATIO numerator does not
+    assert row["ratio_written"] == 3, (
+        "the ratio's numerator must come only from the rate population; got "
+        f"{row['ratio_written']} — RULE_ANOMALY's 40 alerts leaked back in")
+    assert row["alerts_outside_ratio_population"] == 40
+    assert row["ratio_flagged"] == 10 and row["ratio_scanned"] == 1000
+
+    # and the excluded rules are NAMED, not hidden in a remainder
+    detail = T.telemetry()["metrics"]["rule_funnel_24h"]["alerts_outside_ratio_population_detail"]
+    assert any(d["rule"] == "RULE_ANOMALY" and d["n"] == 40 for d in detail)
+
+
+def test_the_ratio_population_is_the_intersection_of_both_semantics():
+    """A source belongs to the rate population only if BOTH its columns are honest."""
+    from api.routers.telemetry import _scanned_is_records, _flagged_is_filter, _COUNTER_MEANING
+
+    pop = {s for s in _COUNTER_MEANING
+           if _scanned_is_records(s) and _flagged_is_filter(s)}
+    assert pop == {"RULE_06", "RULE_07", "RULE_08", "RULE_OSINT", "RULE_REDDIT"}, pop
+    # RULE_ANOMALY is the trap: a detection rule that belongs to neither side
+    assert not _scanned_is_records("RULE_ANOMALY")
+    assert not _flagged_is_filter("RULE_ANOMALY")
+
+
+def test_rule_adsb_gloss_matches_the_call_site_that_actually_runs():
+    """`rule_adsb.py` has TWO record_activity() sites and the gloss was read off the
+    early-exit one. `:170` passes flagged=len(concentrations), so "unused" was false,
+    and emitted counts ZONES while the loop writes up to 2 alerts per zone."""
+    from api.routers.telemetry import _COUNTER_MEANING, _flagged_is_filter
+
+    scanned_m, flagged_m, emitted_m, sc_ok, fl_ok = _COUNTER_MEANING["RULE_ADSB"]
+    assert "unused" not in flagged_m.lower(), "the early-exit site's gloss is back"
+    assert "zone" in flagged_m.lower(), flagged_m
+    # zones are an aggregate over flights, a different unit — not a filter output
+    assert fl_ok is False and not _flagged_is_filter("RULE_ADSB")
+    assert "not alert rows" in emitted_m.lower(), emitted_m
+
+
+def test_a_degraded_block_is_never_reported_as_a_clean_reading(tmp_path, monkeypatch):
+    """Dropping `activity_log` degrades 11 blocks. Every value they feed must be absent
+    (None), never 0 — a zero would let the page paint an all-clear over a failed read."""
+    import sqlite3
+    from api.routers import telemetry as T
+
+    db = tmp_path / "degraded.db"
+    _seed(str(db))
+    conn = sqlite3.connect(str(db)); conn.execute("DROP TABLE activity_log"); conn.commit(); conn.close()
+
+    monkeypatch.setenv("DATABASE_PATH", str(db))
+    payload = T.telemetry()
+    assert payload["degraded"], "the failure must be recorded per block"
+    # more BLOCKS than distinct REASONS — the page must count blocks, not messages
+    assert len(payload["degraded"]) > len(payload["degraded_reasons"])
+
+    m = payload["metrics"]
+    assert m["rule_funnel_24h"]["row"]["rule_scanned"] is None
+    # a failed read leaves the row EMPTY, so the key is absent rather than 0 — either
+    # way the page must receive "unknown", never a number it can paint green
+    assert m["scheduler_failures"]["row"].get("failures_24h") is None, (
+        "absent must not become 0")
+    assert m["scheduler_failures"].get("unavailable")
+    assert m["ingest_hourly_24h"].get("unavailable"), "the chart must know it failed"
+
+
+def test_the_page_never_affirms_an_all_clear_from_an_absent_value():
+    """🔴 THE FIX FOR THE FIFTH OCCURRENCE SHIPPED THE FIFTH OCCURRENCE'S OWN SHAPE.
+
+    The rates block's first version fell back to "In this window every alert row came
+    from the rate population" whenever `alerts_outside_ratio_population` was not a
+    positive number — which is also true when the funnel did not load. That is an
+    affirmative all-clear derived from an absent value, on the very card that exists
+    to warn about exactly that. Caught by rendering the degraded payload, not by
+    reading the diff.
+
+    Three states are required wherever an absence is possible: unknown / none / some.
+    """
+    import pathlib
+    page = pathlib.Path(__file__).parent.parent / "api" / "static" / "status.html"
+    src = page.read_text(encoding="utf-8")
+
+    assert 'typeof outside !== "number"' in src, (
+        "the rates block must branch on ABSENCE before it branches on zero")
+    assert "is unknown here" in src, "the unknown state must say so"
+    # and the whole block must stand down when the funnel itself failed
+    assert "No rates are shown." in src
+    assert "an unknown population is not an empty one" in src
+
+    # the affirmative sentence must be reachable ONLY from the else of a numeric test
+    i_unknown = src.index('typeof outside !== "number"')
+    i_affirm = src.index("every alert row came from the rate population")
+    assert i_unknown < i_affirm, (
+        "the affirmative branch must come after the absence check, not before it")
