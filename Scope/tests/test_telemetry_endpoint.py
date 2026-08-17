@@ -602,3 +602,160 @@ def test_the_page_never_affirms_an_all_clear_from_an_absent_value():
     i_affirm = src.index("every alert row came from the rate population")
     assert i_unknown < i_affirm, (
         "the affirmative branch must come after the absence check, not before it")
+
+
+# ── F6: the suite had a hole exactly where the defects keep landing ──────────
+#
+# An independent pass mutation-tested this file: reverting `rule_flagged` to the
+# old source-type scoping left the ENTIRE suite green, because the only test of
+# that behaviour asserted on the predicate map rather than on the payload. And
+# the test that claimed to have been "caught by rendering the degraded payload"
+# was a substring grep over the HTML. Both are closed below.
+
+def _render_page(payload):
+    """Execute the page's real <script> against a payload and return element text.
+
+    A grep over `status.html` cannot see what the page SAYS — the last two defects
+    in this file were both sentences that rendered from a branch a grep could not
+    evaluate. This runs the actual code. Skips if node is unavailable.
+    """
+    import json, re, pathlib, shutil, subprocess, tempfile
+    node = shutil.which("node")
+    if not node:
+        import pytest
+        pytest.skip("node not available")
+    page = pathlib.Path(__file__).parent.parent / "api" / "static" / "status.html"
+    js = re.search(r"<script>(.*?)</script>", page.read_text(encoding="utf-8"), re.S).group(1)
+    with tempfile.TemporaryDirectory() as td:
+        d = pathlib.Path(td)
+        (d / "page.js").write_text(js, encoding="utf-8")
+        (d / "payload.json").write_text(json.dumps(payload), encoding="utf-8")
+        (d / "run.js").write_text(r"""
+const fs=require('fs');const store={};
+function mkEl(id){return {id,_h:"",
+  set innerHTML(v){this._h=v;store[id]=(store[id]||"")+" "+v;},get innerHTML(){return this._h;},
+  set textContent(v){this._h=v;store[id]=(store[id]||"")+" "+v;},get textContent(){return this._h;},
+  setAttribute(){},appendChild(){},style:{},classList:{add(){},remove(){}},clientWidth:560,
+  addEventListener(){},querySelectorAll(){return [];},firstChild:null,removeChild(){}};}
+const els={};
+global.document={getElementById:id=>els[id]||(els[id]=mkEl(id)),
+  createElement:()=>mkEl("x"),createElementNS:(ns,t)=>mkEl(t),addEventListener(){},
+  documentElement:{getAttribute:()=>null,setAttribute(){}},
+  body:{classList:{add(){},remove(){}}},querySelectorAll:()=>[]};
+global.window={matchMedia:()=>({matches:false,addEventListener(){}}),addEventListener(){},
+  location:{search:""},localStorage:{getItem:()=>null,setItem(){}}};
+global.localStorage=global.window.localStorage;
+global.MutationObserver=class{observe(){}disconnect(){}};
+global.IntersectionObserver=class{observe(){}disconnect(){}};
+global.ResizeObserver=class{observe(){}disconnect(){}};
+global.requestAnimationFrame=()=>0;
+global.getComputedStyle=()=>({getPropertyValue:()=>"#888888"});
+global.window.getComputedStyle=global.getComputedStyle;
+global.setInterval=()=>0;global.setTimeout=()=>0;global.clearInterval=()=>{};
+const payload=JSON.parse(fs.readFileSync(__dirname+'/payload.json','utf8'));
+global.fetch=(u)=>Promise.resolve({ok:true,json:()=>Promise.resolve(
+  String(u).includes('scheduler')?{status:'running',job_count:0,activity:{}}:payload)});
+try{ new Function(fs.readFileSync(__dirname+'/page.js','utf8'))(); }catch(e){}
+setImmediate(()=>{ const out={}; for(const k in store)
+  out[k]=String(store[k]).replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+  process.stdout.write(JSON.stringify(out)); });
+""", encoding="utf-8")
+        r = subprocess.run([node, str(d / "run.js")], capture_output=True, text=True, timeout=60)
+        assert r.stdout, f"the page produced no output: {r.stderr[:400]}"
+        return json.loads(r.stdout)
+
+
+def _payload_for(db_path):
+    import os
+    from api.routers import telemetry as T
+    old = os.environ.get("DATABASE_PATH")
+    os.environ["DATABASE_PATH"] = str(db_path)
+    try:
+        return T.telemetry()
+    finally:
+        if old is None: os.environ.pop("DATABASE_PATH", None)
+        else: os.environ["DATABASE_PATH"] = old
+
+
+def test_the_heat_grid_does_not_claim_nothing_ran_when_its_query_failed(tmp_path):
+    """🔴 EVERY OTHER CHART CHECKED isDown(); THE HEAT GRID DID NOT.
+
+    With `activity_log` dropped, `SQL_HEAT` errors and the block is flagged
+    unavailable — and the card printed "no runs logged in the last 24 h", an
+    affirmative statement about the system produced from a failed read. This
+    renders the real page code rather than grepping for the string.
+    """
+    import sqlite3
+    db = tmp_path / "noheat.db"
+    _seed(str(db))
+    c = sqlite3.connect(str(db)); c.execute("DROP TABLE activity_log"); c.commit(); c.close()
+
+    payload = _payload_for(db)
+    assert payload["metrics"]["heat_grid_24h"].get("unavailable")
+
+    text = _render_page(payload)
+    whole = " ".join(text.values())
+    # the affirmative sentence must be nowhere on a page built from a failed read
+    assert "no runs logged in the last 24 h" not in whole, (
+        "a failed read is being reported as a real reading")
+    # and the grid must say what actually happened, in its chart and in its legend
+    assert "could not be read" in whole
+    assert "NOT a claim that nothing ran" in whole
+    assert "unavailable" in text.get("heatLegend", ""), text.get("heatLegend")
+
+
+def test_the_written_rate_excludes_rules_that_cannot_write_an_alert(tmp_path):
+    """🔴 BOTH COLUMNS HONEST WAS NOT ENOUGH FOR THE *WRITTEN* RATE.
+
+    `scripts/rule_osint.py:71` sets EMISSION_RETIRED = True and the emit branch at
+    `:295` continues before `insert_alert`, so RULE_OSINT cannot write an alert row.
+    It passes both column tests, so it entered the rate population and sat in the
+    denominator of written/flagged against a numerator it cannot contribute to —
+    69.6% of that denominator on prod, understating the rate 3.29x.
+    """
+    import sqlite3
+    from api.routers.telemetry import _EMISSION_RETIRED
+
+    assert "RULE_OSINT" in _EMISSION_RETIRED
+
+    db = tmp_path / "retired.db"
+    _seed(str(db))
+    c = sqlite3.connect(str(db))
+    # a retired emitter that scans and filters heavily but writes nothing
+    c.execute("INSERT INTO activity_log (source, events_scanned, events_flagged, alerts_emitted,"
+              " run_at, duration_seconds) VALUES ('RULE_OSINT', 5000, 900, 0, datetime('now'), 1.0)")
+    c.commit(); c.close()
+
+    r = _payload_for(db)["metrics"]["rule_funnel_24h"]
+    assert "RULE_OSINT" in r["ratio_population"], "it still belongs to flagged/scanned"
+    assert "RULE_OSINT" not in r["ratio_population_emitting"], (
+        "a rule that cannot emit must not be in the written-rate denominator")
+    assert r["emission_retired_in_population"] == ["RULE_OSINT"]
+    # denominators differ by exactly the retired rule's flagged
+    assert r["row"]["ratio_flagged"] - r["row"]["ratio_flagged_emitting"] == 900
+    assert r["row"]["retired_emitter_flagged"] == 900
+    # and the rate itself moves the way the prod measurement said it would
+    assert r["row"]["ratio_written"] / r["row"]["ratio_flagged_emitting"] > \
+           r["row"]["ratio_written"] / r["row"]["ratio_flagged"]
+
+
+def test_the_funnel_columns_are_pinned_on_the_PAYLOAD_not_just_the_predicate(tmp_path):
+    """A mutation test showed the old assertion could not fail: reverting the funnel
+    to source-type scoping left the suite green, because the only test of it asserted
+    on `_flagged_is_filter` rather than on what the endpoint returns. Pin the numbers.
+    """
+    import sqlite3
+    db = tmp_path / "payload.db"
+    _seed(str(db))
+    c = sqlite3.connect(str(db))
+    # a DETECTION RULE whose flagged is NOT a filter output — source-type scoping
+    # would fold all 700 of these into rule_flagged
+    c.execute("INSERT INTO activity_log (source, events_scanned, events_flagged, alerts_emitted,"
+              " run_at, duration_seconds) VALUES ('RULE_01B', 700, 700, 0, datetime('now'), 1.0)")
+    c.commit(); c.close()
+
+    row = _payload_for(db)["metrics"]["rule_funnel_24h"]["row"]
+    assert row["rule_flagged"] == 10, (
+        f"got {row['rule_flagged']} — RULE_01B's 700 leaked in, which is the v2 defect")
+    assert row["flagged_if_scoped_by_source_type_only"] == 710, (
+        "the old figure must still be reported so the size of the correction is visible")

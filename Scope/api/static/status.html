@@ -147,8 +147,9 @@
     hasn't run in more than 2× its interval is flagged — it may be silently failing.
     <span class="warn-inline">⚠️ <b>This is NOT every scheduled job.</b> The list is a
     hand-maintained literal in this page, not derived from the scheduler, so it neither covers
-    everything that runs nor drops what stopped: measured against prod, <b>11 sources logged runs
-    in the last 24 h without appearing here</b> — including the live detection rules
+    everything that runs nor drops what stopped. <b>The gap is measured live below the table,
+    not asserted here</b> — an earlier version froze a count in this sentence, on a page whose
+    whole thesis is that a number should be computed. It has included the live detection rules
     <code>RULE_02</code>, <code>RULE_16</code> and <code>RULE_TELEGRAM_OSINT</code>, whose silence
     this table could therefore never flag — while <code>RULE_12/13/14</code> and <code>BRIEF</code>
     are listed but retired, so their permanent <b>STALE</b> is expected, not a fault. Deriving this
@@ -326,9 +327,17 @@
       ['<div class="stat">' + n(m.rule_funnel_24h.row.rule_scanned) + '</div>' +
        '<div class="unit">records scanned by detection rules, last 24 h</div>' +
        tileNote(m.rule_funnel_24h,
-         '<code>SUM(events_scanned)</code> over <b>detection rules only</b>. ' +
-         'Non-rule jobs write the same column meaning different things, and would add <b>' +
-         n(m.rule_funnel_24h.row.excluded_non_rule_scanned) + '</b> — see the stages card.'),
+         /* The excluded figure is a SEMANTIC exclusion, not a source-type one, so
+            "non-rule jobs" mis-attributes it: detection rules whose `scanned` is
+            not a record count land inside it too (RULE_ANOMALY writes
+            scanned=flagged=emitted, all three the alerts it wrote). Small today —
+            21 of 6,438, 0.3% — but the sentence was false about that 0.3%, which
+            is the same shape as every other defect on this page. */
+         '<code>SUM(events_scanned)</code> over <b>the sources whose <code>scanned</code> ' +
+         'really is a record count</b>. Sources where it means something else would add <b>' +
+         n(m.rule_funnel_24h.row.excluded_non_rule_scanned) + '</b> — mostly non-rule jobs, ' +
+         'but <b>some detection rules too</b> (RULE_ANOMALY counts alerts it wrote, not ' +
+         'records it read) — see the stages card, which lists every one.'),
        m.rule_funnel_24h.sql + "\n\n" + m.rule_funnel_24h.why],
       ['<div class="stat">' + n(split.rule_runs) + '</div><div class="unit">rule runs, last 24 h</div>' +
        tileNote(m.run_split_24h,
@@ -622,6 +631,8 @@
     var rp = fn.ratio_population || [];
     var outside = fn.row.alerts_outside_ratio_population;
     var outDetail = fn.alerts_outside_ratio_population_detail || [];
+    var rpe = fn.ratio_population_emitting || [];
+    var retired = fn.emission_retired_in_population || [];
     var fnDown = isDown(fn);
     /* 🔴 MY OWN FIX SHIPPED THE SAME DEFECT AND THE DEGRADED RENDER CAUGHT IT.
        The first version of this block fell back to "every alert row came from the
@@ -635,13 +646,31 @@
           'could not be read (' + esc(fn.unavailable) + '), so the population these rates ' +
           'would be computed over is unknown — and an unknown population is not an empty one.</div>'
         : '<div class="qual" style="margin-top:0.5rem">' +
-          '<b>Rates, over the ' + rp.length + ' sources where both columns mean what they say</b> (' +
-          (rp.length ? rp.map(esc).join(", ") : "none") + '):<br>' +
-          'flagged / scanned = <b>' + pctOr(fn.row.ratio_flagged, fn.row.ratio_scanned, "scanned") +
-          '</b> · written / flagged = <b>' +
-          pctOr(fn.row.ratio_written, fn.row.ratio_flagged, "flagged") + '</b> ' +
+          /* 🔴 THE TWO RATES DO NOT SHARE A POPULATION, AND PRINTING THEM AS IF
+             THEY DID PUT THE DEFECT BACK ONE COLUMN ALONG. Both columns being
+             honest is not enough for the WRITTEN rate: a rule whose emission is
+             retired still scans and still filters, so it belongs in the first
+             rate, but it cannot write an alert row — so in the second it is
+             denominator with no possible numerator. RULE_OSINT was 69.6% of that
+             denominator over 24 h, understating the rate 3.29x. */
+          '<b>flagged / scanned</b>, over the ' + rp.length + ' sources where both columns ' +
+          'mean what they say (' + (rp.length ? rp.map(esc).join(", ") : "none") + ') = <b>' +
+          pctOr(fn.row.ratio_flagged, fn.row.ratio_scanned, "scanned") + '</b> ' +
           '<span class="dim">(' + n(fn.row.ratio_scanned) + ' → ' + n(fn.row.ratio_flagged) +
-          ' → ' + n(fn.row.ratio_written) + ')</span><br>' +
+          ')</span><br>' +
+          '<b>written / flagged</b>, over the ' + rpe.length + ' of those that can actually ' +
+          'write an alert (' + (rpe.length ? rpe.map(esc).join(", ") : "none") + ') = <b>' +
+          pctOr(fn.row.ratio_written, fn.row.ratio_flagged_emitting, "flagged") + '</b> ' +
+          '<span class="dim">(' + n(fn.row.ratio_flagged_emitting) + ' → ' +
+          n(fn.row.ratio_written) + ')</span><br>' +
+          (retired.length
+            ? '<span class="flag">' + retired.map(esc).join(", ") + ' ' +
+              (retired.length === 1 ? 'is' : 'are') + ' in the first rate but NOT the second: ' +
+              (retired.length === 1 ? 'its' : 'their') + ' emission is retired in the rule ' +
+              'source, so ' + n(fn.row.retired_emitter_flagged) + ' flagged events cannot ' +
+              'produce an alert row. Leaving ' + (retired.length === 1 ? 'it' : 'them') + ' in ' +
+              'the denominator understated the written rate 3.29x on prod.</span><br>'
+            : '') +
           'Three numbers, not one chart: they span four orders of magnitude, so a shared axis ' +
           'would flatten two of them and a second axis would be worse.</div>' +
         '<div class="warn" style="margin-top:0.6rem">⚠️ <b>These rates are NOT over the ' +
@@ -672,8 +701,9 @@
         'All-time it reads <b>' + n(truth.emitted_counter_all_time) +
         '</b> against <b>' + n(truth.alert_rows_all_time) + '</b> alert rows.</div>' +
       '<div class="warn" style="margin-top:0.5rem">🔴 <b>These stages are scoped by MEANING, not ' +
-        'by source type — the fourth of FIVE times this page shipped a real number under a ' +
-        'false label. The fifth was the RATE computed from these stages, fixed above.</b> ' +
+        'by source type — the fourth of SIX times this page shipped a real number under a ' +
+        'false label. The fifth was the RATE computed from these stages; the sixth was that ' +
+        'rate\'s denominator, which counted a rule whose emission is retired.</b> ' +
         '<code>events_flagged</code> is a genuine filter output in only ' +
         'five sources. Others pass the SAME value to scanned and flagged (RULE_01B, RULE_09, ' +
         'RULE_10, RULE_15, RULE_ANOMALY), or a DB-write count (RULE_11, RULE_16), or an aggregate ' +
@@ -723,6 +753,22 @@
     sources.sort(function (a,b) { return (totals[b]||0) - (totals[a]||0); });
     /* Same empty-window state as the ingest chart. Math.max.apply of an empty
        array is -Infinity, which would poison every step index. */
+    /* 🔴 THE ONE CHART THAT NEVER ASKED. Every sibling — drawIngest, drawSigned,
+       drawCorr, drawHealth, drawDQ — checks isDown() before speaking; this one
+       went straight to the empty-state sentence, so a query that ERRORED was
+       reported as "no runs logged in the last 24 h", an affirmative statement
+       about the system made from a failed read. Reproduced by dropping
+       activity_log: identical text, verbatim, with the block flagged unavailable. */
+    if (isDown(m.heat_grid_24h)) {
+      svg.setAttribute("viewBox", "0 0 400 40"); svg.setAttribute("height", 40);
+      var dm = svgEl("text", { x: 0, y: 18, fill: "var(--severity-high)", "font-size": 11,
+        "font-family": "monospace" });
+      dm.textContent = "the grid could not be read — this is NOT a claim that nothing ran";
+      svg.appendChild(dm);
+      el("heatLegend").innerHTML = '<span class="flag">unavailable (' +
+        esc(m.heat_grid_24h.unavailable) + ') — not zero</span>';
+      return;
+    }
     if (!rows.length) {
       svg.setAttribute("viewBox", "0 0 400 40"); svg.setAttribute("height", 40);
       var em = svgEl("text", { x: 0, y: 18, fill: "var(--chart-label)", "font-size": 11,
@@ -939,8 +985,13 @@
           n(b.unscored_over_30min) + '</div><div class="unit">unscored &gt;30 min</div></div>' +
       '</div>' +
       '<div class="qual" style="margin-top:0.5rem">Failures are real <code>activity_log</code> rows ' +
-        'with <code>source=\'SCHEDULER_JOB_FAILURE\'</code> — the universal safety net, so no ' +
-        'scheduled-job failure can be silent. The backlog figure is the ' +
+        'with <code>source=\'SCHEDULER_JOB_FAILURE\'</code>, written by the scheduler\'s safety ' +
+        'net for any non-zero exit, timeout or import-time crash. ' +
+        '<b>This is a floor, not a guarantee:</b> <code>api/main.py:215</code> swallows an ' +
+        'exception from its own logging write, so a failure whose log row is itself blocked ' +
+        '(a locked database) leaves nothing — and a scheduler that is not running logs ' +
+        'nothing at all. A zero here means no failure <i>was recorded</i>, which is a weaker ' +
+        'claim than no failure happened. The backlog figure is the ' +
         '<code>MONITOR_ENRICH_STALL</code> criterion verbatim.</div>' +
       (det.length ? '<div style="margin-top:0.5rem;border-top:1px solid var(--border);padding-top:0.45rem">' +
         '<div class="unit" style="margin-bottom:0.3rem">what actually failed (last 7 d)</div>' +
@@ -1122,6 +1173,31 @@
               (r.stale ? '<span class="flag">⚠ STALE</span>' : '<span class="fresh">✓ healthy</span>') +
               '</td></tr>'; }).join("") +
           '</tbody></table></div></div>' +
+          /* 🔴 COMPUTED, NOT ASSERTED. The intro used to state a frozen count of how
+             many live sources this table misses. On a page whose whole thesis is
+             that a number should be computed, that was the one number typed by hand.
+             `d.activity` is keyed by every source that has ever logged, so the gap
+             is derivable right here, from the same response the table is built on. */
+          (function () {
+            var uncovered = Object.keys(act).filter(function (s) {
+              var sec = ago(act[s].last_run);
+              return !(s in EXPECTED) && sec != null && sec <= 86400;
+            }).sort();
+            var retired = Object.keys(EXPECTED).filter(function (s) {
+              return !act[s] || ago(act[s].last_run) == null; }).sort();
+            return '<div class="warn" style="margin:0.6rem 0.75rem">⚠️ <b>This table is a ' +
+              'hand-maintained list, not the scheduler\'s own registry, so it is not a ' +
+              'complete view of what runs.</b> Measured from this same response: <b>' +
+              uncovered.length + '</b> source' + (uncovered.length===1?'':'s') + ' logged a run ' +
+              'in the last 24 h without appearing above' +
+              (uncovered.length ? ' — ' + uncovered.map(esc).join(", ") : "") + '. ' +
+              'A job missing from this list cannot be flagged stale by it, however long it ' +
+              'stays silent.' +
+              (retired.length ? ' Conversely <b>' + retired.length + '</b> listed here have ' +
+                'never logged a run in this environment (' + retired.map(esc).join(", ") +
+                '), so their permanent ⚠ STALE is expected, not a fault.' : '') +
+              '</div>';
+          })() +
           '<div class="qual" style="padding:0.6rem 0.75rem">"Last run" reflects the ' +
           '<code>activity_log</code> row each rule\'s <code>run()</code> writes. A source with no ' +
           'row has never logged a run in this environment. The emitted column is a job-reported ' +

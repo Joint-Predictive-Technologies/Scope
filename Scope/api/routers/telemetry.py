@@ -383,6 +383,16 @@ def _flagged_is_filter(source):
     return bool(m and m[4])
 
 
+# Rules that still SCAN and still FILTER but can no longer WRITE an alert, read off
+# the rule's own source rather than inferred from a quiet window — a rule with zero
+# recent alerts might simply have found nothing, which is not the same claim.
+#   • RULE_OSINT — `scripts/rule_osint.py:71` EMISSION_RETIRED = True; the emit branch
+#     at `:295` marks the event seen and continues before `insert_alert` at `:288`.
+# A rule here must be excluded from any rate whose NUMERATOR is alert rows, because
+# it contributes to the denominator and structurally cannot contribute to the top.
+_EMISSION_RETIRED = frozenset({"RULE_OSINT"})
+
+
 # ── source classification ────────────────────────────────────────────────────
 # Explicit, because `LIKE 'RULE_%'` is a wildcard match (see the module note) and
 # because "is this a rule run?" is a claim the page makes out loud.
@@ -713,23 +723,40 @@ def _flat(sql: str) -> str:
 # rather than guessing from an error string. A verifier found the first version's
 # flat list was not enough: `drawHealth` still rendered 0/0/0 for a block listed as
 # unavailable, and the live bar promised "shown empty, not as zero" one line above it.
-_DEGRADED: dict = {}
+# 🔴 THIS WAS A MODULE-LEVEL GLOBAL AND THAT REOPENED THE DEFECT THIS FILE EXISTS
+# TO CLOSE. `telemetry()` is a sync `def`, so Starlette runs it in the anyio
+# threadpool and concurrent requests genuinely interleave. With one shared dict
+# cleared at the top of every request, request A's `.clear()` erased request B's
+# recorded failures — so B's failed read arrived at the page with NO `unavailable`
+# flag and a derived **0**, which is exactly "a failed read rendered as a real
+# zero", the thing the closing pass in this module claims to have fixed.
+#
+# Measured with two threads over one shared module (150 requests each, only the
+# dict shared): **81 of 150 broken requests came back falsely clean with
+# rule_scanned=0**, and 82 of 150 healthy requests falsely reported degraded.
+#
+# This needs no missing table in production: `_rows`/`_one` catch every
+# sqlite3.Error, and `database is locked` is one — on a `journal_mode=delete`
+# database (which prod is), two open /status tabs polling is enough.
+#
+# The degradation map is therefore per-request state, created in telemetry() and
+# passed down. There is no module-level mutable state left in this file.
 
 
-def _rows(conn, sql, label, args=()):
+def _rows(conn, sql, label, deg, args=()):
     try:
         return [dict(r) for r in conn.execute(sql, args).fetchall()]
     except sqlite3.Error as exc:
-        _DEGRADED[label] = str(exc)
+        deg[label] = str(exc)
         return []
 
 
-def _one(conn, sql, label, args=()):
+def _one(conn, sql, label, deg, args=()):
     try:
         r = conn.execute(sql, args).fetchone()
         return dict(r) if r is not None else {}
     except sqlite3.Error as exc:
-        _DEGRADED[label] = str(exc)
+        deg[label] = str(exc)
         return {}
 
 
@@ -743,7 +770,7 @@ def telemetry():
     shipped two REAL numbers under FALSE labels.
     """
     t0 = time.perf_counter()
-    _DEGRADED.clear()
+    deg: dict = {}          # per-request; never module state
     try:
         conn = _ro_connection()
     except sqlite3.Error as exc:
@@ -762,28 +789,28 @@ def telemetry():
             "metrics": {},
         }
     try:
-        hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY, "SQL_HOURLY"))
-        per_source   = _rows(conn, SQL_PER_SOURCE, "SQL_PER_SOURCE")
-        heat         = _rows(conn, SQL_HEAT, "SQL_HEAT")
-        peak         = _one(conn, SQL_PEAK, "SQL_PEAK")
-        written      = _one(conn, SQL_ALERTS_WRITTEN, "SQL_ALERTS_WRITTEN")
-        alerts_by_rule = _rows(conn, SQL_ALERTS_BY_RULE, "SQL_ALERTS_BY_RULE")
-        emit_truth   = _one(conn, SQL_EMITTED_TRUTH, "SQL_EMITTED_TRUTH")
-        emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE, "SQL_EMITTED_NON_RULE")
-        violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS, "SQL_FUNNEL_VIOLATIONS")
-        failures     = _one(conn, SQL_FAILURES, "SQL_FAILURES")
-        fail_detail  = _rows(conn, SQL_FAILURE_DETAIL, "SQL_FAILURE_DETAIL")
-        per_rule     = _rows(conn, SQL_ALERTS_PER_RULE, "SQL_ALERTS_PER_RULE")
-        severity     = _rows(conn, SQL_SEVERITY, "SQL_SEVERITY")
-        signed       = _one(conn, SQL_SIGNED, "SQL_SIGNED")
-        corr_pop     = _rows(conn, SQL_CORROBORATES_POPULATED, "SQL_CORROBORATES_POPULATED")
-        corr         = _one(conn, SQL_CORROBORATIONS, "SQL_CORROBORATIONS")
-        corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL, "SQL_CORROBORATION_DETAIL")
-        backlog      = _one(conn, SQL_BACKLOG, "SQL_BACKLOG")
-        outcomes     = _rows(conn, SQL_OUTCOMES, "SQL_OUTCOMES")
-        out_reasons  = _rows(conn, SQL_OUTCOME_REASONS, "SQL_OUTCOME_REASONS")
-        all_sources  = _rows(conn, SQL_ALL_SOURCES, "SQL_ALL_SOURCES")
-        coverage     = _one(conn, SQL_COVERAGE, "SQL_COVERAGE")
+        hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY, "SQL_HOURLY", deg))
+        per_source   = _rows(conn, SQL_PER_SOURCE, "SQL_PER_SOURCE", deg)
+        heat         = _rows(conn, SQL_HEAT, "SQL_HEAT", deg)
+        peak         = _one(conn, SQL_PEAK, "SQL_PEAK", deg)
+        written      = _one(conn, SQL_ALERTS_WRITTEN, "SQL_ALERTS_WRITTEN", deg)
+        alerts_by_rule = _rows(conn, SQL_ALERTS_BY_RULE, "SQL_ALERTS_BY_RULE", deg)
+        emit_truth   = _one(conn, SQL_EMITTED_TRUTH, "SQL_EMITTED_TRUTH", deg)
+        emit_by_src  = _rows(conn, SQL_EMITTED_NON_RULE, "SQL_EMITTED_NON_RULE", deg)
+        violations   = _rows(conn, SQL_FUNNEL_VIOLATIONS, "SQL_FUNNEL_VIOLATIONS", deg)
+        failures     = _one(conn, SQL_FAILURES, "SQL_FAILURES", deg)
+        fail_detail  = _rows(conn, SQL_FAILURE_DETAIL, "SQL_FAILURE_DETAIL", deg)
+        per_rule     = _rows(conn, SQL_ALERTS_PER_RULE, "SQL_ALERTS_PER_RULE", deg)
+        severity     = _rows(conn, SQL_SEVERITY, "SQL_SEVERITY", deg)
+        signed       = _one(conn, SQL_SIGNED, "SQL_SIGNED", deg)
+        corr_pop     = _rows(conn, SQL_CORROBORATES_POPULATED, "SQL_CORROBORATES_POPULATED", deg)
+        corr         = _one(conn, SQL_CORROBORATIONS, "SQL_CORROBORATIONS", deg)
+        corr_detail  = _rows(conn, SQL_CORROBORATION_DETAIL, "SQL_CORROBORATION_DETAIL", deg)
+        backlog      = _one(conn, SQL_BACKLOG, "SQL_BACKLOG", deg)
+        outcomes     = _rows(conn, SQL_OUTCOMES, "SQL_OUTCOMES", deg)
+        out_reasons  = _rows(conn, SQL_OUTCOME_REASONS, "SQL_OUTCOME_REASONS", deg)
+        all_sources  = _rows(conn, SQL_ALL_SOURCES, "SQL_ALL_SOURCES", deg)
+        coverage     = _one(conn, SQL_COVERAGE, "SQL_COVERAGE", deg)
     finally:
         conn.close()
 
@@ -822,11 +849,37 @@ def telemetry():
     ratio_sources = sorted({r["source"] for r in per_source if _in_ratio_pop(r["source"])})
     ratio_scanned = _sum(per_source, "scanned", _in_ratio_pop)
     ratio_flagged = _sum(per_source, "flagged", _in_ratio_pop)
-    # Alert ROWS written by exactly those rules — the only numerator that shares a
-    # population with `ratio_flagged`. `alerts.rule` is the source label, so this
-    # is a direct match, not a mapping.
-    _pop = set(ratio_sources)
+
+    # 🔴 THE TWO RATES DO NOT HAVE THE SAME VALID POPULATION, AND ASSUMING THEY DID
+    # PUT THE DEFECT BACK ONE COLUMN FURTHER ALONG.
+    #
+    # The previous fix checked that both COLUMNS mean what they say and then reused
+    # that one population for both rates. It never asked the third question: can this
+    # rule contribute to the NUMERATOR at all? `scripts/rule_osint.py:71` sets
+    # `EMISSION_RETIRED = True`, and at `:295` the emit branch marks the event seen
+    # and `continue`s before reaching `insert_alert` — RULE_OSINT is structurally
+    # incapable of writing an alert row. Its last one is 2026-07-30.
+    #
+    # It still passes both column tests, so it entered the population and its
+    # `flagged` sat in the denominator of `written / flagged` against a numerator it
+    # can never add to. Measured on prod: RULE_OSINT is **69.6% of that denominator
+    # over 24 h and 62.9% over 7 days**, understating the rate 3.29x and 2.70x.
+    # (A 30-day window hides it, because that window straddles the retirement date —
+    # a selection artefact, not a refutation.)
+    #
+    # `flagged / scanned` is unaffected: both of those columns are honest for a
+    # retired emitter, which scans and filters exactly as before. So the rates are
+    # scoped separately, and the page says which population each one is over.
+    ratio_sources_emitting = sorted(s for s in ratio_sources if s not in _EMISSION_RETIRED)
+    _pop = set(ratio_sources_emitting)
+    ratio_flagged_emitting = _sum(per_source, "flagged", lambda x: x in _pop)
+    # Alert ROWS written by exactly those rules. `alerts.rule` is the source label,
+    # so this is a direct match, not a mapping.
     ratio_written = sum((r["n"] or 0) for r in alerts_by_rule if r["rule"] in _pop)
+    retired_in_pop = sorted(
+        {r["source"] for r in per_source if _in_ratio_pop(r["source"])
+         and r["source"] in _EMISSION_RETIRED})
+    retired_flagged = _sum(per_source, "flagged", lambda x: x in set(retired_in_pop))
     written_total = written.get("alerts_written_24h")
     written_outside = (
         None if written_total is None else written_total - ratio_written)
@@ -919,8 +972,8 @@ def telemetry():
         # "unavailable", because a metric that failed to load is not a metric that
         # measured zero. Keyed by SQL constant so the page can mark the exact card;
         # `degraded_reasons` is the flat list for the status bar.
-        "degraded": dict(_DEGRADED),
-        "degraded_reasons": sorted(set(_DEGRADED.values())),
+        "degraded": dict(deg),
+        "degraded_reasons": sorted(set(deg.values())),
         "_block_sql": _BLOCK_SQL,
         "metrics": {
             "ingest_hourly_24h": {
@@ -1011,9 +1064,19 @@ def telemetry():
                         # the only three numbers between which a ratio is defined
                         "ratio_scanned": ratio_scanned,
                         "ratio_flagged": ratio_flagged,
+                        # the written-rate's own denominator: retired emitters removed
+                        "ratio_flagged_emitting": ratio_flagged_emitting,
                         "ratio_written": ratio_written,
+                        "retired_emitter_flagged": retired_flagged,
                         "alerts_outside_ratio_population": written_outside},
                 "ratio_population": ratio_sources,
+                "ratio_population_emitting": ratio_sources_emitting,
+                "emission_retired_in_population": retired_in_pop,
+                "emission_retired_note": (
+                    "These sources still scan and still filter, so they belong in "
+                    "flagged/scanned — but they cannot write an alert row, so including "
+                    "them in the denominator of written/flagged measures a numerator "
+                    "they are structurally unable to contribute to."),
                 "ratio_population_note": (
                     "Ratios are computed ONLY over these sources — the ones where "
                     "`scanned` really is a record count AND `flagged` really is a "
@@ -1146,7 +1209,7 @@ def telemetry():
     # never 0. This is the same defect as the labels — a real-looking number standing
     # in for something that is not that — reached through arithmetic instead of prose.
     for block, labels in _BLOCK_SQL.items():
-        reasons = [_DEGRADED[l] for l in labels if l in _DEGRADED]
+        reasons = [deg[l] for l in labels if l in deg]
         if not (reasons and block in payload["metrics"]):
             continue
         blk = payload["metrics"][block]
