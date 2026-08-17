@@ -88,12 +88,23 @@ checking whether a claim still holds, re-run the query, don't trust the comment.
 
 ── COST ─────────────────────────────────────────────────────────────────────
 Measured on the prod host against 28.8k activity_log / 37.8k alerts rows.
-⚠️ THE FIGURE MOVED WHEN THE LABEL FIXES LANDED, and the honest number is the
-current one: median **178.7 ms** over 9 runs (min 144.7, max 192.1), payload
-~50 KB. It was 138.7 ms (independently re-measured at 131.2 ms) before this round;
-the increase is the cost of correctness — an all-time `SELECT DISTINCT source` scan
-for the duplicate-label detection, and two extra `alerts` subqueries to compute a
-ticker count that excludes basket strings. At 60 s that is a ~0.30% duty cycle.
+THE FIGURE HAS MOVED TWICE AND THE CURRENT ONE IS THE ONLY ONE TO QUOTE:
+  • 138.7 ms  — first build (independently re-measured at 131.2 ms)
+  • 178.7 ms  — after the label fixes added an all-time `SELECT DISTINCT source`
+                scan and two `alerts` subqueries for a basket-free ticker count
+  • **162.7 ms** — current, median of 9 runs (min 150.2, max 179.2), payload ~49 KB.
+                Correctness got CHEAPER here: dropping `mode=ro`'s schema-script
+                overhead and a never-rendered `COUNT(*) FROM members` more than paid
+                for the fixes.
+
+⚠️ THE PAGE'S REAL PER-POLL COST IS NOT JUST THIS ENDPOINT, and a pre-merge review
+was right that the first version hid it. `/status` also fetches
+`/api/scheduler-status`, measured at **46.8 ms** on prod — a correlated scalar
+subquery per source group with two temp b-tree sorts, so it scales as
+rows x distinct-sources and is the WORSE-SCALING of the two. It is therefore on its
+own **5-minute** timer (the fastest cadence in the page's own `EXPECTED` map), not the
+60 s loop. Honest combined figure: 162.7/60 s + 46.8/300 s ≈ **2.87 ms/s ≈ 0.29% duty
+cycle**. Polling in the 60 s loop would have made it 0.38%.
 Almost every query plans as a full table SCAN because no index exists on
 `activity_log(run_at)`, `alerts(created_at)` or `alerts(rule)` — the only index on
 `alerts` is `idx_alerts_award_key`.
@@ -103,10 +114,24 @@ MIN/MAX subqueries plan as SEARCH.
 The data cannot move faster than the poll anyway — the
 finest granularity shown is an hourly bucket while the fastest rule cadence is
 5 minutes.
-⚠️ Note for the record: `db_connection()` opens a READ-WRITE connection and runs
-the idempotent migration guards with one commit — measured at only 0.7 ms, so it
-does not move the cost, but "read-only" is true of this module's SQL rather than of
-the connection it is handed.
+✅ The connection is now genuinely read-only (`_ro_connection`, `mode=ro`). It used
+to be `db_connection()`, which re-runs the whole schema script and commits on every
+call — only ~0.7 ms of elapsed time, but on a `journal_mode=delete` database
+(verified on prod: NOT WAL) that is a whole-database write lock, twice a minute per
+open tab, against a DB that rules write to every 5 minutes. A pre-merge review was
+right to reject it. "Read-only" is now true of the connection as well as the SQL.
+
+⚠️ GROWTH — READ THIS BEFORE THE NEXT CHANGE HERE. Eight of the twenty queries are
+UNBOUNDED all-time scans (`SQL_EMITTED_TRUTH`, `SQL_EMITTED_NON_RULE`,
+`SQL_FUNNEL_VIOLATIONS`, `SQL_ALERTS_PER_RULE`, `SQL_CORROBORATES_POPULATED`,
+`SQL_CORROBORATIONS`, `SQL_ALL_SOURCES`, `SQL_COVERAGE`). `activity_log` gains a
+measured **790-844 rows/day** on prod, so it DOUBLES about every 36 days and those
+scans double with it: expect roughly 350 ms within five weeks and 700 ms within ten,
+with nothing in the UI that would tell you. The cheap fix is NOT an index (see
+below) — it is to stop recomputing all-time facts every 60 s: split the payload so
+the 24 h blocks poll and the all-time blocks are fetched on load plus a manual
+refresh, or behind a `?scope=` parameter. **Review by 2026-10-01 or when the median
+passes ~400 ms, whichever is first.**
 
 🔴 DO NOT "FIX" THIS WITH AN INDEX. Adding one is a migration, and Scope has a
 recorded instance of an ordinary `alerts(severity, created_at)` index silently
@@ -119,11 +144,42 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+import sqlite3
+
 from fastapi import APIRouter
 
-from jpt_common import db_connection
+from jpt_common import _get_db_path
 
 router = APIRouter()
+
+
+def _ro_connection() -> sqlite3.Connection:
+    """A genuinely READ-ONLY connection, per `CLAUDE.md`'s own prescription.
+
+    🔴 THIS USED TO CALL `db_connection()`, AND A PRE-MERGE REVIEW WAS RIGHT THAT IT
+    SHOULD NOT. `db_connection()` -> `_initialize_schema` unconditionally
+    `executescript`s the whole of `schema_sqlite.sql` (21 CREATE statements) and
+    COMMITS, then runs the migration guards. Measured, that is only ~0.7 ms of
+    elapsed time — but elapsed time is the wrong measure. **Prod runs
+    `journal_mode=delete`, verified, not WAL**, so a writer takes a whole-database
+    RESERVED->EXCLUSIVE lock and readers and writers exclude each other.
+
+    A nav-linked page polling every 60 s from every open tab therefore took a
+    whole-DB write lock twice a minute per tab, against a database that RULE_ADSB
+    writes every 5 min, `enrich_scores` every 10 min and `db_backup` reads at :05.
+    It could not corrupt anything, but it could block a rule's `record_activity()`
+    into `SQLITE_BUSY` — on the page whose entire job is to tell you whether the
+    rules are running.
+
+    `CLAUDE.md`: *"For read-only diagnostics, connect directly with
+    `sqlite3.connect('file:data/jpt.db?mode=ro', uri=True)` to avoid triggering
+    migrations/backups."* This endpoint is a read-only diagnostic by its own
+    docstring, so it now obeys that. It also means this endpoint can never be the
+    thing that applies a migration on a prod boot.
+    """
+    conn = sqlite3.connect(f"file:{_get_db_path(None)}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 # ── WHAT EACH SOURCE'S COUNTERS ACTUALLY MEAN ────────────────────────────────
@@ -166,6 +222,10 @@ _COUNTER_MEANING = {
                               "ticker names collected", "0 by design"),
     "RULE COLLECTOR":        ("0 by design (a lookup-table write is not a finding)",
                               "ticker names collected", "0 by design"),
+    # RULE_DISCOVERY is excluded from the funnel as a collector but has NEVER been
+    # written to prod `activity_log` (verified: 0 rows), so there is no call site to
+    # read a gloss off. Left absent deliberately — it would render "not documented",
+    # which is the truth, rather than a guess copied from RULE_COLLECTOR.
 }
 
 # ── source classification ────────────────────────────────────────────────────
@@ -393,7 +453,6 @@ SQL_COVERAGE = """
                 AND INSTR(TRIM(ticker),' ') = 0) AS distinct_tickers,
            (SELECT COUNT(DISTINCT ticker) FROM alerts
               WHERE ticker IS NOT NULL AND INSTR(TRIM(ticker),' ') > 0) AS multi_symbol_baskets,
-           (SELECT COUNT(*) FROM members) AS members,
            (SELECT MIN(run_at) FROM activity_log) AS activity_since,
            (SELECT MAX(created_at) FROM alerts) AS newest_alert
 """
@@ -436,13 +495,36 @@ def _fill_hour_gaps(rows):
     return out
 
 
+def _flat(sql: str) -> str:
+    """Collapse SQL to one line for the provenance payload."""
+    return " ".join(sql.split())
+
+
+# ── tolerant reads ──────────────────────────────────────────────────────────
+# A read-only connection cannot create schema, which is correct for a diagnostic —
+# but it means a missing table raises instead of being silently initialised, and a
+# whole-page 500 for one absent table is a bad trade. So a failed block degrades to
+# EMPTY and its reason is RECORDED in `degraded`, never swallowed: the page then says
+# "unavailable: no such table X" instead of either dying or inventing a zero.
+# Reachable on a fresh deploy, a partially-restored DB, or a disposable test DB.
+_DEGRADED: list = []
+
+
 def _rows(conn, sql, args=()):
-    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+    try:
+        return [dict(r) for r in conn.execute(sql, args).fetchall()]
+    except sqlite3.Error as exc:
+        _DEGRADED.append(str(exc))
+        return []
 
 
 def _one(conn, sql, args=()):
-    r = conn.execute(sql, args).fetchone()
-    return dict(r) if r is not None else {}
+    try:
+        r = conn.execute(sql, args).fetchone()
+        return dict(r) if r is not None else {}
+    except sqlite3.Error as exc:
+        _DEGRADED.append(str(exc))
+        return {}
 
 
 @router.get("/telemetry", tags=["Meta"])
@@ -455,7 +537,8 @@ def telemetry():
     shipped two REAL numbers under FALSE labels.
     """
     t0 = time.perf_counter()
-    conn = db_connection()
+    _DEGRADED.clear()
+    conn = _ro_connection()
     try:
         hourly       = _fill_hour_gaps(_rows(conn, SQL_HOURLY))
         per_source   = _rows(conn, SQL_PER_SOURCE)
@@ -540,6 +623,10 @@ def telemetry():
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
         "query_ms": elapsed_ms,
         "poll_hint_seconds": 60,
+        # Non-empty only when a block could not be read. Surfaced on the page as
+        # "unavailable", because a metric that failed to load is not a metric that
+        # measured zero.
+        "degraded": sorted(set(_DEGRADED)),
         "metrics": {
             "ingest_hourly_24h": {
                 "sql": _flat(SQL_HOURLY),
@@ -714,9 +801,3 @@ def telemetry():
     }
 
 
-def per_rule_labels(per_source_rows) -> list[str]:
-    return [r["source"] for r in per_source_rows]
-
-
-def _flat(sql: str) -> str:
-    return " ".join(sql.split())

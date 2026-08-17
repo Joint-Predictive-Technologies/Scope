@@ -148,18 +148,28 @@
 <script>
 (function () {
   "use strict";
-  var POLL_MS = 60000;   /* justified in the report: measured endpoint cost is
-                            ~139 ms median, so this is a ~0.23% duty cycle, and
-                            the finest thing displayed is an hourly bucket while
-                            the fastest rule cadence is 5 minutes — 60 s is
-                            already far finer than anything can change. */
+  var POLL_MS = 60000;   /* ⚠️ Measured on prod, and CORRECTED once already: the
+                            /api/telemetry endpoint is ~172 ms median (it was 139 ms
+                            before the label fixes added two scans), and
+                            /api/scheduler-status is a further ~47 ms — but that one
+                            is on its own 5-minute timer below, so a typical 60 s
+                            tick is ~172 ms => ~0.29% duty cycle. Leaving the old
+                            139 ms / 0.23% here would have been exactly the
+                            stale-number-under-a-confident-label defect this page
+                            exists to catch; a pre-merge review found it in these
+                            very comments. The authoritative figure lives in
+                            api/routers/telemetry.py's docstring — prefer that. */
   var el = function (id) { return document.getElementById(id); };
   var tip = el("tip");
   var lastAsOf = null, lastFetchMs = 0, pollTimer = null;
 
   function n(v) { return (v === null || v === undefined) ? "—" : Number(v).toLocaleString("en-US"); }
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (c) {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  /* Quotes included: `esc` reads like a general-purpose escaper and IS used inside
+     an HTML attribute, so leaving them out left the class one edit from being live.
+     `activity_log.source` is app-written today, so this was not exploitable — it is
+     closed because the next use might not be. */
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function seq() {
     var cs = getComputedStyle(document.documentElement);
     return [0,1,2,3,4,5,6].map(function (i) { return cs.getPropertyValue("--seq-" + i).trim(); });
@@ -209,12 +219,20 @@
                   : '<span>no reading has succeeded yet — nothing below is trustworthy</span>');
       return;
     }
+    /* A block that failed to read is NOT a block that measured zero. The endpoint
+       reports which ones degraded (a missing table on a fresh or partially restored
+       DB), and the bar says so rather than letting an empty card read as "quiet". */
+    var deg = (d.degraded || []);
     bar.innerHTML =
-      '<span><span class="dot"></span><b>LIVE</b></span>' +
+      '<span><span class="dot' + (deg.length ? ' stale' : '') + '"></span><b>' +
+        (deg.length ? 'LIVE (DEGRADED)' : 'LIVE') + '</b></span>' +
       '<span>as of <b>' + esc(d.as_of_utc) + '</b></span>' +
       '<span>polling every <b>' + Math.round(POLL_MS/1000) + 's</b></span>' +
       '<span>server query <b>' + d.query_ms + ' ms</b></span>' +
-      '<span id="ageTick" class="dim"></span>';
+      '<span id="ageTick" class="dim"></span>' +
+      (deg.length ? '<span class="flag">' + deg.length + ' metric' +
+        (deg.length === 1 ? '' : 's') + ' UNAVAILABLE: ' +
+        esc(deg.join('; ')) + ' — shown empty, not as zero</span>' : '');
     tickAge();
   }
   function tickAge() {
@@ -256,7 +274,9 @@
        ' distinct tickers<br><span class="dim">case- and <code>$</code>-normalised, and ' +
        'excluding <b>' + n(cov.multi_symbol_baskets) + '</b> multi-symbol basket strings ' +
        '(the raw <code>COUNT(DISTINCT ticker)</code> is ' + n(cov.distinct_ticker_values_raw) +
-       ')</span></div>', m.coverage.sql]
+       ')</span><br><span class="dim">every all-time figure on this page is bounded by ' +
+       'the activity log, which starts <b>' + esc(cov.activity_since) + '</b></span></div>',
+       m.coverage.sql]
     ].map(function (t) {
       return '<div class="card"><div class="cbody">' + t[0] + '</div>' + prov(0, t[1]) + '</div>';
     }).join("") + '</div>');
@@ -840,6 +860,12 @@
     RULE_13:86400, RULE_14:302400, DECAY:86400, BACKTEST:604800, BRIEF:86400,
     RULE_COLLECTOR:21600,
   };
+  /* Doorways to the ticker-universe ball pit (/universe) — a browsable field of
+     collected NAMES, not a signal surface. Only RULE_COLLECTOR writes
+     ticker_universe; RULE_REDDIT links too because it ingests the reddit mentions
+     the collector evaluates — but it is a separate, alert-emitting rule.
+     (Carried across from the previous /status; this is the comment that stops
+     someone tidying RULE_REDDIT out of the set.) */
   var UNIVERSE_LINKED = new Set(['RULE_COLLECTOR', 'RULE_REDDIT']);
   var ago = function (s) { if (!s) return null;
     var t = new Date(String(s).replace(' ','T') + (String(s).includes('Z')?'':'Z')).getTime();
@@ -904,14 +930,33 @@
       });
   }
 
-  tick(); loadScheduler();
-  pollTimer = setInterval(function () { tick(); loadScheduler(); }, POLL_MS);
+  /* ⚠️ THE SCHEDULER TABLE IS ON ITS OWN, SLOWER TIMER, and a pre-merge review was
+     right to insist. On `main` `/api/scheduler-status` fired ONCE per page load; a
+     naive port put it in the 60 s loop. Measured on prod it costs **46.8 ms median**
+     — a correlated scalar subquery per source group with two temp b-tree sorts, so
+     its cost grows as rows x distinct-sources, making it the WORSE-SCALING of the
+     two queries. Polling it at 60 s would have added ~27% to the page's real cost
+     while buying nothing: the fastest cadence in `EXPECTED` is 5 minutes, so a
+     staleness table cannot change faster than that. */
+  var SCHED_POLL_MS = 300000;   /* 5 min = the fastest cadence in EXPECTED */
+  var schedTimer = null;
+
+  function startPolling() {
+    if (!pollTimer)  pollTimer  = setInterval(tick, POLL_MS);
+    if (!schedTimer) schedTimer = setInterval(loadScheduler, SCHED_POLL_MS);
+  }
+  function stopPolling() {
+    clearInterval(pollTimer);  pollTimer  = null;
+    clearInterval(schedTimer); schedTimer = null;
+  }
+
+  tick(); loadScheduler(); startPolling();
   document.addEventListener("visibilitychange", function () {
-    /* Don't poll a page nobody is looking at — the query is ~139 ms of real DB
-       work and a hidden tab cannot show the result. Refresh on return. */
-    if (document.visibilityState === "hidden") { clearInterval(pollTimer); pollTimer = null; }
-    else if (!pollTimer) { tick(); loadScheduler();
-      pollTimer = setInterval(function () { tick(); loadScheduler(); }, POLL_MS); }
+    /* Don't poll a page nobody is looking at — a poll is ~170 ms of real DB work
+       (plus ~47 ms when the scheduler timer coincides) and a hidden tab cannot show
+       the result. Both timers stop; both resume with a fresh read on return. */
+    if (document.visibilityState === "hidden") stopPolling();
+    else { tick(); loadScheduler(); startPolling(); }
   });
 })();
 </script>
