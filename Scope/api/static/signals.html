@@ -40,6 +40,13 @@
     .state-meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
 
     .legend { display: flex; flex-wrap: wrap; gap: .5rem .9rem; padding: .8rem 1rem; }
+    .con-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem;
+                    padding: .55rem 1rem; border-bottom: 1px solid var(--border);
+                    font-size: .68rem; color: var(--cream2); }
+    .con-controls label { display: inline-flex; align-items: center; gap: .3rem; cursor: pointer; }
+    .con-controls input { accent-color: var(--accent); margin: 0; }
+    .con-caveat { flex: 1 1 24rem; min-width: 16rem; color: var(--cream3, var(--cream2));
+                  line-height: 1.5; opacity: .85; }
     .lg { display: flex; align-items: center; gap: .4rem; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); }
     .sw { width: 16px; height: 3px; border-radius: 2px; }
 
@@ -95,6 +102,15 @@
       <span class="panel-title">Signal constellation · relationship graph</span>
       <span class="panel-note" id="con-note">—</span>
     </div>
+    <div class="con-controls">
+      <label><input type="radio" name="conview" value="3d" checked> 3D depth</label>
+      <label><input type="radio" name="conview" value="2d"> flat</label>
+      <label id="spinWrap"><input type="checkbox" id="conSpin" checked> rotate</label>
+      <span class="con-caveat">depth is a <b>spatial device, not a measurement</b> — z is a
+        hash of the node id, because every real candidate (degree, recency, type) is
+        degenerate inside the 320-node window. Rotation is a view control; the only
+        motion that means anything is an edge <b>pulsing on reinforcement</b>.</span>
+    </div>
     <div class="panel-body"><canvas id="constellation"></canvas></div>
     <div class="legend" id="con-legend"></div>
     <div class="status" id="con-sources"></div>
@@ -124,13 +140,35 @@
 <script src="/signal-dna.js"></script>
 <script src="/signal-pulse.js"></script>
 <script src="/signal-constellation.js"></script>
+<script src="/signal-constellation-3d.js"></script>
 <script src="/cmdk.js" defer></script>
 <script>
 (function () {
   "use strict";
   var dna   = SignalDNA.mount(document.getElementById("dna"));
   var pulse = SignalPulse.mount(document.getElementById("pulse"), { onRead: renderPulse });
-  var con   = SignalConstellation.mount(document.getElementById("constellation"), { onChange: renderCon });
+  /* Both renderers subscribe to the SAME bus and replay the same retained events,
+     so switching view re-reads the identical data — no refetch, nothing invented.
+     destroy() detaches the old one; without that the previous renderer would stay
+     subscribed and keep accumulating a graph nobody is looking at. */
+  var con = null;
+  function mountCon() {
+    var mode = document.querySelector('input[name="conview"]:checked').value;
+    var spin = document.getElementById("conSpin").checked;
+    if (con && con.destroy) con.destroy();
+    var el = document.getElementById("constellation");
+    con = (mode === "3d")
+      ? ConstellationDepth.mount(el, { onChange: renderCon, spin: spin ? 0.00022 : 0 })
+      : SignalConstellation.mount(el, { onChange: renderCon });
+    document.getElementById("spinWrap").style.display = (mode === "3d") ? "" : "none";
+    renderCon(con.summary());
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="conview"]'),
+    function (r) { r.addEventListener("change", mountCon); });
+  document.getElementById("conSpin").addEventListener("change", function () {
+    if (con && con.setSpin) con.setSpin(this.checked ? 0.00022 : 0);
+  });
+  mountCon();
 
   /* The mapping is printed on the page, not just in a comment: every edge type
      names the stored field it came from, so a reader can check the claim
@@ -155,7 +193,10 @@
       " reinforced · cap " + sum.caps.nodes + "/" + sum.caps.edges;
     var lg = document.getElementById("con-legend");
     lg.innerHTML = Object.keys(sum.nodesByType).sort().map(function (t) {
-      var c = SignalConstellation.TYPE_STYLE[t];
+      /* both modules carry the same palette; read the mounted one so a future
+         divergence shows up as a wrong colour rather than a silent mismatch */
+      var active = document.querySelector('input[name="conview"]:checked');
+      var c = (active && active.value === "3d" ? ConstellationDepth : SignalConstellation).TYPE_STYLE[t];
       var rgb = (document.documentElement.getAttribute("data-theme") === "light") ? c.light : c.dark;
       return '<span class="lg"><span class="sw" style="border-radius:50%;width:8px;height:8px;background:rgb('
         + rgb.join(",") + ')"></span>' + t + " · " + sum.nodesByType[t] + "</span>";

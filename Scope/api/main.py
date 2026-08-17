@@ -956,6 +956,24 @@ def signal_constellation_js():
     return FileResponse(STATIC_DIR / "signal-constellation.js",
                         media_type="application/javascript")
 
+@app.get("/signal-constellation-3d.js", include_in_schema=False)
+def signal_constellation_3d_js():
+    """The same relationship graph with a perspective depth axis.
+
+    Same bus, same adapter, same 320/700 caps and the same hashed ring layout as
+    the 2D renderer — a node sits at the same angle in both. The ONLY additions
+    are a per-node z, perspective projection, back-to-front sorting and size and
+    brightness falloff with distance.
+
+    ⚠️ The depth encodes NO DATA and the page says so out loud. Every real
+    candidate is degenerate inside the 320-node window the renderer holds: node
+    degree is 1 for ~80% of nodes, recency puts 79.1% in one day-bucket, and type
+    is ~68% ticker and already drives the ring. Mapping z to any of them would put
+    ~80% of nodes at one depth AND claim a meaning the data cannot support. So z
+    is a deterministic hash of the node id: a spatial device, not a measurement."""
+    return FileResponse(STATIC_DIR / "signal-constellation-3d.js",
+                        media_type="application/javascript")
+
 @app.get("/signals", response_class=HTMLResponse, include_in_schema=False)
 def signals_page():
     """Host page for the signal event system. A NEW page — no existing page was
