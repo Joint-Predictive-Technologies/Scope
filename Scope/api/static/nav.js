@@ -115,6 +115,17 @@
     { name: "Tools", items: [
       { href: "/ask",          label: "Ask Scope",   desc: "Ask questions of the corpus in plain language" },
       { href: "/docs",         label: "API docs",    desc: "The public JSON API" }
+    ]},
+    /* ⚠️ ITS OWN GROUP, ON PURPOSE. `/osint-preview` describes OSINT-Graph, which
+       is IN DEVELOPMENT and has no live surface — putting it in "Sources" beside
+       /osint (the live globe) would let a not-yet-built system borrow the
+       credibility of shipped ones. The group name and the desc both have to say
+       preview, because a reader may see only one of them.
+       `/osint-preview/source-web` is deliberately absent: it is an embedded
+       artifact reached FROM the page, not a destination. */
+    { name: "Preview — not live", items: [
+      { href: "/osint-preview", label: "OSINT-Graph preview",
+        desc: "In development — the vision for the entity/location graph, and an honest build status" }
     ]}
   ];
 

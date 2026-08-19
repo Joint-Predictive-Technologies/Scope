@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSINT-Graph — Source Web</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-border: #262b33;
+    --text: #e4e7eb;
+    --text-dim: #8a919c;
+    --mono: 'SF Mono', 'Consolas', 'Menlo', monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+    height: 100vh;
+  }
+  #header {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    padding: 18px 24px 12px;
+    z-index: 10;
+    pointer-events: none;
+    background: linear-gradient(var(--bg) 40%, transparent);
+  }
+  #header h1 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  #header p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+  #canvas-wrap { width: 100vw; height: 100vh; }
+  svg { width: 100%; height: 100%; cursor: grab; }
+  svg:active { cursor: grabbing; }
+
+  .link { stroke: #3a4048; stroke-width: 1px; }
+  .link.dim { stroke-opacity: 0.06; }
+  .link.hi { stroke: #d4a94a; stroke-opacity: 0.9; stroke-width: 1.5px; }
+
+  .node circle { stroke: var(--bg); stroke-width: 1.5px; cursor: pointer; }
+  .node.dim { opacity: 0.12; }
+  .node text {
+    font-family: var(--mono);
+    font-size: 9px;
+    fill: var(--text-dim);
+    pointer-events: none;
+    user-select: none;
+  }
+  .node.dim text { opacity: 0; }
+  .node text.hub-label { fill: var(--text); font-size: 10px; font-weight: 600; }
+
+  #legend {
+    position: absolute;
+    bottom: 16px; left: 16px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 11px;
+    z-index: 10;
+    line-height: 1.9;
+  }
+  #legend .row { display: flex; align-items: center; gap: 8px; }
+  #legend .sw { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  #legend .title { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; font-family: var(--mono); }
+
+  #controls {
+    position: absolute;
+    bottom: 16px; right: 16px;
+    z-index: 10;
+    display: flex; gap: 6px;
+    flex-wrap: wrap;
+    max-width: 260px;
+    justify-content: flex-end;
+  }
+  .chip {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 5px 10px;
+    border-radius: 20px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+  }
+  .chip:hover { border-color: #4a515c; color: var(--text); }
+  .chip.active { background: #d4a94a; color: #1a1408; border-color: #d4a94a; }
+
+  #panel {
+    position: absolute;
+    top: 70px; right: 16px;
+    width: 260px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 16px;
+    z-index: 10;
+    display: none;
+  }
+  #panel.show { display: block; }
+  #panel .ptag {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  #panel h3 { margin: 0 0 8px; font-size: 14px; }
+  #panel p { margin: 0; font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  #panel .close { position: absolute; top: 12px; right: 14px; cursor: pointer; color: var(--text-dim); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>OSINT-Graph — source web</h1>
+  <p id="counter">-- nodes · -- edges</p>
+</div>
+
+<div id="canvas-wrap"><svg id="svg"></svg></div>
+
+<div id="legend">
+  <div class="title">Legend</div>
+  <div class="row"><span class="sw" style="background:#d4a94a"></span> Core entity hub</div>
+  <div class="row"><span class="sw" style="background:#5dcaa5"></span> Phase 1 — built/building</div>
+  <div class="row"><span class="sw" style="background:#ef9f27"></span> Phase 2 — bounded</div>
+  <div class="row"><span class="sw" style="background:#378add"></span> Phase 3 — corroboration only</div>
+  <div class="row"><span class="sw" style="background:#5f5e5a"></span> Phase 4 — commercial feeds</div>
+  <div class="row"><span class="sw" style="background:#e24b4a"></span> Rejected source</div>
+  <div class="row"><span class="sw" style="background:#afa9ec"></span> Signal shape</div>
+</div>
+
+<div id="controls">
+  <div class="chip active" data-filter="all">all</div>
+  <div class="chip" data-filter="phase1">phase 1</div>
+  <div class="chip" data-filter="phase2">phase 2</div>
+  <div class="chip" data-filter="phase3">phase 3</div>
+  <div class="chip" data-filter="phase4">phase 4</div>
+  <div class="chip" data-filter="signal">signal shapes</div>
+  <div class="chip" data-filter="rejected">rejected</div>
+</div>
+
+<div id="panel">
+  <div class="close" onclick="document.getElementById('panel').classList.remove('show')">&times;</div>
+  <div class="ptag" id="p-tag"></div>
+  <h3 id="p-title"></h3>
+  <p id="p-desc"></p>
+</div>
+
+<script>
+const nodes = [
+  { id: "Company", group: "hub", desc: "Canonical company entity — CIK-anchored, the target of most convergence." },
+  { id: "Person", group: "hub", desc: "The through-line signal. Hires and affiliations arrive before results do." },
+  { id: "Gov. agency", group: "hub", desc: "Awarding, regulating, or funding body — DoD, SEC, USPTO, state agencies." },
+  { id: "Patent", group: "hub", desc: "IP asset, tied to inventor and assignee via person resolution." },
+  { id: "Contract", group: "hub", desc: "Award event between an agency and a company, timestamped and sourced." },
+  { id: "Location", group: "hub", desc: "Geospatial anchor — precision tiers from country down to coordinate." },
+  { id: "Event", group: "hub", desc: "The base unit of the whole graph — timestamped, sourced, confidence-scored." },
+
+  { id: "SEC / SEDAR+ filings", group: "source", phase: "phase1", desc: "10-K/10-Q/8-K, 13D/13G, 13F, Forms 3/4/5, proxies. Ownership, insiders, material events." },
+  { id: "Stock exchanges", group: "source", phase: "phase1", desc: "NYSE, Nasdaq, TSX, OTC. Listings, corporate actions, issuer metadata." },
+  { id: "US govt contracts", group: "source", phase: "phase1", desc: "USAspending, SAM.gov, DoD, DARPA, DIU, SBIR/STTR. Awards, agencies, obligations." },
+  { id: "Canadian procurement", group: "source", phase: "phase2", desc: "CanadaBuys, PSPC, DND. Government contracts and supplier activity." },
+  { id: "Congress / legislation", group: "source", phase: "phase1", desc: "Congress.gov, committee pages, hearings, bills. Policy direction and affected industries." },
+  { id: "Political finance", group: "source", phase: "phase1", desc: "FEC, STOCK Act reports. Donations, disclosed holdings and transactions." },
+  { id: "Lobbying", group: "source", phase: "phase2", desc: "LDA filings, Canadian Lobbying Registry. Company-to-politician relationships." },
+  { id: "Minerals / geology", group: "source", phase: "phase1", desc: "USGS, USMIN, Earth MRI. Deposits, prospects, exploration targets." },
+  { id: "Offshore / marine", group: "source", phase: "phase3", desc: "BOEM, NOAA, Coast Guard. Offshore leases, operators, marine infrastructure." },
+  { id: "Energy", group: "source", phase: "phase2", desc: "EIA, DOE, BLM, FERC, NRC. Oil/gas, power, pipelines, hydrogen, permits." },
+  { id: "Patents", group: "source", phase: "phase1", desc: "USPTO, PatentsView, WIPO, EPO, Lens. Inventors, assignees, ownership changes." },
+  { id: "Scientific research", group: "source", phase: "phase1", desc: "OpenAlex, Crossref, arXiv, PubMed. Researchers, institutions, research trends." },
+  { id: "Grants / funding", group: "source", phase: "phase2", desc: "NSF, DOE, NIH, DARPA, SBIR/STTR. Early technology development, recipients." },
+  { id: "Corporate registries", group: "source", phase: "phase1", desc: "State SoS, Corporations Canada, OpenCorporates. Formation, officers, subsidiaries." },
+  { id: "Permits / regulation", group: "source", phase: "phase2", desc: "EPA, Federal Register, FCC, FAA. Projects before public announcement." },
+  { id: "Land / property", group: "source", phase: "phase2", desc: "County assessor/recorder, parcel GIS, zoning. Land purchases and adjacency." },
+  { id: "Trade / customs", group: "source", phase: "phase3", desc: "US Census, USITC, UN Comtrade. Products, trade flows, dependencies." },
+  { id: "Shipping / maritime", group: "source", phase: "phase3", desc: "AIS providers, port authorities, vessel registries. Routes, cargo clues." },
+  { id: "Satellite / EO", group: "source", phase: "phase3", desc: "Sentinel, Landsat, NASA Earthdata. Construction, expansion, physical change." },
+  { id: "Startups / private capital", group: "source", phase: "phase3", desc: "SEC Form D, Crunchbase, PitchBook. Funding rounds, investors, founders." },
+  { id: "Jobs / hiring", group: "source", phase: "phase2", desc: "Career sites, Indeed, Greenhouse. New capabilities, expansion, tech hiring." },
+  { id: "LinkedIn", group: "source", phase: "rejected", desc: "Explicitly rejected — blocked scraping, ToS violation, litigated (hiQ v. LinkedIn). Never architect on it." },
+  { id: "News / press", group: "source", phase: "phase4", desc: "Reuters, Bloomberg, PR Newswire. Announcements, market reaction, event discovery." },
+  { id: "Legal / courts", group: "source", phase: "phase2", desc: "PACER, state courts, enforcement databases. Lawsuits, investigations, IP disputes." },
+  { id: "Market data", group: "source", phase: "phase1", desc: "Exchange feeds, institutional ownership, short interest. Price and positioning." },
+  { id: "Web / infrastructure", group: "source", phase: "phase3", desc: "IR pages, DNS/certificate datasets, web archives. New domains, products, subsidiaries." },
+
+  { id: "Repeat-buyer acceleration", group: "signal", desc: "A fixed buyer escalates orders with the same supplier over time. MOBX, ~2.3–2.7x enrichment." },
+  { id: "Credential-laddering", group: "signal", desc: "Contracts alternate with certifications that qualify the next tier. OPTT." },
+  { id: "Adjacent-activity signal", group: "signal", desc: "Proximity of a major player — directionality must be checked. QIMC, corrected mid-case." },
+  { id: "Capability-stacking (M&A)", group: "signal", desc: "Serial acquisitions closing a stated capability gap. ONDS." },
+  { id: "Stealth relationship", group: "signal", desc: "Multi-year private deal, undetectable until disclosure. PRSO — a detection-limit case." },
+  { id: "Patent-monetization hiring", group: "signal", desc: "Leadership recruited for IP-licensing pedigree, not domain expertise. DVLT." }
+];
+
+const links = [
+  ["SEC / SEDAR+ filings","Company"], ["SEC / SEDAR+ filings","Person"], ["SEC / SEDAR+ filings","Contract"],
+  ["Stock exchanges","Company"],
+  ["US govt contracts","Contract"], ["US govt contracts","Company"], ["US govt contracts","Gov. agency"],
+  ["Canadian procurement","Contract"], ["Canadian procurement","Company"],
+  ["Congress / legislation","Gov. agency"], ["Congress / legislation","Event"],
+  ["Political finance","Person"], ["Political finance","Gov. agency"],
+  ["Lobbying","Company"], ["Lobbying","Gov. agency"], ["Lobbying","Person"],
+  ["Minerals / geology","Location"],
+  ["Offshore / marine","Location"], ["Offshore / marine","Gov. agency"],
+  ["Energy","Location"], ["Energy","Gov. agency"],
+  ["Patents","Patent"], ["Patents","Person"], ["Patents","Company"],
+  ["Scientific research","Person"], ["Scientific research","Patent"],
+  ["Grants / funding","Company"], ["Grants / funding","Gov. agency"], ["Grants / funding","Person"],
+  ["Corporate registries","Company"], ["Corporate registries","Person"],
+  ["Permits / regulation","Location"], ["Permits / regulation","Gov. agency"], ["Permits / regulation","Event"],
+  ["Land / property","Location"], ["Land / property","Company"],
+  ["Trade / customs","Company"], ["Trade / customs","Location"],
+  ["Shipping / maritime","Location"], ["Shipping / maritime","Company"],
+  ["Satellite / EO","Location"], ["Satellite / EO","Event"],
+  ["Startups / private capital","Company"], ["Startups / private capital","Person"],
+  ["Jobs / hiring","Person"], ["Jobs / hiring","Company"],
+  ["LinkedIn","Person"],
+  ["News / press","Event"], ["News / press","Company"],
+  ["Legal / courts","Company"], ["Legal / courts","Person"], ["Legal / courts","Event"],
+  ["Market data","Company"],
+  ["Web / infrastructure","Company"], ["Web / infrastructure","Event"],
+
+  ["Repeat-buyer acceleration","Contract"], ["Repeat-buyer acceleration","Company"], ["Repeat-buyer acceleration","US govt contracts"],
+  ["Credential-laddering","Company"], ["Credential-laddering","Event"], ["Credential-laddering","News / press"],
+  ["Adjacent-activity signal","Location"], ["Adjacent-activity signal","Land / property"], ["Adjacent-activity signal","Minerals / geology"],
+  ["Capability-stacking (M&A)","Company"], ["Capability-stacking (M&A)","Corporate registries"], ["Capability-stacking (M&A)","News / press"],
+  ["Stealth relationship","Patent"], ["Stealth relationship","Company"],
+  ["Patent-monetization hiring","Person"], ["Patent-monetization hiring","Patent"], ["Patent-monetization hiring","Jobs / hiring"]
+];
+
+const linkObjs = links.map(([s,t]) => ({ source: s, target: t }));
+
+document.getElementById("counter").textContent = nodes.length + " nodes · " + linkObjs.length + " edges";
+
+const colorFor = d => {
+  if (d.group === "hub") return "#d4a94a";
+  if (d.group === "signal") return "#afa9ec";
+  if (d.group === "source") {
+    if (d.phase === "phase1") return "#5dcaa5";
+    if (d.phase === "phase2") return "#ef9f27";
+    if (d.phase === "phase3") return "#378add";
+    if (d.phase === "phase4") return "#5f5e5a";
+    if (d.phase === "rejected") return "#e24b4a";
+  }
+  return "#888780";
+};
+
+const svg = d3.select("#svg");
+const g = svg.append("g");
+const width = window.innerWidth, height = window.innerHeight;
+
+svg.call(d3.zoom().scaleExtent([0.3, 4]).on("zoom", (event) => {
+  g.attr("transform", event.transform);
+}));
+
+const simulation = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(linkObjs).id(d => d.id).distance(d => d.source.group === "hub" || d.target.group === "hub" ? 90 : 60).strength(0.35))
+  .force("charge", d3.forceManyBody().strength(-140))
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .force("collide", d3.forceCollide().radius(d => d.group === "hub" ? 34 : 24));
+
+const link = g.append("g").selectAll("line")
+  .data(linkObjs).join("line").attr("class", "link");
+
+const node = g.append("g").selectAll("g")
+  .data(nodes).join("g").attr("class", "node")
+  .call(d3.drag()
+    .on("start", (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+    .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+    .on("end", (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+node.append("circle")
+  .attr("r", d => d.group === "hub" ? 12 : (d.group === "signal" ? 9 : 7))
+  .attr("fill", colorFor);
+
+node.append("text")
+  .attr("class", d => d.group === "hub" ? "hub-label" : "")
+  .attr("x", d => (d.group === "hub" ? 16 : 10))
+  .attr("y", 3)
+  .text(d => d.id);
+
+node.on("click", (event, d) => {
+  document.getElementById("panel").classList.add("show");
+  document.getElementById("p-tag").textContent = d.group === "hub" ? "core entity" : (d.group === "signal" ? "signal shape" : d.phase);
+  document.getElementById("p-title").textContent = d.id;
+  document.getElementById("p-desc").textContent = d.desc;
+});
+
+node.on("mouseenter", (event, d) => {
+  const connected = new Set([d.id]);
+  linkObjs.forEach(l => {
+    if (l.source.id === d.id) connected.add(l.target.id);
+    if (l.target.id === d.id) connected.add(l.source.id);
+  });
+  node.classed("dim", n => !connected.has(n.id));
+  link.classed("dim", l => l.source.id !== d.id && l.target.id !== d.id);
+  link.classed("hi", l => l.source.id === d.id || l.target.id === d.id);
+});
+node.on("mouseleave", () => {
+  node.classed("dim", false);
+  link.classed("dim", false).classed("hi", false);
+});
+
+simulation.on("tick", () => {
+  link.attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  node.attr("transform", d => `translate(${d.x},${d.y})`);
+});
+
+document.querySelectorAll(".chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
+    chip.classList.add("active");
+    const f = chip.dataset.filter;
+    node.style("display", d => {
+      if (f === "all") return null;
+      if (f === "signal") return d.group === "signal" || d.group === "hub" ? null : "none";
+      if (f === "rejected") return d.phase === "rejected" || d.group === "hub" ? null : "none";
+      return d.group === "hub" || d.phase === f ? null : "none";
+    });
+    link.style("display", l => {
+      if (f === "all") return null;
+      const sOk = l.source.group === "hub" || (f === "signal" ? l.source.group === "signal" : (f === "rejected" ? l.source.phase === "rejected" : l.source.phase === f));
+      const tOk = l.target.group === "hub" || (f === "signal" ? l.target.group === "signal" : (f === "rejected" ? l.target.phase === "rejected" : l.target.phase === f));
+      return (sOk && tOk) ? null : "none";
+    });
+  });
+});
+</script>
+</body>
+</html>

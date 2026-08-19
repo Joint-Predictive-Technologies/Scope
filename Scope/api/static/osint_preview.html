@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OSINT-Graph — Preview (In Development) — Scope</title>
+  <meta name="description" content="A preview of OSINT-Graph, the time-aware intelligence graph Scope is building. In development — not a live feature." />
+  <meta name="robots" content="noindex" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,ital,wght@9..144,0,400;9..144,0,600;9..144,1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="/theme.js"></script>
+  <script src="/nav.js"></script>
+  <link rel="stylesheet" href="/tokens.css"/>
+  <style>
+    /* ========================================================================
+       OSINT-GRAPH PREVIEW PAGE
+
+       A NEW page. No existing page, route, rule, gate, scoring path or data
+       pipeline was modified to add it.
+
+       Every visual token here comes from /tokens.css — the same copper accent,
+       layered near-black surfaces, hairline borders, Fraunces/Inter/JetBrains
+       trio and 4px grid the rest of the app uses. No new palette, no gradients
+       beyond the one hairline-thin hero wash, no glow.
+
+       ⚠️ THE ONE RULE THIS PAGE IS BUILT AROUND: it is marketing copy for a
+       system that is NOT LIVE. osint-system-design.md §0 warns that violating
+       the design's principles "turns a rich map into a confident fiction". A
+       beautiful page that misrepresents build status is that same failure moved
+       from the graph to the pitch. So the preview banner is sticky and always
+       on screen, the hero carries the caveat above the fold, and §6 (build
+       status) is the LARGEST, highest-contrast section on the page — not a
+       footnote. Do not shrink it.
+       ======================================================================== */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--surface-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: var(--text-md);
+      line-height: var(--leading-body);
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--link); }
+
+    /* ── the always-visible preview banner ───────────────────────────────── */
+    .preview-bar {
+      position: sticky; top: 0; z-index: 300;
+      background: var(--accent);
+      color: var(--text-inverse);
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+      letter-spacing: var(--tracking-label);
+      text-transform: uppercase;
+      padding: 7px var(--space-6);
+      display: flex; align-items: center; justify-content: center;
+      gap: var(--space-3); flex-wrap: wrap; text-align: center;
+      border-bottom: 1px solid var(--border-emphasis);
+    }
+    .preview-bar b { font-weight: 600; }
+    .preview-bar a { color: var(--text-inverse); text-decoration: underline; text-underline-offset: 2px; }
+
+    nav {
+      position: sticky; top: 27px; z-index: 200;
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--surface-nav);
+      backdrop-filter: blur(12px);
+      padding: 0 var(--space-8);
+      display: flex; align-items: center; gap: var(--space-4);
+      height: 56px;
+    }
+    .nav-brand {
+      font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem;
+      color: var(--accent); letter-spacing: 0.05em; text-decoration: none;
+      margin-right: var(--space-2);
+    }
+    .nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+    .nav-links a {
+      font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-secondary);
+      text-decoration: none; letter-spacing: var(--tracking-label); text-transform: uppercase;
+      transition: color var(--dur-fast);
+    }
+    .nav-links a:hover { color: var(--accent); }
+
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 var(--space-6); }
+
+    section { border-bottom: 1px solid var(--border-subtle); }
+    .sec-inner { max-width: 1080px; margin: 0 auto; padding: var(--space-16) var(--space-6); }
+
+    .eyebrow {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: var(--space-4);
+    }
+    .eyebrow .n { color: var(--text-tertiary); }
+
+    h1 {
+      font-family: var(--font-serif); font-weight: 600;
+      font-size: clamp(30px, 4.4vw, 52px); line-height: 1.06;
+      letter-spacing: var(--tracking-tight); margin-bottom: var(--space-6);
+    }
+    h1 em { font-style: italic; color: var(--accent); }
+    h2 {
+      font-family: var(--font-serif); font-weight: 600;
+      font-size: clamp(22px, 2.6vw, 32px); line-height: var(--leading-heading);
+      letter-spacing: var(--tracking-tight); margin-bottom: var(--space-4);
+    }
+    h3 { font-size: var(--text-lg); font-weight: var(--weight-semibold); margin-bottom: var(--space-2); }
+    p { line-height: var(--leading-prose); }
+    .lede { font-size: var(--text-lg); line-height: 1.65; color: var(--text-secondary); max-width: 62ch; }
+    .lede strong { color: var(--text-primary); font-weight: var(--weight-medium); }
+    .body { color: var(--text-secondary); max-width: 68ch; }
+    .body + .body { margin-top: var(--space-4); }
+    .body strong { color: var(--text-primary); font-weight: var(--weight-medium); }
+    code, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    code { font-size: 0.9em; color: var(--text-primary); }
+
+    /* pull-quote, used for the doc's own sentences */
+    blockquote {
+      border-left: 2px solid var(--accent);
+      padding: var(--space-3) 0 var(--space-3) var(--space-5);
+      margin: var(--space-6) 0;
+      font-family: var(--font-serif); font-style: italic;
+      font-size: var(--text-lg); line-height: 1.55; color: var(--text-primary);
+      max-width: 60ch;
+    }
+    blockquote cite {
+      display: block; margin-top: var(--space-3);
+      font-family: var(--font-mono); font-style: normal;
+      font-size: var(--text-2xs); letter-spacing: 0.06em;
+      color: var(--text-tertiary); text-transform: uppercase;
+    }
+
+    /* ── hero ────────────────────────────────────────────────────────────── */
+    .hero { position: relative; overflow: hidden; }
+    #hero-canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0.5; pointer-events: none;
+    }
+    .hero .sec-inner { position: relative; padding-top: var(--space-20); padding-bottom: var(--space-16); }
+    .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-8); }
+    .btn {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      letter-spacing: 0.1em; text-transform: uppercase;
+      padding: 12px 22px; border-radius: var(--radius-sm);
+      text-decoration: none; display: inline-block;
+      transition: all var(--dur-fast) var(--ease-out);
+    }
+    .btn-primary { background: var(--accent); color: var(--text-inverse); border: 1px solid var(--accent); }
+    .btn-primary:hover { filter: brightness(1.12); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-default); }
+    .btn-ghost:hover { color: var(--text-primary); border-color: var(--border-emphasis); }
+    .hero-caveat {
+      margin-top: var(--space-10);
+      border: 1px solid var(--border-default);
+      border-left: 3px solid var(--accent);
+      background: var(--surface-1);
+      border-radius: var(--radius-sm);
+      padding: var(--space-4) var(--space-5);
+      max-width: 68ch;
+      font-size: var(--text-sm); line-height: 1.6; color: var(--text-secondary);
+    }
+    .hero-caveat strong { color: var(--text-primary); }
+    .canvas-note {
+      margin-top: var(--space-6);
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); letter-spacing: 0.04em;
+    }
+
+    /* ── flagship chain ──────────────────────────────────────────────────── */
+    .chain-stage {
+      border: 1px solid var(--border-subtle); background: var(--surface-1);
+      border-radius: var(--radius-lg); margin: var(--space-8) 0 var(--space-6);
+      overflow: hidden;
+    }
+    .chain-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--space-4); flex-wrap: wrap;
+      padding: var(--space-3) var(--space-4);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .panel-title {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-secondary);
+    }
+    .chain-controls { display: flex; gap: var(--space-3); align-items: center; }
+    .mini-btn {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      letter-spacing: 0.06em; text-transform: uppercase;
+      background: var(--surface-2); color: var(--text-secondary);
+      border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+      padding: 5px 12px; cursor: pointer; transition: all var(--dur-fast);
+    }
+    .mini-btn:hover { color: var(--text-primary); border-color: var(--border-emphasis); }
+    #chain-canvas { display: block; width: 100%; height: 380px; }
+    .chain-foot {
+      padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-subtle);
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); line-height: 1.7;
+    }
+
+    .steps { list-style: none; counter-reset: step; margin-top: var(--space-6); }
+    .steps li {
+      counter-increment: step;
+      position: relative;
+      padding: var(--space-4) 0 var(--space-4) var(--space-12);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .steps li:last-child { border-bottom: 0; }
+    .steps li::before {
+      content: counter(step, decimal-leading-zero);
+      position: absolute; left: 0; top: var(--space-4);
+      font-family: var(--font-mono); font-size: var(--text-xs);
+      color: var(--accent); letter-spacing: 0.08em;
+    }
+    .steps li::after {
+      content: ""; position: absolute; left: 13px; top: 34px; bottom: -1px;
+      width: 1px; background: var(--border-default);
+    }
+    .steps li:last-child::after { display: none; }
+    .step-label { font-weight: var(--weight-medium); color: var(--text-primary); font-size: var(--text-md); }
+    .step-src {
+      display: block; margin-top: var(--space-1);
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); letter-spacing: 0.03em; line-height: 1.6;
+    }
+    .step-src b { color: var(--text-secondary); font-weight: var(--weight-normal); }
+
+    /* ── card grids ──────────────────────────────────────────────────────── */
+    .grid { display: grid; gap: var(--space-4); margin-top: var(--space-8); }
+    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+
+    .card {
+      border: 1px solid var(--border-subtle); background: var(--surface-1);
+      border-radius: var(--radius-lg); padding: var(--space-5);
+      display: flex; flex-direction: column; gap: var(--space-3);
+    }
+    .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+    .card h3 { margin: 0; font-size: var(--text-md); line-height: 1.3; }
+    .tick {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      letter-spacing: 0.08em; color: var(--accent);
+      border: 1px solid var(--accent-dim); border-radius: var(--radius-sm);
+      padding: 2px 7px; white-space: nowrap;
+    }
+    .card p { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6; }
+    .kv {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); line-height: 1.7; letter-spacing: 0.02em;
+    }
+    .kv b { color: var(--text-secondary); font-weight: var(--weight-normal); }
+    .kv .lbl { color: var(--accent-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+    .breaks {
+      border-top: 1px solid var(--border-subtle); padding-top: var(--space-3);
+      font-size: var(--text-xs); color: var(--text-tertiary); line-height: 1.6;
+    }
+    .breaks .lbl {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      text-transform: uppercase; letter-spacing: 0.08em; color: var(--severity-high);
+      display: block; margin-bottom: 3px;
+    }
+
+    /* ── honesty spine ───────────────────────────────────────────────────── */
+    .spine { list-style: none; margin-top: var(--space-8); display: grid; gap: 0; }
+    .spine li {
+      display: grid; grid-template-columns: 210px 1fr; gap: var(--space-6);
+      padding: var(--space-5) 0; border-bottom: 1px solid var(--border-subtle);
+      align-items: start;
+    }
+    .spine li:first-child { border-top: 1px solid var(--border-subtle); }
+    .spine .k {
+      font-family: var(--font-mono); font-size: var(--text-xs);
+      color: var(--accent); letter-spacing: 0.04em; line-height: 1.5;
+    }
+    .spine .v { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.65; }
+    .spine .v strong { color: var(--text-primary); font-weight: var(--weight-medium); }
+    @media (max-width: 680px) { .spine li { grid-template-columns: 1fr; gap: var(--space-2); } }
+
+    /* ── source web embed ────────────────────────────────────────────────── */
+    .embed {
+      border: 1px solid var(--border-subtle); background: var(--surface-1);
+      border-radius: var(--radius-lg); overflow: hidden; margin-top: var(--space-8);
+    }
+    .embed iframe { display: block; width: 100%; height: 560px; border: 0; background: var(--surface-canvas); }
+    .embed-foot {
+      padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border-subtle);
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); line-height: 1.7;
+      display: flex; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap;
+    }
+    .legend-row { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); margin-top: var(--space-5); }
+    .lg { display: flex; align-items: center; gap: var(--space-2);
+          font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+
+    /* ── status section — deliberately the loudest block on the page ─────── */
+    #status { background: var(--surface-1); border-top: 2px solid var(--accent); }
+    #status .sec-inner { padding-top: var(--space-16); padding-bottom: var(--space-16); }
+    #status h2 { font-size: clamp(26px, 3.2vw, 38px); }
+    .status-lede {
+      font-size: var(--text-lg); line-height: 1.6; color: var(--text-primary);
+      max-width: 66ch; margin-bottom: var(--space-8);
+    }
+    .status-lede strong { color: var(--accent); font-weight: var(--weight-semibold); }
+
+    .stat-group { margin-top: var(--space-8); }
+    .stat-group > h3 {
+      font-family: var(--font-mono); font-size: var(--text-xs);
+      text-transform: uppercase; letter-spacing: 0.1em;
+      display: flex; align-items: center; gap: var(--space-3);
+      padding-bottom: var(--space-3); border-bottom: 1px solid var(--border-default);
+      margin-bottom: 0;
+    }
+    .pill {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      letter-spacing: 0.06em; padding: 2px 8px; border-radius: var(--radius-sm);
+      text-transform: uppercase; border: 1px solid;
+    }
+    .pill.built   { color: var(--direction-buy); border-color: var(--direction-buy); }
+    .pill.mid     { color: var(--severity-high); border-color: var(--severity-high); }
+    .pill.blue    { color: var(--severity-critical); border-color: var(--severity-critical); }
+    .stat-list { list-style: none; }
+    .stat-list li {
+      padding: var(--space-4) 0; border-bottom: 1px solid var(--border-subtle);
+      display: grid; grid-template-columns: minmax(200px, 280px) 1fr; gap: var(--space-5);
+      align-items: baseline;
+    }
+    .stat-list .n { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--text-primary); }
+    .stat-list .d { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); line-height: 1.7; }
+    .stat-list .d b { color: var(--text-secondary); font-weight: var(--weight-normal); }
+    @media (max-width: 680px) { .stat-list li { grid-template-columns: 1fr; gap: var(--space-1); } }
+
+    .order { list-style: none; counter-reset: ord; margin-top: var(--space-5); }
+    .order li {
+      counter-increment: ord; position: relative; padding: var(--space-2) 0 var(--space-2) var(--space-10);
+      font-size: var(--text-sm); color: var(--text-secondary);
+    }
+    .order li::before {
+      content: counter(ord); position: absolute; left: 0; top: var(--space-2);
+      font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--accent);
+      border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+      width: 22px; height: 20px; display: grid; place-items: center;
+    }
+    .order li b { color: var(--text-primary); font-weight: var(--weight-medium); }
+
+    .flat-note {
+      margin-top: var(--space-8);
+      border: 1px solid var(--border-default); border-left: 3px solid var(--severity-high);
+      background: var(--surface-2); border-radius: var(--radius-sm);
+      padding: var(--space-5); font-size: var(--text-sm); line-height: 1.65; color: var(--text-secondary);
+      max-width: 74ch;
+    }
+    .flat-note strong { color: var(--text-primary); }
+    .flat-note h3 { font-size: var(--text-md); margin-bottom: var(--space-3); color: var(--text-primary); }
+
+    /* ── footer ──────────────────────────────────────────────────────────── */
+    footer { padding: var(--space-12) var(--space-6) var(--space-16); max-width: 1080px; margin: 0 auto; }
+    footer .src-list { list-style: none; margin-top: var(--space-4); }
+    footer .src-list li {
+      font-family: var(--font-mono); font-size: var(--text-2xs);
+      color: var(--text-tertiary); padding: 3px 0; line-height: 1.7;
+    }
+    footer .src-list b { color: var(--text-secondary); font-weight: var(--weight-normal); }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- The banner is sticky and cannot be dismissed. It is the first thing painted
+     and it stays on screen through every section. -->
+<div class="preview-bar">
+  <b>Preview · in development</b>
+  <span>OSINT-Graph is not live and is not available to users — this page describes what is being built</span>
+  <a href="#status">See the honest build status ↓</a>
+</div>
+
+<nav>
+  <a href="/" class="nav-brand">SCOPE</a>
+  <div class="nav-links">
+    <a href="/feed">Feed</a>
+    <a href="/signals">Signal System</a>
+    <a href="/status">Status</a>
+    <a href="/osint-preview">OSINT-Graph preview</a>
+  </div>
+</nav>
+
+<!-- ═══ 1. HERO ═════════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <canvas id="hero-canvas" aria-hidden="true"></canvas>
+  <div class="sec-inner">
+    <div class="eyebrow">OSINT-Graph <span class="n">/ preview of a future release / not a feature tour</span></div>
+    <h1>A company's legitimacy stacks up in public<br/><em>before the market prices it.</em></h1>
+    <p class="lede">
+      OSINT-Graph is designed as a <strong>time-aware knowledge graph</strong> that connects people,
+      companies, governments, assets, contracts, capital and places into events — and surfaces the
+      moment those events <strong>converge on the same entity or location before the market has
+      priced it</strong>. It is Scope's convergence thesis and honesty discipline, scaled from a
+      single ticker to a graph.
+    </p>
+
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#flagship">The flagship chain</a>
+      <a class="btn btn-ghost" href="#status">What actually exists today</a>
+    </div>
+
+    <div class="hero-caveat">
+      <strong>Read this first.</strong> Everything below describes an architecture and a design
+      target, not a running product. Parts of the foundation are built — an entity-resolution spine,
+      a geospatial index, a contract corpus and a patent corpus — and parts of it are blueprint with
+      zero code. The <a href="#status">build-status section</a> lists which is which, item by
+      item, with no rounding up. The design
+      doc's own warning is that breaking its principles “turns a rich map into a confident fiction”;
+      a preview page that overstated its build status would be exactly that failure, moved from the
+      graph to the pitch.
+    </div>
+
+    <div class="canvas-note">
+      ⚠ The drifting field behind this text is <b>decorative</b>. It encodes no data, and no live
+      graph stands behind it.
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 2. THE FLAGSHIP CHAIN ═══════════════════════════════════════════════ -->
+<section id="flagship">
+  <div class="sec-inner">
+    <div class="eyebrow">01 <span class="n">/ the flagship signal</span></div>
+    <h2>Legitimacy-stacking: a narrative arriving in sequence</h2>
+
+    <p class="body">
+      The design's sharpest idea is that <strong>people are the through-line, and companies are things
+      people move between</strong>. A person carries provenance a company cannot — capability
+      <em>arrives</em> with a hire before it shows up in results.
+    </p>
+
+    <blockquote>
+      “The new CTO previously worked at Lockheed and published on hypersonics” is a stronger early
+      signal than anything on the company's own filings, because it is about capability preceding
+      output.
+      <cite>osint-system-design.md §4</cite>
+    </blockquote>
+
+    <p class="body">
+      Stack those arrivals on one entity over 60–90 days and you get the pattern the whole system is
+      pointed at. This is the chain, exactly as the founding doc writes it:
+    </p>
+
+    <div class="chain-stage">
+      <div class="chain-head">
+        <span class="panel-title">Legitimacy-stacking chain · §4, illustrated</span>
+        <div class="chain-controls">
+          <button class="mini-btn" id="chain-replay" type="button">Replay sequence</button>
+        </div>
+      </div>
+      <canvas id="chain-canvas"></canvas>
+      <div class="chain-foot">
+        ⚠ This is an <b>illustration of the example chain written in osint-system-design.md §4</b> —
+        a hypothetical microcap, drawn to show the shape of the signal. It is not a real company, not
+        a detection, and not live data. No end-to-end run of this chain on a real microcap has been
+        performed.
+      </div>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <span class="step-label">A microcap appoints a new CTO</span>
+        <span class="step-src"><b>Would resolve from:</b> SEC filings / corporate officer records — the person becomes a resolvable entity, not a name in a press release.</span>
+      </li>
+      <li>
+        <span class="step-label">That CTO previously worked at Lockheed</span>
+        <span class="step-src"><b>Would resolve from:</b> proxy statement · patent assignment history. Provenance from filings and registries — <b>not</b> from LinkedIn, which the design explicitly rejects as a feed.</span>
+      </li>
+      <li>
+        <span class="step-label">Three published papers on hypersonics</span>
+        <span class="step-src"><b>Would resolve from:</b> OpenAlex, with ORCID as the disambiguating anchor.</span>
+      </li>
+      <li>
+        <span class="step-label">A patent filed four months ago</span>
+        <span class="step-src"><b>Would resolve from:</b> USPTO — inventor and assignee both carry canonical anchors.</span>
+      </li>
+      <li>
+        <span class="step-label">New defense-related job postings</span>
+        <span class="step-src"><b>Would resolve from:</b> the company's own career site · structured job feeds.</span>
+      </li>
+      <li>
+        <span class="step-label">An SBIR award</span>
+        <span class="step-src"><b>Would resolve from:</b> SBIR.gov. ⚠ This is the link the assembly plan calls “the missing middle link in the flagship chain” — SBIR/grants ingestion has never been started.</span>
+      </li>
+      <li>
+        <span class="step-label">A DoD contract</span>
+        <span class="step-src"><b>Would resolve from:</b> USAspending — award ID and place of performance.</span>
+      </li>
+    </ol>
+
+    <p class="body" style="margin-top:var(--space-8)">
+      Every link in that chain is authoritative and person-resolvable, and <strong>none of it requires
+      scraping a hostile platform</strong>. That is the point: the chain is not built from rumour or
+      from social-media activity, it is built from filings, registries and award databases that cite
+      themselves.
+    </p>
+    <p class="body">
+      And read in order, it is a <strong>narrative arriving in sequence before the market prices
+      it</strong> — which is precisely the gap Scope cannot see today. Scope's convergence rule catches
+      <em>simultaneous</em> convergence; it does not catch <em>longitudinal accumulation</em>. Closing
+      that gap is what OSINT-Graph is for. If the system can surface that chain on a microcap, the
+      founding doc says, that is the product.
+    </p>
+  </div>
+</section>
+
+<!-- ═══ 3. THE SIX SIGNAL SHAPES ════════════════════════════════════════════ -->
+<section id="shapes">
+  <div class="sec-inner">
+    <div class="eyebrow">02 <span class="n">/ the pattern library</span></div>
+    <h2>Six shapes a pre-catalyst signal actually takes</h2>
+    <p class="body">
+      The flagship chain is one canonical pattern. Six real case studies — six tickers from the first batch run
+      through the case-study template, with four more checked and skipped for lack of OSINT content —
+      each surfaced a
+      <strong>structurally distinct</strong> shape of pre-catalyst signal. Two of them surfaced genuinely new
+      <em>negative</em>-signal categories, and one is a documented limit rather than a detector. They
+      are listed here with the cases they came from, including where each one breaks.
+    </p>
+
+    <div class="grid grid-3">
+
+      <article class="card">
+        <div class="card-head"><h3>Repeat-buyer acceleration</h3><span class="tick">MOBX</span></div>
+        <p>A fixed buyer places sequential orders with the same small-cap supplier, with escalating
+           scale, tier or explicitness over time — the company's own press language naming the
+           escalation.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> Army 2024 → Navy qualification Aug 2025 → Navy “follow-on” Oct 2025 → Tomahawk order Mar 2026; a ~2-year single-buyer relationship.<br/>
+          <span class="lbl">Lead time</span> months to ~2 years — the longest confirmed of any pattern here, counted from the <b>first</b> order in the chain.<br/>
+          <span class="lbl">Needs</span> no new source — a count of orders per buyer–recipient pair over contract data already held.<br/>
+          <span class="lbl">Measured</span> independently measured once on a <b>separate</b> case — a single data point, not a validated rule. The rule as written is still queued for its first test.
+        </div>
+        <div class="breaks"><span class="lbl">Where it breaks</span>
+          Single-buyer companies are structurally unscoreable by a growth-controlled design — there is
+          no all-agency control series to compare against. A measured limitation, not a theoretical one.</div>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h3>Credential-laddering</h3><span class="tick">OPTT</span></div>
+        <p>A company alternates <em>contracts</em> with <em>credentials</em> — certifications,
+           qualification programs, compliance milestones. The credentials are not revenue events; they
+           are eligibility events, announced ahead of the contracts they unlock.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> AUVSI “Trusted Operator” May 2025 → AUVSI Trusted UMS Operator Training Provider Nov 2025 → CUI-protection compliance Jul 2026, interleaved with contract wins across the same window.<br/>
+          <span class="lbl">Lead time</span> weeks to months per credential.<br/>
+          <span class="lbl">Needs</span> a source type not yet in Scope's contract-event schema — no structured registry for AUVSI-style certifications was found.
+        </div>
+        <div class="breaks"><span class="lbl">Where it breaks</span>
+          Telling a credential that genuinely gates future contracts from one that is purely
+          reputational requires sector knowledge. Treating all certifications as equally predictive
+          would dilute the signal.</div>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h3>Adjacent activity — directionality checked</h3><span class="tick">QIMC</span></div>
+        <p>A big player's activity appears near a small company's assets. The naive read is that the
+           big player's move predicts the small company. The corrected read requires establishing
+           <strong>who moved first</strong>.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> initially misread, then corrected within the same case study: QIMC's own technical presentation (Nov 12–13, 2025) triggered a 6,700-claim staking rush by <b>other</b> parties; the major player's move was reported <b>three days after</b> the rush story broke — a lagging confirmation picked up by media, not a leading indicator.<br/>
+          <span class="lbl">Lead time</span> none as a leading signal — its value is as confirmation once directionality is established.
+        </div>
+        <div class="breaks"><span class="lbl">Where it breaks — the pattern's whole point</span>
+          Treating adjacent major-player activity as automatically predictive is exactly the error a
+          naive detector would make. This belongs in the system as a directionality-check <em>gate</em>,
+          not as a standalone positive-signal detector.</div>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h3>Capability-stacking via serial M&amp;A</h3><span class="tick">ONDS</span></div>
+        <p>A stated multi-domain capability narrative built through repeated acquisitions, each timed
+           to close a specific named gap in that narrative — rather than won organically with existing
+           capability.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> Airobotics 2023 (“sense”) → Iron Drone 2023 (“respond”) → 4M Defense / Apeiro Motion / Insight Intelligent Sensors / S.P.O. 2024 → Sentrycs Nov 2025 (“cyber / soft-kill”) → Roboteam Nov 2025 (“ground domain”). Each release names the gap it closes.<br/>
+          <span class="lbl">Lead time</span> the pattern takes years to complete; each individual deal is a near-real-time public signal.
+        </div>
+        <div class="breaks"><span class="lbl">The negative signal found here</span>
+          A regulator can <b>freeze or block</b> a link in the sequence — an Israeli MoD freeze on a
+          $100M Ondas bid, Jan 2026. That is informative in the opposite direction and is designed to
+          be its own event type, not silently absorbed into “the deal didn't happen”.</div>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h3>Stealth relationship — a limit, not a detector</h3><span class="tick">PRSO</span></div>
+        <p>A multi-year private technical relationship that produces essentially <strong>zero public
+           signal</strong> until the day it is disclosed. By construction, close to undetectable in
+           advance by any external monitoring.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> the Peraso/InTACT drone-IFF relationship ran privately for “more than two years” before its March 2026 disclosure — no joint patents, no co-presentations, no contract language, nothing to graph until the announcement itself.<br/>
+          <span class="lbl">Lead time</span> none, definitionally.
+        </div>
+        <div class="breaks"><span class="lbl">Why it is in the library at all</span>
+          Its value is epistemic, not operational. It is designed to be recorded as a catalyst shape the
+          system <b>should not claim to predict</b>, so that missing one is not mistaken for a coverage
+          gap or a bug. A system that knows which shapes are outside its reach is the point.</div>
+      </article>
+
+      <article class="card">
+        <div class="card-head"><h3>Patent-monetization-pedigree hiring</h3><span class="tick">DVLT</span></div>
+        <p>Leadership hired specifically from IP-licensing and patent-monetization backgrounds rather
+           than from the industry the company's own patents cover — a tell that the portfolio's
+           licensing value may matter more to the thesis than the product.</p>
+        <div class="kv">
+          <span class="lbl">Case</span> CEO (ex-CTO, Marathon Patent Group), CIPO (ex-VP Patent Development, Marathon, an 800+ patent portfolio), and a Chief Licensing Officer hired Aug 2026 (founder of the Ocean Tomo patent-auction business, $11B+ in IP transactions) — three consecutive hires from one lineage, none from the company's stated technology domains.<br/>
+          <span class="lbl">Lead time</span> each hire is a same-day public signal; the <b>pattern</b> only becomes visible once enough hires accumulate — ~20 months between the first and third here.<br/>
+          <span class="lbl">Needs</span> executive biography resolved across employers over years — the hard person-resolution problem the architecture already names as its foundation.
+        </div>
+        <div class="breaks"><span class="lbl">Where it breaks</span>
+          Distinguishing “genuinely building IP-licensing capability” from “surrounding a weak product
+          with patent-monetization credibility” demands the same skepticism the design mandates for
+          proximity. This is a weak edge on the <em>business model</em> — not proof the patents are
+          valuable.</div>
+      </article>
+
+    </div>
+
+    <div class="flat-note">
+      <h3>What this library is, and what it is not</h3>
+      Six patterns from six cases. The taxonomy states its own status plainly: <strong>not exhaustive,
+      not yet weighted against each other, and not yet tested against real graph data.</strong> Its
+      standing rule is that <strong>a pattern observed once is a hypothesis, not a rule, until it clears
+      a measurement.</strong> One of them — repeat-buyer acceleration — has been written up as a rule
+      and has a single supporting measurement from a separate case behind it, and it is queued to be
+      the first properly tested. The rest are descriptions of shapes seen in case studies.
+      <strong>None of the six runs as a detector.</strong>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 4. WHY TRUST IT ═════════════════════════════════════════════════════ -->
+<section id="honesty">
+  <div class="sec-inner">
+    <div class="eyebrow">03 <span class="n">/ the differentiator</span></div>
+    <h2>Anyone can pin dots on a map</h2>
+
+    <blockquote>
+      The edge is not “we have a map.” Anyone can pin dots. The edge is that a person's provenance, a
+      patent, a hiring surge, a grant, and a contract become one story when they line up on the same
+      entity over time — and the system says so honestly, with its confidence and its gaps visible.
+      <cite>osint-system-design.md §0</cite>
+    </blockquote>
+
+    <p class="body">
+      That last clause is the whole product. Confidence, contradiction and coverage are not metadata
+      bolted onto a graph — they are designed as <strong>mandatory fields on every single edge</strong>,
+      which is what makes the difference between an intelligence product and a rumour mill. Five
+      commitments carry it:
+    </p>
+
+    <ul class="spine">
+      <li>
+        <span class="k">Selection by convergence,<br/>not by existence</span>
+        <span class="v">An entity or location surfaces when <strong>independent signals stack</strong> —
+        not when one thing happens to be present. This is what keeps the graph from lighting up on
+        noise, and it is the same selection function Scope already uses on a single ticker.</span>
+      </li>
+      <li>
+        <span class="k">Confidence and contradiction,<br/>first-class</span>
+        <span class="v">A <code>contradicting_sources</code> field is designed to be mandatory: the graph
+        is built to record <strong>what would make an edge wrong</strong>, not only what supports it.
+        That is the falsification principle written into the data model rather than into a policy
+        document.</span>
+      </li>
+      <li>
+        <span class="k">Coverage and signal,<br/>never conflated</span>
+        <span class="v">A map implies completeness. An empty region reads as “nothing here” when it may
+        mean “no coverage here” — and those are <strong>opposite claims</strong>. The system is designed
+        so absence-of-data can never render as absence-of-activity, and the doc is explicit that
+        retrofitting this later is brutal: it has to be there from the first render.</span>
+      </li>
+      <li>
+        <span class="k">Direct and inferred,<br/>always distinguishable</span>
+        <span class="v">An inferred edge — a shared address suggesting a possible relationship — must
+        never render identically to a direct one such as SEC-filed ownership. Relatedly,
+        <strong>proximity is a weak edge, never proof</strong>: two things being near each other is a
+        low-confidence hint that only rises with independent corroboration. Most OSINT graphs die
+        exactly here, hallucinating relationships from adjacency.</span>
+      </li>
+      <li>
+        <span class="k">Human verification travels<br/>with the edge</span>
+        <span class="v">Every edge is designed to carry its human-verification status, so the graph
+        knows — and can say — what a person has and has not checked.</span>
+      </li>
+    </ul>
+
+    <div class="grid grid-2" style="margin-top:var(--space-10)">
+      <article class="card">
+        <h3>Canonical identity, or nothing</h3>
+        <p>The whole system is a join problem: the company on the SEC filing, the recipient on the
+           contract, the assignee on the patent and the owner of the vessel have to be known to be the
+           <em>same entity</em> across sources that spell names differently. The design rule is
+           <strong>canonical or NULL, never a fuzzy guess</strong> — a match is exact against an anchor,
+           or it stays a low-confidence candidate flagged for corroboration, never silently promoted to
+           a fact.</p>
+        <div class="kv">This is not caution for its own sake. Scope's own ingestion linker was parked
+          because fuzzy name-matching ran roughly <b>2:1 correct-to-wrong</b> at scale. At graph scale
+          that ratio is a hall of mirrors, and the design says so.</div>
+      </article>
+      <article class="card">
+        <h3>Authority over volume</h3>
+        <p>A DoD contract and a scraped social-media title change are not the same confidence, and the
+           system is designed never to flatten them into identical dots. The build sits on structured,
+           authoritative, citable sources — SEC EDGAR, USAspending, Congress.gov, FEC and STOCK Act
+           disclosures, USPTO, OpenAlex, SBIR/STTR, corporate registries.</p>
+        <div class="kv">And it names what it refuses. <b>LinkedIn is explicitly rejected as a feed</b> —
+          scraping it is blocked, forbidden by its terms, and has been litigated. It stays a thing a
+          human clicks to verify an edge, never a source. Live-point feeds (ships, aircraft, satellite)
+          are sequenced <b>last</b>, and only as corroborating edges on entities that already exist.</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ 5. THE SOURCE WEB ═══════════════════════════════════════════════════ -->
+<section id="sources">
+  <div class="sec-inner">
+    <div class="eyebrow">04 <span class="n">/ the source foundation</span></div>
+    <h2>The shape of the source web</h2>
+    <p class="body">
+      This is a real artifact already built, embedded here as it was authored — a force-directed
+      network of the intended source foundation. <strong>39 nodes and 72 edges</strong>: seven
+      hub entity types, 26 source categories colour-coded by acquisition phase, and the six signal
+      shapes wired to the entities and sources each one actually depends on. Drag a node, zoom, hover
+      to highlight, click for detail, or filter by phase.
+    </p>
+
+    <!-- ⚠️ NO LEGEND IS RE-DRAWN HERE ON PURPOSE. The artifact carries its own
+         legend and its own node/edge counter; hand-copying either into this page
+         would create exactly the drift its README warns about. The composition
+         line below is the one fact worth stating before the frame loads, and it
+         is checkable against the artifact itself. -->
+    <p class="kv" style="margin-top:var(--space-5)">
+      Composition: <b>7 entity hubs</b> · <b>26 source categories</b> · <b>6 signal shapes</b>.
+      Colour encodes acquisition phase, and the legend inside the frame names each one.
+    </p>
+
+    <div class="embed">
+      <iframe src="/osint-preview/source-web" title="OSINT-Graph source web — interactive network of source categories, entity hubs and signal shapes" loading="lazy"></iframe>
+      <div class="embed-foot">
+        <span>⚠ A <b>source inventory rendered as a web — not live convergence data.</b> It does not
+          reflect what the graph has found on any real ticker. It is embedded unmodified, so it keeps
+          its own dark palette in either theme and needs a network connection to load its layout
+          library.</span>
+        <span><a href="/osint-preview/source-web" target="_blank" rel="noopener">Open full screen ↗</a></span>
+      </div>
+    </div>
+
+    <p class="body" style="margin-top:var(--space-6)">
+      The rejected source is drawn in red rather than omitted, deliberately — so that the decision to
+      refuse it stays visible instead of disappearing into an absence. The phase filters are also a
+      small working preview of the density split the map design calls for: “all” is the crowded
+      professional view, filtering down is the individual-control view.
+    </p>
+  </div>
+</section>
+
+<!-- ═══ 6. STATUS / ROADMAP — the loudest section on the page ═══════════════ -->
+<section id="status">
+  <div class="sec-inner">
+    <div class="eyebrow">05 <span class="n">/ build status, stated plainly</span></div>
+    <h2>What is actually built, as of 18 August 2026</h2>
+
+    <p class="status-lede">
+      Everything above this line is architecture and design intent. This is the unglamorous part:
+      <strong>OSINT-Graph is not a live feature, is not available to users, and its flagship chain has
+      never been run end to end.</strong> Its capabilities are tracked as buildings, and the graph
+      connecting them as roads — a road only gets poured once both buildings it connects are real.
+      Here is the register, unrounded.
+    </p>
+
+    <div class="stat-group">
+      <h3><span class="pill built">Finished</span> load-bearing, and genuinely done</h3>
+      <ul class="stat-list">
+        <li><span class="n">Entity-resolution spine</span><span class="d">Canonical-or-NULL, CIK anchoring, exact-normalized-name matching. Proven across contracts, patents and congressional members.</span></li>
+        <li><span class="n">Geospatial index</span><span class="d">County / district precision, proximity guard, tier-aware convergence view. Stress-tested across four sessions and survived adversarial attack each time.</span></li>
+        <li><span class="n">Contract corpus</span><span class="d"><b>4,253 events · 122 CIK companies · 97.5% anchored · 98.5% dated.</b></span></li>
+        <li><span class="n">Patent corpus</span><span class="d"><b>100,790+ patents across 105+ companies</b> — independently spot-checked, idempotent, zero known conflation bugs.</span></li>
+        <li><span class="n">Person-resolution method</span><span class="d">For patents and OpenAlex: <code>first+last</code> as the default merge, with the resolver acting as a review queue only. Settled by measurement, not assumption.</span></li>
+      </ul>
+    </div>
+
+    <div class="stat-group">
+      <h3><span class="pill mid">Mid-construction</span> including one honest dead end</h3>
+      <ul class="stat-list">
+        <li><span class="n">Patent ↔ contract proximity</span><span class="d">Tested exhaustively across geography, small-N entity, full-power entity and directional framings — and <b>consistently null</b>. This building is <b>closed, not abandoned</b>: it answered its question honestly, and the road is not to be re-poured.</span></li>
+        <li><span class="n">Repeat-buyer-acceleration rule</span><span class="d">Defined, <b>not yet tested against real data</b>. Depends only on contract data already loaded, which is why it is first in the queue.</span></li>
+      </ul>
+    </div>
+
+    <div class="stat-group">
+      <h3><span class="pill blue">Blueprint only</span> designed, foundation not yet poured</h3>
+      <ul class="stat-list">
+        <li><span class="n">Patent materiality scoring</span><span class="d">The filter deciding which patents matter. Needs CPC/IPC tagging (scoped, unapplied) plus either LLM-assisted claim scoring or a curated watchlist. This is the bottleneck for catalyst detection.</span></li>
+        <li><span class="n">Demand-signal traversal</span><span class="d">Starting from a stated need and walking the graph outward to entities positioned to fill it. <b>Fully designed, zero code.</b></span></li>
+        <li><span class="n">Case-study-to-rule pipeline</span><span class="d">The mechanism is designed and has produced exactly one output. <b>Not yet run as a formal backtest.</b></span></li>
+        <li><span class="n">Physical-infrastructure signals</span><span class="d">New-facility and expertise convergence, adjacent-infrastructure flagging. <b>Named, not designed.</b></span></li>
+        <li><span class="n">Political / relationship proximity</span><span class="d">The “seen with X” category. <b>Named, not designed</b>, and likely dependent on a news/press phase that does not exist yet.</span></li>
+        <li><span class="n">People-network sources</span><span class="d">The deliberate no-LinkedIn list — SEC proxies, press releases, SBIR principal investigators, corporate registries. Fully designed, <b>zero acquisition done.</b></span></li>
+        <li><span class="n">SBIR / grants ingestion</span><span class="d">The next source in sequence, and the <b>missing middle link in the flagship chain</b> shown in section 1. <b>Never started.</b></span></li>
+      </ul>
+    </div>
+
+    <div class="stat-group">
+      <h3><span class="pill built">Roads</span> which connections are real today</h3>
+      <ul class="stat-list">
+        <li><span class="n">Real, connecting real buildings</span><span class="d">Contracts ↔ geography (place of performance, county/district precision) · congressional trades ↔ geography (member → district) · patents ↔ assignee companies (CIK-anchored ownership edges).</span></li>
+        <li><span class="n">Still lines on a blueprint</span><span class="d">Patents ↔ catalyst detection · demand signals ↔ patents · demand signals ↔ personnel · patents ↔ personnel (inventor-as-person loading deliberately deferred — 209,000 entities against review-queue capacity, a scoped decision rather than an oversight) · case-study pipeline ↔ real backtesting.</span></li>
+      </ul>
+    </div>
+
+    <div class="stat-group">
+      <h3><span class="pill mid">Order</span> what gets built next, and why</h3>
+      <ol class="order">
+        <li><b>Repeat-buyer-acceleration test</b> — cheapest, uses only finished buildings, zero new construction. Validates the case-study pipeline itself.</li>
+        <li><b>Patent materiality scoring</b> — the actual bottleneck; the building that unlocks the most roads.</li>
+        <li><b>MOBX backtest through the case-study pipeline</b> — the first real test of whether patents can catch a catalyst <em>before</em> the fact rather than explain one after it.</li>
+        <li><b>Demand-signal traversal, prototyped</b> — meaningfully testable only once materiality scoring exists.</li>
+        <li><b>SBIR / grants acquisition</b> — adds the missing middle link in the flagship chain.</li>
+        <li><b>People-network sources</b> — the larger acquisition project, correctly sequenced last.</li>
+      </ol>
+    </div>
+
+    <div class="flat-note">
+      <h3>Three things this page is careful not to claim</h3>
+      <p style="margin-bottom:var(--space-3)">
+        <strong>1. The flagship chain has not been demonstrated.</strong> Its middle link — SBIR/grants —
+        has never been ingested, and the patents ↔ personnel road is deliberately deferred. The chain
+        in section 1 is the design target illustrated, not a result reproduced.
+      </p>
+      <p style="margin-bottom:var(--space-3)">
+        <strong>2. None of the six signal shapes runs as a detector.</strong> They are patterns read out
+        of case studies, and the taxonomy states plainly that they are not yet tested against real graph
+        data. Its own rule is that one observation is a hypothesis, not a rule, until it clears a
+        measurement; exactly one of the six has a single supporting measurement behind it, and even
+        that rule is queued for its first test rather than running.
+      </p>
+      <p>
+        <strong>3. The build plan is a map, not a commitment.</strong> It is explicitly not a promise to
+        build all of this immediately, and it is expected to change as buildings complete and roads get
+        poured. Dates and ordering here should be read as current intent, not as a shipping schedule.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="eyebrow">Provenance</div>
+  <p class="body">
+    Every factual claim on this page is drawn from the OSINT-Graph architecture documents in Scope's
+    vault. Nothing here is invented, and no capability is implied that is not in the design. Where the
+    docs describe something unbuilt, this page says “is designed to” or “would” rather than “does”.
+  </p>
+  <ul class="src-list">
+    <li><b>vault/OSINT-Graph/01_Architecture/osint-system-design.md</b> — §0 thesis · §1 principles · §4 flagship chain · §5 map · §6 sources · §8 traps · §9 honesty spine · §12 summary</li>
+    <li><b>vault/OSINT-Graph/01_Architecture/osint-signal-taxonomy.md</b> — the six patterns, their cases, lead times and failure modes</li>
+    <li><b>vault/OSINT-Graph/01_Architecture/osint-source-web-README.md</b> + <b>osint-source-web.html</b> — the embedded artifact and its caveats</li>
+    <li><b>vault/OSINT-Graph/01_Architecture/assembly-plan.md</b> — build status as of 2026-08-18, verbatim in section 5</li>
+  </ul>
+  <p class="body" style="margin-top:var(--space-6);font-size:var(--text-sm)">
+    <b>Status of this page:</b> a preview of a future release, prepared for internal review.
+    OSINT-Graph is in development and is not available to users.
+  </p>
+</footer>
+
+<script src="/cmdk.js" defer></script>
+<script>
+/* ══════════════════════════════════════════════════════════════════════════
+   Two canvases. NEITHER reads data, and both say so on the page.
+
+   1. #hero-canvas — a drifting point field with hairline links. Decorative,
+      labelled decorative directly beneath the hero text.
+   2. #chain-canvas — the §4 legitimacy-stacking chain, drawn as a ring with the
+      subject at the centre, revealed one link at a time. It illustrates the
+      EXAMPLE WRITTEN IN THE DOC. It is not a detection and there is no live
+      graph behind it; the caption under the canvas states this.
+
+   Colours are read from the design tokens so the page follows the theme
+   toggle rather than hard-coding a second palette.
+   ══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+
+  var reduce = window.matchMedia &&
+               window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function tok(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return (v && v.trim()) || fallback;
+  }
+  function fit(canvas) {
+    var dpr = window.devicePixelRatio || 1;
+    var r = canvas.getBoundingClientRect();
+    canvas.width  = Math.max(1, Math.round(r.width  * dpr));
+    canvas.height = Math.max(1, Math.round(r.height * dpr));
+    var ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { ctx: ctx, w: r.width, h: r.height };
+  }
+  /* Deterministic pseudo-random, seeded by index — the same device the live
+     constellation renderer uses for its depth axis, and for the same reason:
+     a fixed layout that is reproducible and claims no meaning. */
+  function rnd(i) {
+    var x = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  }
+
+  /* ── 1. hero field ──────────────────────────────────────────────────── */
+  var hero = document.getElementById("hero-canvas");
+  if (hero) {
+    var pts = [], N = 46;
+    for (var i = 0; i < N; i++) {
+      pts.push({ x: rnd(i), y: rnd(i + 100),
+                 vx: (rnd(i + 200) - 0.5) * 0.00006,
+                 vy: (rnd(i + 300) - 0.5) * 0.00006,
+                 r: 0.8 + rnd(i + 400) * 1.5 });
+    }
+    var hs = fit(hero);
+    window.addEventListener("resize", function () { hs = fit(hero); });
+
+    function drawHero(t) {
+      var ctx = hs.ctx, w = hs.w, h = hs.h;
+      ctx.clearRect(0, 0, w, h);
+      var accent = tok("--accent", "#c89664");
+      var line   = tok("--border-default", "#3a3a42");
+
+      for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        if (!reduce) { p.x += p.vx * 16; p.y += p.vy * 16; }
+        if (p.x < 0) p.x += 1; if (p.x > 1) p.x -= 1;
+        if (p.y < 0) p.y += 1; if (p.y > 1) p.y -= 1;
+      }
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = line;
+      ctx.globalAlpha = 0.5;
+      for (var a = 0; a < pts.length; a++) {
+        for (var b = a + 1; b < pts.length; b++) {
+          var dx = (pts[a].x - pts[b].x) * w, dy = (pts[a].y - pts[b].y) * h;
+          var d = Math.sqrt(dx * dx + dy * dy);
+          if (d < 130) {
+            ctx.globalAlpha = 0.5 * (1 - d / 130);
+            ctx.beginPath();
+            ctx.moveTo(pts[a].x * w, pts[a].y * h);
+            ctx.lineTo(pts[b].x * w, pts[b].y * h);
+            ctx.stroke();
+          }
+        }
+      }
+      ctx.globalAlpha = 1;
+      for (var k = 0; k < pts.length; k++) {
+        ctx.beginPath();
+        ctx.fillStyle = (k % 7 === 0) ? accent : line;
+        ctx.globalAlpha = (k % 7 === 0) ? 0.75 : 0.5;
+        ctx.arc(pts[k].x * w, pts[k].y * h, pts[k].r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (!reduce) requestAnimationFrame(drawHero);
+    }
+    drawHero(0);
+  }
+
+  /* ── 2. the flagship chain ──────────────────────────────────────────── */
+  /* Labels are the §4 chain, in the doc's own order and wording. */
+  var LINKS = [
+    { label: "new CTO",            src: "officer records" },
+    { label: "ex-Lockheed",        src: "proxy · patent assignment" },
+    { label: "3 hypersonics papers", src: "OpenAlex · ORCID" },
+    { label: "patent filed",       src: "USPTO" },
+    { label: "defense job postings", src: "career site · job feeds" },
+    { label: "SBIR award",         src: "SBIR.gov" },
+    { label: "DoD contract",       src: "USAspending" }
+  ];
+
+  var chain = document.getElementById("chain-canvas");
+  if (chain) {
+    var cs = fit(chain);
+    var t0 = null, done = false;
+    var STEP = 620, HOLD = 900;
+
+    window.addEventListener("resize", function () { cs = fit(chain); if (done) render(1e9); });
+
+    function nodePos(i, w, h, R) {
+      /* Seven links on an arc sweeping clockwise from upper-left, so reading
+         order matches the sequence in the doc. */
+      var a = -Math.PI * 0.82 + (i / (LINKS.length - 1)) * Math.PI * 1.64;
+      return { x: w / 2 + Math.cos(a) * R * 1.28, y: h / 2 + Math.sin(a) * R * 0.86 };
+    }
+
+    function render(elapsed) {
+      var ctx = cs.ctx, w = cs.w, h = cs.h;
+      ctx.clearRect(0, 0, w, h);
+      var accent = tok("--accent", "#c89664");
+      var dim    = tok("--accent-dim", "#8a6a48");
+      var line   = tok("--border-default", "#3a3a42");
+      var txt    = tok("--text-primary", "#e8e8ee");
+      var txt2   = tok("--text-tertiary", "#7e7e86");
+      var R = Math.min(w, h) * 0.33;
+      var cx = w / 2, cy = h / 2;
+
+      var shown = reduce ? LINKS.length : Math.min(LINKS.length, Math.floor(elapsed / STEP));
+      var frac  = reduce ? 1 : Math.min(1, (elapsed % STEP) / (STEP * 0.75));
+      if (shown >= LINKS.length) { shown = LINKS.length; frac = 1; }
+
+      /* radial edges: subject → each revealed link */
+      for (var i = 0; i < LINKS.length; i++) {
+        var p = nodePos(i, w, h, R);
+        var on = i < shown;
+        var grow = on ? 1 : (i === shown ? frac : 0);
+        if (grow <= 0) continue;
+        ctx.beginPath();
+        ctx.strokeStyle = on ? dim : line;
+        ctx.globalAlpha = on ? 0.85 : 0.5;
+        ctx.lineWidth = on ? 1.2 : 1;
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + (p.x - cx) * grow, cy + (p.y - cy) * grow);
+        ctx.stroke();
+      }
+      /* sequence chords: link i → link i+1, the "arriving in order" part */
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1;
+      for (var j = 0; j + 1 < Math.min(shown, LINKS.length); j++) {
+        var a1 = nodePos(j, w, h, R), a2 = nodePos(j + 1, w, h, R);
+        ctx.beginPath();
+        ctx.moveTo(a1.x, a1.y);
+        ctx.quadraticCurveTo((a1.x + a2.x) / 2, (a1.y + a2.y) / 2 - 18, a2.x, a2.y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      /* the subject */
+      ctx.beginPath();
+      ctx.fillStyle = accent;
+      ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = "600 12px " + tok("--font-mono", "monospace");
+      ctx.fillStyle = txt;
+      ctx.textAlign = "center";
+      ctx.fillText("MICROCAP X", cx, cy + 26);
+      ctx.font = "10px " + tok("--font-mono", "monospace");
+      ctx.fillStyle = txt2;
+      ctx.fillText("(illustration — not a real company)", cx, cy + 42);
+
+      /* the links */
+      for (var k = 0; k < LINKS.length; k++) {
+        var q = nodePos(k, w, h, R);
+        var vis = k < shown ? 1 : (k === shown ? frac : 0);
+        if (vis <= 0.02) continue;
+        ctx.globalAlpha = vis;
+        ctx.beginPath();
+        ctx.fillStyle = accent;
+        ctx.arc(q.x, q.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.textAlign = q.x < cx - 8 ? "right" : (q.x > cx + 8 ? "left" : "center");
+        var off = q.x < cx - 8 ? -10 : (q.x > cx + 8 ? 10 : 0);
+        ctx.font = "500 11px " + tok("--font-sans", "sans-serif");
+        ctx.fillStyle = txt;
+        ctx.fillText(String(k + 1) + ". " + LINKS[k].label, q.x + off, q.y + (q.y < cy ? -6 : 14));
+        ctx.font = "9px " + tok("--font-mono", "monospace");
+        ctx.fillStyle = txt2;
+        ctx.fillText(LINKS[k].src, q.x + off, q.y + (q.y < cy ? 6 : 26));
+        ctx.globalAlpha = 1;
+      }
+      ctx.textAlign = "left";
+    }
+
+    function frame(ts) {
+      if (t0 === null) t0 = ts;
+      var e = ts - t0;
+      render(e);
+      if (e < LINKS.length * STEP + HOLD) { requestAnimationFrame(frame); }
+      else { done = true; }
+    }
+
+    function play() {
+      if (reduce) { render(1e9); done = true; return; }
+      t0 = null; done = false;
+      requestAnimationFrame(frame);
+    }
+
+    document.getElementById("chain-replay").addEventListener("click", play);
+
+    /* Start when it scrolls into view, not on load — a sequence that plays
+       off-screen is a sequence nobody sees. */
+    if ("IntersectionObserver" in window) {
+      var started = false;
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (en.isIntersecting && !started) { started = true; play(); io.disconnect(); }
+        });
+      }, { threshold: 0.35 });
+      io.observe(chain);
+      render(0);
+    } else {
+      play();
+    }
+  }
+})();
+</script>
+</body>
+</html>

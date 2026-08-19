@@ -1097,6 +1097,55 @@ def lobbying_page():
 def osint_page():
     return FileResponse(STATIC_DIR / "osint.html")
 
+@app.get("/osint-preview", response_class=HTMLResponse, include_in_schema=False)
+def osint_preview_page():
+    """Preview page for OSINT-Graph — a system that is NOT LIVE.
+
+    ⚠️ THE ROUTE NAME IS PART OF THE HONESTY, not a naming preference. `/osint`
+    above is Scope's live RULE_OSINT globe; this is a *different thing* — a
+    marketing/vision page for the OSINT-Graph project, whose code lives in a
+    sibling repo (`~/dev/osint-graph`) and which has no user-facing surface at
+    all. It is deliberately NOT mounted at `/osint-graph`, because a bare
+    feature-shaped path reads as a shipped feature. The path, the sticky banner,
+    the hero caveat and §5 of the page all have to say "preview" independently —
+    any one of them can be missed.
+
+    Content is sourced line-by-line from vault/OSINT-Graph/01_Architecture/:
+    osint-system-design.md (thesis, flagship chain, honesty spine),
+    osint-signal-taxonomy.md (the six case-study patterns) and assembly-plan.md
+    (the build status, quoted unrounded). Nothing on the page is invented.
+    """
+    return FileResponse(STATIC_DIR / "osint_preview.html")
+
+@app.get("/osint-preview/source-web", response_class=HTMLResponse, include_in_schema=False)
+def osint_preview_source_web():
+    """The existing interactive source-web artifact, served for the iframe on
+    `/osint-preview`.
+
+    ⚠️ THIS IS A COPY, AND THE ORIGINAL IS THE SOURCE OF TRUTH.
+    `api/static/embeds/osint-source-web.html` is a byte-identical copy of
+    `vault/OSINT-Graph/01_Architecture/osint-source-web.html`. It had to be
+    copied rather than served from the vault because `vault/OSINT-Graph/` is
+    gitignored (see .gitignore) and so would not exist in a deploy.
+
+    The artifact was NOT rebuilt — it is the authored file, unmodified, so
+    `diff` against the vault original stays a valid drift check. Its own README
+    warns that its data is hand-copied and can go stale against
+    source-catalogue-reference.md and osint-signal-taxonomy.md; re-copy from the
+    vault when that happens rather than editing this file.
+
+    ⚠️ AND `embeds/` IS NOT A TIDINESS CHOICE. `tests/test_theme_holdouts.py`
+    walks `api/static/*.html` (non-recursively) and requires every PAGE to load
+    /theme.js and to route its colours through tokens. This artifact does
+    neither — it is authored dark-only with its own literal palette, and making
+    it theme-aware would mean rewriting it, which is exactly what "reuse, do not
+    rebuild" rules out. So it is kept out of the page namespace rather than
+    kept in it with the test weakened: it is not one of Scope's pages, it is a
+    third-party-shaped artifact this app happens to host. The `/osint-preview`
+    page states on-screen that the frame stays dark in either theme.
+    """
+    return FileResponse(STATIC_DIR / "embeds" / "osint-source-web.html")
+
 @app.get("/region/{region_name}", response_class=HTMLResponse, include_in_schema=False)
 def region_page(region_name: str):
     return FileResponse(STATIC_DIR / "osint_region.html")
