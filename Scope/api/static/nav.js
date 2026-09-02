@@ -125,7 +125,16 @@
        artifact reached FROM the page, not a destination. */
     { name: "Preview — not live", items: [
       { href: "/osint-preview", label: "OSINT-Graph preview",
-        desc: "In development — the vision for the entity/location graph, and an honest build status" }
+        desc: "In development — the vision for the entity/location graph, and an honest build status" },
+      /* 🔴 THE MAP IS REAL DATA AND IT SITS IN THE "not live" GROUP ANYWAY.
+         Every dot on it comes from the graph — no synthetic anything — but it is
+         an early alpha: sparse by design, two of its five sources carry an open
+         defect they declare, and it is not a finished product. Putting it beside
+         the live surfaces would let an alpha borrow their credibility, which is
+         the same mistake `/osint-preview` was named to avoid. The label says
+         ALPHA and so does the page. */
+      { href: "/osint-map/", label: "OSINT-Graph map — ALPHA",
+        desc: "Early alpha, real data: where independent sources converge on the same US county" }
     ]}
   ];
 

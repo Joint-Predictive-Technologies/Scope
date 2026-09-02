@@ -38,7 +38,8 @@ from api.routers import (
     insider_clusters as insider_clusters_router,
     positions as positions_router,
     telemetry as telemetry_router,
- universe,)
+ universe,
+    osint_map as osint_map_router,)
 
 STATIC_DIR = Path(__file__).parent / "static"
 CODE_DIR   = Path(__file__).resolve().parent.parent
@@ -341,6 +342,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🔴 THE OSINT MAP — ADDITIVE, READ-ONLY, AND ON ITS OWN DATABASE.
+# `/osint-map/` serves the OSINT-Graph convergence map: a static export plus one
+# bounded, rate-limited, read-only graph query. It reads a purpose-built SNAPSHOT
+# (`$OSINT_DB`), never `jpt.db`, and it introduces no write path and no admin
+# surface. The trailing slash is load-bearing — see the router's docstring.
+app.include_router(osint_map_router.router, prefix="/osint-map", tags=["OSINT Map"])
 app.include_router(alerts.router,        prefix="/alerts",   tags=["Alerts"])
 app.include_router(chat.router,          prefix="/chat",     tags=["Chat"])
 app.include_router(members.router,       prefix="/members",  tags=["Members"])
