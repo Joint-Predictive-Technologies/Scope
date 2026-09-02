@@ -145,47 +145,74 @@ def load_window(base, pool, workers, seconds, host_path, host_samples, spoof=Tru
     return host, ok, codes, got
 
 
-def throughput_curve(base, pool, levels, per_worker, counter=None):
-    """🔴 FLAT THROUGHPUT IS THE SIGNATURE OF SERIALISED WORK.  Latency alone can
-    look acceptable while the process is fully queued behind one lock or one GIL.
+def throughput_curve(base, pool, levels, per_level, serial_control=True):
+    """Throughput against concurrency, on an IDENTICAL workload at every level.
 
-    ⚠️ EVERY REQUEST IS A COLD ONE.  A global counter hands out a distinct
-    (entity, k) pair to each request across the WHOLE run, so no level can be
-    measured against a cache the previous level warmed."""
+    🔴 FLAT OR FALLING THROUGHPUT IS THE SIGNATURE OF SERIALISED WORK.  Latency
+    alone can look acceptable while the process is fully queued behind one lock or
+    one GIL.
+
+    🔴 AND THE FIRST TWO VERSIONS OF THIS FUNCTION BOTH MEASURED SOMETHING ELSE.
+    Version 1 hammered one entity with a repeating `k`, so every request after the
+    first was a CACHE HIT and it read 1,401 req/s at concurrency 8.  Version 2
+    fixed that with a global counter over a pool sorted by DESCENDING degree — and
+    thereby handed concurrency 1 the three heaviest entities in the graph (mean
+    degree 15,902) and concurrency 8 much lighter ones (2,931).  It reported
+    "scales 3.81x" when most of that was the workload getting 5.4x cheaper.
+
+    ⭐ THE NULL CONTROL IS PART OF THE MEASUREMENT, NOT AN EXTRA.  The same
+    workload is also run with NO concurrency at all.  A metric that is sound scores
+    that at ~1.0x.  Version 2 scored its own null control at **4.81x** — higher
+    than the real number it was reporting — which is how the defect was found and
+    is why the control now ships with the tool.  Report neither number alone.
+    """
     curve = []
-    seq = counter if counter is not None else [0]
-    seq_lock = threading.Lock()
-
-    def nxt():
-        with seq_lock:
-            i = seq[0]
-            seq[0] += 1
-        return pool[i % len(pool)][0], 1 + (i // len(pool)) % 40
-
-    for c in levels:
-        res, lock = [], threading.Lock()
-
-        def w(i):
-            for _ in range(per_worker):
-                e, k = nxt()
-                r = get(base, f"/osint-map/api/graph/{e}?k={k}", xff=f"11.{i}.{_}.1")
-                with lock:
-                    res.append(r)
-
-        ts = [threading.Thread(target=w, args=(i,)) for i in range(c)]
-        t0 = time.time()
-        for t in ts:
-            t.start()
-        for t in ts:
-            t.join()
-        wall = time.time() - t0
-        ok = [ms for s, ms, _ in res if s == 200]
-        curve.append({"concurrency": c, "ok": len(ok), "requests": len(res),
-                      "median_ms": round(statistics.median(ok), 1) if ok else None,
-                      "wall_s": round(wall, 2),
-                      "throughput_rps": round(len(ok) / wall, 2) if wall else None,
-                      "codes": dict(Counter(s for s, _, _ in res))})
+    # ⚠️ WARM THE PAGE CACHE FIRST, OR THE LEVELS MEASURE THE DISK.  Without this
+    # the null control drifted 60 -> 110 req/s purely because later levels ran
+    # against a warmer OS cache — the control caught it, which is what a control is
+    # for, but a metric that needs a control to explain its own noise is not
+    # finished. One untimed pass over the same entities removes it.
+    for i in range(per_level):
+        get(base, f"/osint-map/api/graph/{pool[i % len(pool)][0]}?k=39")
+    # the same entities, in the same order, at every level — only the thread count
+    # changes.  `k` varies per level purely to keep every request cache-cold; it
+    # barely moves the cost, which is dominated by the k-independent census.
+    for li, c in enumerate(levels):
+        work = [(pool[i % len(pool)][0], 1 + li) for i in range(per_level)]
+        curve.append(_run_level(base, work, c, li))
+    if serial_control:
+        # 🔴 the control runs the UNION of every level's workload one request at a
+        # time.  If the "scaling" survives here, it is not scaling.
+        for li, c in enumerate(levels):
+            work = [(pool[i % len(pool)][0], 40 - li) for i in range(per_level)]
+            curve.append(_run_level(base, work, 1, li, control=True))
     return curve
+
+
+def _run_level(base, work, concurrency, li, control=False):
+    res, lock = [], threading.Lock()
+    chunks = [work[i::concurrency] for i in range(concurrency)]
+
+    def w(part, wi):
+        for j, (e, k) in enumerate(part):
+            r = get(base, f"/osint-map/api/graph/{e}?k={k}", xff=f"11.{li}.{wi}.{j}")
+            with lock:
+                res.append(r)
+
+    ts = [threading.Thread(target=w, args=(chunks[i], i)) for i in range(concurrency)]
+    t0 = time.time()
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    wall = time.time() - t0
+    ok = [ms for s, ms, _ in res if s == 200]
+    return {"concurrency": concurrency, "control": control, "ok": len(ok),
+            "requests": len(res),
+            "median_ms": round(statistics.median(ok), 1) if ok else None,
+            "wall_s": round(wall, 2),
+            "throughput_rps": round(len(ok) / wall, 2) if wall else None,
+            "codes": dict(Counter(s for s, _, _ in res))}
 
 
 def main():
@@ -198,6 +225,9 @@ def main():
     ap.add_argument("--seconds", type=float, default=3.0)
     ap.add_argument("--samples", type=int, default=30)
     ap.add_argument("--levels", default="1,2,4,8")
+    ap.add_argument("--per-level", type=int, default=24,
+                    help="requests per concurrency level — the SAME entities at "
+                         "every level, so only the thread count varies")
     ap.add_argument("--no-spoof", action="store_true",
                     help="all clients share one apparent IP, so api/rate_limit.py "
                          "actually bites. The DEFAULT spoofs, because the question "
@@ -240,22 +270,33 @@ def main():
     print(f"   ⟹ host median {baseline.get('median')} -> {under.get('median')} ms "
           f"({delta:+.1f}, {ratio:.1f}x)" if ratio else "")
 
-    print("\n3. THROUGHPUT vs CONCURRENCY  (flat == serialised == the contention)")
-    curve = throughput_curve(base, pool, [int(x) for x in a.levels.split(",")], 3)
-    for c in curve:
+    print("\n3. THROUGHPUT vs CONCURRENCY  (identical workload at every level)")
+    levels = [int(x) for x in a.levels.split(",")]
+    curve = throughput_curve(base, pool, levels, a.per_level)
+    real = [c for c in curve if not c["control"]]
+    ctrl = [c for c in curve if c["control"]]
+    for c in real:
         print(f"   concurrency {c['concurrency']:>2}: {c['ok']}/{c['requests']} ok  "
               f"median {c['median_ms']:>8} ms  wall {c['wall_s']:>5}s  "
-              f"{c['throughput_rps']:>6} req/s  codes={c['codes']}")
-    first, last = curve[0], curve[-1]
-    if first["throughput_rps"] and last["throughput_rps"]:
-        scale = last["throughput_rps"] / first["throughput_rps"]
+              f"{c['throughput_rps']:>7} req/s  codes={c['codes']}")
+    scale = ctrl_scale = None
+    if real[0]["throughput_rps"] and real[-1]["throughput_rps"]:
+        scale = real[-1]["throughput_rps"] / real[0]["throughput_rps"]
         print(f"   ⟹ throughput scales {scale:.2f}x from concurrency "
-              f"{first['concurrency']} to {last['concurrency']}")
+              f"{real[0]['concurrency']} to {real[-1]['concurrency']}")
+    if ctrl and ctrl[0]["throughput_rps"] and ctrl[-1]["throughput_rps"]:
+        ctrl_scale = ctrl[-1]["throughput_rps"] / ctrl[0]["throughput_rps"]
+        print(f"   NULL CONTROL — the same slices, ZERO concurrency: "
+              f"{ctrl[0]['throughput_rps']:.1f} -> {ctrl[-1]['throughput_rps']:.1f} req/s "
+              f"= {ctrl_scale:.2f}x")
+        print(f"   ⟹ a sound metric scores the control near 1.00x. "
+              f"{'🔴 IT DOES NOT — the number above is not measuring concurrency.' if abs(ctrl_scale - 1) > 0.35 else 'OK.'}")
 
     result = {"host_path": a.host_path, "worst_case": {"entity_id": eid, "name": name,
               "edge_endpoints": deg}, "pool_size": len(pool), "workers": a.workers,
               "baseline": baseline, "under_load_host": under, "map_latency": maplat,
-              "map_codes": dict(codes), "throughput_curve": curve}
+              "map_codes": dict(codes), "throughput_curve": curve,
+              "throughput_scale": scale, "null_control_scale": ctrl_scale}
     if a.json:
         json.dump(result, open(a.json, "w"), indent=2)
         print(f"\nwrote {a.json}")

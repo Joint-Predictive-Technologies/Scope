@@ -16,7 +16,9 @@ WHY A SNAPSHOT AT ALL, AND WHY THIS SHAPE
 The deployment shares one Railway volume with Scope's own `jpt.db`, and that
 volume has ~3.1 GB free.  Three things follow:
 
-  1. SIZE.  `osint.db` is 1,050 MB.  This snapshot is ~473 MB, because
+  1. SIZE.  `osint.db` is 1,050 MB.  This snapshot is ~624 MB — 473 MB of rows
+     plus ~144 MB of the covering indexes below, which are what make the serving
+     path's early stop actually stop early — because
      `patent_text` (110 MB), `patent_materiality` (65 MB), `patent_llm_score`
      (51 MB), `patent_text_score` (19 MB), `entity_candidates` (27 MB),
      `filing_item` (3 MB) and their indexes are read by NOTHING in `serving/`.

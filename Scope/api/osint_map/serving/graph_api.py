@@ -409,12 +409,17 @@ class GraphAPI:
     # ══════════════════════════════════════════════════════════════════════════
     # 🔴 WHY THIS EXISTS.  `_raw_edges()` above materialises EVERY relation before
     # `k` is applied.  Measured against Scope's own app with the map mounted in it,
-    # 8 concurrent clients on the highest-degree entity dragged the HOST's front
-    # page from 2.4 ms to 70.5 ms — 29x — and map throughput scaled 0.98x from one
-    # client to eight.  Flat throughput is the signature: the work was serialised,
-    # so extra callers only queued, and the queue starved the process Scope's own
-    # pages run in.  The `k` cap never touched it: k=1 cost 128.5 ms and k=200 cost
-    # 124.7 ms.
+    # 8 concurrent clients rotating the 40 highest-degree entities dragged the
+    # HOST's front page from 2.4 ms to 65.7 ms — 27x — while completing 18 map
+    # requests in three seconds.  The `k` cap never touched it: k=1 cost 128.5 ms
+    # and k=200 cost 124.7 ms.
+    #
+    # ⚠️ AFTER THIS CHANGE THE HOST DEGRADES 6.3x AND THROUGHPUT STILL FALLS WITH
+    # CONCURRENCY (0.74x from one client to eight, against 0.22x before).  The
+    # residual is `_census`, which is O(degree) and cannot be otherwise.  This is
+    # an improvement, not a resolution, and the deploy gate it was written for
+    # remains FAILED on that second limb — see
+    # SESSION-2026-09-02-map-alpha-bounded-fetch-fix.
     #
     # The replacement computes the DISCLOSED COUNTS by database aggregate and
     # fetches only the rows it will actually return.
@@ -471,9 +476,10 @@ class GraphAPI:
         bounded row fetch it sits beside costs 1.0 ms for `Apple Inc.`; this costs
         ~29 ms, because you cannot count 26,179 distinct neighbours without
         touching them.  It is SQL rather than Python on purpose — `sqlite3`
-        releases the GIL while stepping, so this work parallelises across requests
-        where the old dict-building did not, which is what took throughput from
-        0.98x to 3.19x as concurrency rose from 1 to 8.
+        releases the GIL while stepping, so this work parallelises better than the
+        old dict-building did — 89 req/s at eight concurrent clients against 11 —
+        but it does NOT parallelise enough: throughput per client still falls as
+        clients are added (0.74x from 1 to 8, against 0.22x before).
 
         🔴 A PER-SOURCE SPLIT WAS TRIED AND WAS MEASURABLY WORSE, WHICH IS WHY THIS
         SHAPE IS STILL HERE.  Five small `UNION ALL` tallies plus a global `UNION`
