@@ -67,9 +67,14 @@ def _route_template(request: Request) -> str:
         /osint-map/api/graph/<uuid>      {entity_id: ...} -> /osint-map/api/graph/{entity_id}
         /admin/refresh                   {}               -> /admin/refresh   (unchanged)
 
-    ⭐ A ROUTE WITH NO PATH PARAMETER RETURNS EARLY AND IS BYTE-IDENTICAL TO THE
-    OLD KEY, by construction rather than by testing — which is what keeps `/chat`,
-    both admin routes and `/api/watchlist-rules` exactly as they are today.
+    ⭐ A ROUTE WITH NO PATH PARAMETER IS BYTE-IDENTICAL TO THE OLD KEY — which is
+    what keeps `/chat`, both admin routes and `/api/watchlist-rules` exactly as
+    they are today.
+    ⚠️ The early return below is a FAST PATH, not the guarantee, and saying so is
+    the honest version: with no parameters the primary strategy renders a template
+    containing no placeholders, matches it against the whole path, and returns the
+    same string anyway. A mutant deleting the early return survives the suite
+    because it is genuinely equivalent, not because nothing tests it.
 
     Values are substituted rightmost-first and longest-first so a value that also
     occurs earlier in the path cannot be replaced in the wrong place, and the
@@ -78,7 +83,16 @@ def _route_template(request: Request) -> str:
     this change — because failing back to a limit that is too loose is bad, and
     failing into a bucket shared with an unrelated route is worse.
     """
-    path = request.url.path
+    # 🔴 `scope["path"]`, NOT `request.url.path`, AND AN INDEPENDENT VERIFIER
+    # FOUND WHY.  Starlette builds `request.url` by concatenating the already-
+    # decoded `scope["path"]` into a URL string and re-parsing it, so it DROPS
+    # everything from the first `#` or `?`.  `path_params` keeps the whole value.
+    # A caller sending `/osint-map/api/graph/abc%23z` therefore left the rendered
+    # tail unmatchable, the function fell back to the resolved path, and the fix
+    # was bypassed: 300 requests against a 30/60 limit with ZERO 429s, where the
+    # same rotation without the marker was refused at #31.  The ASGI scope path is
+    # the decoded path with no query or fragment to lose.
+    path = request.scope.get("path") or request.url.path
     params = request.scope.get("path_params") or {}
     if not params:
         return path

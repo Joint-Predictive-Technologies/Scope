@@ -145,12 +145,27 @@ def test_AN_UNREBUILDABLE_TEMPLATE_FAILS_BACK_TO_TODAYS_BEHAVIOUR():
 
 def test_A_VALUE_REPEATED_IN_THE_PATH_IS_SUBSTITUTED_IN_THE_RIGHT_PLACE():
     """Values go back rightmost-first and longest-first, so a parameter whose
-    value also appears in a static segment cannot rewrite the wrong one."""
+    value also appears in a static segment cannot rewrite the wrong one.
+
+    ⚠️ THE FIRST VERSION OF THIS TEST DID NOT TEST THAT.  It supplied a
+    `route_path`, so the PRIMARY strategy answered every case and the fallback's
+    ordering never executed — a verifier showed both `rfind`→`find` and
+    longest-first→shortest-first could be inverted with every test still green.
+    The cases below pass `route_path=None` so the fallback is the code under test.
+    """
     class _Req:
         def __init__(self, path, params, route_path):
             self.url = type("U", (), {"path": path})()
-            self.scope = {"path_params": params,
-                          "route": type("R", (), {"path": route_path})()}
+            self.scope = {"path": path, "path_params": params,
+                          "route": (type("R", (), {"path": route_path})()
+                                    if route_path is not None else None)}
+
+    # ── the FALLBACK, with no route object to lean on ──
+    # rightmost-first: the value also occurs as an earlier static segment
+    assert _route_template(_Req("/bar/thing/bar", {"x": "bar"}, None)) == "/bar/thing/{x}"
+    # longest-first: a short value that is a substring of a longer one
+    assert _route_template(
+        _Req("/a/ab/abcd", {"s": "ab", "l": "abcd"}, None)) == "/a/{s}/{l}"
 
     assert _route_template(
         _Req("/bar/thing/bar", {"x": "bar"}, "/bar/thing/{x}")) == "/bar/thing/{x}"
@@ -198,3 +213,59 @@ def test_EVERY_RATE_LIMITED_ROUTE_IN_THE_REAL_APP_IS_ACCOUNTED_FOR():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))
+
+
+def test_A_DECODED_HASH_OR_QUESTION_MARK_DOES_NOT_ESCAPE_THE_LIMIT():
+    """🔴 A LIVE BYPASS AN INDEPENDENT VERIFIER FOUND IN THE FIRST VERSION OF THIS
+    FIX.  Starlette builds `request.url` by re-parsing the already-decoded path, so
+    `request.url.path` DROPS everything from the first `#` or `?` — while
+    `path_params` keeps the whole value. The rendered tail then matched nothing,
+    the key fell back to the resolved path, and per-value keying was restored:
+    measured live at **300 requests against a 30/60 limit with zero 429s**, where
+    the same rotation without the marker was refused at #31.
+
+    The template is built from the ASGI `scope["path"]`, which is the decoded path
+    with no query or fragment to lose."""
+    class _Req:
+        def __init__(self, path, params, route_path):
+            self.url = type("U", (), {"path": path.split("#")[0].split("?")[0]})()
+            self.scope = {"path": path, "path_params": params,
+                          "route": type("R", (), {"path": route_path})()}
+
+    tpl = "/osint-map/api/graph/{entity_id}"
+    for value in ("abc", "abc#z", "def#z", "abc?z", "a#b?c", "#", "?"):
+        got = _route_template(
+            _Req(f"/osint-map/api/graph/{value}", {"entity_id": value},
+                 "/api/graph/{entity_id}"))
+        assert got == tpl, f"{value!r} -> {got!r}"
+    # ...and the multi-segment convertor too
+    assert _route_template(
+        _Req("/osint-map/out/map-v1/c/04.json#x", {"path": "c/04.json#x"},
+             "/out/map-v1/{path:path}")) == "/osint-map/out/map-v1/{path}"
+
+
+def test_THE_KEY_STILL_SEPARATES_CLIENTS():
+    """🔴 NOTHING PINNED THIS, AND THE CONSEQUENCE WOULD BE SEVERE.  A verifier
+    mutated the key to drop the client IP entirely and every test stayed green —
+    that mutation turns each limit into a GLOBAL one, so a single abuser could 429
+    the whole site off `/chat` or the admin routes.
+
+    Two clients must have independent budgets, and one exhausting its own must not
+    touch the other's."""
+    c = _app()
+    a = {"X-Forwarded-For": "203.0.113.11"}
+    b = {"X-Forwarded-For": "203.0.113.12"}
+    for _ in range(3):
+        assert c.get("/plain", headers=a).status_code == 200
+    assert c.get("/plain", headers=a).status_code == 429, "A is spent"
+    for _ in range(3):
+        assert c.get("/plain", headers=b).status_code == 200, "B must be untouched"
+    assert c.get("/plain", headers=b).status_code == 429
+
+    # and the same on a parameterised route, where the template is now shared
+    _buckets.clear()
+    c2 = _app()
+    for i in range(3):
+        assert c2.get(f"/thing/{i}", headers=a).status_code == 200
+    assert c2.get("/thing/99", headers=a).status_code == 429
+    assert c2.get("/thing/99", headers=b).status_code == 200, "a shared TEMPLATE is not a shared BUDGET"
