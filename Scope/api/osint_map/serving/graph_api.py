@@ -57,6 +57,7 @@ derived here, like the other two, from `events.location_entity_id` on
 """
 from __future__ import annotations
 
+import heapq
 import os
 import sqlite3
 import sys
@@ -403,6 +404,408 @@ class GraphAPI:
         idset = set(ids)
         return [e for e in out if e["other"] not in idset]
 
+    # ══════════════════════════════════════════════════════════════════════════
+    # THE BOUNDED PATH — what a request actually runs
+    # ══════════════════════════════════════════════════════════════════════════
+    # 🔴 WHY THIS EXISTS.  `_raw_edges()` above materialises EVERY relation before
+    # `k` is applied.  Measured against Scope's own app with the map mounted in it,
+    # 8 concurrent clients on the highest-degree entity dragged the HOST's front
+    # page from 2.4 ms to 70.5 ms — 29x — and map throughput scaled 0.98x from one
+    # client to eight.  Flat throughput is the signature: the work was serialised,
+    # so extra callers only queued, and the queue starved the process Scope's own
+    # pages run in.  The `k` cap never touched it: k=1 cost 128.5 ms and k=200 cost
+    # 124.7 ms.
+    #
+    # The replacement computes the DISCLOSED COUNTS by database aggregate and
+    # fetches only the rows it will actually return.
+    #
+    # ⚠️ EQUIVALENCE IS THE WHOLE POINT AND IT IS PROVEN, NOT ARGUED.  Round-robin
+    # draws at most `k` rows in total and therefore at most `k` from any one
+    # bucket, and each bucket is ordered by (-rank, other) — so only the top `k` of
+    # a bucket can ever be drawn, and fetching exactly that is not an
+    # approximation.  `_raw_edges()` is KEPT as the reference implementation and a
+    # test compares the two across the fixture and a live sample.
+
+    # 🔴 DERIVED, NOT LISTED.  The first version hardcoded the `edges`
+    # relationship types.  `edges` has 34 of them in its CHECK and the list will
+    # drift the first time one is added — and a rel the census counts but
+    # `_bounded` cannot serve produces an EMPTY bucket, which silently returns
+    # fewer neighbours than `k` with nothing saying so.  Everything that is not one
+    # of the four derived relations comes from `edges`, by construction.
+    _DERIVED_RELS = frozenset(
+        ("place_of_performance", "patent_address", "within", "mineral_site_location"))
+
+    @staticmethod
+    def _rank(e) -> float:
+        """Ordering only.  A missing confidence is NOT a zero and never reaches the
+        payload as one; it has to sort somewhere and last is the honest place."""
+        return e["confidence"] if e["confidence"] is not None else -1.0
+
+    @classmethod
+    def _better(cls, a, b) -> bool:
+        """Is `a` the row to keep for this (other, rel)?
+
+        🔴 THE TIE-BREAK IS EXPLICIT, AND MAKING IT SO IS A REAL BEHAVIOUR CHANGE.
+        The old code kept the first row it happened to see at the maximum rank —
+        which is SQLite's scan order, an implementation detail.  Adding a covering
+        index changes scan order, so "keep whatever came first" was never stable
+        under the very change this work order makes.  Smallest `edge_id` wins
+        instead: deterministic, index-independent, and identical for the >99% of
+        keys that have exactly one row.
+        """
+        ra, rb = cls._rank(a), cls._rank(b)
+        if ra != rb:
+            return ra > rb
+        return a["edge_id"] < b["edge_id"]
+
+    def _census(self, ids: list[str]) -> tuple[int, dict[str, int], int]:
+        """`degree`, per-relation distinct neighbours, and total distinct
+        neighbours — from aggregates, never from a materialised set.
+
+        These are the numbers the UI DISCLOSES, so they must stay TRUE while the
+        rows are bounded.  A cap that also shrank the count it reports would be
+        indistinguishable from a small graph, which is the defect the disclosure
+        exists to prevent.
+
+        ⚠️ THIS IS NOW THE COST OF A REQUEST, AND IT IS O(degree) BY NATURE.  The
+        bounded row fetch it sits beside costs 1.0 ms for `Apple Inc.`; this costs
+        ~29 ms, because you cannot count 26,179 distinct neighbours without
+        touching them.  It is SQL rather than Python on purpose — `sqlite3`
+        releases the GIL while stepping, so this work parallelises across requests
+        where the old dict-building did not, which is what took throughput from
+        0.98x to 3.19x as concurrency rose from 1 to 8.
+
+        🔴 A PER-SOURCE SPLIT WAS TRIED AND WAS MEASURABLY WORSE, WHICH IS WHY THIS
+        SHAPE IS STILL HERE.  Five small `UNION ALL` tallies plus a global `UNION`
+        looked obviously cheaper in isolation (6.5 ms + 9.4 ms against 29 ms) and
+        came out at 47.6 ms in place, taking a whole request from 39 ms to 50 ms.
+        The isolated numbers were measured with `= ?` and no exclusion; the real
+        thing needs `IN (...)` over a canonical group and `NOT IN (...)` to drop
+        self-edges, and those put the cost back. Recorded so the next person does
+        not spend the same afternoon.
+        """
+        q = ",".join("?" * len(ids))
+        pairs = f"""
+            SELECT relationship_type rel, entity_b_id o FROM edges WHERE entity_a_id IN ({q})
+      UNION ALL SELECT relationship_type, entity_a_id FROM edges WHERE entity_b_id IN ({q})
+      UNION ALL SELECT 'place_of_performance', ev.location_entity_id FROM events ev
+                 WHERE ev.event_type='government_contract_awarded'
+                   AND ev.location_entity_id IS NOT NULL AND ev.subject_entity_id IN ({q})
+      UNION ALL SELECT 'place_of_performance', ev.subject_entity_id FROM events ev
+                 WHERE ev.event_type='government_contract_awarded'
+                   AND ev.location_entity_id IN ({q})
+      UNION ALL SELECT 'mineral_site_location', ev.location_entity_id FROM events ev
+                 WHERE ev.event_type='mineral_resource_identified'
+                   AND ev.location_entity_id IS NOT NULL AND ev.subject_entity_id IN ({q})
+      UNION ALL SELECT 'mineral_site_location', ev.subject_entity_id FROM events ev
+                 WHERE ev.event_type='mineral_resource_identified'
+                   AND ev.location_entity_id IN ({q})
+      UNION ALL SELECT 'patent_address', pl.location_entity_id FROM patent_location pl
+                 WHERE pl.patent_entity_id IN ({q}) AND pl.location_entity_id IS NOT NULL
+      UNION ALL SELECT 'patent_address', pl.patent_entity_id FROM patent_location pl
+                 WHERE pl.location_entity_id IN ({q})
+      UNION ALL SELECT 'within', parent_location_id FROM locations
+                 WHERE entity_id IN ({q}) AND parent_location_id IS NOT NULL
+      UNION ALL SELECT 'within', entity_id FROM locations WHERE parent_location_id IN ({q})"""
+        # a group member is never its own neighbour — the same exclusion the
+        # reference implementation applies, applied BEFORE anything is counted
+        holes = f"SELECT rel, o FROM ({pairs}) WHERE o NOT IN ({q})"
+        args = tuple(ids) * 11
+        degree, per = 0, {}
+        for rel, raw, dist in self.con.execute(
+                f"SELECT rel, COUNT(*), COUNT(DISTINCT o) FROM ({holes}) GROUP BY rel", args):
+            degree += raw
+            per[rel] = dist
+        total = self.con.execute(
+            f"SELECT COUNT(DISTINCT o) FROM ({holes})", args).fetchone()[0]
+        return degree, per, total
+
+    def _bounded(self, ids: list[str], rel: str, k: int) -> list[dict]:
+        """At most `k` collapsed rows for one relation type, in (-rank, other)
+        order — the exact prefix round-robin could draw from this bucket.
+
+        🔴 STREAMED AND STOPPED, NOT `LIMIT`ed.  The first version put
+        `LIMIT k + n` on each cursor, which bounds ROWS — and a neighbour can
+        appear on several rows (one `patent_location` row per role and sequence, a
+        company on several awards).  41 rows collapsed to 35 distinct patents and
+        the bucket came up short, so 56 of 540 entities returned fewer neighbours
+        than the reference.  Bounding rows is not bounding neighbours.
+
+        ⭐ WHY STOPPING EARLY IS EXACT, not an approximation.  Each cursor is
+        ordered by (-rank, other) and they are merged in that order, so the stream
+        is globally ordered.  All rows sharing one (rank, other) are therefore
+        adjacent, and any row arriving after the (k+1)-th distinct neighbour has a
+        strictly greater (-rank, other) — it can only concern a neighbour that
+        already sorts past the k-th.  So the moment a (k+1)-th distinct neighbour
+        appears, the first k are final.
+        """
+        idset = set(ids)
+        best: dict[str, dict] = {}
+
+        def offer(row) -> bool:
+            """True once the k+1-th distinct neighbour has been seen."""
+            o = row["other"]
+            if o in idset:
+                return False
+            cur = best.get(o)
+            if cur is None or self._better(row, cur):
+                best[o] = row
+            return len(best) > k
+
+        def drain(stream, ordered: bool):
+            """🔴 THE EARLY STOP IS ONLY VALID ON AN ORDERED STREAM, and the first
+            version applied it to an unordered one.  Stopping at the (k+1)-th
+            distinct neighbour is exact when the stream arrives in (-rank, other)
+            order — every later row concerns a neighbour that already sorts past
+            the k-th.  Applied to rows in database order it truncates by ARRIVAL,
+            which is not an order at all.
+            ⚠️ Bare county holds 13 equally-confident awardees; at k=5 the bounded
+            path returned aw0/aw1/aw2/aw3 where the reference returned
+            aw0/aw1/aw10/aw11 — lexicographic, which is the rule.  The live sample
+            of 540 entities did NOT catch this: every real `place_of_performance`
+            and `mineral_site_location` bucket is smaller than `k`, so the stop
+            never fired.  The fixture was built awkward on purpose and it earned
+            its keep here."""
+            for row in stream:
+                stop = offer(row)
+                if stop and ordered:
+                    return
+
+        if rel not in self._DERIVED_RELS:
+            # ⚠️ ONE CURSOR PER (GROUP MEMBER, DIRECTION).  An `IN (...)` cannot be
+            # walked in confidence order from the index — SQLite would sort every
+            # matching row first, which is precisely the O(degree) cost being
+            # removed.  Separate cursors each stream their own index range and the
+            # merge puts them back in order lazily.
+            cursors = []
+            for e in ids:
+                cursors.append(self._edge_stream(e, rel, True))
+                cursors.append(self._edge_stream(e, rel, False))
+            drain(heapq.merge(*cursors, key=lambda r: (-self._rank(r), r["other"])), True)
+        elif rel == "patent_address":
+            # ⚠️ RANK IS A CONSTANT HERE — every `patent_address` row carries
+            # DERIVED_CONF — so (-rank, other) collapses to `other`, and the index
+            # order IS the required order.
+            cursors = []
+            for e in ids:
+                cursors.append(self._patloc_stream(e, True))
+                cursors.append(self._patloc_stream(e, False))
+            drain(heapq.merge(*cursors, key=lambda r: r["other"]), True)
+        elif rel == "within":
+            cursors = []
+            for e in ids:
+                cursors.append(self._within_stream(e, True))
+                cursors.append(self._within_stream(e, False))
+            drain(heapq.merge(*cursors, key=lambda r: r["other"]), True)
+        else:
+            # the event-derived relations.  After the serving snapshot's prune the
+            # whole `events` table is 440 rows, so bounding these would cost more
+            # than it saves.
+            # unordered — the whole `events` table is 440 rows after the
+            # snapshot prune, so draining it fully is cheaper than ordering it
+            drain(iter(self._event_rows(ids, rel)), False)
+
+        rows = sorted(best.values(), key=lambda e: (-self._rank(e), e["other"]))
+        return rows[:k]
+
+    # ── the streams the merge consumes ───────────────────────────────────────
+    # Each yields already-built payload rows in the bucket's own order, lazily, so
+    # a cursor that is never exhausted costs only the rows actually pulled.
+
+    def _edge_stream(self, eid: str, rel: str, forward: bool):
+        col, other_col = ("entity_a_id", "entity_b_id") if forward else ("entity_b_id", "entity_a_id")
+        cur = self.con.execute(f"""
+            SELECT e.edge_id, e.entity_a_id a, e.entity_b_id b,
+                   e.confidence_score conf, e.source_reliability_tier tier,
+                   e.direct_or_inferred ev, e.source_type, e.source_url,
+                   e.contradicting_sources contra, e.human_verification_status hvs,
+                   ea.entity_type a_type
+              FROM edges e JOIN entities ea ON ea.entity_id = e.entity_a_id
+             WHERE e.{col} = ? AND e.relationship_type = ?
+             ORDER BY e.confidence_score DESC, e.{other_col}""", (eid, rel))
+        for r in cur:
+            mine = r["a"] if forward else r["b"]
+            other = r["b"] if forward else r["a"]
+            label_forward = forward
+            if rel in ("ownership", "contractor") and r["a_type"] == "asset":
+                label_forward = not forward
+            yield {"rel": rel, "other": other, "confidence": r["conf"],
+                   "tier": r["tier"], "ev": r["ev"], "source_type": r["source_type"],
+                   "source_url": r["source_url"], "via": mine,
+                   "forward": forward, "label_forward": label_forward,
+                   "edge_id": r["edge_id"], "verification": "hardened",
+                   "contradicting": r["contra"], "human_status": r["hvs"]}
+
+    def _patloc_stream(self, eid: str, forward: bool):
+        if forward:
+            cur = self.con.execute("""
+                SELECT pl.patent_location_id, pl.patent_entity_id pid,
+                       pl.location_entity_id loc, pl.role, pl.geospatial_precision prec
+                  FROM patent_location pl
+                 WHERE pl.patent_entity_id = ? AND pl.location_entity_id IS NOT NULL
+                 ORDER BY pl.location_entity_id""", (eid,))
+        else:
+            cur = self.con.execute("""
+                SELECT pl.patent_location_id, pl.patent_entity_id pid,
+                       pl.location_entity_id loc, pl.role, pl.geospatial_precision prec
+                  FROM patent_location pl WHERE pl.location_entity_id = ?
+                 ORDER BY pl.patent_entity_id""", (eid,))
+        for r in cur:
+            yield self._patloc_row(r, forward)
+
+    def _within_stream(self, eid: str, forward: bool):
+        if forward:
+            cur = self.con.execute(
+                "SELECT entity_id, parent_location_id p FROM locations "
+                "WHERE entity_id=? AND parent_location_id IS NOT NULL", (eid,))
+            for r in cur:
+                yield self._within_row(r["entity_id"], r["p"], True)
+        else:
+            cur = self.con.execute(
+                "SELECT entity_id, parent_location_id p FROM locations "
+                "WHERE parent_location_id=? ORDER BY entity_id", (eid,))
+            for r in cur:
+                yield self._within_row(r["entity_id"], r["p"], False)
+
+    def _patloc_row(self, r, forward: bool) -> dict:
+        return {"rel": "patent_address",
+                "other": r["loc"] if forward else r["pid"],
+                "confidence": DERIVED_CONF["patent_address"], "tier": 1,
+                "ev": "direct", "source_type": "patentsview", "source_url": None,
+                "via": r["pid"] if forward else r["loc"],
+                "edge_id": ("pl:" if forward else "plr:") + r["patent_location_id"],
+                "verification": SOURCES["patent"].verification,
+                "role": r["role"], "precision": r["prec"], "contradicting": "[]",
+                "human_status": "unverified", "forward": forward,
+                "label_forward": forward}
+
+    def _within_row(self, child: str, parent: str, forward: bool) -> dict:
+        return {"rel": "within", "other": parent if forward else child,
+                "confidence": DERIVED_CONF["within"], "tier": 1, "ev": "direct",
+                "source_type": "census", "source_url": None,
+                "via": child if forward else parent,
+                "edge_id": ("loc:" + child) if forward else ("locr:" + child),
+                "verification": "hardened", "contradicting": "[]",
+                "human_status": "unverified", "forward": forward,
+                "label_forward": forward}
+
+    def _event_rows(self, ids: list[str], rel: str) -> list[dict]:
+        q = ",".join("?" * len(ids))
+        out = []
+        if rel == "place_of_performance":
+            for fwd, where in ((True, "ev.subject_entity_id"), (False, "ev.location_entity_id")):
+                extra = "AND ev.location_entity_id IS NOT NULL" if fwd else ""
+                for r in self.con.execute(f"""
+                    SELECT ev.event_id, ev.subject_entity_id subj, ev.location_entity_id loc,
+                           ev.event_timestamp ts, ev.geospatial_precision prec,
+                           (SELECT MIN(e.confidence_score) FROM edges e
+                             WHERE e.event_id=ev.event_id
+                               AND e.relationship_type='government_contract') conf
+                      FROM events ev
+                     WHERE ev.event_type='government_contract_awarded' {extra}
+                       AND {where} IN ({q})""", tuple(ids)):
+                    out.append({"rel": "place_of_performance",
+                                "other": r["loc"] if fwd else r["subj"],
+                                "confidence": r["conf"] if r["conf"] is not None else 0.6,
+                                "tier": 1, "ev": "direct", "source_type": "usaspending",
+                                "source_url": None,
+                                "via": r["subj"] if fwd else r["loc"],
+                                "edge_id": ("ev:" if fwd else "evr:") + r["event_id"],
+                                "verification": "hardened", "date": r["ts"],
+                                "precision": r["prec"], "contradicting": "[]",
+                                "human_status": "unverified", "forward": fwd,
+                                "label_forward": fwd})
+        elif rel == "mineral_site_location":
+            for fwd, where in ((True, "ev.subject_entity_id"), (False, "ev.location_entity_id")):
+                for r in self.con.execute(f"""
+                    SELECT ev.event_id, ev.subject_entity_id subj, ev.location_entity_id loc,
+                           ev.event_timestamp ts, ev.geospatial_precision prec,
+                           (SELECT MIN(s.confidence_score) FROM site_commodity_assertion s
+                             WHERE s.site_entity_id = ev.subject_entity_id) conf,
+                           (SELECT MIN(s.source_reliability_tier) FROM site_commodity_assertion s
+                             WHERE s.site_entity_id = ev.subject_entity_id) tier
+                      FROM events ev
+                     WHERE ev.event_type='mineral_resource_identified'
+                       AND ev.location_entity_id IS NOT NULL
+                       AND {where} IN ({q})""", tuple(ids)):
+                    out.append({"rel": "mineral_site_location",
+                                "other": r["loc"] if fwd else r["subj"],
+                                "confidence": r["conf"], "tier": r["tier"] or 1,
+                                "ev": "direct", "source_type": "government_open_data",
+                                "source_url": None,
+                                "via": r["subj"] if fwd else r["loc"],
+                                "edge_id": ("mev:" if fwd else "mevr:") + r["event_id"],
+                                "verification": "hardened", "date": r["ts"],
+                                "precision": r["prec"], "contradicting": "[]",
+                                "human_status": "unverified", "forward": fwd,
+                                "label_forward": fwd})
+        return out
+
+    def neighborhood_reference(self, eid: str, k: int = MAX_K) -> dict | None:
+        """THE REFERENCE IMPLEMENTATION — materialise everything, then slice.
+
+        🔴 NOT THE REQUEST PATH, AND KEPT ON PURPOSE.  This is what
+        `neighborhood()` used to do, and it is retained so the bounded version can
+        be proven equal to it rather than argued equal to it — forever, by a test,
+        not once in a session log.  It is O(degree) by construction, which is
+        exactly why it is not what a request runs.
+
+        Any divergence between this and `neighborhood()` is a defect in the
+        bounded path, and the test that compares them is the only thing standing
+        between "we think the fast path is equivalent" and knowing it.
+        """
+        cid = self.canonical(eid)
+        n = self.node(cid)
+        if n is None:
+            return None
+        k = max(1, min(MAX_K, int(k)))
+        ids = self.group(cid)
+        raw = self._raw_edges(ids)
+        degree = len(raw)
+        best: OrderedDict[tuple, dict] = OrderedDict()
+        for e in raw:
+            key = (e["other"], e["rel"])
+            if key not in best or self._better(e, best[key]):
+                best[key] = e
+        buckets = defaultdict(list)
+        for e in best.values():
+            buckets[e["rel"]].append(e)
+        for v in buckets.values():
+            v.sort(key=lambda e: (-self._rank(e), e["other"]))
+        rel_census = {r: len(v) for r, v in buckets.items()}
+        order = sorted(buckets, key=lambda r: (-len(buckets[r]), r))
+        chosen, i = [], 0
+        while len(chosen) < k and any(buckets[r] for r in order):
+            r = order[i % len(order)]
+            if buckets[r]:
+                chosen.append(buckets[r].pop(0))
+            i += 1
+        neighbors, nodes = [], {}
+        for e in chosen:
+            on = self.node(self.canonical(e["other"]))
+            if on is None:
+                continue
+            nodes[on["uid"]] = on
+            neighbors.append({
+                "uid": on["uid"], "rel": e["rel"],
+                "rel_label": (REL_LABEL.get(e["rel"], e["rel"])
+                              if e.get("label_forward", e.get("forward", True))
+                              else REL_LABEL_REVERSE.get(
+                                  e["rel"], REL_LABEL.get(e["rel"], e["rel"]))),
+                "confidence": e["confidence"], "tier": e["tier"], "ev": e["ev"],
+                "source_type": e["source_type"], "verification": e["verification"],
+                "via": None if e["via"] == cid else e["via"],
+                "role": e.get("role"), "date": e.get("date"),
+            })
+        return {
+            "node": n, "degree": degree,
+            "distinct_neighbors": len({e["other"] for e in best.values()}),
+            "returned": len(neighbors), "cap": k,
+            "capped": len(best) > len(chosen),
+            "neighbors": neighbors, "nodes": list(nodes.values()),
+            "rel_census": dict(sorted(rel_census.items())),
+        }
+
     def neighborhood(self, eid: str, k: int = MAX_K) -> dict | None:
         """The node, its true degree, and at most `k` neighbours.
 
@@ -422,55 +825,21 @@ class GraphAPI:
         if n is None:
             return None
         ids = self.group(cid)
-        raw = self._raw_edges(ids)
 
-        # collapse parallel relations onto the same neighbour, keeping the
-        # strongest — but count the true degree BEFORE collapsing, because the
-        # count the UI shows must be the number of relations that exist
-        degree = len(raw)
-        # 🔴 A MISSING CONFIDENCE IS NOT A ZERO CONFIDENCE.  A derived
-        # `mineral_site_location` row carries the site's own MIN commodity
-        # confidence, and a site with no commodity assertion at all would carry
-        # None.  None must never reach the payload as 0.0 — that would be this
-        # module inventing a number — but it has to ORDER somewhere, and last is
-        # the only honest place.  `_rank` is used for sorting only; `confidence`
-        # goes out exactly as the graph recorded it, None included.
-        _rank = lambda e: e["confidence"] if e["confidence"] is not None else -1.0
-        best: OrderedDict[tuple, dict] = OrderedDict()
-        for e in raw:
-            # 🔴 DIRECTION IS **NOT** IN THIS KEY, AND THAT IS A CORRECTION, NOT
-            # THE ORIGINAL.  This work order added it and an independent verifier
-            # showed the addition was a regression, after two wrong justifications
-            # from me:
-            #   1. "a company that is both controller and operator of one site
-            #      produces one edge each way" — false. Controller and operator are
-            #      different relationship TYPES (`ownership` / `contractor`), so
-            #      they never shared a key to begin with.
-            #   2. "no pair in this corpus collides across directions" — also
-            #      false. `government_contract` is written agency->company by
-            #      `scope:rule_11` and company->agency by the usaspending loader,
-            #      and FOUR canonical pairs carry both (DoD, DoE and NASA against
-            #      LOCKHEED MARTIN CORP; NASA against SPACE EXPLORATION
-            #      TECHNOLOGIES CORP).
-            # Splitting on direction there rendered TWO rows both reading
-            # "contract with Department of Defense", because the split tracks which
-            # loader wrote a row rather than anything about the relationship.  The
-            # deliberate semantics of this collapse are "parallel relations to one
-            # neighbour become one, keeping the strongest" — 8 real Lockheed awards
-            # already collapse to one row and are meant to.  Direction belongs in
-            # the LABEL, which `label_forward` gives it, and nowhere else.
-            key = (e["other"], e["rel"])
-            if key not in best or _rank(e) > _rank(best[key]):
-                best[key] = e
+        # 🔴 THE DISCLOSED COUNTS COME FROM AGGREGATES, THE ROWS FROM A BOUNDED
+        # FETCH.  This is the whole change: `degree`, `distinct_neighbors` and
+        # `rel_census` stay TRUE while the work stops scaling with them.
+        degree, rel_census, distinct = self._census(ids)
 
-        buckets = defaultdict(list)
-        for e in best.values():
-            buckets[e["rel"]].append(e)
-        for v in buckets.values():
-            v.sort(key=lambda e: (-_rank(e), e["other"]))
+        # ⚠️ THE ROUND-ROBIN ORDER IS COMPUTED FROM THE TRUE PER-TYPE COUNTS, NOT
+        # FROM THE FETCHED BUCKETS.  Ordering by fetched size would clamp every
+        # large type to `k` and re-order them by name — silently changing which
+        # neighbours a capped expansion returns.  The census is what keeps the
+        # selection identical to the reference implementation.
+        order = sorted(rel_census, key=lambda r: (-rel_census[r], r))
+        buckets = {r: self._bounded(ids, r, k) for r in order}
 
-        # round-robin so every relationship type present is represented
-        chosen, order = [], sorted(buckets, key=lambda r: (-len(buckets[r]), r))
+        chosen = []
         i = 0
         while len(chosen) < k and any(buckets[r] for r in order):
             r = order[i % len(order)]
@@ -499,14 +868,13 @@ class GraphAPI:
         out = {
             "node": n,
             "degree": degree,
-            "distinct_neighbors": len({e["other"] for e in best.values()}),
+            "distinct_neighbors": distinct,
             "returned": len(neighbors),
             "cap": k,
-            "capped": len(best) > len(chosen),
+            "capped": sum(rel_census.values()) > len(chosen),
             "neighbors": neighbors,
             "nodes": list(nodes.values()),
-            "rel_census": {r: len(buckets[r]) + sum(1 for c in chosen if c["rel"] == r)
-                           for r in sorted(set(list(buckets) + [c["rel"] for c in chosen]))},
+            "rel_census": dict(sorted(rel_census.items())),
         }
         if self._cache is not None:
             with self._lock:
