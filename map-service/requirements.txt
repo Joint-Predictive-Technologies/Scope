@@ -1,0 +1,5 @@
+# Deliberately minimal. This service serves a static export and one read-only
+# SQLite query; it has no scheduler, no outbound API calls, no database driver
+# beyond the stdlib's sqlite3, and no dependency on Scope's requirements.txt.
+fastapi
+uvicorn[standard]

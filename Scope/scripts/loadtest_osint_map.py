@@ -50,6 +50,11 @@ import urllib.error
 import urllib.request
 from collections import Counter
 
+# set from argv in main(); module-level so the load functions can stay
+# signature-compatible with every earlier invocation of this tool
+MAP_BASE = None
+MAP_PREFIX = "/osint-map"
+
 
 def get(base, path, xff=None, timeout=120):
     req = urllib.request.Request(base + path)
@@ -124,7 +129,7 @@ def load_window(base, pool, workers, seconds, host_path, host_samples, spoof=Tru
         i = 0
         while not stop.is_set():
             e, k = nxt()
-            r = get(base, f"/osint-map/api/graph/{e}?k={k}",
+            r = get(MAP_BASE, f"{MAP_PREFIX}/api/graph/{e}?k={k}",
                     xff=(f"10.{w}.{i % 250}.{(i * 7) % 250}" if spoof else "10.0.0.7"))
             with lock:
                 res.append(r)
@@ -173,7 +178,7 @@ def throughput_curve(base, pool, levels, per_level, serial_control=True):
     # for, but a metric that needs a control to explain its own noise is not
     # finished. One untimed pass over the same entities removes it.
     for i in range(per_level):
-        get(base, f"/osint-map/api/graph/{pool[i % len(pool)][0]}?k=39")
+        get(MAP_BASE, f"{MAP_PREFIX}/api/graph/{pool[i % len(pool)][0]}?k=39")
     # the same entities, in the same order, at every level — only the thread count
     # changes.  `k` varies per level purely to keep every request cache-cold; it
     # barely moves the cost, which is dominated by the k-independent census.
@@ -195,7 +200,7 @@ def _run_level(base, work, concurrency, li, control=False):
 
     def w(part, wi):
         for j, (e, k) in enumerate(part):
-            r = get(base, f"/osint-map/api/graph/{e}?k={k}", xff=f"11.{li}.{wi}.{j}")
+            r = get(MAP_BASE, f"{MAP_PREFIX}/api/graph/{e}?k={k}", xff=f"11.{li}.{wi}.{j}")
             with lock:
                 res.append(r)
 
@@ -217,7 +222,18 @@ def _run_level(base, work, concurrency, li, control=False):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base", default="http://127.0.0.1:8123")
+    ap.add_argument("--base", default="http://127.0.0.1:8123",
+                    help="the HOST being protected — Scope's own app")
+    # 🔴 THE WHOLE POINT OF THE TWO-SERVICE TOPOLOGY.  When the map runs as its own
+    # Railway service, the hostile load goes to a DIFFERENT ORIGIN from the page
+    # being measured. Defaults to `--base` so the single-process form this tool was
+    # built for still works unchanged and its earlier numbers stay comparable.
+    ap.add_argument("--map-base", default=None,
+                    help="the MAP service base URL (default: same as --base)")
+    # mounted in Scope the map lives under /osint-map; standalone it owns its root
+    ap.add_argument("--map-prefix", default=None,
+                    help="path prefix for the map's routes "
+                         "(default: '/osint-map' when --map-base is unset, '' when set)")
     ap.add_argument("--port", type=int)
     ap.add_argument("--db", required=True, help="the serving snapshot, to pick the worst case")
     ap.add_argument("--host-path", default="/", help="a Scope page to protect")
@@ -239,6 +255,13 @@ def main():
     ap.add_argument("--json")
     a = ap.parse_args()
     base = f"http://127.0.0.1:{a.port}" if a.port else a.base
+    map_base = a.map_base or base
+    map_prefix = a.map_prefix if a.map_prefix is not None else (
+        "" if a.map_base else "/osint-map")
+    globals()["MAP_BASE"], globals()["MAP_PREFIX"] = map_base, map_prefix
+    if map_base != base:
+        print(f"host   {base}")
+        print(f"map    {map_base}{map_prefix or '/'}   (SEPARATE ORIGIN)")
 
     pool = worst_case_entities(a.db, a.pool)
     eid, name, deg = pool[0]
@@ -248,7 +271,7 @@ def main():
           f"(lowest in pool: {pool[-1][1][:28]}, {pool[-1][2]:,})\n")
 
     for _ in range(240):
-        if get(base, "/osint-map/")[0] == 200:
+        if get(MAP_BASE, f"{MAP_PREFIX}/")[0] == 200:
             break
         time.sleep(0.5)
     else:
@@ -292,7 +315,9 @@ def main():
         print(f"   ⟹ a sound metric scores the control near 1.00x. "
               f"{'🔴 IT DOES NOT — the number above is not measuring concurrency.' if abs(ctrl_scale - 1) > 0.35 else 'OK.'}")
 
-    result = {"host_path": a.host_path, "worst_case": {"entity_id": eid, "name": name,
+    result = {"host_path": a.host_path, "host_base": base,
+              "map_base": map_base, "map_prefix": map_prefix,
+              "separate_origin": map_base != base, "worst_case": {"entity_id": eid, "name": name,
               "edge_endpoints": deg}, "pool_size": len(pool), "workers": a.workers,
               "baseline": baseline, "under_load_host": under, "map_latency": maplat,
               "map_codes": dict(codes), "throughput_curve": curve,
