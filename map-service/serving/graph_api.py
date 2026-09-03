@@ -57,11 +57,14 @@ derived here, like the other two, from `events.location_entity_id` on
 """
 from __future__ import annotations
 
+import datetime
 import heapq
+import json
 import os
 import sqlite3
 import sys
 import threading
+import time
 from collections import defaultdict, OrderedDict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -171,6 +174,16 @@ class GraphAPI:
         self._strays = defaultdict(list)
         for stray, parent in self._canon.items():
             self._strays[parent].append(stray)
+        # 🔴 THE PRECOMPUTED CENSUS IS USED ONLY IF THE DATABASE CAN PROVE IT IS
+        # ITS OWN.  Presence of the table is not enough — a truncated or
+        # half-written one would make every DISCLOSED count quietly wrong, which
+        # is the single worst thing this module can do.  `build_census()` seals it
+        # in `entity_census_seal` with its own row count AND the row counts of
+        # every table it derives from; if any of those has moved, the fast path is
+        # refused outright and every request computes live.  Slow and right beats
+        # fast and wrong.
+        self._census_misses = 0
+        self._census_tbl = self._census_table_is_trustworthy()
 
     @property
     def con(self) -> sqlite3.Connection:
@@ -268,7 +281,15 @@ class GraphAPI:
             # `Energy Queen` mine, the first version rendered "owns Energy Fuels
             # Inc" — the graph telling the reader the exact opposite of the row.
             label_forward = forward
-            if r["rel"] in ("ownership", "contractor") and r["a_type"] == "asset":
+            # 🔴 `permit` TOO, AND ITS ABSENCE WAS THE SAME BUG ONE TYPE OVER.
+            # The `asset` test above was written when a site was always a mine.
+            # North Dakota writes 6,944 `contractor` edges whose `entity_a` is a
+            # `permit` — structurally identical to the asset rows, same direction,
+            # same relation — so without `permit` here every one of them renders
+            # the verb BACKWARDS: standing on a permitted well, "PERMIT 7 works
+            # CONTINENTAL RESOURCES". An independent verifier confirmed the shape
+            # on live edges rather than inferring it.
+            if r["rel"] in ("ownership", "contractor") and r["a_type"] in ("asset", "permit"):
                 label_forward = not forward
             out.append({"rel": r["rel"], "other": other, "confidence": r["conf"],
                         "tier": r["tier"], "ev": r["ev"], "source_type": r["source_type"],
@@ -367,7 +388,7 @@ class GraphAPI:
                        (SELECT MIN(s.source_reliability_tier) FROM site_commodity_assertion s
                          WHERE s.site_entity_id = ev.subject_entity_id) tier
                   FROM events ev
-                 WHERE ev.event_type='mineral_resource_identified'
+                 WHERE ev.event_type IN ('mineral_resource_identified','drilling_activity')
                    AND ev.location_entity_id IS NOT NULL
                    AND {_where} IN ({q})""", tuple(ids)):
                 out.append({"rel": "mineral_site_location",
@@ -463,7 +484,108 @@ class GraphAPI:
             return ra > rb
         return a["edge_id"] < b["edge_id"]
 
+    # ── the precomputed census, and the seal that says it belongs here ───────
+    def _census_table_is_trustworthy(self) -> bool:
+        """Is `entity_census` a description of THIS database, or of some other one?
+
+        🔴 PRESENCE OF THE TABLE IS NOT EVIDENCE THAT IT IS CORRECT, and the
+        numbers it carries are the ones the UI DISCLOSES.  `build_census()` seals
+        it with the row counts of every table the census is derived from; this
+        re-counts them and refuses the fast path on any disagreement.
+
+        ⚠️ WHAT THIS DOES NOT PROVE, said plainly: row counts catch a truncated
+        table, a snapshot rebuilt without its census, and a census copied from a
+        different-sized database.  They do NOT catch an in-place UPDATE that
+        leaves every count unchanged.  The structural guarantee against that is
+        that the snapshot is built as one artifact and replaced as a whole file —
+        this seal is the cheap check that the artifact is still intact, not a
+        cryptographic one, and it is not offered as one.
+        """
+        if os.environ.get("OSINT_MAP_LIVE_CENSUS"):
+            # ⚠️ THE SWITCH THAT MAKES THE BEFORE/AFTER MEASUREMENT A CONTROLLED
+            # ONE, and an operational escape hatch besides.  The load-test gate
+            # compares a request that reads this table against the same request
+            # computing the same numbers live; doing that across two builds would
+            # vary the code AND the data at once, so instead one snapshot is
+            # served both ways and only this flag moves.  If the table is ever
+            # suspected in production it is also how you turn it off without
+            # rebuilding anything — slower, identical answers.
+            return False
+        try:
+            seal = self.con.execute(
+                "SELECT rows, source_counts FROM entity_census_seal").fetchone()
+        except sqlite3.OperationalError:
+            return False                      # no table — a live DB, compute live
+        if seal is None:
+            return False
+        want = json.loads(seal["source_counts"])
+        # ⚠️ THE SEAL IS DATA INSIDE THE DATABASE, so its keys are not trusted as
+        # SQL.  They are matched against the tuple the builder derives from, and
+        # anything else refuses the fast path rather than being interpolated into
+        # a statement.  Writing the seal already requires write access to the
+        # snapshot — this is not the last line of defence — but a name read from a
+        # file has no business reaching a query unchecked.
+        if set(want) != set(CENSUS_SOURCES):
+            print(f"⚠️  entity_census seal names {sorted(want)}, not "
+                  f"{sorted(CENSUS_SOURCES)} — computing the census live", file=sys.stderr)
+            return False
+        for t, n in want.items():
+            got = self.con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+            if got != n:
+                print(f"⚠️  entity_census seal rejects {t}: {got} rows, sealed at {n}"
+                      f" — computing the census live", file=sys.stderr)
+                return False
+        got = self.con.execute("SELECT COUNT(*) FROM entity_census").fetchone()[0]
+        if got != seal["rows"]:
+            print(f"⚠️  entity_census holds {got} rows, sealed at {seal['rows']}"
+                  f" — computing the census live", file=sys.stderr)
+            return False
+        return True
+
     def _census(self, ids: list[str]) -> tuple[int, dict[str, int], int]:
+        """`degree`, per-relation distinct neighbours, and total distinct
+        neighbours — READ, not computed, when the database carries the table.
+
+        🔴 THIS IS THE WHOLE OF THE SECOND PERFORMANCE PASS.  The live version
+        below is O(degree) by nature — you cannot count 26,179 distinct
+        neighbours without touching all 26,179 — and re-measured on the serving
+        snapshot it was **88.5% of a request's time** (37.1 ms of 38.7 ms for
+        `Apple Inc.`).  Nothing about the shape of that query can be made cheap,
+        so it is not asked at request time at all: `build_census()` computes it
+        ONCE for every canonical entity when the serving snapshot is built, and a
+        request does a single primary-key seek into a `WITHOUT ROWID` table.
+
+        ⚠️ WHY THIS INTRODUCES NO STALENESS.  The snapshot is already a static
+        artifact replaced as a whole file (End State #8 — the map is not
+        live-synced), and this table is written inside the same build, from the
+        same rows, in the same transaction.  It cannot describe a database other
+        than the one it is in.  Against a LIVE database — a dev box reading
+        `osint.db`, which other sessions write — there is no such table and this
+        method computes, exactly as before.  The fast path is only taken where
+        its assumption is structurally true.
+
+        🔴 A MISSING ROW FALLS BACK, IT DOES NOT GUESS.  `degree` and
+        `rel_census` are DISCLOSED numbers; a cap that also shrank the count it
+        reports would be indistinguishable from a small graph, which is the
+        defect the disclosure exists to prevent.  So an id the table does not
+        cover is computed live — the right answer slowly — and never defaulted
+        to zero.  `_census_misses` counts them, so a fallback is visible rather than
+        silent.  WARNING: nothing in the build asserts that counter is zero.  The
+        suite checks it against the fixture, and the session that added this
+        checked it once across all 235,987 canonical entities -- an observation
+        that has been made, not an invariant the builder enforces.
+        """
+        if self._census_tbl:
+            r = self.con.execute(
+                "SELECT degree, distinct_neighbors, rel_census FROM entity_census"
+                " WHERE canonical_entity_id = ?", (ids[0],)).fetchone()
+            if r is not None:
+                return r[0], json.loads(r[2]), r[1]
+            with self._lock:
+                self._census_misses += 1
+        return self._census_live(ids)
+
+    def _census_live(self, ids: list[str]) -> tuple[int, dict[str, int], int]:
         """`degree`, per-relation distinct neighbours, and total distinct
         neighbours — from aggregates, never from a materialised set.
 
@@ -472,14 +594,43 @@ class GraphAPI:
         indistinguishable from a small graph, which is the defect the disclosure
         exists to prevent.
 
-        ⚠️ THIS IS NOW THE COST OF A REQUEST, AND IT IS O(degree) BY NATURE.  The
-        bounded row fetch it sits beside costs 1.0 ms for `Apple Inc.`; this costs
-        ~29 ms, because you cannot count 26,179 distinct neighbours without
-        touching them.  It is SQL rather than Python on purpose — `sqlite3`
-        releases the GIL while stepping, so this work parallelises better than the
-        old dict-building did — 89 req/s at eight concurrent clients against 11 —
-        but it does NOT parallelise enough: throughput per client still falls as
-        clients are added (0.74x from 1 to 8, against 0.22x before).
+        ⚠️ THIS IS NO LONGER THE COST OF A REQUEST — IT IS THE GROUND TRUTH AND
+        THE FALLBACK.  It is O(degree) by nature: you cannot count 26,179 distinct
+        neighbours without touching all 26,179.  Re-measured on the serving
+        snapshot it is 37.1 ms of `Apple Inc.`'s 38.7 ms request, 88.5% of the
+        aggregate across the ten highest-degree entities.  `build_census()`
+        precomputes exactly this, once, at snapshot-build time, and `_census()`
+        above reads the result.  This method stays because the precomputed table
+        has to be provable equal to SOMETHING, and because a database without the
+        table — the live `osint.db` a dev box reads — still has to be served
+        correctly.
+
+        ⚠️ IT IS SQL RATHER THAN PYTHON ON PURPOSE, and that stops mattering here.
+        `sqlite3` releases the GIL while stepping, so this parallelised better
+        than the dict-building it replaced — 89 req/s at eight concurrent clients
+        against 11 — but not enough: throughput per client still fell as clients
+        were added (0.60x from 1 to 8, against 0.22x before).
+
+        🔴 AND PRECOMPUTATION DID NOT FIX THAT EITHER — MEASURED, NOT ASSUMED.
+        Removing this query from the request took it to 1.41 ms and took throughput
+        at one client from 118 to 345 req/s, and BOTH limbs of the deploy gate got
+        WORSE: the host page under eight hostile clients went 6.8x -> 22.8x and
+        under thirty 13.9x -> 137x, and the throughput RATIO from one to thirty
+        clients 0.73x -> 0.22x.
+
+        ⚠️ AND A CLAIM THAT WAS HERE AND WAS BACKWARDS: I wrote that this build
+        "serves 46% LESS map traffic under thirty clients".  It serves MORE — 45 ->
+        251 req/s at eight clients and 70 -> 166 at thirty, measured with the load
+        generator split across six processes.  The single-process generator the
+        harness uses has its own GIL, so once the server got several times faster
+        the CLIENT became the bottleneck and a client-side rate read the fast build
+        as doing less work.  Four of the session's own artefacts already showed the
+        opposite and I did not read them; an independent verifier did.  The
+        throughput LIMB still fails — the ratio falls in both arms — but it fails
+        with absolute throughput several times higher, which is a different fact.  A hostile caller is
+        a closed loop — cheaper requests mean more of them — and nothing inside one
+        process separates the map's CPU from its host's.  Do not read this method's
+        cost as the thing standing between the map and a deploy.
 
         🔴 A PER-SOURCE SPLIT WAS TRIED AND WAS MEASURABLY WORSE, WHICH IS WHY THIS
         SHAPE IS STILL HERE.  Five small `UNION ALL` tallies plus a global `UNION`
@@ -501,10 +652,10 @@ class GraphAPI:
                  WHERE ev.event_type='government_contract_awarded'
                    AND ev.location_entity_id IN ({q})
       UNION ALL SELECT 'mineral_site_location', ev.location_entity_id FROM events ev
-                 WHERE ev.event_type='mineral_resource_identified'
+                 WHERE ev.event_type IN ('mineral_resource_identified','drilling_activity')
                    AND ev.location_entity_id IS NOT NULL AND ev.subject_entity_id IN ({q})
       UNION ALL SELECT 'mineral_site_location', ev.subject_entity_id FROM events ev
-                 WHERE ev.event_type='mineral_resource_identified'
+                 WHERE ev.event_type IN ('mineral_resource_identified','drilling_activity')
                    AND ev.location_entity_id IN ({q})
       UNION ALL SELECT 'patent_address', pl.location_entity_id FROM patent_location pl
                  WHERE pl.patent_entity_id IN ({q}) AND pl.location_entity_id IS NOT NULL
@@ -633,7 +784,9 @@ class GraphAPI:
             mine = r["a"] if forward else r["b"]
             other = r["b"] if forward else r["a"]
             label_forward = forward
-            if rel in ("ownership", "contractor") and r["a_type"] == "asset":
+            # the same fix on the streaming path — a one-sided repair here would be
+            # the "rule enforced in one of the two places it applies" failure
+            if rel in ("ownership", "contractor") and r["a_type"] in ("asset", "permit"):
                 label_forward = not forward
             yield {"rel": rel, "other": other, "confidence": r["conf"],
                    "tier": r["tier"], "ev": r["ev"], "source_type": r["source_type"],
@@ -731,7 +884,7 @@ class GraphAPI:
                            (SELECT MIN(s.source_reliability_tier) FROM site_commodity_assertion s
                              WHERE s.site_entity_id = ev.subject_entity_id) tier
                       FROM events ev
-                     WHERE ev.event_type='mineral_resource_identified'
+                     WHERE ev.event_type IN ('mineral_resource_identified','drilling_activity')
                        AND ev.location_entity_id IS NOT NULL
                        AND {where} IN ({q})""", tuple(ids)):
                     out.append({"rel": "mineral_site_location",
@@ -832,9 +985,24 @@ class GraphAPI:
             return None
         ids = self.group(cid)
 
-        # 🔴 THE DISCLOSED COUNTS COME FROM AGGREGATES, THE ROWS FROM A BOUNDED
-        # FETCH.  This is the whole change: `degree`, `distinct_neighbors` and
-        # `rel_census` stay TRUE while the work stops scaling with them.
+        # 🔴 THE DISCLOSED COUNTS ARE READ, THE ROWS COME FROM A BOUNDED FETCH.
+        # `degree`, `distinct_neighbors` and `rel_census` stay TRUE while the work
+        # stops scaling with them — first by moving from a materialised set to an
+        # aggregate, and now by moving that aggregate out of the request entirely.
+        # ⚠️ THIS DID NOT CLOSE THE DEPLOY GATE AND THE COMMENT WILL NOT PRETEND IT
+        # DID.  A request went from 38.7 ms to 1.41 ms and the host page under
+        # eight hostile clients got WORSE, 6.8x to 22.8x, and under thirty 13.9x to
+        # 137x, while the map itself served 2.4-5.6x MORE traffic.  Per-request cost
+        # was never what the gate measured.
+        # ⚠️ WHY, EXACTLY, IS NOT ESTABLISHED.  A GIL/saturation story was proposed
+        # and an independent verifier disproved it: server CPU peaks at 283% of a
+        # 1000% box, a pure-Python thread inside the process is not starved, and a
+        # 250x sweep of sys.setswitchinterval moves nothing.  What it did find is
+        # that the damage is NOT uniform across routes -- static routes degrade ~5x
+        # while Scope's `/`, the one that opens a SQLite connection per request,
+        # degrades 71x.  That points at contention in SQLite or the page cache, not
+        # at CPU.  Unresolved, and named as unresolved.
+        # See SESSION-2026-09-02-map-alpha-performance-redesign.
         degree, rel_census, distinct = self._census(ids)
 
         # ⚠️ THE ROUND-ROBIN ORDER IS COMPUTED FROM THE TRUE PER-TYPE COUNTS, NOT
@@ -888,3 +1056,173 @@ class GraphAPI:
                 while len(self._cache) > self._cache_size:
                     self._cache.popitem(last=False)
         return out
+
+
+# ── the precomputed census, built once, read forever ─────────────────────────
+# 🔴 THIS QUERY AND `GraphAPI._census_live` ARE ONE RULE WRITTEN TWICE, AND THAT
+# IS WHY THEY LIVE IN THE SAME FILE.  Every asymmetry in the live version is
+# deliberate and load-bearing, and the precomputed one has to reproduce all of
+# them or a DISCLOSED count silently changes:
+#
+#   * `edges` is walked in BOTH directions, with no NULL guard on either end.
+#     A NULL `other` survives the UNION and is then dropped by `o NOT IN (ids)`
+#     evaluating to NULL — so NULL neighbours are excluded, and `o IS NOT NULL`
+#     below is that same exclusion said out loud.
+#   * the FORWARD event and `patent_location` clauses require a non-NULL location;
+#     the REVERSE ones get it for free from `location_entity_id IN (ids)`.  The
+#     `IS NOT NULL` added to the reverse clauses here is equivalent, not extra:
+#     a NULL member can never be in a group.
+#   * a group member is never its own neighbour.  Live, that is `o NOT IN (ids)`
+#     where `ids` is the canonical group; here it is `canonical(o) = canonical(m)`,
+#     which is the same set because `entity_canonical` holds no self-maps and no
+#     chains — asserted below rather than assumed, because if either ever appears
+#     the two definitions stop agreeing.
+CENSUS_PAIRS_SQL = """
+          SELECT relationship_type   rel, entity_a_id        m, entity_b_id        o FROM edges
+UNION ALL SELECT relationship_type,       entity_b_id,          entity_a_id          FROM edges
+UNION ALL SELECT 'place_of_performance',  subject_entity_id,    location_entity_id
+            FROM events WHERE event_type = 'government_contract_awarded'
+                          AND location_entity_id IS NOT NULL
+UNION ALL SELECT 'place_of_performance',  location_entity_id,   subject_entity_id
+            FROM events WHERE event_type = 'government_contract_awarded'
+                          AND location_entity_id IS NOT NULL
+-- 🔴 THE SAME TWO EVENT TYPES AS THE LIVE PATH, OR THE PRECOMPUTED CENSUS AND THE
+-- ROWS IT COUNTS DISAGREE.  This aggregate and `_relations()` are one rule written
+-- twice, and widening only one of them is exactly the divergence
+-- `test_THE_PRECOMPUTED_CENSUS_EQUALS_THE_LIVE_ONE_FOR_EVERY_ENTITY` exists to
+-- catch — it caught this, reporting McKenzie County as degree 1 against a live 73.
+UNION ALL SELECT 'mineral_site_location', subject_entity_id,    location_entity_id
+            FROM events WHERE event_type IN ('mineral_resource_identified','drilling_activity')
+                          AND location_entity_id IS NOT NULL
+UNION ALL SELECT 'mineral_site_location', location_entity_id,   subject_entity_id
+            FROM events WHERE event_type IN ('mineral_resource_identified','drilling_activity')
+                          AND location_entity_id IS NOT NULL
+UNION ALL SELECT 'patent_address',        patent_entity_id,     location_entity_id
+            FROM patent_location WHERE location_entity_id IS NOT NULL
+UNION ALL SELECT 'patent_address',        location_entity_id,   patent_entity_id
+            FROM patent_location WHERE location_entity_id IS NOT NULL
+UNION ALL SELECT 'within',                entity_id,            parent_location_id
+            FROM locations WHERE parent_location_id IS NOT NULL
+UNION ALL SELECT 'within',                parent_location_id,   entity_id
+            FROM locations WHERE parent_location_id IS NOT NULL
+"""
+
+# the tables the census is derived from — the seal re-counts exactly these
+CENSUS_SOURCES = ("entities", "edges", "entity_canonical", "locations",
+                  "patent_location", "events")
+
+
+def build_census(con: sqlite3.Connection, progress=lambda *_: None) -> dict:
+    """Compute `_census_live` for EVERY canonical entity, once, and store it.
+
+    Takes a WRITABLE connection to a serving snapshot (or, in the test suite, to
+    a copy of the fixture) and leaves behind `entity_census` and its seal.
+
+    ⭐ ONE PASS, NOT ONE PER ENTITY.  The live census asks "who are THIS group's
+    neighbours" and pays O(degree) for the answer; this asks "who is everyone's
+    neighbour" once and pays O(total relations) for all 236,420 of them — the
+    same rows, read once instead of once per request, and the per-entity cost
+    disappears into a GROUP BY.
+
+    🔴 `WITHOUT ROWID`, AND THAT IS THE POINT OF THE WHOLE EXERCISE.  The request
+    path does one primary-key seek that returns the payload out of the index
+    leaf itself.  A rowid table would be a seek into the index followed by a
+    second seek into the table — still fast, but this is the one lookup standing
+    between a request and O(degree), and it is worth making it a single b-tree
+    descent.
+    """
+    self_maps = con.execute(
+        "SELECT COUNT(*) FROM entity_canonical WHERE entity_id = canonical_entity_id"
+    ).fetchone()[0]
+    # THE TWO CONDITIONS MUST BE DISJOINT, and written the obvious way they are
+    # not.  `canonical_entity_id IN (SELECT entity_id FROM entity_canonical)` is
+    # also satisfied by a self-map, so `x -> x` raised on the CHAINED term and the
+    # SELF-MAP term was never independently reached: the test that named self-maps
+    # passed for the wrong reason, and deleting `self_maps` from the guard below
+    # survived the entire suite.  An independent verifier's mutants found it.
+    chained = con.execute(
+        "SELECT COUNT(*) FROM entity_canonical WHERE entity_id <> canonical_entity_id"
+        " AND canonical_entity_id IN (SELECT entity_id FROM entity_canonical"
+        "                              WHERE entity_id <> canonical_entity_id)"
+    ).fetchone()[0]
+    if self_maps or chained:
+        # 🔴 NOT A WARNING — A REFUSAL.  `canonical(o) = canonical(m)` is only the
+        # same set as `o IN group(m)` while the mapping is flat and irreflexive.
+        # With a chain or a self-map the two definitions diverge and the stored
+        # counts would disagree with the live ones for exactly the entities
+        # nobody would think to check.
+        raise ValueError(
+            f"entity_canonical is not flat: {self_maps} self-maps, {chained} chained "
+            f"— the precomputed census's group exclusion would not match the live one")
+
+    t0 = time.time()
+    con.execute("DROP TABLE IF EXISTS entity_census")
+    con.execute("DROP TABLE IF EXISTS entity_census_seal")
+    con.execute("""CREATE TABLE entity_census (
+                       canonical_entity_id TEXT PRIMARY KEY,
+                       degree              INTEGER NOT NULL,
+                       distinct_neighbors  INTEGER NOT NULL,
+                       rel_census          TEXT    NOT NULL
+                   ) WITHOUT ROWID""")
+    con.execute("""CREATE TABLE entity_census_seal (
+                       rows           INTEGER NOT NULL,
+                       source_counts  TEXT    NOT NULL,
+                       built_at       TEXT    NOT NULL,
+                       builder        TEXT    NOT NULL)""")
+
+    # every entity resolved to its canonical id, strays included
+    con.execute("""CREATE TEMP TABLE _canon AS
+                     SELECT entity_id eid, canonical_entity_id cid FROM entity_canonical
+                     UNION ALL
+                     SELECT entity_id, entity_id FROM entities
+                      WHERE entity_id NOT IN (SELECT entity_id FROM entity_canonical)""")
+    con.execute("CREATE UNIQUE INDEX _canon_eid ON _canon(eid)")
+    progress("canon", time.time() - t0)
+
+    # every (canonical group, relation, neighbour) the live census would count,
+    # with the group's own members already excluded
+    con.execute(f"""CREATE TEMP TABLE _pairs AS
+                      SELECT c1.cid cid, p.rel rel, p.o o
+                        FROM ({CENSUS_PAIRS_SQL}) p
+                        JOIN _canon c1 ON c1.eid = p.m
+                        LEFT JOIN _canon c2 ON c2.eid = p.o
+                       WHERE p.o IS NOT NULL
+                         AND IFNULL(c2.cid, p.o) <> c1.cid""")
+    n_pairs = con.execute("SELECT COUNT(*) FROM _pairs").fetchone()[0]
+    progress("pairs", time.time() - t0, n_pairs)
+
+    per: dict[str, dict[str, int]] = defaultdict(dict)
+    degree: dict[str, int] = defaultdict(int)
+    for cid, rel, raw, dist in con.execute(
+            "SELECT cid, rel, COUNT(*), COUNT(DISTINCT o) FROM _pairs GROUP BY cid, rel"):
+        per[cid][rel] = dist
+        degree[cid] += raw
+    progress("per-rel", time.time() - t0, len(per))
+    distinct = dict(con.execute(
+        "SELECT cid, COUNT(DISTINCT o) FROM _pairs GROUP BY cid"))
+    progress("distinct", time.time() - t0, len(distinct))
+
+    # ⚠️ A ROW FOR EVERY CANONICAL ENTITY, INCLUDING THE UNCONNECTED ONES.  Without
+    # them "no row" would mean two different things — an entity with no relations
+    # and an entity the build missed — and only one of those is safe to serve.
+    def rows():
+        for (cid,) in con.execute(
+                "SELECT entity_id FROM entities"
+                " WHERE entity_id NOT IN (SELECT entity_id FROM entity_canonical)"):
+            p = per.get(cid)
+            yield (cid, degree.get(cid, 0), distinct.get(cid, 0),
+                   json.dumps(p, sort_keys=True, separators=(",", ":")) if p else "{}")
+
+    con.executemany("INSERT INTO entity_census VALUES (?,?,?,?)", rows())
+    n_rows = con.execute("SELECT COUNT(*) FROM entity_census").fetchone()[0]
+    counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+              for t in CENSUS_SOURCES}
+    con.execute("INSERT INTO entity_census_seal VALUES (?,?,?,?)",
+                (n_rows, json.dumps(counts),
+                 datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                 "graph_api.build_census"))
+    con.execute("DROP TABLE _pairs")
+    con.execute("DROP TABLE _canon")
+    con.commit()
+    return {"rows": n_rows, "pairs": n_pairs, "source_counts": counts,
+            "seconds": round(time.time() - t0, 1)}

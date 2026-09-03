@@ -133,12 +133,25 @@
          the live surfaces would let an alpha borrow their credibility, which is
          the same mistake `/osint-preview` was named to avoid. The label says
          ALPHA and so does the page. */
-      { href: "/osint-map/", label: "OSINT-Graph map — ALPHA",
+      /* 🔴 THE ONLY OFF-SITE DESTINATION IN THIS NAV.  The map is its own Railway
+         service on its own origin — that is the whole point of the migration: a
+         bug or an overload in the map cannot starve Scope, because they are not
+         the same process.  `external` opens it in a new tab and marks it ↗, so
+         leaving the site is a visible act rather than a surprise. */
+      { href: "https://osint-map-production-066d.up.railway.app", external: true,
+        label: "OSINT-Graph map — ALPHA",
         desc: "Early alpha, real data: where independent sources converge on the same US county" }
     ]}
   ];
 
   var CSS = `
+/* This file ships its own CSS, so the screen-reader-only class it uses lives here
+   too — there is no global stylesheet to inherit one from, and without a rule the
+   text renders visibly next to the label. */
+.scope-nav .sr-only, #scope-rollout .sr-only {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0;
+}
 nav .scope-nav { display:flex; align-items:center; gap:1.1rem; flex:1; min-width:0; }
 nav .scope-nav-brand { font-family:var(--font-sans,Inter,sans-serif); font-weight:900; font-size:1.2rem;
   color:var(--amber,#c89664); letter-spacing:0.05em; text-decoration:none; flex-shrink:0; }
@@ -298,8 +311,11 @@ nav .scope-more[aria-expanded="true"] .chev { transform:rotate(180deg); }
       return '<div class="ro-group"><div class="ro-group-label">' + esc(g.name) + "</div>" +
         g.items.map(function (it) {
           return '<a class="ro-item" href="' + esc(it.href) + '"' +
+            (it.external ? ' target="_blank" rel="noopener noreferrer"' : "") +
             (isCurrent(it.href) ? ' aria-current="page"' : "") + ">" +
-            '<div class="ro-label">' + esc(it.label) + "</div>" +
+            '<div class="ro-label">' + esc(it.label) +
+            (it.external ? ' <span aria-hidden="true">↗</span>' +
+              '<span class="sr-only"> (opens in a new tab)</span>' : "") + "</div>" +
             '<div class="ro-desc">' + esc(it.desc) + "</div></a>";
         }).join("") + "</div>";
     }).join("") +

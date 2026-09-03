@@ -187,9 +187,69 @@ def test_THE_MANIFEST_AGREES_WITH_A_CENSUS_RECOMPUTED_FROM_WHAT_SHIPPED(shipped)
         "manifest describes the page that ships with it")
 
 
-def test_DETAIL_REST_SHIPS_THE_WHOLE_REMAINDER_FOR_EVERY_SIGNAL(shipped):
+def test_DETAIL_REST_SHIPS_THE_WHOLE_REMAINDER_EXCEPT_WHERE_A_CAP_IS_DECLARED(shipped):
+    """Every layer ships its whole remainder — oil/gas ships a DECLARED bound.
+
+    🔴 THIS TEST USED TO ASSERT COMPLETENESS FOR EVERY SOURCE, AND OIL/GAS BROKE
+    IT.  Williams County holds 5,884 wells and ships 61 of them, because one well
+    row is ~480 bytes and McKenzie's 9,205 would be 4.4 MB in a single county
+    file. That bound is deliberate and the page discloses it, but the manifest did
+    not — so this test could not tell a deliberate cap from a truncation bug, and
+    the only way to check it was to know a constant living in `export_map.py`.
+
+    The cap is a manifest field now, and the assertion is against the DECLARED
+    number: a capped layer must ship exactly `12 + rest_cap` rows (+1 for the
+    lowest-confidence well, which is always shipped so the county can justify its
+    own MIN), and never silently fewer. An undeclared cap on any other layer still
+    fails, which is the property worth keeping."""
+    caps = {}
+    og = shipped["manifest"].get("oil_gas")
+    if og and og.get("rest_is_capped"):
+        caps = {k: og["stats"]["rest_cap"] for k, v in
+                shipped["manifest"]["source_families"].items() if v == "oil_gas"}
+
     for s in shipped["signals"]:
         if s.get("detail_total") is None:
             continue
         assert len(s["detail"]) <= 12
-        assert len(s["detail"]) + len(s.get("detail_rest", [])) == s["detail_total"], s["source"]
+        shipped_n = len(s["detail"]) + len(s.get("detail_rest", []))
+        if s["source"] not in caps:
+            assert shipped_n == s["detail_total"], (
+                "%s ships %d of %d rows and declares no cap" %
+                (s["source"], shipped_n, s["detail_total"]))
+            continue
+        cap = caps[s["source"]]
+        # under the cap: the whole remainder, exactly as every other layer
+        if s["detail_total"] <= 12 + cap:
+            assert shipped_n == s["detail_total"], s["source"]
+        else:
+            # at the cap: 12 + cap, plus at most the one deciding well
+            assert 12 + cap <= shipped_n <= 12 + cap + 1, (
+                "%s ships %d rows against a declared cap of 12+%d" %
+                (s["source"], shipped_n, cap))
+
+
+def test_A_CAPPED_LAYER_STILL_REPORTS_ITS_TRUE_TOTAL(shipped):
+    """🔴 The cap is only honest if `detail_total` stays the REAL count.
+
+    The page computes what it could not list as `detail_total - (detail +
+    detail_rest)` and prints it. If a future change made `detail_total` describe
+    what SHIPPED rather than what EXISTS, that sentence would silently become
+    "0 further rows" and the truncation would vanish from the UI while every
+    other assertion here still passed."""
+    og = shipped["manifest"].get("oil_gas")
+    if not og or not og.get("rest_is_capped"):
+        pytest.skip("no capped layer in this export")
+    st = og["stats"]
+    capped = [s for s in shipped["signals"]
+              if s["source"] in
+              {k for k, v in shipped["manifest"]["source_families"].items() if v == "oil_gas"}
+              and s.get("detail_total") is not None]
+    assert capped, "the manifest declares a capped oil/gas layer but no signal carries it"
+    shipped_n = sum(len(s["detail"]) + len(s.get("detail_rest", [])) for s in capped)
+    unshipped = sum(s["detail_total"] - len(s["detail"]) - len(s.get("detail_rest", []))
+                    for s in capped)
+    assert unshipped > 0, "a declared cap that hides nothing is not a cap"
+    # the manifest's own disclosure must equal what the shipped rows say
+    assert st["rows_shipped"] == shipped_n, (st["rows_shipped"], shipped_n)
+    assert st["rows_unshipped"] == unshipped, (st["rows_unshipped"], unshipped)

@@ -111,6 +111,18 @@ NODE_TYPES = {
     # A node type missing from this map is not "unsupported"; it is a disclosed
     # count that silently disagrees with what is drawn.
     "asset": "asset",
+    # 🔴 `permit` — 6,950 REAL ROWS, ADDED BEFORE THE DROP RATHER THAN AFTER IT.
+    # The `asset` entry above records a bug found only once mines were already
+    # shipping: a type missing from this map hits `node() -> None` in
+    # `graph_api.neighborhood()` and is dropped from the neighbour list *after*
+    # being counted into `degree`.  North Dakota's load writes 6,944 `permit`
+    # entities (a permitted well where NO HOLE WAS MADE) and Kansas 6, and every
+    # one of them would have reproduced that bug exactly.  Measured before wiring,
+    # not after: `select entity_type, count(*) from entities` -> permit 6,950.
+    # ⚠️ A permit is NOT an asset and is deliberately not folded into one — ND's
+    # own status guide is what separates them, and the map must not assert a hole
+    # exists where the registry says one does not.
+    "permit": "permit",
 }
 
 
@@ -133,6 +145,16 @@ class Source:
     source_systems: tuple[str, ...]
     tier: int
     evidence: str                      # 'direct' | 'inferred'
+    # 🔴 A SWEEP IS NOT NECESSARILY GLOBAL, AND THE FIRST ONE THIS MAP HOLDS IS NOT.
+    # `sweeps_geography` alone was a whole-map claim, which is the only shape the
+    # first four sources needed: they cannot sweep anywhere, so False said it all.
+    # A STATE regulator is different — NDIC's well registry enumerates places
+    # completely inside North Dakota and says NOTHING about Texas.  Reading a bare
+    # True as a licence to emit `no-signal` in a state the source has never seen
+    # would be a far worse claim than the hatch it replaces.
+    # So a sweeping source MUST name the FIPS state codes it sweeps, and
+    # `no-signal` is confined to them.  Empty tuple = sweeps nowhere.
+    sweep_scope: tuple[str, ...] = ()
 
 
 SOURCES: dict[str, Source] = {
@@ -257,6 +279,54 @@ SOURCES: dict[str, Source] = {
         tier=1,
         evidence="direct",
     ),
+    # 🔴 THE FIRST SWEEPING SOURCE THIS MAP HAS EVER HELD, AND THE ARGUMENT IS THE
+    # OPPOSITE OF MSHA'S.  Measured fresh from ND's own registry, not inherited.
+    "oil_gas_nd": Source(
+        id="oil_gas_nd",
+        label="Oil or gas well (NDIC registry)",
+        frame="43,871 wells across 52 of North Dakota's 53 counties — the ENTIRE "
+              "published NDIC well layer, unfiltered; 36,917 carry a coordinate and "
+              "6,954 carry no date the event carrier can hold and are therefore "
+              "loaded but not located",
+        # 🔴 TRUE — THE FIRST ONE.  Scoped to FIPS 38 and nowhere else.
+        sweeps_geography=True,
+        sweep_scope=("38",),
+        frame_evidence=(
+            "🔴 THIS SOURCE SWEEPS AND MSHA DOES NOT, AND THE DIFFERENCE IS THE "
+            "ABSENCE OF A CANVASS GAP.  MSHA's registry is nationwide but the LOADED "
+            "SLICE is `PRIMARY_CANVASS='Metal'`, and 261 live mines in 155 otherwise "
+            "unlit counties fall outside it — so that slice cannot say 'checked'.  "
+            "North Dakota has no such filter: the live FeatureServer answers "
+            "`where=1=1` with COUNT 43,871, exactly the number loaded, and the layer "
+            "carries no definitionExpression.  The loaded slice IS the registry.  "
+            "⭐ AND THE REGISTRY RECORDS ATTEMPTS, NOT ONLY SUCCESSES, which is what "
+            "makes an empty county a FINDING rather than a gap: 5,737 cancelled "
+            "permits (PNC), 599 permitted-but-undrilled (LOC), 22 expired, 20 "
+            "suspended and 6,347 dry holes — 12,725 rows, 29.0% of the file, are "
+            "failures.  A county with no row is a county where nobody has even "
+            "APPLIED, and NDIC would hold the application if they had.  "
+            "🔴 EXACTLY ONE COUNTY IS AFFECTED TODAY: 38097 Traill, absent from the "
+            "live layer's own 52 distinct County values and from all 43,871 rows.  "
+            "It is the Red River Valley, off the Williston Basin, and it currently "
+            "renders HATCHED — 'never checked' — which this registry falsifies.  "
+            "⚠️ THE SWEEP IS BOUNDED AND THE BOUND IS LOAD-BEARING.  NDIC regulates "
+            "North Dakota.  It has not checked Texas, and `sweep_scope` confines "
+            "`no-signal` to FIPS 38 so that no reader is ever told a county outside "
+            "North Dakota was checked by a North Dakota regulator.  "
+            "⚠️ NOT ARGUED FROM STATUTE: the completeness claim rests on the measured "
+            "identity of the pull and the live count, and on NDIC's own layer "
+            "description, NOT on a reading of NDCC ch. 38-08, which was not opened."
+        ),
+        verification="pending",
+        verifier_pass=None,
+        verification_note="Loaded and verifier-passed at the LOADER layer in "
+                          "SESSION-2026-09-03-nd-oilgas-load (three defects found in "
+                          "applied data and corrected).  The MAP wiring is this "
+                          "session's and its verifier pass is recorded there.",
+        source_systems=("ndic",),
+        tier=1,
+        evidence="direct",
+    ),
     "commodity_eia": Source(
         id="commodity_eia",
         label="Uranium ISR plant or mill (EIA-851A)",
@@ -290,6 +360,29 @@ SOURCES: dict[str, Source] = {
 
 # 🔴 The invariant this module exists to hold, asserted at import rather than
 # documented and hoped for.
+#
+# ⚠️ IT USED TO BE ABSOLUTE AND IT NO LONGER IS.  Until `oil_gas_nd` every source
+# swept nowhere, so one boolean carried the whole rule.  What must still never
+# happen is an UNBOUNDED sweep — a source claiming to have checked everywhere —
+# and that is what this now asserts.  A scoped sweep is a different, weaker and
+# checkable claim, and `SWEEP_SCOPES` is where its bounds live.
+NO_SOURCE_SWEEPS_UNBOUNDED = not any(
+    s.sweeps_geography and not s.sweep_scope for s in SOURCES.values())
+assert NO_SOURCE_SWEEPS_UNBOUNDED, (
+    "a source claims to sweep geography with no `sweep_scope`; `no-signal` would "
+    "escape the jurisdiction that was actually checked")
+
+# source id -> the FIPS state codes it sweeps.  Only these may produce `no-signal`,
+# and only inside these states.
+SWEEP_SCOPES: dict[str, tuple[str, ...]] = {
+    sid: s.sweep_scope for sid, s in SOURCES.items()
+    if s.sweeps_geography and s.sweep_scope
+}
+# every FIPS state any source sweeps, for the frontend's per-county decision
+SWEPT_STATES: frozenset[str] = frozenset(
+    st for scope in SWEEP_SCOPES.values() for st in scope)
+
+# retained under its old name for callers that ask the old question
 NO_SOURCE_SWEEPS = not any(s.sweeps_geography for s in SOURCES.values())
 
 # 🔴 WHICH SOURCES ARE INDEPENDENT OBSERVERS OF EACH OTHER, AND WHICH ARE NOT.
@@ -310,6 +403,10 @@ FAMILY: dict[str, str] = {
     "demand": "demand",
     "commodity_msha": "commodity",
     "commodity_eia": "commodity",
+    # 🔴 A THIRD FAMILY, NEVER MERGED WITH `commodity`.  A well and a metal mine are
+    # not two observations of one fact, and the directive keeps any future state
+    # (Oklahoma, Texas) separate too unless a specific argued reason says otherwise.
+    "oil_gas_nd": "oil_gas",
 }
 assert set(FAMILY) == set(SOURCES), "a source with no declared family"
 

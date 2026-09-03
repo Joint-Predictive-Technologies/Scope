@@ -1,26 +1,40 @@
 {
-  "generated_at": "2026-09-02T22:25:10.169987+00:00",
+  "generated_at": "2026-09-03T17:33:02.242149+00:00",
   "db": {
-    "path": "/Users/sapper/dev/osint-graph/data/osint.db",
-    "bytes": 1050361856,
-    "change_counter": 25143
+    "path": "/Users/sapper/scope-backups/2026-09-03-serving-snapshot/osint-map-serving.db",
+    "bytes": 801730560,
+    "change_counter": 54
   },
   "coverage": {
     "states_emitted": [
       "has-signal",
       "no-coverage"
     ],
-    "no_signal_emitted": false,
+    "counties_emitted": [
+      "has-signal",
+      "no-signal",
+      "no-coverage"
+    ],
+    "no_signal_emitted": true,
+    "no_signal_counties": 1,
+    "sweep_scopes": {
+      "oil_gas_nd": [
+        "38"
+      ]
+    },
+    "swept_families": [
+      "oil_gas"
+    ],
     "why": "Four of the five sources this map reads never enumerate places at all \u2014 each checks an entity that turns out to have one, so a county they miss was never asked about. The fifth, MSHA's mine registry, DOES enumerate places: registration is compelled by federal law across all 55 state and territory codes. But the slice loaded here is only its PRIMARY_CANVASS='Metal' mines, and 156 counties hold a live MSHA registration that filter cannot see \u2014 so 'checked here, found nothing' is still not a claim any row behind this map supports.",
     "not_claimed": "That nothing in the graph can express a sweep. loader/load_phase0.py:load_coverage() enumerates every state location and writes no_signal; this export never reads coverage_log, and that loader's output would today be a false negative for 50 of 53 states, whose congressional trades have moved to district precision.",
-    "any_source_sweeps_geography": false
+    "any_source_sweeps_geography": true
   },
   "contra": {
     "emitted": false,
     "state": "not-screenable",
     "statement": "Not screenable. The graph holds zero rows of every disqualifying event type (regulatory_action, lawsuit_filed, investigation_opened, company_dissolved, divestiture), so an absence of contradiction here is evidence about the graph, not about the world.",
     "census": {
-      "edges": 250449,
+      "edges": 294320,
       "with_contradicting_sources": 1,
       "counts": "edges rows whose contradicting_sources is not the empty list; the sole live exception is prose stating there is none"
     }
@@ -31,12 +45,13 @@
     "demand"
   ],
   "node_types": {
-    "agency": 40,
-    "asset": 354,
-    "company": 12369,
-    "location": 15470,
+    "agency": 143,
+    "asset": 37275,
+    "company": 13959,
+    "location": 15518,
     "patent": 133949,
-    "person": 73085,
+    "permit": 6950,
+    "person": 73096,
     "research": 1178
   },
   "unroutable_types": [],
@@ -47,6 +62,7 @@
       "company",
       "location",
       "patent",
+      "permit",
       "person",
       "research"
     ],
@@ -56,6 +72,7 @@
       "government_agency",
       "location",
       "patent",
+      "permit",
       "person",
       "research"
     ],
@@ -65,6 +82,7 @@
       "company",
       "location",
       "patent",
+      "permit",
       "person",
       "research"
     ],
@@ -74,6 +92,7 @@
       "company",
       "location",
       "patent",
+      "permit",
       "person",
       "research"
     ],
@@ -82,11 +101,13 @@
       "commodity_msha",
       "contract",
       "demand",
+      "oil_gas_nd",
       "patent"
     ],
     "types_referenced": {
-      "asset": 486,
-      "company": 33870,
+      "asset": 2229,
+      "company": 35563,
+      "permit": 2,
       "person": 19
     },
     "sources_referenced": [
@@ -94,6 +115,7 @@
       "commodity_msha",
       "contract",
       "demand",
+      "oil_gas_nd",
       "patent"
     ],
     "untyped_rows": 0,
@@ -107,7 +129,7 @@
     "rule": "a row is routable only if its RAW entity_type is a key of map_sources.NODE_TYPES (what graph_api.node() looks up) whose value is a key of the shipped page's SYM table, and the row carries a name the picker can render; anything else must be allow-listed with a reason or the export is not written",
     "frontend": {
       "file": "osint_map.html",
-      "md5": "8fbf8059dfe2843fee19c6d6a00c921c"
+      "md5": "7e057211304b4643aff776e392648a01"
     },
     "ids_not_in_entities": 0
   },
@@ -116,7 +138,8 @@
     "patent": "patent",
     "demand": "demand",
     "commodity_msha": "commodity",
-    "commodity_eia": "commodity"
+    "commodity_eia": "commodity",
+    "oil_gas_nd": "oil_gas"
   },
   "defects": {
     "total": 1,
@@ -142,6 +165,10 @@
     },
     "by_source": {
       "commodity_msha": 314
+    },
+    "oilgas_sites_asserting_no_commodity": {
+      "count": 3277,
+      "why": "NOT a defect. 17 ND well types (salt-water disposal, water injection, stratigraphic test, CO2/air/gas injection, storage and monitoring) assert no commodity BY DESIGN \u2014 see SESSION-2026-09-03-nd-oilgas-load \u00a75. Asserting one would be false. Counted so the number is visible without being reported as an error."
     },
     "total": 314,
     "counts": "rows in each named class \u2014 a different denominator from the encoding scan's display-name total, and never summed with it"
@@ -226,6 +253,30 @@
     },
     "never_merged": "MSHA and EIA-851A are two sources and one family. They genuinely contradict each other about the same physical sites \u2014 5 of the 6 facilities EIA reports Operating at end-2025 are Abandoned in MSHA \u2014 so they are emitted as separate signals, never combined into one confidence, and `counties_convergent_independent` collapses them before counting convergence."
   },
+  "oil_gas": {
+    "stats": {
+      "wells_total": 43871,
+      "wells_located": 36917,
+      "wells_unlocated": 6954,
+      "counties": 52,
+      "wells_by_precision": {
+        "coordinate": 36917
+      },
+      "wells_by_entity_type": {
+        "asset": 36909,
+        "permit": 8
+      },
+      "wells_with_an_operator_edge": 36917,
+      "rest_cap": 48,
+      "rows_shipped": 1693,
+      "rows_unshipped": 35224
+    },
+    "rest_is_capped": true,
+    "families": {
+      "oil_gas_nd": "oil_gas"
+    },
+    "bounded_rest": "`detail_rest` for oil/gas ships at most `rest_cap` rows plus, always, the lowest-confidence well in the county \u2014 the well that DECIDES the county's MIN, which a straight positional cap dropped for 2 of 52 counties, leaving a panel that could not justify its own number. Every other layer ships its whole remainder. `detail_total` stays the true well count, and the page renders `detail_total - (detail + detail_rest)` as an explicit sentence rather than implying the list is the whole population."
+  },
   "sources": {
     "contract": {
       "label": "Contract place of performance",
@@ -267,6 +318,16 @@
       "tier": 1,
       "evidence": "direct"
     },
+    "oil_gas_nd": {
+      "label": "Oil or gas well (NDIC registry)",
+      "frame": "43,871 wells across 52 of North Dakota's 53 counties \u2014 the ENTIRE published NDIC well layer, unfiltered; 36,917 carry a coordinate and 6,954 carry no date the event carrier can hold and are therefore loaded but not located",
+      "sweeps_geography": true,
+      "frame_evidence": "\ud83d\udd34 THIS SOURCE SWEEPS AND MSHA DOES NOT, AND THE DIFFERENCE IS THE ABSENCE OF A CANVASS GAP.  MSHA's registry is nationwide but the LOADED SLICE is `PRIMARY_CANVASS='Metal'`, and 261 live mines in 155 otherwise unlit counties fall outside it \u2014 so that slice cannot say 'checked'.  North Dakota has no such filter: the live FeatureServer answers `where=1=1` with COUNT 43,871, exactly the number loaded, and the layer carries no definitionExpression.  The loaded slice IS the registry.  \u2b50 AND THE REGISTRY RECORDS ATTEMPTS, NOT ONLY SUCCESSES, which is what makes an empty county a FINDING rather than a gap: 5,737 cancelled permits (PNC), 599 permitted-but-undrilled (LOC), 22 expired, 20 suspended and 6,347 dry holes \u2014 12,725 rows, 29.0% of the file, are failures.  A county with no row is a county where nobody has even APPLIED, and NDIC would hold the application if they had.  \ud83d\udd34 EXACTLY ONE COUNTY IS AFFECTED TODAY: 38097 Traill, absent from the live layer's own 52 distinct County values and from all 43,871 rows.  It is the Red River Valley, off the Williston Basin, and it currently renders HATCHED \u2014 'never checked' \u2014 which this registry falsifies.  \u26a0\ufe0f THE SWEEP IS BOUNDED AND THE BOUND IS LOAD-BEARING.  NDIC regulates North Dakota.  It has not checked Texas, and `sweep_scope` confines `no-signal` to FIPS 38 so that no reader is ever told a county outside North Dakota was checked by a North Dakota regulator.  \u26a0\ufe0f NOT ARGUED FROM STATUTE: the completeness claim rests on the measured identity of the pull and the live count, and on NDIC's own layer description, NOT on a reading of NDCC ch. 38-08, which was not opened.",
+      "verification": "pending",
+      "verification_note": "Loaded and verifier-passed at the LOADER layer in SESSION-2026-09-03-nd-oilgas-load (three defects found in applied data and corrected).  The MAP wiring is this session's and its verifier pass is recorded there.",
+      "tier": 1,
+      "evidence": "direct"
+    },
     "commodity_eia": {
       "label": "Uranium ISR plant or mill (EIA-851A)",
       "frame": "24 facilities \u2014 every data row of published Tables 4 and 5 (20 in-situ recovery plants, 4 mills/heap leach); 15 counties + 2 state-tier footprints",
@@ -279,14 +340,15 @@
     }
   },
   "stats": {
-    "counties_in_graph": 1472,
-    "counties_with_signal": 1469,
+    "counties_in_graph": 1520,
+    "counties_with_signal": 1517,
     "counties_contract": 52,
     "counties_patent": 1381,
     "counties_demand": 175,
-    "counties_convergent": 238,
-    "counties_convergent_independent": 235,
+    "counties_convergent": 242,
+    "counties_convergent_independent": 239,
     "counties_commodity": 143,
+    "counties_oilgas": 52,
     "patent_mentions_county_tier_dropped": 5304,
     "canonical_links": 433,
     "entity_names_with_encoding_defect": 1,
