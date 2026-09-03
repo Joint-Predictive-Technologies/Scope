@@ -246,6 +246,23 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 }
 .trace-btn:hover{background:rgba(255,196,107,0.18);}  /* theme-ok: declared keep-dark surface — the amber signal tint, read against the void ground */
 
+/* ---- multi-entity picker: one row per entity a dot can actually reach ---- */
+.pick-h{margin-top:14px;font-family:var(--mono);font-size:8.5px;letter-spacing:1.9px;
+  text-transform:uppercase;color:var(--ink-faint);padding-bottom:6px;
+  border-bottom:1px solid rgba(140,170,190,0.16);}  /* theme-ok: declared keep-dark surface — the rule under the picker header */
+.pick-row{
+  display:flex;flex-direction:column;gap:3px;width:100%;text-align:left;
+  background:transparent;border:0;border-bottom:1px solid rgba(140,170,190,0.10);  /* theme-ok: declared keep-dark surface — row separator on the void ground */
+  padding:8px 2px;cursor:pointer;transition:background 0.13s;
+}
+.pick-row:hover{background:rgba(255,196,107,0.10);}  /* theme-ok: declared keep-dark surface — the amber signal tint, read against the void ground */
+.pick-row .pn{font-family:var(--sans);font-size:11.5px;line-height:1.35;color:var(--sys);letter-spacing:0.1px;}
+.pick-row .pm{display:flex;align-items:center;flex-wrap:wrap;gap:5px;}
+.pick-row .ptag{font-family:var(--mono);font-size:7.5px;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--ink-faint);border:1px solid rgba(140,170,190,0.28);  /* theme-ok: declared keep-dark surface — source tag outline */
+  padding:1px 4px;}
+.pick-row .pnote{font-family:var(--mono);font-size:8.5px;letter-spacing:0.6px;color:var(--ink-faint);}
+
 /* ============ graph HUD ============ */
 .g-hud{position:absolute;z-index:20;}
 #g-head{top:54px;left:14px;padding:11px 13px;width:250px;}
@@ -1007,14 +1024,201 @@ function openInspector(county, loc){
   b.innerHTML = nd + county.signals.map(sigBlock).join('') +
     '<div class="ins-note">'+esc(MANIFEST.contra.statement)+'</div>';
 
-  var seed=(county.signals.find(function(s){return s.seed;})||{}).seed;
-  if(seed){
+  /* 🔴 EVERY entity this dot names, not the first one that happened to carry a
+     seed.  The old code took `signals.find(s => s.seed)` and built ONE button
+     from it, while `sigBlock` printed every other entity by name right above it
+     — so on the live alpha 6,213 of 7,672 named entities were inert text.  In
+     Dallas that button opened LOCKHEED MARTIN because `contract` sorts first,
+     with Apple Inc. listed and unreachable two blocks below it. */
+  b.appendChild(tracePanel(county));
+  document.getElementById('inspector').classList.add('open');
+}
+
+/* ---------- who can this dot actually reach ---------- */
+var SRC_TAG={contract:'CONTRACT', patent:'PATENT', demand:'DEMAND',
+             commodity_msha:'MSHA', commodity_eia:'EIA'};
+
+/* Distinct entities behind one county dot, in the order the sources themselves
+   rank them (signal order, then each source's own detail order — patents by
+   patent count, contracts by award, mines by site).  Insertion order IS the
+   ranking; nothing is re-sorted here, because this panel is not the place to
+   invent a cross-source importance the data does not assert. */
+function dotEntities(county){
+  var out=[], seen={};
+  function add(id, name, src, note, sited){
+    if(!id || !name) return;              /* never render a bare uid as a name */
+    if(seen[id]){
+      if(seen[id].sources.indexOf(src)<0) seen[id].sources.push(src);
+      /* 🔴 THE LABEL MUST NAME THE ENTITY THE ROW OPENS.  `contract_signals`
+         resolves `entity_id` through `entity_canonical` but keeps the RAW
+         awardee string, so the export calls one node three different things —
+         BATH IRON WORKS CORPORATION, ELECTRIC BOAT CORPORATION and NATIONAL
+         STEEL AND SHIPBUILDING COMPANY are all `32bfba69…` = GENERAL DYNAMICS
+         CORP.  First-name-wins then hid the true name that the demand and patent
+         rows in those same three dots were already carrying, and the row asserted
+         a subsidiary's identity for a click that opens the parent.  Every other
+         source names the node itself, so a non-contract name wins and the awarded
+         name is kept and shown rather than dropped.
+
+         ⚠️ "every other source names the node itself" is an OBSERVATION about
+         today's export, not an invariant it guarantees — `demand_signals` has the
+         identical stray-name shape and is masked only by an unrelated
+         `match_type <> 'geography'` filter.  So no name is discarded here:
+         whichever one loses the label is kept in `alts` and rendered.  Every
+         conflict branch degrades to showing BOTH names rather than to silently
+         asserting one. */
+      if(name && name!==seen[id].name){
+        if(seen[id].nameSrc==='contract' && src!=='contract'){
+          seen[id].alts.push({name:seen[id].name, src:seen[id].nameSrc});
+          seen[id].name=name; seen[id].nameSrc=src;
+        } else if(!seen[id].alts.some(function(a){ return a.name===name; })){
+          seen[id].alts.push({name:name, src:src});
+        }
+      }
+      /* an entity that appears under two sources keeps the first note it was
+         given, but an EMPTY one is not a choice — the demand layer carries no
+         per-entity figure, so without this a company that both lobbies and holds
+         patents here would silently lose its patent count */
+      if(!seen[id].note && note) seen[id].note=note;
+      if(sited) seen[id].sited=true;
+      return;
+    }
+    seen[id]={uid:id, name:name, nameSrc:src, sources:[src], note:note||'',
+              alts:[], sited:!!sited};
+    out.push(seen[id]);
+  }
+  county.signals.forEach(function(s){
+    (s.detail||[]).forEach(function(d){
+      if(s.source==='contract'){
+        add(d.entity_id, d.name, s.source, money(d.amount));
+      } else if(s.source==='patent'){
+        add(d.entity_id, d.name, s.source, d.patents+' patent'+(d.patents===1?'':'s'));
+      } else if(d.holders!==undefined){
+        /* a mineral site is itself an entity (type `asset`), and the companies
+           working it are separate entities hanging off it.  Both are real graph
+           nodes and both open; collapsing them would hide the operator. */
+        add(d.entity_id, d.name, s.source, 'mineral site · '+(d.precision||'precision unstated'),
+            d.precision==='coordinate');
+        (d.holders||[]).forEach(function(h){
+          add(h.entity_id, h.name, s.source, 'holder — '+(h.rel||'')); });
+      } else {
+        add(d.entity_id, d.name, s.source, '');
+      }
+    });
+  });
+  return out;
+}
+
+/* What the export left out.  `detail` is capped at 12 per source while
+   `detail_total` is the real count, so 285 of 1,469 dots can list only part of
+   what they stand on.  The panel says the number rather than implying the list
+   is the whole population. */
+function dotHidden(county){
+  var n=0;
+  county.signals.forEach(function(s){
+    if(s.detail_total!=null) n+=Math.max(0, s.detail_total-((s.detail||[]).length)); });
+  return n;
+}
+
+/* 🔴 An honest dead end, not a fabricated one.  10 dots resolve to no entity at
+   all: their patents are placed by an INVENTOR'S home address and carry no
+   `patent_ownership` edge, so there is no company behind the dot to open.  The
+   rule for this surface is that such a dot says so — it does not get a seed
+   invented for it. */
+function noEntityNote(county){
+  var ev=0, roles={}, allPatent=true;
+  county.signals.forEach(function(s){
+    ev+=(s.events||0);
+    if(s.source!=='patent') allPatent=false;
+    Object.keys(s.roles||{}).forEach(function(r){ roles[r]=(roles[r]||0)+s.roles[r]; });
+  });
+  /* role figures are ADDRESS MENTIONS, not patents — Okanogan is 2 patents
+     carrying 3 mentions (inventor 2 · assignee 1), and printing them side by
+     side unlabelled read as a contradiction */
+  var rs=Object.keys(roles).map(function(r){ return r+' '+roles[r]; }).join(' · ');
+  if(allPatent){
+    return ev+' patent'+(ev===1?'':'s')+' put an address in this county'+
+      (rs?' (address mentions: '+rs+')':'')+', and '+
+      (ev===1?'it carries no':'none of them carries an')+
+      ' ownership edge to a company or person in the graph. The dot is the address, '+
+      'not an owner — this export carries no entity for it, so there is nothing to '+
+      'open from here.';
+  }
+  /* generic limb: no dot in the current export reaches it, so it is written to
+     be true rather than to be tested */
+  return 'This dot rests on '+ev+' underlying fact'+(ev===1?'':'s')+
+    ' that no source attributes to a named entity in the graph.';
+}
+
+function tracePanel(county){
+  var wrap=document.createElement('div');
+  var ents=dotEntities(county), hidden=dotHidden(county);
+
+  if(!ents.length){
+    wrap.innerHTML='<div class="ins-note" style="color:var(--signal)">'+
+      'No entity resolved at this location.<br><br>'+esc(noEntityNote(county))+'</div>';
+    return wrap;
+  }
+
+  if(ents.length===1){
+    /* the common case, byte-for-byte the behaviour that already worked */
     var btn=document.createElement('button');
     btn.className='trace-btn'; btn.textContent='Trace entity web →';
-    btn.onclick=function(){ enterGraph(seed); };
-    b.appendChild(btn);
+    btn.onclick=function(){ enterGraph(ents[0].uid); };
+    wrap.appendChild(btn);
+    if(hidden) wrap.appendChild(hiddenNote(hidden));
+    return wrap;
   }
-  document.getElementById('inspector').classList.add('open');
+
+  var h='<div class="pick-h">'+ents.length+' entities at this dot &mdash; choose one</div>';
+  wrap.innerHTML=h;
+  ents.forEach(function(e){
+    var row=document.createElement('button');
+    row.className='pick-row';
+    row.innerHTML='<span class="pn">'+esc(e.name)+'</span>'+
+      '<span class="pm">'+e.sources.map(function(x){
+        return '<span class="ptag">'+esc(SRC_TAG[x]||x)+'</span>'; }).join('')+
+      (e.note?'<span class="pnote">'+esc(e.note)+'</span>':'')+
+      e.alts.map(function(a){
+        return '<span class="pnote">'+
+          (a.src==='contract'?'awarded as ':'also listed as ')+esc(a.name)+'</span>'; }).join('')+
+      '</span>';
+    row.onclick=function(){ enterGraph(e.uid); };
+    wrap.appendChild(row);
+  });
+  /* 🔴 the radius is the county, and it is named as such.  The export carries no
+     per-entity coordinate for contract, patent or demand rows — the dot is a
+     county centroid — so "at this dot" can only honestly mean "somewhere in this
+     county", which is up to ~2,300 km² in Dallas's case.  Mineral sites DO carry
+     a coordinate and say so in their own row. */
+  var f=document.createElement('div');
+  f.className='ins-note';
+  /* 🔴 read the DATUM, not the rendered string.  Deciding this by regex on
+     `note` coupled the footer to first-note-wins: a site entity that some other
+     source names first keeps that source's note, loses its precision from the
+     display, and would drop out of the test. */
+  f.textContent = ents.some(function(e){ return e.sited; })
+    ? 'Grouped by county — the unit the export positions on. Rows marked '+
+      '"coordinate" carry their own position; the rest share a county, not a '+
+      'street address.'
+    : 'Grouped by county — the unit the export positions on. These share '+
+      'a county, not a street address.';
+  wrap.appendChild(f);
+  if(hidden) wrap.appendChild(hiddenNote(hidden));
+  return wrap;
+}
+
+function hiddenNote(n){
+  var d=document.createElement('div');
+  d.className='ins-note';
+  d.style.color='var(--signal)';
+  /* the cap was written as "top 12 per source" — a constant this file does not
+     own.  `export_map.py` in the graph repo already carries an uncommitted change
+     that would falsify it, so the sentence states the RANKING, which is stable,
+     and not the number, which is not. */
+  d.textContent=n.toLocaleString()+' further '+(n===1?'entity is':'entities are')+
+    ' reported here and not listed: the export lists only the highest-ranked per source.';
+  return d;
 }
 function sigBlock(s){
   var src=MANIFEST.sources[s.source]||{};

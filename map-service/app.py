@@ -52,6 +52,8 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -106,6 +108,15 @@ DATA_LIMIT = rate_limit(int(os.environ.get("MAP_RATE_DATA", "90")),
 
 _api = None
 _api_error: str | None = None
+_api_error_at: float = 0.0
+_api_lock = threading.Lock()
+
+# How long a failed open is allowed to stand before the next request retries it.
+# 🔴 The point of this is a container that starts BEFORE its volume is mounted:
+# the snapshot is absent for a few seconds and then appears.  Without a retry the
+# process caches "not on this machine" for its whole life and serves 503 on the
+# graph plane until a human notices and restarts it.
+_RETRY_AFTER = float(os.environ.get("MAP_GRAPH_RETRY_SECONDS", "30"))
 
 
 def _db_path() -> str:
@@ -117,20 +128,42 @@ def _graph():
 
     The cache is ON here and off in development: a neighbourhood cache is only
     sound against a database that does not change under it, and this process reads
-    a static snapshot replaced as a whole file."""
-    global _api, _api_error
-    if _api is not None or _api_error is not None:
+    a static snapshot replaced as a whole file.
+
+    🔴 A FAILED OPEN IS NOT PERMANENT.  This used to short-circuit on
+    `_api_error is not None` forever, so a container that lost the race with its
+    own volume mount served a broken graph plane for the rest of its life while
+    `/healthz` reported the self-contradictory `db_present: true, graph: false`.
+    A failure is now retried after `_RETRY_AFTER` seconds, which is bounded enough
+    that a genuinely missing snapshot does not turn every request into a fresh
+    `stat` + connect, and short enough that a volume arriving late heals itself
+    without anyone being paged.
+
+    Success is latched under a lock and read without one, so the healthy path —
+    every request after the first — stays a plain attribute check."""
+    global _api, _api_error, _api_error_at
+    if _api is not None:                    # healthy: no lock, no clock
         return _api
-    try:
-        import graph_api                              # noqa: PLC0415
-        db = _db_path()
-        if not os.path.exists(db):
-            _api_error = f"the serving snapshot is not on this machine ({db})"
-            return None
-        _api = graph_api.GraphAPI(db, cache_size=512)
-    except Exception as exc:                          # noqa: BLE001
-        _api_error = f"{type(exc).__name__}: {exc}"
-    return _api
+    with _api_lock:
+        if _api is not None:                # another thread won the race
+            return _api
+        if _api_error is not None and (time.monotonic() - _api_error_at) < _RETRY_AFTER:
+            return None                     # still inside the cooldown
+        try:
+            import graph_api                          # noqa: PLC0415
+            db = _db_path()
+            if not os.path.exists(db):
+                _api_error = f"the serving snapshot is not on this machine ({db})"
+                _api_error_at = time.monotonic()
+                return None
+            _api = graph_api.GraphAPI(db, cache_size=512)
+            # cleared only on success, so `/healthz` cannot report a stale reason
+            # next to a working graph plane
+            _api_error = None
+        except Exception as exc:                      # noqa: BLE001
+            _api_error = f"{type(exc).__name__}: {exc}"
+            _api_error_at = time.monotonic()
+        return _api
 
 
 @app.get("/", include_in_schema=False)
