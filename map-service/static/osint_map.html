@@ -895,6 +895,7 @@ function stateMarkers(){
           stateTierNote(sd)+' // click to descend');
       });
   });
+  applyComDim();   /* rebuilt markers know nothing about the commodity layer */
 }
 
 /* ---------- county data: fetched, cached, never synthesised ---------- */
@@ -952,6 +953,7 @@ function countyMarkers(cd, subset){
       function(){ openInspector(c,nm); },
       function(e){ showTip(e, nm, c.signals.map(function(s){return s.source;}).join(' + ')); });
   });
+  applyComDim();   /* rebuilt markers know nothing about the commodity layer */
 }
 
 /* 🔴 PRESENT BUT UNMAPPABLE AT THIS PRECISION — SAID, NOT SWALLOWED.
@@ -2108,14 +2110,38 @@ var comFamilies={}, comModeOverride='auto', comLastMode='-', comLastVisible=0;
 var COM_POINT_MAX = 12000;
 /* the accumulated luminance the 99th-percentile cell should reach, 0..1.  The
    per-cell alpha is solved from this and the geometry; see `_density`. */
-var COM_DENSITY_TARGET = 0.85;
+/* 🔴 RE-EXPOSED 2026-09-03, AFTER THE OPERATOR REPORTED THE LAYER AS INVISIBLE
+   ON THE DEPLOYED PAGE — which it effectively was.  The previous value was
+   accepted as an explicit "first real-data pass"; in use it failed.  Measured on
+   the live page at the national view: the solved per-cell alpha was 0.045, so
+   0.045 was the CEILING any cell could reach, and only the Bakken accumulated
+   enough overlap to cross the perceptual floor.  0.225% of the viewport carried
+   clearly-visible ink and all of it was one blob.  Re-measured here, same
+   instrument, same view (`a32` = share of viewport at alpha >= 32):
+
+       R26 t0.85 g2.6   peak 0.045   a32 0.481%   a80 0.262%   <- was shipped
+       R14 t1.20 g2.0   peak 0.220   a32 0.542%   a80 0.330%
+       R12 t2.00 g1.8   peak 0.500   a32 0.645%   a80 0.394%   <- chosen
+       R10 t3.00 g1.6   peak 1.000   a32 0.668%   a80 0.496%   saturates to white
+
+   The last row buys little more ink and clips the top of the range to flat white,
+   losing the tone that carries which commodity a cell is.  So the exposure stops
+   at the value where the densest cells are bright and still coloured.  A target
+   above 1 is deliberate: it is the accumulated-luminance the 99th-percentile cell
+   aims at, and letting the very densest clip while the periphery becomes legible
+   is the trade this layer exists to make. */
+var COM_DENSITY_TARGET = 2.0;
 /* >1 pushes the mid-tones down and keeps the top of the range for genuinely dense
    cells.  A pure log map of a 1,600x range put the MEDIAN cell at 0.40 of full,
    which is what produced a flat grey wash with no structure — measured, not
    guessed. */
-var COM_DENSITY_GAMMA = 2.6;
+var COM_DENSITY_GAMMA = 1.8;
 var COM_SPRITE_ALPHA = 0.06;   /* points mode only */
-var COM_SPRITE_R = 26;
+/* 26 -> 12 with the re-exposure above.  A smaller sprite is also CHEAPER — cost
+   is fill-rate bound at roughly count x r^2, so this is 0.21x the per-sprite fill
+   of the old radius — and it reads as a heat field rather than the diffuse fog a
+   26px sprite at 4.5% alpha produced. */
+var COM_SPRITE_R = 12;
 /* the grid that bounds how many sprites a frame draws.  6px is half the smallest
    radius that still reads as a field, so the positional quantisation it
    introduces is under the sprite's own falloff and invisible; the value is
@@ -2214,13 +2240,40 @@ var CommodityCanvas = L.Layer.extend({
       if(pt.x<-20||pt.y<-20||pt.x>sz.x+20||pt.y>sz.y+20) continue;
       xs.push(pt.x); ys.push(pt.y); ts.push(siteTone(com[i])); fs.push(fam[i]);
     }
-    var vis=xs.length;
+    var vis=xs.length, self=this;
     comLastVisible=vis;
-    var mode = comModeOverride!=='auto' ? comModeOverride
-             : (vis>COM_POINT_MAX ? 'density' : 'points');
-    comLastMode=mode;
-    if(mode==='density') this._density(ctx,xs,ys,ts);
-    else this._points(ctx,xs,ys,ts,fs);
+    /* 🔴 THE MODE IS DECIDED PER FAMILY, NOT ONCE FOR THE WHOLE LAYER.
+       Measured on the live page: the two families differ in density by more than
+       two orders of magnitude — 36,917 oil/gas wells packed into the Bakken
+       against 270 mineral sites scattered over the whole country. Deciding one
+       mode from the COMBINED count put both above `COM_POINT_MAX`, so the 270
+       scattered sites were rendered as a density field of their own sparseness
+       and vanished: with both families on, 0.225% of the viewport carried
+       clearly-visible ink and all of it was the one North Dakota blob. Turning
+       oil/gas OFF was the only way to see a mine, which is not a filter, it is a
+       workaround for a bug.
+
+       Each family now picks its own mode from its OWN visible count, so a dense
+       family is a density field and a sparse one stays individual glyphs, both at
+       once. Families are drawn densest-first so the scattered glyphs land ON TOP
+       of the field rather than under it — the same never-merge rule the export
+       holds, carried into the render. */
+    var byFam={}, i2;
+    for(i2=0;i2<xs.length;i2++){ (byFam[fs[i2]]=byFam[fs[i2]]||[]).push(i2); }
+    var famKeys=Object.keys(byFam).sort(function(a,b){ return byFam[b].length-byFam[a].length; });
+    var modes=[];
+    famKeys.forEach(function(f){
+      var idx=byFam[f], fx=[], fy=[], ft=[], ff=[];
+      for(var j=0;j<idx.length;j++){
+        var i=idx[j]; fx.push(xs[i]); fy.push(ys[i]); ft.push(ts[i]); ff.push(fs[i]);
+      }
+      var m2 = comModeOverride!=='auto' ? comModeOverride
+             : (idx.length>COM_POINT_MAX ? 'density' : 'points');
+      modes.push((SITES.families[f]||f).replace(/_/g,' ')+' '+m2);
+      if(m2==='density') self._density(ctx,fx,fy,ft);
+      else self._points(ctx,fx,fy,ft,ff);
+    });
+    comLastMode = modes.length ? modes.join(' · ') : '-';
     updateStatus();
   },
   _points: function(ctx,xs,ys,ts,fs){
@@ -2358,6 +2411,41 @@ window.__mapdiag={
   toggle:function(on){ setCommodityLayer(on); }
 };
 
+/* §1: overlay, with convergence DIMMED rather than hidden — a figure/ground swap
+   that keeps both legible.
+
+   🔴 THIS DIMMED NOTHING A READER COULD SEE, AND IT NEVER CAME BACK.  It set
+   `opacity` alone — the STROKE — while the amber a dot is actually made of is
+   `fillOpacity` on two `circleMarker`s whose stroke is `weight:0,
+   color:'transparent'`.  So the figure/ground swap this layer is built around
+   never happened: measured on the live page, the markers' opacities were byte
+   for byte identical with the layer off, on, off and on again, and the commodity
+   field was read UNDER dots at full strength.  That is a large part of why the
+   layer read as "not there".
+
+   It also multiplied IN PLACE (`opacity * 0.22` on, `* 1` off), so the off state
+   restored nothing — one toggle dimmed a ring permanently.  The undimmed values
+   are captured ONCE per marker and re-applied absolutely, so any number of
+   toggles returns exactly the original.
+
+   ⚠️ Markers are rebuilt by `clearLayers()` on every redraw, and a rebuilt marker
+   knows nothing about the layer being on — so this is called from the redraw path
+   too, not only from the toggle. */
+function applyComDim(){
+  if(!markersGroup) return;
+  var k = comOn ? 0.22 : 1;
+  markersGroup.eachLayer(function(l){
+    if(!l.setStyle || !l.options) return;
+    if(l._comBase===undefined){
+      l._comBase={o:l.options.opacity, f:l.options.fillOpacity};
+    }
+    var st={};
+    if(l._comBase.o!=null) st.opacity     = l._comBase.o*k;
+    if(l._comBase.f!=null) st.fillOpacity = l._comBase.f*k;
+    l.setStyle(st);
+  });
+}
+
 function setCommodityLayer(on){
   comOn=!!on;
   var apply=function(){
@@ -2367,11 +2455,7 @@ function setCommodityLayer(on){
     } else if(comLayer && map.hasLayer(comLayer)){
       map.removeLayer(comLayer);
     }
-    /* §1: overlay, with convergence DIMMED rather than hidden — a figure/ground
-       swap that keeps both legible. */
-    if(markersGroup) markersGroup.eachLayer(function(l){
-      if(l.setStyle) l.setStyle({opacity:(l.options.opacity||0)*(comOn?0.22:1)});
-    });
+    applyComDim();
     document.getElementById('map-plane').classList.toggle('com-on', comOn);
     if(comLayer && comOn) comLayer.draw();
     comChips(); comNote();
