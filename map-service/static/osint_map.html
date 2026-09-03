@@ -40,6 +40,21 @@
   --sys:#FFC46B;         /* system chrome, selection, cursor — paler amber, kept
                             distinct from --signal by value, not hue */
 
+  /* 🔴 THE COMMODITY RAMP — COOL, DESATURATED, AND NEVER AMBER.
+     map-visual-design.md §2: "if a gold deposit and a convergence signal render
+     the same colour, the map's core claim collapses."  Geology is terrain;
+     convergence is the finding.  So these are generated on a RULE rather than
+     picked: hue swept 188°->278° (cyan -> violet) at fixed S/L, which puts every
+     tone at least 118° from `--signal` (35.8°) and `--sys` (36.1°) and makes the
+     ramp read as one family instead of eight decisions.
+     ⚠️ TONE ENCODES COMMODITY, ASSIGNED BY CENSUS not by taxonomy: the seven
+     commodities with the most coordinate-bearing sites get a tone each and
+     everything else shares the last one, with the legend naming the count.
+     Inventing eight geological "categories" would be this file asserting a
+     classification no source in the corpus makes. */
+  --com-0:#6DA7B0; --com-1:#6D99B0; --com-2:#6D8BB0; --com-3:#6D7CB0;
+  --com-4:#6D6EB0; --com-5:#7B6DB0; --com-6:#896DB0; --com-7:#986DB0;
+
   --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
 }
@@ -150,8 +165,10 @@ body{overflow:hidden;}
 
 /* ============ left rail ============ */
 .rail{
-  position:absolute;top:54px;left:14px;bottom:38px;width:210px;z-index:55;
-  padding:14px 13px;overflow-y:auto;
+  position:absolute;top:78px;left:14px;bottom:38px;width:210px;z-index:55;
+  /* 🔴 top padding clears #rail-x, the 30px toggle pinned to this panel's own
+     top-left corner — it was covering the first 16px of the "Base layer" heading. */
+  padding:36px 13px 14px;overflow-y:auto;
   transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
 }
 .rail.hidden{transform:translateX(-238px);opacity:0;pointer-events:none;}
@@ -188,7 +205,7 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 
 /* ============ breadcrumb + status ============ */
 .crumb{
-  position:absolute;top:54px;left:50%;transform:translateX(-50%);z-index:55;
+  position:absolute;top:78px;left:50%;transform:translateX(-50%);z-index:55;
   padding:6px 13px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-faint);
   display:flex;gap:8px;align-items:center;
 }
@@ -196,6 +213,10 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .crumb a{color:var(--ink-dim);cursor:pointer;text-decoration:none;}
 .crumb a:hover{color:var(--ink);}
 
+/* 🔴 Leaflet's attribution sits bottom-right of the map pane and this bar spans the
+   full width at bottom:0 — the two shared a 13px band and the attribution link sat on
+   the status text.  The control is lifted by exactly this bar's height. */
+.leaflet-bottom{bottom:26px;}
 .statusbar{
   position:absolute;bottom:0;left:0;right:0;height:26px;z-index:56;
   display:flex;align-items:center;gap:20px;padding:0 14px;
@@ -207,7 +228,37 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .statusbar .v{color:var(--ink);}
 .statusbar .warn{color:var(--signal);}
 
-.zoomctl{position:absolute;bottom:40px;right:14px;z-index:55;display:flex;flex-direction:column;gap:5px;}
+/* 🔴 §6.2: Leaflet's default 0.25s zoom transition has a long decelerating tail, and
+   that tail is precisely the window in which fixed-radius dots are the wrong size.
+   0.18s on a gentler curve shortens the window the pop is visible in. */
+.leaflet-zoom-anim .leaflet-zoom-animated{transition:transform 0.18s cubic-bezier(.25,.1,.25,1);}
+/* the commodity canvas rides in Leaflet's own overlay pane so it inherits the
+   pane's zoom transform — a plain absolutely-positioned canvas would sit still
+   through the zoom animation and then jump, which is the marker-pop artifact
+   §6.2 spent five rounds on, reproduced in a new place. */
+.commodity-canvas{position:absolute;left:0;top:0;pointer-events:none;}
+.com-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  font-family:var(--mono);font-size:8px;letter-spacing:1.1px;text-transform:uppercase;
+  color:var(--ink-faint);border:1px solid var(--hair);padding:2px 5px;margin:0 4px 4px 0;
+  background:transparent;transition:color 0.13s,border-color 0.13s;}
+.com-chip.on{color:var(--ink);border-color:var(--hair-bright);}
+.com-chip i{width:7px;height:7px;display:block;border-radius:50%;opacity:0.35;}
+.com-chip.on i{opacity:1;}
+.zoomctl{position:absolute;bottom:40px;right:14px;z-index:55;display:flex;flex-direction:column;gap:5px;
+  transition:right 0.34s cubic-bezier(.4,0,.2,1);}
+/* 🔴 the zoom controls and the inspector were both anchored `right:14px` at the same
+   z-index, so the buttons sat ON the inspector's text.  272px panel + its 14px gutter
+   + the same 14px gutter again = 300px, the existing spacing rhythm, not a new one. */
+#inspector.open ~ .zoomctl{right:300px;}
+/* 🔴 THE SAME COLLISION EXISTS IN THE GRAPH PLANE, and the sibling combinator cannot
+   see it: `#g-profile` is nested inside `#graph-plane`, not a sibling of `.zoomctl`.
+   Measured with the real service running: #zo and #zh sat on the profile's own
+   figures ("462", "373", "40 (cap 40)") — 4 ink overlaps.  Its panel is 280px at the
+   same right:14px gutter, so the same 300px offset clears it.
+   ⚠️ DELIBERATELY A SEPARATE RULE, not a comma list with the one above: an invalid
+   `:has()` in a selector list would drop the WHOLE rule and silently take the
+   inspector fix down with it. */
+#root:has(#g-profile.open) .zoomctl{right:300px;}
 
 /* ============ tooltip ============ */
 #tip{
@@ -220,11 +271,13 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 
 /* ============ inspector (map plane) ============ */
 .inspector{
-  position:absolute;top:54px;right:14px;width:272px;z-index:55;padding:14px 14px 15px;
+  position:absolute;top:78px;right:14px;width:272px;z-index:55;padding:14px 14px 15px;
   transform:translateX(310px);opacity:0;transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
 }
 .inspector.open{transform:none;opacity:1;}
-.inspector{max-height:calc(100vh - 100px);overflow-y:auto;}
+/* 78px top offset + the lifted attribution control (26px bar + its own ~20px)
+   — the panel stops above it rather than scrolling its rows underneath it. */
+.inspector{max-height:calc(100vh - 148px);overflow-y:auto;}
 .ins-x{position:absolute;top:9px;right:11px;background:none;border:none;color:var(--ink-faint);
   cursor:pointer;font-size:13px;font-family:var(--mono);}
 .ins-x:hover{color:var(--ink);}
@@ -281,7 +334,7 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 
 /* ============ graph HUD ============ */
 .g-hud{position:absolute;z-index:20;}
-#g-head{top:54px;left:14px;padding:11px 13px;width:250px;}
+#g-head{top:78px;left:14px;padding:11px 13px;width:250px;}
 #g-head .ttl{font-size:8.5px;letter-spacing:1.9px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px;}
 #g-head .seed{font-size:12px;letter-spacing:0.8px;color:var(--sys);line-height:1.4;word-break:break-word;}
 #g-head .hint{font-size:9px;color:var(--ink-faint);line-height:1.65;margin-top:9px;font-family:var(--sans);letter-spacing:0.1px;}
@@ -293,9 +346,12 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
   text-transform:uppercase;color:var(--ink-dim);}
 
 #g-profile{
-  top:54px;right:14px;width:280px;padding:14px 14px 15px;
+  top:78px;right:14px;width:280px;padding:14px 14px 15px;
   transform:translateX(320px);opacity:0;transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
-  max-height:calc(100vh - 100px);overflow-y:auto;
+  /* 🔴 the SAME second half `.inspector` needed: this panel took the 54→78 move but
+     kept `100vh - 100px`, which put its floor 4px inside the status bar (it had been
+     20px clear).  Latent, not yet observed — the tallest profile measured is ~162px. */
+  max-height:calc(100vh - 148px);overflow-y:auto;
 }
 #g-profile.open{transform:none;opacity:1;}
 .p-type{font-size:8.5px;letter-spacing:1.9px;text-transform:uppercase;color:var(--sys);margin-bottom:6px;}
@@ -367,6 +423,14 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .sig-d{font-size:9px;color:var(--ink-dim);font-family:var(--sans);line-height:1.55;
   letter-spacing:0.1px;margin-top:4px;}
 .sig-d div{margin-bottom:2px;}
+/* the source-row disclosure: the `.pick-h` label voice, nothing new */
+.sig-more{margin-top:4px;}
+.sig-more>summary{list-style:none;cursor:pointer;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-faint);padding:2px 0;}
+.sig-more>summary::-webkit-details-marker{display:none;}
+.sig-more>summary::before{content:'\25B8\00a0';}
+.sig-more[open]>summary::before{content:'\25BE\00a0';}
+.sig-more>summary:hover{color:var(--ink-dim);}
 .ins-note{font-size:8.5px;color:var(--ink-faint);font-family:var(--sans);line-height:1.6;
   margin-top:11px;padding-top:9px;border-top:1px solid var(--hair);letter-spacing:0.1px;}
 #fail{display:none;position:fixed;inset:0;z-index:950;background:var(--void);
@@ -441,7 +505,7 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
     </div>
   </div>
 
-  <button class="ibtn" id="rail-x" style="position:absolute;top:54px;left:14px;z-index:56;">&#9776;</button>
+  <button class="ibtn" id="rail-x" style="position:absolute;top:78px;left:14px;z-index:56;">&#9776;</button>
 
   <div class="rail bracket" id="rail">
     <div class="rail-sec">
@@ -457,6 +521,18 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
       <div class="lrow"><svg width="14" height="14"><rect width="14" height="14" fill="#241B0F"/><circle cx="7" cy="7" r="2.6" fill="#E8A33D"/></svg><span>Signal — convergence</span></div>
       <p class="lnote">Dark means one of two very different things. This surface never lets them look the same.</p>
       <p class="lnote warnnote" id="cov-note">&mdash;</p>
+    </div>
+
+    <!-- 🔴 ITS OWN TOGGLEABLE LAYER, OVERLAID, WITH CONVERGENCE DIMMED.
+         map-visual-design.md §1, the operator decision of 2026-09-01: commodity
+         geology is the SUBSTRATE the convergence signals are read against, not
+         another class of finding.  Folding them together would destroy that
+         relationship; dimming rather than hiding keeps both legible. -->
+    <div class="rail-sec">
+      <h4>Commodity layer</h4>
+      <button class="lbtn" id="com-toggle"><span>Off</span><i></i></button>
+      <div id="com-chips" style="margin-top:8px;"></div>
+      <p class="lnote" id="com-note">&mdash;</p>
     </div>
 
     <div class="rail-sec">
@@ -844,8 +920,15 @@ function renderCounties(fips){
       onEachFeature:function(f,l){
         l.on('mouseover',function(e){
           var c=cd[f.id], nm=(c&&c.name)||(f.properties&&f.properties.name)||'county';
-          showTip(e, nm, c? (c.signals.length+' signal'+(c.signals.length===1?'':'s'))
-                         : 'no source reached this county');
+          /* 🔴 THREE STATES, THREE SENTENCES.  A `no-signal` county is not "0
+             signals" — that phrasing reads as an empty result from everybody,
+             when exactly one family checked and the rest never looked. */
+          var tip;
+          if(!c) tip='no source reached this county';
+          else if(c.status==='no-signal')
+            tip=(c.swept_families||[]).join(' + ').toUpperCase()+' checked here — none found';
+          else tip=c.signals.length+' signal'+(c.signals.length===1?'':'s');
+          showTip(e, nm, tip);
         });
         l.on('mouseout',hideTip);
         l.on('click',function(){ var c=cd[f.id];
@@ -986,6 +1069,13 @@ function updateStatus(){
         ? ' <span class="k">('+MANIFEST.stats.counties_convergent+' by signal count)</span>' : '')+
       '</span>'+
     '<span><span class="k">Mode</span> <span class="v">'+mode.toUpperCase()+'</span></span>'+
+    /* 🔴 §5.3: "The active mode is named in the status bar with in-view count and
+       any cap — the operator is never guessing which rendering they are looking
+       at."  A density field and a point field make DIFFERENT claims (a countable
+       aggregate vs a concentration), so which one is on screen is not a detail. */
+    (comOn ? '<span><span class="k">Commodity</span> <span class="v">'+
+        esc(String(comLastMode).toUpperCase())+'</span> <span class="k">'+
+        comLastVisible.toLocaleString()+' in view</span></span>' : '')+
     '<span><span class="k">Corpus</span> <span class="v">'+live.join(' + ').toUpperCase()+'</span></span>'+
     (pend.length? '<span><span class="k">Layer with open defect</span> <span class="warn">'+
        pend.join(' + ').toUpperCase()+
@@ -1052,7 +1142,9 @@ function openInspector(county, loc){
 
 /* ---------- who can this dot actually reach ---------- */
 var SRC_TAG={contract:'CONTRACT', patent:'PATENT', demand:'DEMAND',
-             commodity_msha:'MSHA', commodity_eia:'EIA'};
+             commodity_msha:'MSHA', commodity_eia:'EIA',
+             /* a third family — never merged with the two commodity sources */
+             oil_gas_nd:'NDIC'};
 
 /* ---------- the dedup index behind the ledger ---------- */
 /* `add` is the ONLY way a row is created, so the label / note / awarded-as
@@ -1165,6 +1257,23 @@ function loadedFamilies(){
   var f=(MANIFEST&&MANIFEST.source_families)||{}, out=[];
   Object.keys(f).forEach(function(k){ if(out.indexOf(f[k])<0) out.push(f[k]); });
   return out;
+}
+/* 🔴 WHICH FAMILIES ACTUALLY CHECKED *THIS* COUNTY.
+   A sweep is not a property of the map, it is a property of a source INSIDE a
+   jurisdiction.  NDIC enumerated every place in North Dakota and nothing at all
+   in Texas, so the same absent family means "checked here, found none" in
+   Mountrail and "never looked" in Dallas.  Reading one global boolean for both —
+   which is what `any_source_sweeps_geography` alone would do — would tell a
+   Dallas reader that absence can no longer be read as "not reached", which is
+   false for every county outside FIPS 38. */
+function sweptFamilies(fips){
+  var cov=(MANIFEST&&MANIFEST.coverage)||{}, scopes=cov.sweep_scopes||{};
+  var fams={}, st=String(fips||'').slice(0,2);
+  if(!st) return fams;
+  Object.keys(scopes).forEach(function(sid){
+    if((scopes[sid]||[]).indexOf(st)>=0) fams[famOf(sid)]=1;
+  });
+  return fams;
 }
 function familySourceLabels(fam){
   var f=(MANIFEST&&MANIFEST.source_families)||{};
@@ -1308,7 +1417,7 @@ function tracePanel(county){
       'a county, not a street address.';
     wrap.appendChild(f);
   }
-  wrap.appendChild(notReachedEl(model));
+  wrap.appendChild(notReachedEl(model, county));
   return wrap;
 }
 
@@ -1407,31 +1516,45 @@ function sectionEl(model, sec, county){
    loaded source sweeps geography (MANIFEST.coverage.any_source_sweeps_geography
    is read, not assumed, and the sentence changes if it ever flips).  This is
    the same rule `no-signal`'s refusal already enforces one layer up. */
-function notReachedEl(model){
+function notReachedEl(model, county){
   var el=document.createElement('div'); el.className='led-sec';
+  /* 🔴 AN ABSENT FAMILY IS NOW TWO DIFFERENT FACTS, AND THEY GET DIFFERENT WORDS.
+     Split by whether that family SWEPT this county's state. */
+  var swept=sweptFamilies(county&&county.fips);
+  var checked=model.absent.filter(function(f){ return swept[f]; });
+  var never  =model.absent.filter(function(f){ return !swept[f]; });
   var n=model.loaded.length, reached=n-model.absent.length;
   var h=document.createElement('div'); h.className='pick-h led-h';
-  h.innerHTML='<span class="led-t">Not reached</span><span class="c">'+
+  h.innerHTML='<span class="led-t">'+(checked.length?'Not here':'Not reached')+
+    '</span><span class="c">'+
     esc(reached+' of '+n+' loaded famil'+(n===1?'y':'ies')+' reached')+'</span>';
   el.appendChild(h);
-  if(model.absent.length){
-    model.absent.forEach(function(f){
-      var d=document.createElement('div'); d.className='led-nr';
-      d.innerHTML='<b>'+esc(String(f).toUpperCase())+'</b> · '+
-        esc(familySourceLabels(f).join(' · '))+' — did not reach this county';
-      el.appendChild(d);
-    });
-  } else {
+  checked.forEach(function(f){
+    var d=document.createElement('div'); d.className='led-nr';
+    /* 🔴 THE ONLY PLACE THIS MAP SAYS "CHECKED AND EMPTY", and it says it only
+       where a source enumerated the places inside its own jurisdiction. */
+    d.innerHTML='<b>'+esc(String(f).toUpperCase())+'</b> · '+
+      esc(familySourceLabels(f).join(' · '))+
+      ' — <b>checked this county and found none</b>';
+    el.appendChild(d);
+  });
+  never.forEach(function(f){
+    var d=document.createElement('div'); d.className='led-nr';
+    d.innerHTML='<b>'+esc(String(f).toUpperCase())+'</b> · '+
+      esc(familySourceLabels(f).join(' · '))+' — did not reach this county';
+    el.appendChild(d);
+  });
+  if(!model.absent.length){
     var d0=document.createElement('div'); d0.className='led-nr';
     d0.textContent='Every loaded family reached this county; none is absent here.';
     el.appendChild(d0);
   }
-  var sweeps=!!(MANIFEST.coverage&&MANIFEST.coverage.any_source_sweeps_geography);
-  el.appendChild(noteEl(sweeps
-    ? 'A loaded source now declares a geographic sweep, so an absence above can no '+
-      'longer be read as "not reached" by default — see the coverage note in the rail.'
+  el.appendChild(noteEl(checked.length
+    ? 'One loaded family enumerates every place inside this state, so its absence '+
+      'here is a finding — "checked and empty," not "not reached." Every other '+
+      'absence above still means only that the source never looked.'
     : 'Source absence is "not reached," never "checked and empty," because no loaded '+
-      'source sweeps geography.'));
+      'source sweeps this county\u2019s state.'));
   return el;
 }
 
@@ -1470,6 +1593,16 @@ function sigBlock(s){
      finer one. */
   if(s.precision) h+=kv('Position known to', Object.keys(s.precision).map(function(pk){
       return pk+' '+s.precision[pk]; }).join(' · '));
+  var nrows=(s.detail||[]).length;
+  /* 🔴 A DISCLOSURE, NOT A DELETION.  Every row below is byte-identical to what
+     this block always rendered — the award year and description, the mine status,
+     commodities and holder list, and the "+N more" tail.  It starts CLOSED because
+     the `.led-sec` sections underneath already list these same entities as rows a
+     click can open: measured 13-42 duplicated names per dot (Yukon-Koyukuk 42,
+     Pima 26, Eureka 20 — a first-token count said 12/17/12 because a mineral site
+     prints its HOLDERS inline, after a <br>, inside the site's own row).  The inert copy is
+     the one that yields, and it is one keystroke away, not gone. */
+  if(nrows) h+='<details class="sig-more"><summary>'+nrows+' source row'+(nrows===1?'':'s')+'</summary>';
   h+='<div class="sig-d">';
   (s.detail||[]).forEach(function(d){
     if(s.source==='contract'){
@@ -1500,6 +1633,9 @@ function sigBlock(s){
   if(s.detail_total>(s.detail||[]).length)
     h+='<div style="color:var(--ink-faint)">+'+(s.detail_total-s.detail.length)+' more</div>';
   h+='</div>';
+  if(nrows) h+='</details>';
+  /* the verification note is NOT inside the disclosure: an open defect on a source
+     is exactly the thing that must not need a click to be seen. */
   if(pend) h+='<div class="sig-d" style="color:var(--signal);opacity:0.8">'+esc(src.verification_note||'')+'</div>';
   return h+'</div>';
 }
@@ -1519,10 +1655,25 @@ document.getElementById('ins-x').onclick=closeInspector;
    time.  A type with zero rows cannot get an entry and a type that gains rows
    gets one with no code change — the same derived-not-declared rule the defect
    scan already follows.  `asset` (338 mineral sites) arrived exactly that way. */
+/* 🔴 A CUSTOM SYMBOL, BECAUSE d3'S SEVEN ARE ALL SPOKEN FOR — and because the
+   right glyph for a permit is not an eighth arbitrary shape.  Four corner
+   brackets: the motif already carried by panel corners, graph reticles, pin
+   markers and the facility glyph.  An outline that marks a place out without
+   filling it is exactly what a permit IS — ND's own status guide separates
+   `LOC`/`PNC`/`EXP`/`PNS` from every drilled status because NO HOLE WAS MADE,
+   and drawing those 6,944 wells with the same star as a producing asset would
+   assert a hole the registry says is not there. */
+var symbolBracket={draw:function(c,size){
+  var r=Math.sqrt(size)/2, a=r*0.62;
+  c.moveTo(-r,-r+a); c.lineTo(-r,-r); c.lineTo(-r+a,-r);
+  c.moveTo(r-a,-r);  c.lineTo(r,-r);  c.lineTo(r,-r+a);
+  c.moveTo(r,r-a);   c.lineTo(r,r);   c.lineTo(r-a,r);
+  c.moveTo(-r+a,r);  c.lineTo(-r,r);  c.lineTo(-r,r-a);
+}};
 var SYM={ person:d3.symbolCircle, company:d3.symbolSquare, patent:d3.symbolDiamond,
   agency:d3.symbolTriangle, location:d3.symbolCross, research:d3.symbolWye,
-  asset:d3.symbolStar };
-var TYPE_ORDER=['person','company','patent','agency','location','research','asset'];
+  asset:d3.symbolStar, permit:symbolBracket };
+var TYPE_ORDER=['person','company','patent','agency','location','research','asset','permit'];
 
 function keyLegend(){
   var g=document.getElementById('kgrid');
@@ -1887,10 +2038,347 @@ function updateGraphStatus(){
 }
 
 /* ================================================================
+   COMMODITY LAYER — the first on-canvas geology this map has drawn
+   ================================================================
+   🔴 A CANVAS, NOT MARKERS.  37,230 coordinate-bearing sites is 88x the SVG
+   marker count the convergence layer draws (419 in a big state), and the SVG
+   path-per-dot approach that suits 419 does not survive 37,230 — measured in
+   the frame bisect recorded in this session's note, not assumed.
+
+   🔴 AND THE TUNING IS RE-MEASURED, NOT INHERITED.  map-visual-design.md §5.3-5.4
+   settled `threshold 600` and `sprite peak alpha 0.09` against 5,200 SYNTHETIC
+   points.  Real scale here is 7.2x that.  Both constants below carry the number
+   they were re-derived at; copying 600/0.09 forward unmeasured is exactly what
+   this work order was told not to do. */
+var COM_TONES=['--com-0','--com-1','--com-2','--com-3','--com-4','--com-5','--com-6','--com-7'];
+var SITES=null, sitesLoading=false, comOn=false, comLayer=null;
+var comFamilies={}, comModeOverride='auto', comLastMode='-', comLastVisible=0;
+
+/* ══ EVERY CONSTANT BELOW WAS RE-DERIVED ON THIS PAGE AT 37,230 REAL POINTS ══
+   map-visual-design.md §5.3-5.4 settled `threshold 600` and `peak alpha 0.09`
+   against 5,200 SYNTHETIC points spread over 30 districts.  Neither transfers,
+   and the measurements say so in opposite directions.  Full tables in
+   SESSION-2026-09-03-oilgas-and-commodity-visual-layer.md.
+
+   COM_POINT_MAX 12000  (synthetic: 600)
+     Points did NOT become the expensive mode at scale — measured worst-frame in
+     points mode: 330 visible 50ms · 12,053 visible 50.1ms · 37,173 visible
+     116.7ms.  The switch is set at 12,000, which is both where the point path
+     starts to degrade AND where the dots stop being countable: at a 6px cell the
+     median cell holds ~2 sites there, and 5 at the North Dakota view.  §5.3's own
+     rule is that the trigger is the MEANING claim ("a point rendering asserts a
+     countable aggregate"), and 5 sites in 6px is not countable.
+
+   COM_DENSITY_TARGET 0.85  (replaces the synthetic's fixed peak alpha 0.09)
+     Chosen at the knee of the measured clipping curve on the log-normalised
+     field: North Dakota clips 10.1% at 0.09, 4.5% at 0.06, 3.7% at 0.04 — i.e.
+     below 0.06 almost nothing is gained.  §5.4's failure mode is saturation and
+     this is the number that avoids it on THIS data.
+
+   COM_DENSITY_CELL 6  (no synthetic equivalent — this bound did not exist)
+     One sprite per SITE cost 383ms worst-frame at the North Dakota view, 5.7x
+     the points mode it exists to replace.  Aggregating to a 6px cell collapses
+     37,173 sprites to 766 at the national view and puts density back under
+     budget (50.1ms national, 100ms North Dakota).  6px is below the sprite's own
+     falloff, so it bounds the COUNT without quantising anything a reader sees. */
+var COM_POINT_MAX = 12000;
+/* the accumulated luminance the 99th-percentile cell should reach, 0..1.  The
+   per-cell alpha is solved from this and the geometry; see `_density`. */
+var COM_DENSITY_TARGET = 0.85;
+/* >1 pushes the mid-tones down and keeps the top of the range for genuinely dense
+   cells.  A pure log map of a 1,600x range put the MEDIAN cell at 0.40 of full,
+   which is what produced a flat grey wash with no structure — measured, not
+   guessed. */
+var COM_DENSITY_GAMMA = 2.6;
+var COM_SPRITE_ALPHA = 0.06;   /* points mode only */
+var COM_SPRITE_R = 26;
+/* the grid that bounds how many sprites a frame draws.  6px is half the smallest
+   radius that still reads as a field, so the positional quantisation it
+   introduces is under the sprite's own falloff and invisible; the value is
+   measured in the session note, not chosen. */
+var COM_DENSITY_CELL = 6;
+
+function comTone(i){
+  return getComputedStyle(document.documentElement).getPropertyValue(COM_TONES[i]).trim()||'#6D99B0';
+}
+/* commodity -> tone index, by CENSUS over the shipped payload: the seven with the
+   most sites get their own tone, everything else shares the last one. */
+var comToneOf={}, comTop=[], comOtherCount=0;
+function buildComIndex(){
+  var counts=SITES.commodities.map(function(_,i){ return {i:i,n:0}; });
+  for(var k=0;k<SITES.com.length;k++){
+    var m=SITES.com[k];
+    for(var b=0;b<SITES.commodities.length;b++) if(m & (1<<b)) counts[b].n++;
+  }
+  counts.sort(function(a,b){ return b.n-a.n || a.i-b.i; });
+  comTop=counts.slice(0,7).filter(function(c){ return c.n>0; });
+  comTop.forEach(function(c,rank){ comToneOf[c.i]=rank; });
+  comOtherCount=counts.filter(function(c){ return c.n>0 && comToneOf[c.i]===undefined; }).length;
+}
+/* the tone a site draws in: its highest-ranked selected commodity */
+function siteTone(mask){
+  for(var r=0;r<comTop.length;r++){ if(mask & (1<<comTop[r].i)) return r; }
+  return 7;
+}
+
+function loadSites(){
+  if(SITES||sitesLoading) return Promise.resolve(SITES);
+  sitesLoading=true;
+  return fetch(DATA_ROOT+'sites-v1.json').then(function(r){
+    if(!r.ok) throw new Error('sites-v1.json HTTP '+r.status);
+    return r.json();
+  }).then(function(j){
+    SITES=j; sitesLoading=false; buildComIndex();
+    SITES.families.forEach(function(f){ comFamilies[f]=true; });
+    return SITES;
+  }).catch(function(e){
+    sitesLoading=false;
+    /* 🔴 A LAYER THAT CANNOT LOAD SAYS SO.  Nothing synthetic is substituted —
+       the same refusal the graph plane makes when serve_map.py is not answering. */
+    hardFail('Commodity layer not available', 'sites-v1.json did not load ('+
+      esc(e.message||e)+'). No points are drawn and nothing is substituted for them.');
+    throw e;
+  });
+}
+
+var CommodityCanvas = L.Layer.extend({
+  onAdd: function(map){
+    this._map=map;
+    var c=this._canvas=L.DomUtil.create('canvas','commodity-canvas leaflet-zoom-animated');
+    map.getPanes().overlayPane.appendChild(c);
+    map.on('moveend zoomend resize', this._reset, this);
+    /* 🔴 THE SAME TRANSFORM LEAFLET GIVES ITS OWN RENDERERS.  Without this the
+       canvas holds still through the zoom animation and snaps at the end — the
+       marker-pop artifact, reproduced. */
+    if(map.options.zoomAnimation && L.Browser.any3d) map.on('zoomanim', this._animateZoom, this);
+    this._reset();
+  },
+  onRemove: function(map){
+    L.DomUtil.remove(this._canvas);
+    map.off('moveend zoomend resize', this._reset, this);
+    map.off('zoomanim', this._animateZoom, this);
+  },
+  _animateZoom: function(e){
+    var scale=this._map.getZoomScale(e.zoom, this._map.getZoom()),
+        off=this._map._latLngBoundsToNewLayerBounds(this._map.getBounds(), e.zoom, e.center).min;
+    L.DomUtil.setTransform(this._canvas, off, scale);
+  },
+  _reset: function(){
+    var m=this._map, size=m.getSize(), tl=m.containerPointToLayerPoint([0,0]);
+    L.DomUtil.setPosition(this._canvas, tl);
+    var dpr=Math.min(window.devicePixelRatio||1, 2);
+    this._canvas.width=size.x*dpr; this._canvas.height=size.y*dpr;
+    this._canvas.style.width=size.x+'px'; this._canvas.style.height=size.y+'px';
+    this._dpr=dpr;
+    this.draw();
+  },
+  draw: function(){
+    var m=this._map, cv=this._canvas, ctx=cv.getContext('2d'), dpr=this._dpr||1;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cv.width,cv.height);
+    if(!SITES||!comOn){ comLastVisible=0; comLastMode='-'; updateStatus(); return; }
+    var b=m.getBounds(), sz=m.getSize();
+    var n=SITES.count, lat=SITES.lat, lng=SITES.lng, fam=SITES.fam, com=SITES.com;
+    var north=b.getNorth()*10000, south=b.getSouth()*10000,
+        east=b.getEast()*10000,  west=b.getWest()*10000;
+    /* one pass: cull to viewport, project, bucket by tone */
+    var xs=[], ys=[], ts=[], fs=[];
+    for(var i=0;i<n;i++){
+      if(lat[i]>north||lat[i]<south||lng[i]>east||lng[i]<west) continue;
+      if(!comFamilies[SITES.families[fam[i]]]) continue;
+      var pt=m.latLngToContainerPoint([lat[i]/10000, lng[i]/10000]);
+      if(pt.x<-20||pt.y<-20||pt.x>sz.x+20||pt.y>sz.y+20) continue;
+      xs.push(pt.x); ys.push(pt.y); ts.push(siteTone(com[i])); fs.push(fam[i]);
+    }
+    var vis=xs.length;
+    comLastVisible=vis;
+    var mode = comModeOverride!=='auto' ? comModeOverride
+             : (vis>COM_POINT_MAX ? 'density' : 'points');
+    comLastMode=mode;
+    if(mode==='density') this._density(ctx,xs,ys,ts);
+    else this._points(ctx,xs,ys,ts,fs);
+    updateStatus();
+  },
+  _points: function(ctx,xs,ys,ts,fs){
+    /* 🔴 SCREEN SPACE, ALWAYS.  §5.5: facilities were `L.rectangle` in LAT/LNG
+       space and stretched with latitude — an Alaskan facility rendered as a
+       distorted slab.  Every glyph here is drawn in canvas pixels. */
+    var byTone={};
+    for(var i=0;i<xs.length;i++){ (byTone[ts[i]]=byTone[ts[i]]||[]).push(i); }
+    Object.keys(byTone).forEach(function(t){
+      ctx.fillStyle=comTone(+t); ctx.globalAlpha=0.72;
+      ctx.beginPath();
+      byTone[t].forEach(function(i){
+        if(fs[i]===0){
+          /* commodity family = a mineral site: the bracketed square motif */
+          var r=2.6, x=xs[i], y=ys[i], a=r*0.8;
+          ctx.moveTo(x-r,y-r+a); ctx.lineTo(x-r,y-r); ctx.lineTo(x-r+a,y-r);
+          ctx.moveTo(x+r-a,y-r); ctx.lineTo(x+r,y-r); ctx.lineTo(x+r,y-r+a);
+          ctx.moveTo(x+r,y+r-a); ctx.lineTo(x+r,y+r); ctx.lineTo(x+r-a,y+r);
+          ctx.moveTo(x-r+a,y+r); ctx.lineTo(x-r,y+r); ctx.lineTo(x-r,y+r-a);
+        } else {
+          ctx.moveTo(xs[i]+1.7, ys[i]);
+          ctx.arc(xs[i],ys[i],1.7,0,6.2832);
+        }
+      });
+      ctx.fill();
+    });
+    ctx.globalAlpha=1;
+  },
+  _density: function(ctx,xs,ys,ts){
+    /* 🔴 ADDITIVE LIGHT, STILL — BUT ACCUMULATED PER CELL BEFORE IT IS DRAWN.
+       §5.4's finding stands: binned RECTANGLES were the wrong primitive because a
+       grid "quantises density into buckets and leaves visible cell edges."  Soft
+       overlapping sprites remain the primitive here and there are no cell edges:
+       what the grid does is decide HOW MANY sprites to draw, not what they look
+       like.  Adjacent cells' sprites overlap and blend exactly as before.
+
+       🔴 AND THIS IS A RE-DERIVATION, NOT A PORT.  Measured on this page at real
+       scale, one-sprite-per-site cost 383ms worst-frame at the North Dakota view
+       (36,917 visible) against points' 67ms — density was 5.7x MORE expensive than
+       the mode it exists to replace, the opposite of the 5,200-synthetic-point
+       build where the switch was a performance win.  Cost is fill-rate bound at
+       roughly count x r^2, so bounding the COUNT is the only lever that keeps the
+       technique.  See the session note's table. */
+    if(!this._sprites) this._sprites={};
+    var self=this, cell=COM_DENSITY_CELL, acc={}, order=[];
+    for(var i=0;i<xs.length;i++){
+      var cx=(xs[i]/cell)|0, cy=(ys[i]/cell)|0, k=ts[i]+':'+cx+':'+cy;
+      var a=acc[k];
+      if(a){ a.n++; }
+      else { acc[k]={x:(cx+0.5)*cell, y:(cy+0.5)*cell, t:ts[i], n:1}; order.push(k); }
+    }
+    /* 🔴 LOG-SCALED AND NORMALISED TO THE VIEW, AND THAT IS A MEASURED NECESSITY.
+       §5.4 settled a FIXED peak alpha (0.09) because 5,200 synthetic sites spread
+       over 30 districts have a narrow density range.  Real wells do not: measured
+       per-cell site counts on this data span p50=2 to max=3,332 at the national
+       view — a 1,600x range, because the Bakken is a cluster and the rest of the
+       country is empty.  A fixed linear alpha cannot show both; every candidate
+       from 0.30 down to 0.015 left the hot cells clipped to flat white, which is
+       precisely the silhouette collapse §5.4 warns about, arrived at from the
+       other direction.
+       So luminance is log(1+n) normalised to this view's 99th-percentile cell.
+       ⚠️ THIS CHANGES WHAT THE FIELD MEANS AND THE LEGEND SAYS SO: brightness is
+       RELATIVE CONCENTRATION IN VIEW, not an absolute site count.  A field that
+       silently rescaled itself would be worse than one that clipped. */
+    var counts=order.map(function(k){ return acc[k].n; }).sort(function(a,b){ return a-b; });
+    var ref=counts.length? counts[Math.floor(counts.length*0.99)] : 1;
+    this._densityRef=ref;
+    var denom=Math.log(1+Math.max(ref,2));
+    /* 🔴 PER-CELL ALPHA IS DERIVED FROM THE GEOMETRY, NOT TUNED BESIDE IT.
+       The first version fixed a peak alpha and let the sprite overlap do the
+       accumulating, which made the field a function of a ratio nobody had set on
+       purpose: at r=26 / cell=6 every pixel takes ~75 sprite contributions and
+       0.06 x 75 saturates into the washed-out haze §5.4 calls a silhouette; at
+       r=10 / cell=10 it takes 4 and 0.06 x 4 = 0.24 is invisible.  Both were
+       measured on this page and both are wrong.
+       So the target is stated at the OUTPUT — the 99th-percentile cell should
+       land near saturation and not past it — and the per-cell alpha is solved
+       backwards from the overlap the current geometry actually produces.  Changing
+       r or the cell size can no longer silently change the exposure. */
+    var ovl=Math.max(1, Math.pow(2*COM_SPRITE_R/COM_DENSITY_CELL, 2)*0.25);
+    var peak=Math.min(1, COM_DENSITY_TARGET/ovl);
+    this._densityPeak=peak;
+    ctx.globalCompositeOperation='lighter';
+    for(var j=0;j<order.length;j++){
+      var c=acc[order[j]], sp=this._sprites[c.t];
+      if(!sp){ sp=this._sprites[c.t]=self._sprite(comTone(c.t)); }
+      /* a floor so a lone site is DIM BUT PRESENT — §5.4: "A lone site being dim
+         is correct", but being invisible is a dropped fact. */
+      ctx.globalAlpha=Math.max(peak*0.02, Math.min(1, peak*Math.pow(Math.log(1+c.n)/denom, COM_DENSITY_GAMMA)));
+      ctx.drawImage(sp, c.x-COM_SPRITE_R, c.y-COM_SPRITE_R);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    this._lastCells=order.length;
+  },
+  _sprite: function(color){
+    /* pre-rendered once per tone; the per-frame cost is `drawImage` only */
+    var r=COM_SPRITE_R, c=document.createElement('canvas');
+    c.width=c.height=r*2;
+    var g=c.getContext('2d'), grd=g.createRadialGradient(r,r,0,r,r,r);
+    var rgb=color.replace('#','');
+    var R=parseInt(rgb.substr(0,2),16), G=parseInt(rgb.substr(2,2),16), B=parseInt(rgb.substr(4,2),16);
+    grd.addColorStop(0,'rgba('+R+','+G+','+B+',1)');
+    grd.addColorStop(1,'rgba('+R+','+G+','+B+',0)');
+    g.fillStyle=grd; g.fillRect(0,0,r*2,r*2);
+    return c;
+  }
+});
+
+/* 🔴 A RETAINED DIAGNOSTIC SURFACE, ON PURPOSE.
+   map-visual-design.md §6.4 lesson 4: "The diagnostic harness is retained in the
+   build and should be kept — it will be needed again at real data volumes."  This
+   is that volume.  The page is an IIFE, so a frame-bisect cannot reach `SITES`,
+   `comLayer` or the two tunables from `page.evaluate` without one — and a
+   diagnostic that cannot be re-run is a number nobody can check a year from now.
+   ⚠️ READ/POKE ONLY, AND IT ASSERTS NOTHING.  Everything here is already on the
+   page; this exposes it for measurement and adds no behaviour of its own. */
+window.__mapdiag={
+  get sites(){ return SITES; },
+  get layer(){ return comLayer; },
+  get visible(){ return comLastVisible; },
+  get mode(){ return comLastMode; },
+  get tunables(){ return {pointMax:COM_POINT_MAX, spriteAlpha:COM_SPRITE_ALPHA,
+                          spriteR:COM_SPRITE_R}; },
+  setAlpha:function(a){ COM_DENSITY_TARGET=a; if(comLayer) comLayer._sprites=null; },
+  get densityPeak(){ return comLayer?comLayer._densityPeak:0; },
+  setSpriteR:function(r){ COM_SPRITE_R=r; if(comLayer) comLayer._sprites=null; },
+  setCell:function(c){ COM_DENSITY_CELL=c; },
+  setGamma:function(g){ COM_DENSITY_GAMMA=g; },
+  get densityRef(){ return comLayer?comLayer._densityRef:0; },
+  get cells(){ return comLayer?comLayer._lastCells:0; },
+  setPointMax:function(n){ COM_POINT_MAX=n; },
+  setMode:function(m){ comModeOverride=m; },
+  draw:function(){ if(comLayer) comLayer.draw(); },
+  toggle:function(on){ setCommodityLayer(on); }
+};
+
+function setCommodityLayer(on){
+  comOn=!!on;
+  var apply=function(){
+    if(comOn){
+      if(!comLayer) comLayer=new CommodityCanvas();
+      if(!map.hasLayer(comLayer)) comLayer.addTo(map);
+    } else if(comLayer && map.hasLayer(comLayer)){
+      map.removeLayer(comLayer);
+    }
+    /* §1: overlay, with convergence DIMMED rather than hidden — a figure/ground
+       swap that keeps both legible. */
+    if(markersGroup) markersGroup.eachLayer(function(l){
+      if(l.setStyle) l.setStyle({opacity:(l.options.opacity||0)*(comOn?0.22:1)});
+    });
+    document.getElementById('map-plane').classList.toggle('com-on', comOn);
+    if(comLayer && comOn) comLayer.draw();
+    comChips(); comNote();
+    refresh(); updateStatus();
+  };
+  if(comOn && !SITES) loadSites().then(apply).catch(function(){ comOn=false; });
+  else apply();
+}
+
+/* ================================================================
    WIRING
    ================================================================ */
-map=L.map('map',{zoomControl:false,attributionControl:true,minZoom:3,maxZoom:13,
-  zoomSnap:0.25,wheelPxPerZoomLevel:110}).setView([39.5,-98.5],4);
+/* 🔴 THE CONFIG map-visual-design.md §6.2 SETTLED ON, which this page never received.
+   It shipped `zoomSnap:0.25` + `wheelPxPerZoomLevel:110` — §6.2's own words for that
+   pair are "scrolling banked with no response, then lurched a quarter-level, then
+   snapped", and that is exactly what was measured here: 840px of scroll produced
+   3-4 discrete lurches over ~1.22s, each popping the dots 18.7%.  `zoomDelta` was
+   never set at all, so the on-screen +/- buttons fired a FULL zoom level — a 98.9%
+   marker oversize, the worst case in the whole table.
+   Continuous zoom (snap 0) removes the quantised lurch; 58px restores the wheel gain
+   the 110 had halved; 18ms debounce cuts the banking delay. */
+/* 🔴 attributionControl:false because the page adds its OWN attribution control on
+   the next line (`prefix:false`).  Both were being created, so two controls stacked
+   in `.leaflet-bottom.leaflet-right` and the redundant one's "Leaflet" prefix link
+   reached down into the status bar — the last measured ink overlap at 900px.  The
+   REQUIRED tile attribution is unaffected: the explicit control still collects
+   "Esri, HERE, Garmin, © OpenStreetMap contributors" from the layers themselves,
+   and that is asserted below, not assumed. */
+map=L.map('map',{zoomControl:false,attributionControl:false,minZoom:3,maxZoom:13,
+  zoomSnap:0,zoomDelta:0.35,wheelPxPerZoomLevel:58,wheelDebounceTime:18
+  }).setView([39.5,-98.5],4);
 L.control.attribution({position:'bottomright',prefix:false}).addTo(map);
 /* ⚠️ NOT A DESIGN CHANGE — AN UPSTREAM ONE.  The baseline's CARTO dark_nolabels
    endpoint now returns a tile stamped "API KEY REQUIRED" across every frame for
@@ -1941,6 +2429,40 @@ document.getElementById('search').onkeydown=function(e){
   var m=Object.keys(STATE_FIPS).find(function(f){return STATE_FIPS[f].toLowerCase().indexOf(q)===0;});
   if(m) drill(m);
 };
+/* ---------- commodity layer controls ---------- */
+document.getElementById('com-toggle').onclick=function(){
+  setCommodityLayer(!comOn);
+  this.classList.toggle('on', comOn);
+  this.querySelector('span').textContent = comOn?'On':'Off';
+};
+function comChips(){
+  var el=document.getElementById('com-chips');
+  if(!SITES){ el.innerHTML=''; return; }
+  /* 🔴 A CENSUS, NOT A LIST.  The chips are whatever families the payload
+     actually carries, in the payload's own order — a family that drops to zero
+     loses its chip with no code change, the same rule `node_types` holds. */
+  el.innerHTML=SITES.families.map(function(f){
+    return '<button class="com-chip'+(comFamilies[f]?' on':'')+'" data-fam="'+esc(f)+'">'+
+      '<i style="background:'+comTone(f==='oil_gas'?0:2)+'"></i>'+esc(f.replace(/_/g,' '))+'</button>';
+  }).join('');
+  [].forEach.call(el.querySelectorAll('.com-chip'), function(b){
+    b.onclick=function(){
+      var f=b.getAttribute('data-fam');
+      comFamilies[f]=!comFamilies[f];
+      b.classList.toggle('on', comFamilies[f]);
+      if(comLayer&&comOn) comLayer.draw();
+    };
+  });
+}
+function comNote(){
+  var el=document.getElementById('com-note');
+  if(!el) return;
+  if(!SITES){ el.textContent='Not loaded. Switch the layer on to fetch it.'; return; }
+  /* every number here is read from the payload, never typed in */
+  el.innerHTML='<b>'+SITES.count.toLocaleString()+'</b> sites carry a real coordinate and are '+
+    'drawn. '+comTop.length+' commodities have their own tone; '+comOtherCount+
+    ' share the last one. Sites with no coordinate are not given one and are not here.';
+}
 document.getElementById('zi').onclick=function(){map.zoomIn();};
 document.getElementById('zo').onclick=function(){map.zoomOut();};
 document.getElementById('zh').onclick=surface;
