@@ -1,9 +1,9 @@
 {
-  "generated_at": "2026-09-02T09:48:53.346920+00:00",
+  "generated_at": "2026-09-02T22:25:10.169987+00:00",
   "db": {
     "path": "/Users/sapper/dev/osint-graph/data/osint.db",
     "bytes": 1050361856,
-    "change_counter": 25141
+    "change_counter": 25143
   },
   "coverage": {
     "states_emitted": [
@@ -20,7 +20,7 @@
     "state": "not-screenable",
     "statement": "Not screenable. The graph holds zero rows of every disqualifying event type (regulatory_action, lawsuit_filed, investigation_opened, company_dissolved, divestiture), so an absence of contradiction here is evidence about the graph, not about the world.",
     "census": {
-      "edges": 250433,
+      "edges": 250449,
       "with_contradicting_sources": 1,
       "counts": "edges rows whose contradicting_sources is not the empty list; the sole live exception is prose stating there is none"
     }
@@ -32,12 +32,84 @@
   ],
   "node_types": {
     "agency": 40,
-    "asset": 338,
-    "company": 12363,
-    "location": 15467,
+    "asset": 354,
+    "company": 12369,
+    "location": 15470,
     "patent": 133949,
     "person": 73085,
     "research": 1178
+  },
+  "unroutable_types": [],
+  "routability": {
+    "node_route_table": [
+      "agency",
+      "asset",
+      "company",
+      "location",
+      "patent",
+      "person",
+      "research"
+    ],
+    "graph_api_raw_types": [
+      "asset",
+      "company",
+      "government_agency",
+      "location",
+      "patent",
+      "person",
+      "research"
+    ],
+    "frontend_symbols": [
+      "agency",
+      "asset",
+      "company",
+      "location",
+      "patent",
+      "person",
+      "research"
+    ],
+    "graph_api_types": [
+      "agency",
+      "asset",
+      "company",
+      "location",
+      "patent",
+      "person",
+      "research"
+    ],
+    "source_tag_table": [
+      "commodity_eia",
+      "commodity_msha",
+      "contract",
+      "demand",
+      "patent"
+    ],
+    "types_referenced": {
+      "asset": 486,
+      "company": 33870,
+      "person": 19
+    },
+    "sources_referenced": [
+      "commodity_eia",
+      "commodity_msha",
+      "contract",
+      "demand",
+      "patent"
+    ],
+    "untyped_rows": 0,
+    "nameless_rows": 0,
+    "idless_rows": 0,
+    "unroutable_types": [],
+    "missing_from_frontend": [],
+    "missing_from_graph_api": [],
+    "allowlisted": {},
+    "unlabelled_sources": [],
+    "rule": "a row is routable only if its RAW entity_type is a key of map_sources.NODE_TYPES (what graph_api.node() looks up) whose value is a key of the shipped page's SYM table, and the row carries a name the picker can render; anything else must be allow-listed with a reason or the export is not written",
+    "frontend": {
+      "file": "osint_map.html",
+      "md5": "8fbf8059dfe2843fee19c6d6a00c921c"
+    },
+    "ids_not_in_entities": 0
   },
   "source_families": {
     "contract": "contract",
@@ -207,7 +279,7 @@
     }
   },
   "stats": {
-    "counties_in_graph": 1469,
+    "counties_in_graph": 1472,
     "counties_with_signal": 1469,
     "counties_contract": 52,
     "counties_patent": 1381,

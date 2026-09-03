@@ -76,6 +76,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from map_sources import SOURCES, NO_SOURCE_SWEEPS, BY_SYSTEM, FAMILY, NODE_TYPES
+import routability
 
 # the loader package of this same repo — one definition of the rule, shared
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "loader"))
@@ -296,6 +297,11 @@ def contract_signals(con, counties, canon):
             "verification": SOURCES["contract"].verification,
             "seed": top,
             "detail": d["awards"][:12],
+            # 🔴 THE REMAINDER SHIPS TOO, SO THE PANEL CAN PAGE THROUGH IT WITHOUT A
+            # GRAPH REQUEST.  `detail` stays the 12-row cap the panel opens on;
+            # `detail_rest` is everything after it in the same order and shape.
+            # Additive: no reader of `detail`/`detail_total` changes meaning.
+            "detail_rest": d["awards"][12:],
             "detail_total": len(d["awards"]),
         }
     return out
@@ -372,6 +378,8 @@ def patent_signals(con, counties, city2county, canon):
             "roles": dict(by_role[fips]),
             "detail": [{"entity_id": e, "name": names.get(e, e), "patents": len(p)}
                        for e, p in hs[:12]],
+            "detail_rest": [{"entity_id": e, "name": names.get(e, e), "patents": len(p)}
+                            for e, p in hs[12:]],
             "detail_total": len(hs),
         }
     return out, dropped_county_tier, {f: dict(v) for f, v in seats.items()}
@@ -463,6 +471,7 @@ def demand_signals(con, counties, city2county, canon, contract_locs, patent_seat
             "verification": SOURCES["demand"].verification,
             "seed": top,
             "detail": detail[:12],
+            "detail_rest": detail[12:],
             "detail_total": len(detail),
         }
     return out
@@ -622,6 +631,15 @@ def commodity_signals(con, counties, states, canon):
                 "why": "its location entity is neither a county nor a state in this graph",
             })
 
+    def _site_row(st):
+        return {
+            "entity_id": st["entity_id"], "name": st["name"],
+            "anchor": st["anchor"], "status": st["notes"],
+            "precision": st["precision"], "lat": st["lat"], "lng": st["lng"],
+            "date": st["date"], "commodities": st["commodities"],
+            "holders": sorted(st["holders"], key=lambda h: (h["name"], h["rel"])),
+        }
+
     def _sig(source, group):
         # 🔴 MIN, never mean — the same rule the contract layer already holds.  A
         # county's commodity evidence is only as good as its weakest site
@@ -667,13 +685,8 @@ def commodity_signals(con, counties, states, canon):
             # reason: anything downstream that wants "which companies are here"
             # must not read it out of a truncated panel list.
             "holders": [h[0] for h in holders],
-            "detail": [{
-                "entity_id": st["entity_id"], "name": st["name"],
-                "anchor": st["anchor"], "status": st["notes"],
-                "precision": st["precision"], "lat": st["lat"], "lng": st["lng"],
-                "date": st["date"], "commodities": st["commodities"],
-                "holders": sorted(st["holders"], key=lambda h: (h["name"], h["rel"])),
-            } for st in group[:12]],
+            "detail": [_site_row(st) for st in group[:12]],
+            "detail_rest": [_site_row(st) for st in group[12:]],
             "detail_total": len(group),
         }
 
@@ -779,7 +792,41 @@ def scan_commodity_defects(con) -> dict:
 # assembly
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build(db_path: str):
+def stamp_entity_types(con, signals) -> int:
+    """Every row the panel can open carries the entity's type twice: `raw_type`
+    is `entities.entity_type` verbatim — the value `graph_api.node()` looks up
+    and the one the census is keyed on — and `type` is the graph's vocabulary
+    name (`NODE_TYPES`) where it has one, the raw value where it does not, for a
+    reader.  Returns the number of ids the database does not hold at all, which
+    are dead clicks by definition (and land in the census as untyped)."""
+    refs, seeds = [], []
+    for s in signals:
+        if s.get("seed"):
+            seeds.append(s)
+        for r in routability.entity_refs({k: v for k, v in s.items() if k != "seed"}):
+            if r.get("entity_id"):
+                refs.append(r)
+    want = sorted({r["entity_id"] for r in refs} | {s["seed"] for s in seeds})
+    raw = {}
+    for i in range(0, len(want), 500):
+        chunk = want[i:i + 500]
+        raw.update(con.execute(
+            f"SELECT entity_id, entity_type FROM entities WHERE entity_id IN "
+            f"({','.join('?' * len(chunk))})", chunk).fetchall())
+    for r in refs:
+        t = raw.get(r["entity_id"])
+        if t is not None:
+            r["raw_type"] = t
+            r["type"] = NODE_TYPES.get(t, t)
+    for s in seeds:
+        t = raw.get(s["seed"])
+        if t is not None:
+            s["seed_raw_type"] = t
+            s["seed_type"] = NODE_TYPES.get(t, t)
+    return len(want) - len(raw)
+
+
+def build(db_path: str, frontend: str | None = None):
     con = connect(db_path)
     counties, states, city2county = load_geography(con)
     canon = canonical_map(con)
@@ -873,7 +920,23 @@ def build(db_path: str):
         for sig in sigs:
             sig["clean"] = sig["source"] in clean
 
+    # ── the routability census: read both ends, refuse rather than assume ─────
+    # 🔴 EVERY ROW THE PANEL CAN OPEN GETS ITS TYPE, then the set of types is
+    # checked against what the graph API returns AND what the shipped page draws.
+    # `main()` refuses to write an export that fails this; see routability.py for
+    # the two silent failures that made this a gate rather than a note.
+    all_sigs = [s for sigs in county_signals.values() for s in sigs] + \
+               [s for by in com_state.values() for s in by.values()]
+    unknown_ids = stamp_entity_types(con, all_sigs)
+    page = routability.resolve_frontend(frontend, os.path.dirname(os.path.abspath(__file__)))
+    with open(page, encoding="utf-8") as f:
+        table = routability.route_table(f.read())
+    rcensus = routability.census(routability.referenced(all_sigs), table, NODE_TYPES)
+    rcensus["frontend"] = {"file": os.path.basename(page), "md5": routability.md5_of(page)}
+    rcensus["ids_not_in_entities"] = unknown_ids
+
     return {
+        "routability": rcensus,
         "clean": sorted(clean),
         "contra": contra,
         "node_types": dict(sorted(node_types.items())),
@@ -927,9 +990,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "map-v1"))
+    ap.add_argument("--frontend", default=None,
+                    help="the page this export will be served with; its SYM/SRC_TAG tables "
+                         "are the route table the census checks (default: the sibling page)")
     args = ap.parse_args()
 
-    data, con = build(args.db)
+    data, con = build(args.db, args.frontend)
+    # 🔴 REFUSED BEFORE A SINGLE FILE IS WRITTEN.  An export carrying a type the
+    # page cannot open is the Block 11 `asset` failure again; it does not get to
+    # exist on disk where a deploy could pick it up.  The way through is a route
+    # in the page, or an entry in `routability.ALLOWLIST` with a reason.
+    why = routability.refusal(data["routability"])
+    if why:
+        rt = data["routability"]
+        print(f"🔴 EXPORT REFUSED — {why}")
+        print(f"   route table (graph_api ∩ page {rt['frontend']['file']}): {rt['node_route_table']}")
+        print(f"   types referenced: {rt['types_referenced']}")
+        print(f"   nothing written to {args.out}")
+        sys.exit(2)
     os.makedirs(os.path.join(args.out, "county"), exist_ok=True)
 
     # ── national.json ─────────────────────────────────────────────────────────
@@ -974,6 +1052,12 @@ def main():
             row["precision_tier"] = "state"
             row["fips"] = None
             row["detail"] = sig["detail"]
+            row["detail_rest"] = sig.get("detail_rest", [])
+            # the seed's type ships with the seed: these three rows are the only
+            # national-plane signals that carry openable detail, so they are in
+            # the census and must be censusable from what actually ships
+            row["seed_type"] = sig.get("seed_type")
+            row["seed_raw_type"] = sig.get("seed_raw_type")
             row["detail_total"] = sig["detail_total"]
             rows.append(row)
         entry = national.setdefault(
@@ -1039,6 +1123,12 @@ def main():
                    "statement": CONTRA_STATEMENT, "census": data["contra"]},
         "clean_sources": data["clean"],
         "node_types": data["node_types"],
+        # 🔴 THE ROUTABILITY CENSUS, DISCLOSED.  `unroutable_types` is empty in any
+        # export that exists, because main() refuses to write one where it is not;
+        # the field is here so that fact is checkable from the manifest alone, and
+        # so a test can re-derive it against the shipped page and the shipped rows.
+        "unroutable_types": data["routability"]["unroutable_types"],
+        "routability": data["routability"],
         # 🔴 THE FRONTEND NEEDS THIS TO COUNT CONVERGENCE HONESTLY.  Its
         # `Min converging sources` control and its inspector header both count
         # DISTINCT SOURCES, which was the same thing as distinct observers until
@@ -1098,6 +1188,14 @@ def main():
           f"{cs['sites_with_a_cik_resolved_holder']} with a CIK-resolved holder")
     for k, v in sorted(cd["classes"].items()):
         print(f"    🔴 {k}: {v['total']}  ({', '.join(f'{a}={b}' for a, b in sorted(v['by_source'].items())) or 'unattributed'})")
+    rt = data["routability"]
+    print(f"\nroutability: {len(rt['types_referenced'])} entity types referenced "
+          f"{sorted(rt['types_referenced'])}, route table {rt['node_route_table']}, "
+          f"unroutable {rt['unroutable_types']}, allow-listed {list(rt['allowlisted'])}, "
+          f"untyped rows {rt['untyped_rows']}, nameless rows {rt['nameless_rows']}, "
+          f"idless rows {rt['idless_rows']}, "
+          f"ids not in entities {rt['ids_not_in_entities']}"
+          f" — page {rt['frontend']['file']} md5 {rt['frontend']['md5']}")
     print(f"\nwrote {args.out}")
 
 
