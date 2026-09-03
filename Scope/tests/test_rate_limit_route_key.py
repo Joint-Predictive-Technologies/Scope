@@ -207,7 +207,6 @@ def test_EVERY_RATE_LIMITED_ROUTE_IN_THE_REAL_APP_IS_ACCOUNTED_FOR():
     assert found == {
         "/admin/refresh", "/admin/upload-db", "/api/watchlist-rules", "/chat",
         "/tickers/watchlist/{symbol}",
-        "/osint-map/api/graph/{entity_id}", "/osint-map/out/map-v1/{path:path}",
     }, sorted(found)
 
 
