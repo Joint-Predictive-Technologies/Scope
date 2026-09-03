@@ -1156,7 +1156,7 @@ var SRC_TAG={contract:'CONTRACT', patent:'PATENT', demand:'DEMAND',
    data does not assert. */
 function entityIndex(){
   var out=[], seen={};
-  function add(id, name, src, note){
+  function add(id, name, src, note, sited){
     if(!id || !name) return;              /* never render a bare uid as a name */
     if(seen[id]){
       if(seen[id].sources.indexOf(src)<0) seen[id].sources.push(src);
@@ -1170,12 +1170,23 @@ function entityIndex(){
          a subsidiary's identity for a click that opens the parent.  Every other
          source names the node itself, so a non-contract name wins and the awarded
          name is kept and shown rather than dropped. */
+      /* ⚠️ PORTED FORWARD, AND IT WAS A REAL GAP.  The branches above keep a
+         contract name (`awardedAs`) and nothing else, so a THIRD differing name —
+         two non-contract sources disagreeing about one node — fell through both
+         and was SILENTLY DROPPED.  Proven on a fixture: patent says "ACME PATENTS
+         LLC", demand says "ACME CORPORATION", and the second name vanished.
+         `demand_signals` carries the identical stray-name shape and is masked
+         only by an unrelated `match_type <> 'geography'` filter, so this is not
+         hypothetical.  Every conflict branch now degrades to SHOWING BOTH names
+         rather than to silently asserting one. */
       if(name && name!==seen[id].name){
         if(seen[id].nameSrc==='contract' && src!=='contract'){
           seen[id].awardedAs=seen[id].name;
           seen[id].name=name; seen[id].nameSrc=src;
         } else if(src==='contract' && !seen[id].awardedAs){
           seen[id].awardedAs=name;
+        } else if(!seen[id].alts.some(function(a){ return a.name===name; })){
+          seen[id].alts.push({name:name, src:src});
         }
       }
       /* an entity that appears under two sources keeps the first note it was
@@ -1183,9 +1194,11 @@ function entityIndex(){
          per-entity figure, so without this a company that both lobbies and holds
          patents here would silently lose its patent count */
       if(!seen[id].note && note) seen[id].note=note;
+      if(sited) seen[id].sited=true;
       return false;
     }
-    seen[id]={uid:id, name:name, nameSrc:src, sources:[src], note:note||''};
+    seen[id]={uid:id, name:name, nameSrc:src, sources:[src], note:note||'',
+              alts:[], sited:!!sited};
     out.push(seen[id]);
     return true;
   }
@@ -1199,7 +1212,15 @@ function entityIndex(){
         /* a mineral site is itself an entity (type `asset`), and the companies
            working it are separate entities hanging off it.  Both are real graph
            nodes and both open; collapsing them would hide the operator. */
-        add(d.entity_id, d.name, s.source, 'mineral site · '+(d.precision||'precision unstated'));
+        /* ⚠️ THE PRECISION IS PASSED AS A DATUM, NOT LEFT TO BE RE-READ OFF THE
+           NOTE.  The footer used to decide "does any row carry its own position"
+           by regexing `note` for "· coordinate" — which couples it to
+           first-note-wins: a site some OTHER source names first keeps that
+           source's note, loses its precision from the display, and drops out of
+           the test.  Proven on a fixture: a coordinate site named first by patent
+           made the footer claim every row shares a county. */
+        add(d.entity_id, d.name, s.source, 'mineral site · '+(d.precision||'precision unstated'),
+            d.precision==='coordinate');
         (d.holders||[]).forEach(function(h){
           add(h.entity_id, h.name, s.source, 'holder — '+(h.rel||'')); });
       } else {
@@ -1387,6 +1408,9 @@ function rowEl(e){
       return '<span class="ptag">'+esc(SRC_TAG[x]||x)+'</span>'; }).join('')+
     (e.note?'<span class="pnote">'+esc(e.note)+'</span>':'')+
     (e.awardedAs?'<span class="pnote">awarded as '+esc(e.awardedAs)+'</span>':'')+
+    /* a name the label lost is SHOWN, not merely retained in the model */
+    (e.alts||[]).map(function(a){
+      return '<span class="pnote">also listed as '+esc(a.name)+'</span>'; }).join('')+
     '</span>';
   row.onclick=function(){ enterGraph(e.uid); };
   return row;
@@ -1409,7 +1433,7 @@ function tracePanel(county){
        a coordinate and say so in their own row. */
     var f=document.createElement('div');
     f.className='ins-note';
-  f.textContent = model.entities.some(function(e){ return /· coordinate$/.test(e.note); })
+  f.textContent = model.entities.some(function(e){ return e.sited; })
     ? 'Grouped by county — the unit the export positions on. Rows marked '+
       '"coordinate" carry their own position; the rest share a county, not a '+
       'street address.'

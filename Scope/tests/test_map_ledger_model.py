@@ -81,7 +81,8 @@ const before=m.sections.map(s=>({family:s.family,rows:s.rows.map(e=>e.uid),trace
   min:s.confidence.min,unmeasured:s.confidence.unmeasured,badges:s.badges.map(b=>b.text),
   rest:s.rest.length,unshipped:s.unshipped}));
 let paged=[]; if(%s){ for(const s of m.sections){ while(s.restCursor<s.rest.length){ const r=P.pageSection(m,s,12); paged.push({family:s.family,made:r.made.map(e=>e.uid),already:r.already,left:r.left}); } } }
-console.log(JSON.stringify({entities:m.entities.map(e=>({uid:e.uid,name:e.name,sources:e.sources,note:e.note})),
+console.log(JSON.stringify({entities:m.entities.map(e=>({uid:e.uid,name:e.name,sources:e.sources,note:e.note,
+  alts:(e.alts||[]).map(a=>a.name), awardedAs:e.awardedAs||null, sited:!!e.sited})),
   sections:before, after:m.sections.map(s=>({family:s.family,rows:s.rows.map(e=>e.uid)})),
   absent:m.absent, loaded:m.loaded, hidden:m.hidden, paged}));
 """ % (json.dumps(MANIFEST), json.dumps(county), "true" if page_sections else "false")
@@ -167,3 +168,105 @@ def test_PAGING_DEDUPS_AGAINST_EVERY_SECTION_AND_CLOSES_EXACTLY():
     assert after["demand"] == ["A"] and after["patent"][-1] == "P12" and len(after["patent"]) == 13
     uids = [u for s in out["after"] for u in s["rows"]]
     assert len(uids) == len(set(uids)) == 14
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# the two fixes PORTED onto this lineage from the navigability build, 2026-09-03
+#
+# ⚠️ BOTH EXISTED ON THE LIVE PAGE AND NOT ON THIS ONE.  The ledger elevation and
+# the navigability fixes were written in PARALLEL sessions against the same file,
+# and each ended up holding something the other lacked.  Deploying this lineage
+# would have REGRESSED both behaviours against what users already see — which is
+# why they are ported and pinned here instead of left as a recorded divergence.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def test_A_THIRD_DIFFERING_NAME_IS_KEPT_AND_NOT_SILENTLY_DROPPED():
+    """🔴 Two NON-contract sources naming one node differently.
+
+    The contract branches keep an `awardedAs` and nothing else, so a conflict
+    between two non-contract sources fell through both and the second name was
+    DROPPED — the row then asserted one identity for a click that opens a node
+    another source calls something else. `demand_signals` carries the identical
+    stray-name shape, masked only by an unrelated `match_type` filter, so this is
+    a live hazard and not a hypothetical one.
+
+    Every conflict branch must degrade to SHOWING BOTH names."""
+    out = _run({"signals": [
+        _sig("patent", 0.9, [{"entity_id": "E1", "name": "ACME PATENTS LLC", "patents": 3}]),
+        _sig("demand", 0.5, [{"entity_id": "E1", "name": "ACME CORPORATION"}]),
+    ]})
+    e = out["entities"][0]
+    assert e["name"] == "ACME PATENTS LLC"
+    assert e["alts"] == ["ACME CORPORATION"], e
+
+
+def test_THE_ORIGINAL_CONTRACT_NAME_RULE_IS_UNTOUCHED_BY_THE_PORT():
+    """The canonical name still wins and the awarded string is still kept beside
+    it — a port that fixed one case by breaking the case that already worked
+    would be the "fix that changes the symptom" this campaign keeps catching."""
+    out = _run({"signals": [
+        _sig("contract", 0.95, [{"entity_id": "G1", "name": "BATH IRON WORKS CORPORATION",
+                                 "amount": 5, "date": "2024-01-01", "description": "x"}]),
+        _sig("patent", 0.9, [{"entity_id": "G1", "name": "GENERAL DYNAMICS CORP", "patents": 2}]),
+    ]})
+    g = out["entities"][0]
+    assert g["name"] == "GENERAL DYNAMICS CORP"
+    assert g["awardedAs"] == "BATH IRON WORKS CORPORATION"
+    assert g["alts"] == [], "the awarded name belongs in awardedAs, not in alts"
+
+
+def test_THE_COORDINATE_FOOTER_READS_THE_DATUM_NOT_THE_RENDERED_NOTE():
+    """🔴 A site carrying its own coordinate, named FIRST by another source.
+
+    The footer decided "does any row carry its own position" by regexing the
+    rendered `note` for `· coordinate`. That couples it to first-note-wins: a
+    coordinate-tier site some other source names first keeps THAT source's note,
+    loses its precision from the display, and drops out of the test — so the panel
+    tells the reader every row shares a county when one does not.
+
+    The precision is a DATUM and has to be carried as one."""
+    out = _run({"signals": [
+        _sig("patent", 0.9, [{"entity_id": "S1", "name": "BIG MINE HOLDINGS", "patents": 2}]),
+        _sig("commodity_msha", 1.0, [{"entity_id": "S1", "name": "BIG MINE HOLDINGS",
+                                      "precision": "coordinate", "holders": []}]),
+    ]})
+    e = out["entities"][0]
+    # the note is the PATENT's, so a regex over it finds nothing...
+    assert e["note"] == "2 patents", e
+    assert "coordinate" not in e["note"]
+    # ...and the datum still says the row is positioned
+    assert e["sited"] is True, e
+
+
+def test_A_REPEATED_ALT_NAME_IS_LISTED_ONCE():
+    """The de-dupe guard on `alts`, which the first version of these tests could
+    not fail: with only two sources the guard is never reached a second time, so
+    deleting it changed nothing any test could see. Three sources, two of which
+    volunteer the SAME differing name, is the smallest fixture that exercises it."""
+    out = _run({"signals": [
+        _sig("patent", 0.9, [{"entity_id": "E1", "name": "ACME PATENTS LLC", "patents": 3}]),
+        _sig("demand", 0.5, [{"entity_id": "E1", "name": "ACME CORPORATION"}]),
+        _sig("commodity_msha", 0.8, [{"entity_id": "E1", "name": "ACME CORPORATION",
+                                      "precision": "county", "holders": []}]),
+    ]})
+    e = out["entities"][0]
+    assert e["name"] == "ACME PATENTS LLC"
+    assert e["alts"] == ["ACME CORPORATION"], "one name, listed once — not once per source"
+
+
+def test_A_SITE_THAT_NAMES_ITSELF_FIRST_IS_STILL_SITED():
+    """🔴 The common case, and the one the first version of this suite missed.
+
+    The footer test named the site by a PATENT first, so `sited` was only ever set
+    on the merge path (`if(sited) seen[id].sited=true`). The constructor's own
+    `sited:!!sited` was therefore unpinned, and breaking it — a mineral site that
+    is the first source to name its own entity — left every test green while the
+    footer went back to claiming the rows share a county."""
+    out = _run({"signals": [
+        _sig("commodity_msha", 1.0, [{"entity_id": "S1", "name": "BIG MINE HOLDINGS",
+                                      "precision": "coordinate", "holders": []}]),
+        _sig("patent", 0.9, [{"entity_id": "S1", "name": "BIG MINE HOLDINGS", "patents": 2}]),
+    ]})
+    e = out["entities"][0]
+    assert e["note"] == "mineral site · coordinate", e
+    assert e["sited"] is True, e
