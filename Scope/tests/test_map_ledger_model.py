@@ -69,7 +69,14 @@ def _module():
     return "\n".join(parts) + "\nmodule.exports={" + ",".join(NAMES) + "};\n"
 
 
-def _run(county, page_sections=False):
+def _run(county, page_sections=False, manifest=None):
+    """`manifest` overrides the shared fixture for one test.
+
+    🔴 EXTENDING THE SHARED MANIFEST BROKE THREE TESTS AND THE MUTATION CONTROL
+    CAUGHT IT.  Adding a sixth family changed `loaded`/`absent` counts that three
+    existing tests pin by number, so a fixture edit made for one test silently
+    rewrote the premise of the others. A test that needs a different corpus gets
+    its own corpus."""
     node = shutil.which("node")
     if not node:
         pytest.skip("node is not installed here; the ledger model cannot be executed")
@@ -85,7 +92,7 @@ console.log(JSON.stringify({entities:m.entities.map(e=>({uid:e.uid,name:e.name,s
   alts:(e.alts||[]).map(a=>a.name), awardedAs:e.awardedAs||null, sited:!!e.sited})),
   sections:before, after:m.sections.map(s=>({family:s.family,rows:s.rows.map(e=>e.uid)})),
   absent:m.absent, loaded:m.loaded, hidden:m.hidden, paged}));
-""" % (json.dumps(MANIFEST), json.dumps(county), "true" if page_sections else "false")
+""" % (json.dumps(manifest or MANIFEST), json.dumps(county), "true" if page_sections else "false")
     r = subprocess.run([node, "-e", js], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
@@ -270,3 +277,30 @@ def test_A_SITE_THAT_NAMES_ITSELF_FIRST_IS_STILL_SITED():
     e = out["entities"][0]
     assert e["note"] == "mineral site · coordinate", e
     assert e["sited"] is True, e
+
+
+def test_AN_OIL_GAS_WELL_IS_NOT_CALLED_A_MINERAL_SITE():
+    """🔴 MSHA, EIA and ND oil/gas are three families that are NEVER merged — a
+    load-bearing export rule. Both mineral sites and wells reach the same branch
+    of `dotEntities` because both carry `holders`, so every NDIC well rendered
+    "mineral site · coordinate": MSHA's noun on an oil well. The export keeps the
+    families apart and the ledger's own prose was quietly rejoining them.
+
+    The noun is derived from the FAMILY, so a new family cannot inherit another's
+    noun by matching the same branch."""
+    mani = json.loads(json.dumps(MANIFEST))
+    mani["source_families"]["oil_gas_nd"] = "oil_gas"
+    mani["sources"]["oil_gas_nd"] = {"label": "oil_gas_nd label"}
+    out = _run({"signals": [
+        _sig("oil_gas_nd", 1.0, [{"entity_id": "W1", "name": "ABELMANN 23-14 1-H",
+                                  "precision": "coordinate",
+                                  "holders": [{"entity_id": "OP1", "name": "DEVON ENERGY",
+                                               "rel": "contractor"}]}]),
+        _sig("commodity_msha", 1.0, [{"entity_id": "S1", "name": "BIG MINE",
+                                      "precision": "coordinate", "holders": []}]),
+    ]}, manifest=mani)
+    by = {e["uid"]: e for e in out["entities"]}
+    assert by["W1"]["note"] == "well · coordinate", by["W1"]
+    assert by["S1"]["note"] == "mineral site · coordinate", by["S1"]
+    # the operator still hangs off the well as its own openable row
+    assert by["OP1"]["note"] == "holder — contractor", by["OP1"]

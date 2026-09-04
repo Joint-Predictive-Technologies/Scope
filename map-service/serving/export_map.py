@@ -1512,9 +1512,22 @@ def main():
         with open(os.path.join(args.out, "county", f"{st}.json"), "w") as f:
             json.dump({"state": st, "counties": payload}, f, separators=(",", ":"))
 
-    # ── sites-v1.json — the canvas layer's points, fetched only when toggled on ──
-    with open(os.path.join(args.out, "sites-v1.json"), "w") as f:
-        json.dump(data["site_points"], f, separators=(",", ":"))
+    # ── sites-v1.json is NO LONGER WRITTEN ─────────────────────────────────────
+    # 🔴 THE NATIONAL SITE PAYLOAD EXISTED ONLY TO FEED A CANVAS LAYER THAT IS
+    # REJECTED.  It shipped 37,230 site coordinates (951 KB) so every commodity
+    # site could be drawn nationally at once; the corrected design routes
+    # commodity sites through the place-first ledger, where a site is a ledger
+    # row and becomes a marker ONLY inside a coordinate-tier drill-in. A national
+    # coordinate dump is exactly the "100,000 dots" that design rejects, and
+    # serving it invites the layer to be rebuilt.
+    #
+    # ⚠️ `site_points()` IS STILL COMPUTED AND STILL TESTED — it is the WRITE that
+    # is removed, not the function. The coordinate-tier spider will need per-site
+    # coordinates, just scoped to one drilled-in place rather than the whole
+    # country, and two tests in test_map_export.py pin its precision filter and
+    # its 4dp rounding against `data["site_points"]`. Deleting it would drop that
+    # coverage and force a re-derivation of measurements already made. So it stays
+    # in `data`, reaches no file, and is the shape the spider narrows.
 
     # ── manifest.json ─────────────────────────────────────────────────────────
     manifest = {

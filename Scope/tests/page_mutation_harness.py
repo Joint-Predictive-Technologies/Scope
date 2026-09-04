@@ -73,6 +73,11 @@ MUTANTS = [
      "alts:[], sited:false};",
      ["test_THE_COORDINATE_FOOTER_READS_THE_DATUM_NOT_THE_RENDERED_NOTE",
       "test_A_SITE_THAT_NAMES_ITSELF_FIRST_IS_STILL_SITED"]),
+
+    ("an oil/gas well is labelled with MSHA's noun again — the families rejoin",
+     "(famOf(s.source)==='oil_gas' ? 'well' : 'mineral site')+",
+     "('mineral site')+",
+     ["test_AN_OIL_GAS_WELL_IS_NOT_CALLED_A_MINERAL_SITE"]),
 ]
 
 SABOTAGE = ("CONTROL B — the note is no longer kept, so every row loses its figure",

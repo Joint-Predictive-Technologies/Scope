@@ -237,13 +237,6 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
    through the zoom animation and then jump, which is the marker-pop artifact
    §6.2 spent five rounds on, reproduced in a new place. */
 .commodity-canvas{position:absolute;left:0;top:0;pointer-events:none;}
-.com-chip{display:inline-flex;align-items:center;gap:5px;cursor:pointer;
-  font-family:var(--mono);font-size:8px;letter-spacing:1.1px;text-transform:uppercase;
-  color:var(--ink-faint);border:1px solid var(--hair);padding:2px 5px;margin:0 4px 4px 0;
-  background:transparent;transition:color 0.13s,border-color 0.13s;}
-.com-chip.on{color:var(--ink);border-color:var(--hair-bright);}
-.com-chip i{width:7px;height:7px;display:block;border-radius:50%;opacity:0.35;}
-.com-chip.on i{opacity:1;}
 .zoomctl{position:absolute;bottom:40px;right:14px;z-index:55;display:flex;flex-direction:column;gap:5px;
   transition:right 0.34s cubic-bezier(.4,0,.2,1);}
 /* 🔴 the zoom controls and the inspector were both anchored `right:14px` at the same
@@ -521,18 +514,6 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
       <div class="lrow"><svg width="14" height="14"><rect width="14" height="14" fill="#241B0F"/><circle cx="7" cy="7" r="2.6" fill="#E8A33D"/></svg><span>Signal — convergence</span></div>
       <p class="lnote">Dark means one of two very different things. This surface never lets them look the same.</p>
       <p class="lnote warnnote" id="cov-note">&mdash;</p>
-    </div>
-
-    <!-- 🔴 ITS OWN TOGGLEABLE LAYER, OVERLAID, WITH CONVERGENCE DIMMED.
-         map-visual-design.md §1, the operator decision of 2026-09-01: commodity
-         geology is the SUBSTRATE the convergence signals are read against, not
-         another class of finding.  Folding them together would destroy that
-         relationship; dimming rather than hiding keeps both legible. -->
-    <div class="rail-sec">
-      <h4>Commodity layer</h4>
-      <button class="lbtn" id="com-toggle"><span>Off</span><i></i></button>
-      <div id="com-chips" style="margin-top:8px;"></div>
-      <p class="lnote" id="com-note">&mdash;</p>
     </div>
 
     <div class="rail-sec">
@@ -895,7 +876,6 @@ function stateMarkers(){
           stateTierNote(sd)+' // click to descend');
       });
   });
-  applyComDim();   /* rebuilt markers know nothing about the commodity layer */
 }
 
 /* ---------- county data: fetched, cached, never synthesised ---------- */
@@ -953,7 +933,6 @@ function countyMarkers(cd, subset){
       function(){ openInspector(c,nm); },
       function(e){ showTip(e, nm, c.signals.map(function(s){return s.source;}).join(' + ')); });
   });
-  applyComDim();   /* rebuilt markers know nothing about the commodity layer */
 }
 
 /* 🔴 PRESENT BUT UNMAPPABLE AT THIS PRECISION — SAID, NOT SWALLOWED.
@@ -1071,14 +1050,7 @@ function updateStatus(){
         ? ' <span class="k">('+MANIFEST.stats.counties_convergent+' by signal count)</span>' : '')+
       '</span>'+
     '<span><span class="k">Mode</span> <span class="v">'+mode.toUpperCase()+'</span></span>'+
-    /* 🔴 §5.3: "The active mode is named in the status bar with in-view count and
-       any cap — the operator is never guessing which rendering they are looking
-       at."  A density field and a point field make DIFFERENT claims (a countable
-       aggregate vs a concentration), so which one is on screen is not a detail. */
-    (comOn ? '<span><span class="k">Commodity</span> <span class="v">'+
-        esc(String(comLastMode).toUpperCase())+'</span> <span class="k">'+
-        comLastVisible.toLocaleString()+' in view</span></span>' : '')+
-    '<span><span class="k">Corpus</span> <span class="v">'+live.join(' + ').toUpperCase()+'</span></span>'+
+        '<span><span class="k">Corpus</span> <span class="v">'+live.join(' + ').toUpperCase()+'</span></span>'+
     (pend.length? '<span><span class="k">Layer with open defect</span> <span class="warn">'+
        pend.join(' + ').toUpperCase()+
        /* 🔴 BOTH SCANS, EACH WITH ITS OWN DENOMINATOR.  This used to show only
@@ -1221,7 +1193,15 @@ function entityIndex(){
            source's note, loses its precision from the display, and drops out of
            the test.  Proven on a fixture: a coordinate site named first by patent
            made the footer claim every row shares a county. */
-        add(d.entity_id, d.name, s.source, 'mineral site · '+(d.precision||'precision unstated'),
+        /* 🔴 THE ROW MUST NAME WHAT THE THING IS, AND THE FAMILIES ARE NEVER
+           MERGED.  Both branches arrive here because both carry `holders`, so an
+           oil/gas WELL was reading "mineral site · coordinate" — MSHA's noun on
+           an NDIC row. The export keeps these as three separate families on
+           purpose; the ledger must not quietly rejoin them in its own prose. The
+           noun comes from the family, not from the branch that happens to match. */
+        add(d.entity_id, d.name, s.source,
+            (famOf(s.source)==='oil_gas' ? 'well' : 'mineral site')+
+            ' · '+(d.precision||'precision unstated'),
             d.precision==='coordinate');
         (d.holders||[]).forEach(function(h){
           add(h.entity_id, h.name, s.source, 'holder — '+(h.rel||'')); });
@@ -2077,393 +2057,38 @@ function updateGraphStatus(){
    they were re-derived at; copying 600/0.09 forward unmeasured is exactly what
    this work order was told not to do. */
 var COM_TONES=['--com-0','--com-1','--com-2','--com-3','--com-4','--com-5','--com-6','--com-7'];
-var SITES=null, sitesLoading=false, comOn=false, comLayer=null;
-var comFamilies={}, comModeOverride='auto', comLastMode='-', comLastVisible=0;
 
-/* ══ EVERY CONSTANT BELOW WAS RE-DERIVED ON THIS PAGE AT 37,230 REAL POINTS ══
-   map-visual-design.md §5.3-5.4 settled `threshold 600` and `peak alpha 0.09`
-   against 5,200 SYNTHETIC points spread over 30 districts.  Neither transfers,
-   and the measurements say so in opposite directions.  Full tables in
-   SESSION-2026-09-03-oilgas-and-commodity-visual-layer.md.
-
-   COM_POINT_MAX 12000  (synthetic: 600)
-     Points did NOT become the expensive mode at scale — measured worst-frame in
-     points mode: 330 visible 50ms · 12,053 visible 50.1ms · 37,173 visible
-     116.7ms.  The switch is set at 12,000, which is both where the point path
-     starts to degrade AND where the dots stop being countable: at a 6px cell the
-     median cell holds ~2 sites there, and 5 at the North Dakota view.  §5.3's own
-     rule is that the trigger is the MEANING claim ("a point rendering asserts a
-     countable aggregate"), and 5 sites in 6px is not countable.
-
-   COM_DENSITY_TARGET 0.85  (replaces the synthetic's fixed peak alpha 0.09)
-     Chosen at the knee of the measured clipping curve on the log-normalised
-     field: North Dakota clips 10.1% at 0.09, 4.5% at 0.06, 3.7% at 0.04 — i.e.
-     below 0.06 almost nothing is gained.  §5.4's failure mode is saturation and
-     this is the number that avoids it on THIS data.
-
-   COM_DENSITY_CELL 6  (no synthetic equivalent — this bound did not exist)
-     One sprite per SITE cost 383ms worst-frame at the North Dakota view, 5.7x
-     the points mode it exists to replace.  Aggregating to a 6px cell collapses
-     37,173 sprites to 766 at the national view and puts density back under
-     budget (50.1ms national, 100ms North Dakota).  6px is below the sprite's own
-     falloff, so it bounds the COUNT without quantising anything a reader sees. */
-var COM_POINT_MAX = 12000;
-/* the accumulated luminance the 99th-percentile cell should reach, 0..1.  The
-   per-cell alpha is solved from this and the geometry; see `_density`. */
-/* 🔴 RE-EXPOSED 2026-09-03, AFTER THE OPERATOR REPORTED THE LAYER AS INVISIBLE
-   ON THE DEPLOYED PAGE — which it effectively was.  The previous value was
-   accepted as an explicit "first real-data pass"; in use it failed.  Measured on
-   the live page at the national view: the solved per-cell alpha was 0.045, so
-   0.045 was the CEILING any cell could reach, and only the Bakken accumulated
-   enough overlap to cross the perceptual floor.  0.225% of the viewport carried
-   clearly-visible ink and all of it was one blob.  Re-measured here, same
-   instrument, same view (`a32` = share of viewport at alpha >= 32):
-
-       R26 t0.85 g2.6   peak 0.045   a32 0.481%   a80 0.262%   <- was shipped
-       R14 t1.20 g2.0   peak 0.220   a32 0.542%   a80 0.330%
-       R12 t2.00 g1.8   peak 0.500   a32 0.645%   a80 0.394%   <- chosen
-       R10 t3.00 g1.6   peak 1.000   a32 0.668%   a80 0.496%   saturates to white
-
-   The last row buys little more ink and clips the top of the range to flat white,
-   losing the tone that carries which commodity a cell is.  So the exposure stops
-   at the value where the densest cells are bright and still coloured.  A target
-   above 1 is deliberate: it is the accumulated-luminance the 99th-percentile cell
-   aims at, and letting the very densest clip while the periphery becomes legible
-   is the trade this layer exists to make. */
-var COM_DENSITY_TARGET = 2.0;
-/* >1 pushes the mid-tones down and keeps the top of the range for genuinely dense
-   cells.  A pure log map of a 1,600x range put the MEDIAN cell at 0.40 of full,
-   which is what produced a flat grey wash with no structure — measured, not
-   guessed. */
-var COM_DENSITY_GAMMA = 1.8;
-var COM_SPRITE_ALPHA = 0.06;   /* points mode only */
-/* 26 -> 12 with the re-exposure above.  A smaller sprite is also CHEAPER — cost
-   is fill-rate bound at roughly count x r^2, so this is 0.21x the per-sprite fill
-   of the old radius — and it reads as a heat field rather than the diffuse fog a
-   26px sprite at 4.5% alpha produced. */
-var COM_SPRITE_R = 12;
-/* the grid that bounds how many sprites a frame draws.  6px is half the smallest
-   radius that still reads as a field, so the positional quantisation it
-   introduces is under the sprite's own falloff and invisible; the value is
-   measured in the session note, not chosen. */
-var COM_DENSITY_CELL = 6;
-
+/* 🔴 KEPT DELIBERATELY THROUGH THE CANVAS-LAYER REMOVAL.  The cool ramp is the
+   one part of the rejected national density layer that the corrected Stage 3
+   still wants: map-visual-design.md's palette, reserved from `--signal` amber,
+   scoped to the coordinate-tier spider markers instead of a whole-map layer.
+   `--com-0..7` and this accessor are all that remain of it; the index that used
+   to rank commodities by national site count went with the payload that fed it,
+   and will be rebuilt from whatever the drilled-in place carries. */
 function comTone(i){
   return getComputedStyle(document.documentElement).getPropertyValue(COM_TONES[i]).trim()||'#6D99B0';
 }
-/* commodity -> tone index, by CENSUS over the shipped payload: the seven with the
-   most sites get their own tone, everything else shares the last one. */
-var comToneOf={}, comTop=[], comOtherCount=0;
-function buildComIndex(){
-  var counts=SITES.commodities.map(function(_,i){ return {i:i,n:0}; });
-  for(var k=0;k<SITES.com.length;k++){
-    var m=SITES.com[k];
-    for(var b=0;b<SITES.commodities.length;b++) if(m & (1<<b)) counts[b].n++;
-  }
-  counts.sort(function(a,b){ return b.n-a.n || a.i-b.i; });
-  comTop=counts.slice(0,7).filter(function(c){ return c.n>0; });
-  comTop.forEach(function(c,rank){ comToneOf[c.i]=rank; });
-  comOtherCount=counts.filter(function(c){ return c.n>0 && comToneOf[c.i]===undefined; }).length;
-}
-/* the tone a site draws in: its highest-ranked selected commodity */
-function siteTone(mask){
-  for(var r=0;r<comTop.length;r++){ if(mask & (1<<comTop[r].i)) return r; }
-  return 7;
-}
+/* 🔴 THE DIAGNOSTIC SURFACE, RETAINED — map-visual-design.md §6.4 lesson 4:
+   "The diagnostic harness is retained in the build and should be kept."
 
-function loadSites(){
-  if(SITES||sitesLoading) return Promise.resolve(SITES);
-  sitesLoading=true;
-  return fetch(DATA_ROOT+'sites-v1.json').then(function(r){
-    if(!r.ok) throw new Error('sites-v1.json HTTP '+r.status);
-    return r.json();
-  }).then(function(j){
-    SITES=j; sitesLoading=false; buildComIndex();
-    SITES.families.forEach(function(f){ comFamilies[f]=true; });
-    return SITES;
-  }).catch(function(e){
-    sitesLoading=false;
-    /* 🔴 A LAYER THAT CANNOT LOAD SAYS SO.  Nothing synthetic is substituted —
-       the same refusal the graph plane makes when serve_map.py is not answering. */
-    hardFail('Commodity layer not available', 'sites-v1.json did not load ('+
-      esc(e.message||e)+'). No points are drawn and nothing is substituted for them.');
-    throw e;
-  });
-}
+   The previous version of this hook existed to measure the national commodity
+   CANVAS LAYER and was removed with it. That removal took the harness with the
+   feature, which is exactly what §6.4 warns against: the page is an IIFE, so
+   without a hook nothing outside it can reach `drill`, `ledgerModel` or
+   `pageSection`, and the ledger's paging behaviour at real scale becomes
+   unmeasurable from a browser. McKenzie County could not be opened for its own
+   stress test without this.
 
-var CommodityCanvas = L.Layer.extend({
-  onAdd: function(map){
-    this._map=map;
-    var c=this._canvas=L.DomUtil.create('canvas','commodity-canvas leaflet-zoom-animated');
-    map.getPanes().overlayPane.appendChild(c);
-    map.on('moveend zoomend resize', this._reset, this);
-    /* 🔴 THE SAME TRANSFORM LEAFLET GIVES ITS OWN RENDERERS.  Without this the
-       canvas holds still through the zoom animation and snaps at the end — the
-       marker-pop artifact, reproduced. */
-    if(map.options.zoomAnimation && L.Browser.any3d) map.on('zoomanim', this._animateZoom, this);
-    this._reset();
-  },
-  onRemove: function(map){
-    L.DomUtil.remove(this._canvas);
-    map.off('moveend zoomend resize', this._reset, this);
-    map.off('zoomanim', this._animateZoom, this);
-  },
-  _animateZoom: function(e){
-    var scale=this._map.getZoomScale(e.zoom, this._map.getZoom()),
-        off=this._map._latLngBoundsToNewLayerBounds(this._map.getBounds(), e.zoom, e.center).min;
-    L.DomUtil.setTransform(this._canvas, off, scale);
-  },
-  _reset: function(){
-    var m=this._map, size=m.getSize(), tl=m.containerPointToLayerPoint([0,0]);
-    L.DomUtil.setPosition(this._canvas, tl);
-    var dpr=Math.min(window.devicePixelRatio||1, 2);
-    this._canvas.width=size.x*dpr; this._canvas.height=size.y*dpr;
-    this._canvas.style.width=size.x+'px'; this._canvas.style.height=size.y+'px';
-    this._dpr=dpr;
-    this.draw();
-  },
-  draw: function(){
-    var m=this._map, cv=this._canvas, ctx=cv.getContext('2d'), dpr=this._dpr||1;
-    ctx.setTransform(dpr,0,0,dpr,0,0);
-    ctx.clearRect(0,0,cv.width,cv.height);
-    if(!SITES||!comOn){ comLastVisible=0; comLastMode='-'; updateStatus(); return; }
-    var b=m.getBounds(), sz=m.getSize();
-    var n=SITES.count, lat=SITES.lat, lng=SITES.lng, fam=SITES.fam, com=SITES.com;
-    var north=b.getNorth()*10000, south=b.getSouth()*10000,
-        east=b.getEast()*10000,  west=b.getWest()*10000;
-    /* one pass: cull to viewport, project, bucket by tone */
-    var xs=[], ys=[], ts=[], fs=[];
-    for(var i=0;i<n;i++){
-      if(lat[i]>north||lat[i]<south||lng[i]>east||lng[i]<west) continue;
-      if(!comFamilies[SITES.families[fam[i]]]) continue;
-      var pt=m.latLngToContainerPoint([lat[i]/10000, lng[i]/10000]);
-      if(pt.x<-20||pt.y<-20||pt.x>sz.x+20||pt.y>sz.y+20) continue;
-      xs.push(pt.x); ys.push(pt.y); ts.push(siteTone(com[i])); fs.push(fam[i]);
-    }
-    var vis=xs.length, self=this;
-    comLastVisible=vis;
-    /* 🔴 THE MODE IS DECIDED PER FAMILY, NOT ONCE FOR THE WHOLE LAYER.
-       Measured on the live page: the two families differ in density by more than
-       two orders of magnitude — 36,917 oil/gas wells packed into the Bakken
-       against 270 mineral sites scattered over the whole country. Deciding one
-       mode from the COMBINED count put both above `COM_POINT_MAX`, so the 270
-       scattered sites were rendered as a density field of their own sparseness
-       and vanished: with both families on, 0.225% of the viewport carried
-       clearly-visible ink and all of it was the one North Dakota blob. Turning
-       oil/gas OFF was the only way to see a mine, which is not a filter, it is a
-       workaround for a bug.
-
-       Each family now picks its own mode from its OWN visible count, so a dense
-       family is a density field and a sparse one stays individual glyphs, both at
-       once. Families are drawn densest-first so the scattered glyphs land ON TOP
-       of the field rather than under it — the same never-merge rule the export
-       holds, carried into the render. */
-    var byFam={}, i2;
-    for(i2=0;i2<xs.length;i2++){ (byFam[fs[i2]]=byFam[fs[i2]]||[]).push(i2); }
-    var famKeys=Object.keys(byFam).sort(function(a,b){ return byFam[b].length-byFam[a].length; });
-    var modes=[];
-    famKeys.forEach(function(f){
-      var idx=byFam[f], fx=[], fy=[], ft=[], ff=[];
-      for(var j=0;j<idx.length;j++){
-        var i=idx[j]; fx.push(xs[i]); fy.push(ys[i]); ft.push(ts[i]); ff.push(fs[i]);
-      }
-      var m2 = comModeOverride!=='auto' ? comModeOverride
-             : (idx.length>COM_POINT_MAX ? 'density' : 'points');
-      modes.push((SITES.families[f]||f).replace(/_/g,' ')+' '+m2);
-      if(m2==='density') self._density(ctx,fx,fy,ft);
-      else self._points(ctx,fx,fy,ft,ff);
-    });
-    comLastMode = modes.length ? modes.join(' · ') : '-';
-    updateStatus();
-  },
-  _points: function(ctx,xs,ys,ts,fs){
-    /* 🔴 SCREEN SPACE, ALWAYS.  §5.5: facilities were `L.rectangle` in LAT/LNG
-       space and stretched with latitude — an Alaskan facility rendered as a
-       distorted slab.  Every glyph here is drawn in canvas pixels. */
-    var byTone={};
-    for(var i=0;i<xs.length;i++){ (byTone[ts[i]]=byTone[ts[i]]||[]).push(i); }
-    Object.keys(byTone).forEach(function(t){
-      ctx.fillStyle=comTone(+t); ctx.globalAlpha=0.72;
-      ctx.beginPath();
-      byTone[t].forEach(function(i){
-        if(fs[i]===0){
-          /* commodity family = a mineral site: the bracketed square motif */
-          var r=2.6, x=xs[i], y=ys[i], a=r*0.8;
-          ctx.moveTo(x-r,y-r+a); ctx.lineTo(x-r,y-r); ctx.lineTo(x-r+a,y-r);
-          ctx.moveTo(x+r-a,y-r); ctx.lineTo(x+r,y-r); ctx.lineTo(x+r,y-r+a);
-          ctx.moveTo(x+r,y+r-a); ctx.lineTo(x+r,y+r); ctx.lineTo(x+r-a,y+r);
-          ctx.moveTo(x-r+a,y+r); ctx.lineTo(x-r,y+r); ctx.lineTo(x-r,y+r-a);
-        } else {
-          ctx.moveTo(xs[i]+1.7, ys[i]);
-          ctx.arc(xs[i],ys[i],1.7,0,6.2832);
-        }
-      });
-      ctx.fill();
-    });
-    ctx.globalAlpha=1;
-  },
-  _density: function(ctx,xs,ys,ts){
-    /* 🔴 ADDITIVE LIGHT, STILL — BUT ACCUMULATED PER CELL BEFORE IT IS DRAWN.
-       §5.4's finding stands: binned RECTANGLES were the wrong primitive because a
-       grid "quantises density into buckets and leaves visible cell edges."  Soft
-       overlapping sprites remain the primitive here and there are no cell edges:
-       what the grid does is decide HOW MANY sprites to draw, not what they look
-       like.  Adjacent cells' sprites overlap and blend exactly as before.
-
-       🔴 AND THIS IS A RE-DERIVATION, NOT A PORT.  Measured on this page at real
-       scale, one-sprite-per-site cost 383ms worst-frame at the North Dakota view
-       (36,917 visible) against points' 67ms — density was 5.7x MORE expensive than
-       the mode it exists to replace, the opposite of the 5,200-synthetic-point
-       build where the switch was a performance win.  Cost is fill-rate bound at
-       roughly count x r^2, so bounding the COUNT is the only lever that keeps the
-       technique.  See the session note's table. */
-    if(!this._sprites) this._sprites={};
-    var self=this, cell=COM_DENSITY_CELL, acc={}, order=[];
-    for(var i=0;i<xs.length;i++){
-      var cx=(xs[i]/cell)|0, cy=(ys[i]/cell)|0, k=ts[i]+':'+cx+':'+cy;
-      var a=acc[k];
-      if(a){ a.n++; }
-      else { acc[k]={x:(cx+0.5)*cell, y:(cy+0.5)*cell, t:ts[i], n:1}; order.push(k); }
-    }
-    /* 🔴 LOG-SCALED AND NORMALISED TO THE VIEW, AND THAT IS A MEASURED NECESSITY.
-       §5.4 settled a FIXED peak alpha (0.09) because 5,200 synthetic sites spread
-       over 30 districts have a narrow density range.  Real wells do not: measured
-       per-cell site counts on this data span p50=2 to max=3,332 at the national
-       view — a 1,600x range, because the Bakken is a cluster and the rest of the
-       country is empty.  A fixed linear alpha cannot show both; every candidate
-       from 0.30 down to 0.015 left the hot cells clipped to flat white, which is
-       precisely the silhouette collapse §5.4 warns about, arrived at from the
-       other direction.
-       So luminance is log(1+n) normalised to this view's 99th-percentile cell.
-       ⚠️ THIS CHANGES WHAT THE FIELD MEANS AND THE LEGEND SAYS SO: brightness is
-       RELATIVE CONCENTRATION IN VIEW, not an absolute site count.  A field that
-       silently rescaled itself would be worse than one that clipped. */
-    var counts=order.map(function(k){ return acc[k].n; }).sort(function(a,b){ return a-b; });
-    var ref=counts.length? counts[Math.floor(counts.length*0.99)] : 1;
-    this._densityRef=ref;
-    var denom=Math.log(1+Math.max(ref,2));
-    /* 🔴 PER-CELL ALPHA IS DERIVED FROM THE GEOMETRY, NOT TUNED BESIDE IT.
-       The first version fixed a peak alpha and let the sprite overlap do the
-       accumulating, which made the field a function of a ratio nobody had set on
-       purpose: at r=26 / cell=6 every pixel takes ~75 sprite contributions and
-       0.06 x 75 saturates into the washed-out haze §5.4 calls a silhouette; at
-       r=10 / cell=10 it takes 4 and 0.06 x 4 = 0.24 is invisible.  Both were
-       measured on this page and both are wrong.
-       So the target is stated at the OUTPUT — the 99th-percentile cell should
-       land near saturation and not past it — and the per-cell alpha is solved
-       backwards from the overlap the current geometry actually produces.  Changing
-       r or the cell size can no longer silently change the exposure. */
-    var ovl=Math.max(1, Math.pow(2*COM_SPRITE_R/COM_DENSITY_CELL, 2)*0.25);
-    var peak=Math.min(1, COM_DENSITY_TARGET/ovl);
-    this._densityPeak=peak;
-    ctx.globalCompositeOperation='lighter';
-    for(var j=0;j<order.length;j++){
-      var c=acc[order[j]], sp=this._sprites[c.t];
-      if(!sp){ sp=this._sprites[c.t]=self._sprite(comTone(c.t)); }
-      /* a floor so a lone site is DIM BUT PRESENT — §5.4: "A lone site being dim
-         is correct", but being invisible is a dropped fact. */
-      ctx.globalAlpha=Math.max(peak*0.02, Math.min(1, peak*Math.pow(Math.log(1+c.n)/denom, COM_DENSITY_GAMMA)));
-      ctx.drawImage(sp, c.x-COM_SPRITE_R, c.y-COM_SPRITE_R);
-    }
-    ctx.globalAlpha=1;
-    ctx.globalCompositeOperation='source-over';
-    this._lastCells=order.length;
-  },
-  _sprite: function(color){
-    /* pre-rendered once per tone; the per-frame cost is `drawImage` only */
-    var r=COM_SPRITE_R, c=document.createElement('canvas');
-    c.width=c.height=r*2;
-    var g=c.getContext('2d'), grd=g.createRadialGradient(r,r,0,r,r,r);
-    var rgb=color.replace('#','');
-    var R=parseInt(rgb.substr(0,2),16), G=parseInt(rgb.substr(2,2),16), B=parseInt(rgb.substr(4,2),16);
-    grd.addColorStop(0,'rgba('+R+','+G+','+B+',1)');
-    grd.addColorStop(1,'rgba('+R+','+G+','+B+',0)');
-    g.fillStyle=grd; g.fillRect(0,0,r*2,r*2);
-    return c;
-  }
-});
-
-/* 🔴 A RETAINED DIAGNOSTIC SURFACE, ON PURPOSE.
-   map-visual-design.md §6.4 lesson 4: "The diagnostic harness is retained in the
-   build and should be kept — it will be needed again at real data volumes."  This
-   is that volume.  The page is an IIFE, so a frame-bisect cannot reach `SITES`,
-   `comLayer` or the two tunables from `page.evaluate` without one — and a
-   diagnostic that cannot be re-run is a number nobody can check a year from now.
-   ⚠️ READ/POKE ONLY, AND IT ASSERTS NOTHING.  Everything here is already on the
-   page; this exposes it for measurement and adds no behaviour of its own. */
+   ⚠️ READ/DRIVE ONLY, AND LAYER-AGNOSTIC. It exposes what already exists and
+   asserts nothing. Nothing here draws, and nothing here is a commodity dot. */
 window.__mapdiag={
-  get sites(){ return SITES; },
-  get layer(){ return comLayer; },
-  get visible(){ return comLastVisible; },
-  get mode(){ return comLastMode; },
-  get tunables(){ return {pointMax:COM_POINT_MAX, spriteAlpha:COM_SPRITE_ALPHA,
-                          spriteR:COM_SPRITE_R}; },
-  setAlpha:function(a){ COM_DENSITY_TARGET=a; if(comLayer) comLayer._sprites=null; },
-  get densityPeak(){ return comLayer?comLayer._densityPeak:0; },
-  setSpriteR:function(r){ COM_SPRITE_R=r; if(comLayer) comLayer._sprites=null; },
-  setCell:function(c){ COM_DENSITY_CELL=c; },
-  setGamma:function(g){ COM_DENSITY_GAMMA=g; },
-  get densityRef(){ return comLayer?comLayer._densityRef:0; },
-  get cells(){ return comLayer?comLayer._lastCells:0; },
-  setPointMax:function(n){ COM_POINT_MAX=n; },
-  setMode:function(m){ comModeOverride=m; },
-  draw:function(){ if(comLayer) comLayer.draw(); },
-  toggle:function(on){ setCommodityLayer(on); }
+  drill:function(fips){ return drill(fips); },
+  open:function(county, loc){ return openInspector(county, loc); },
+  model:function(county){ return ledgerModel(county); },
+  page:function(model, sec, n){ return pageSection(model, sec, n); },
+  get countyCache(){ return countyCache; },
+  get manifest(){ return MANIFEST; }
 };
-
-/* §1: overlay, with convergence DIMMED rather than hidden — a figure/ground swap
-   that keeps both legible.
-
-   🔴 THIS DIMMED NOTHING A READER COULD SEE, AND IT NEVER CAME BACK.  It set
-   `opacity` alone — the STROKE — while the amber a dot is actually made of is
-   `fillOpacity` on two `circleMarker`s whose stroke is `weight:0,
-   color:'transparent'`.  So the figure/ground swap this layer is built around
-   never happened: measured on the live page, the markers' opacities were byte
-   for byte identical with the layer off, on, off and on again, and the commodity
-   field was read UNDER dots at full strength.  That is a large part of why the
-   layer read as "not there".
-
-   It also multiplied IN PLACE (`opacity * 0.22` on, `* 1` off), so the off state
-   restored nothing — one toggle dimmed a ring permanently.  The undimmed values
-   are captured ONCE per marker and re-applied absolutely, so any number of
-   toggles returns exactly the original.
-
-   ⚠️ Markers are rebuilt by `clearLayers()` on every redraw, and a rebuilt marker
-   knows nothing about the layer being on — so this is called from the redraw path
-   too, not only from the toggle. */
-function applyComDim(){
-  if(!markersGroup) return;
-  var k = comOn ? 0.22 : 1;
-  markersGroup.eachLayer(function(l){
-    if(!l.setStyle || !l.options) return;
-    if(l._comBase===undefined){
-      l._comBase={o:l.options.opacity, f:l.options.fillOpacity};
-    }
-    var st={};
-    if(l._comBase.o!=null) st.opacity     = l._comBase.o*k;
-    if(l._comBase.f!=null) st.fillOpacity = l._comBase.f*k;
-    l.setStyle(st);
-  });
-}
-
-function setCommodityLayer(on){
-  comOn=!!on;
-  var apply=function(){
-    if(comOn){
-      if(!comLayer) comLayer=new CommodityCanvas();
-      if(!map.hasLayer(comLayer)) comLayer.addTo(map);
-    } else if(comLayer && map.hasLayer(comLayer)){
-      map.removeLayer(comLayer);
-    }
-    applyComDim();
-    document.getElementById('map-plane').classList.toggle('com-on', comOn);
-    if(comLayer && comOn) comLayer.draw();
-    comChips(); comNote();
-    refresh(); updateStatus();
-  };
-  if(comOn && !SITES) loadSites().then(apply).catch(function(){ comOn=false; });
-  else apply();
-}
 
 /* ================================================================
    WIRING
@@ -2537,40 +2162,6 @@ document.getElementById('search').onkeydown=function(e){
   var m=Object.keys(STATE_FIPS).find(function(f){return STATE_FIPS[f].toLowerCase().indexOf(q)===0;});
   if(m) drill(m);
 };
-/* ---------- commodity layer controls ---------- */
-document.getElementById('com-toggle').onclick=function(){
-  setCommodityLayer(!comOn);
-  this.classList.toggle('on', comOn);
-  this.querySelector('span').textContent = comOn?'On':'Off';
-};
-function comChips(){
-  var el=document.getElementById('com-chips');
-  if(!SITES){ el.innerHTML=''; return; }
-  /* 🔴 A CENSUS, NOT A LIST.  The chips are whatever families the payload
-     actually carries, in the payload's own order — a family that drops to zero
-     loses its chip with no code change, the same rule `node_types` holds. */
-  el.innerHTML=SITES.families.map(function(f){
-    return '<button class="com-chip'+(comFamilies[f]?' on':'')+'" data-fam="'+esc(f)+'">'+
-      '<i style="background:'+comTone(f==='oil_gas'?0:2)+'"></i>'+esc(f.replace(/_/g,' '))+'</button>';
-  }).join('');
-  [].forEach.call(el.querySelectorAll('.com-chip'), function(b){
-    b.onclick=function(){
-      var f=b.getAttribute('data-fam');
-      comFamilies[f]=!comFamilies[f];
-      b.classList.toggle('on', comFamilies[f]);
-      if(comLayer&&comOn) comLayer.draw();
-    };
-  });
-}
-function comNote(){
-  var el=document.getElementById('com-note');
-  if(!el) return;
-  if(!SITES){ el.textContent='Not loaded. Switch the layer on to fetch it.'; return; }
-  /* every number here is read from the payload, never typed in */
-  el.innerHTML='<b>'+SITES.count.toLocaleString()+'</b> sites carry a real coordinate and are '+
-    'drawn. '+comTop.length+' commodities have their own tone; '+comOtherCount+
-    ' share the last one. Sites with no coordinate are not given one and are not here.';
-}
 document.getElementById('zi').onclick=function(){map.zoomIn();};
 document.getElementById('zo').onclick=function(){map.zoomOut();};
 document.getElementById('zh').onclick=surface;
