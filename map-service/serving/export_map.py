@@ -79,6 +79,55 @@ from map_sources import (SOURCES, NO_SOURCE_SWEEPS, BY_SYSTEM, FAMILY, NODE_TYPE
                          SWEEP_SCOPES)
 import routability
 
+
+# ── the geometry guard ────────────────────────────────────────────────────────
+# 🔴 WRITTEN BECAUSE THE EXPORT AND THE PAGE DISAGREED ABOUT WHAT A COUNTY IS,
+# AND NOTHING NOTICED.  Connecticut's county-equivalents became nine PLANNING
+# REGIONS in 2022 (FIPS 09110-09190); the export keyed on those because that is
+# what the contract data reports, while the page's geometry
+# (`us-atlas@3/counties-10m`) still carried the pre-2022 counties 09001-09015.
+# The intersection was EMPTY, so three counties carrying five real signals —
+# RTX, Sikorsky, Electric Boat — rendered as "no source reached this county".
+#
+# ⭐ A false negative presented as a coverage fact is worse than a crash, because
+# it looks like an answer.  This refuses at export time, the same way the
+# routability census does, rather than letting the disagreement reach a browser.
+#
+# ⚠️ WHAT THIS DOES AND DOES NOT CATCH.  It catches a county key the page cannot
+# draw.  It does NOT catch a key that draws in the WRONG PLACE — geometry whose
+# id matches but whose boundary is stale is invisible to a set comparison.
+GEOMETRY_IDS_FILE = "map_geometry_ids.txt"
+
+
+def renderable_county_ids():
+    """The county-equivalent FIPS the page can actually draw, from disk."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        GEOMETRY_IDS_FILE)
+    with open(path) as f:
+        return {ln.strip() for ln in f
+                if ln.strip() and not ln.startswith("#")}
+
+
+def geometry_refusal(county_keys):
+    """Reason to refuse, or None. `county_keys` is every FIPS the export writes."""
+    try:
+        known = renderable_county_ids()
+    except FileNotFoundError:
+        return (f"{GEOMETRY_IDS_FILE} is missing, so it cannot be shown that the "
+                f"page can draw these counties")
+    orphans = sorted(k for k in county_keys if k not in known)
+    if not orphans:
+        return None
+    by_state = {}
+    for o in orphans:
+        by_state.setdefault(o[:2], []).append(o)
+    parts = ", ".join(f"state {st}: {', '.join(v[:6])}"
+                      + (f" (+{len(v)-6} more)" if len(v) > 6 else "")
+                      for st, v in sorted(by_state.items()))
+    return (f"{len(orphans)} county key(s) have no geometry in the page "
+            f"({parts}). They would render as 'no source reached this county' — "
+            f"a false negative presented as a coverage fact.")
+
 # the loader package of this same repo — one definition of the rule, shared
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "loader"))
 from text_encoding import repair_mojibake, looks_mangled as _looks_mangled
@@ -1406,6 +1455,20 @@ def main():
         print(f"   types referenced: {rt['types_referenced']}")
         print(f"   nothing written to {args.out}")
         sys.exit(2)
+
+    # 🔴 AND REFUSED IF THE PAGE CANNOT DRAW A COUNTY THIS EXPORT NAMES.  Same
+    # rule as the routability census one line up, applied to places instead of
+    # types: the export does not get to exist on disk asserting coverage the
+    # surface will render as its opposite.
+    why = geometry_refusal(set(data["counties"]))
+    if why:
+        print(f"🔴 EXPORT REFUSED — {why}")
+        print(f"   the page's drawable set is serving/{GEOMETRY_IDS_FILE}")
+        print(f"   fix the geometry the page loads, or re-key the export; do NOT")
+        print(f"   invent a mapping between vintages.")
+        print(f"   nothing written to {args.out}")
+        sys.exit(2)
+
     os.makedirs(os.path.join(args.out, "county"), exist_ok=True)
 
     # ── national.json ─────────────────────────────────────────────────────────

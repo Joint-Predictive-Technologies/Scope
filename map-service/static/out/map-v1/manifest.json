@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-04T06:19:50.597444+00:00",
+  "generated_at": "2026-09-06T13:47:23.489177+00:00",
   "db": {
     "path": "/Users/sapper/scope-backups/2026-09-03-serving-snapshot/osint-map-serving.db",
     "bytes": 801730560,
@@ -129,7 +129,7 @@
     "rule": "a row is routable only if its RAW entity_type is a key of map_sources.NODE_TYPES (what graph_api.node() looks up) whose value is a key of the shipped page's SYM table, and the row carries a name the picker can render; anything else must be allow-listed with a reason or the export is not written",
     "frontend": {
       "file": "osint_map.html",
-      "md5": "8525debf7b7021de05ab6c2f48fdb22d"
+      "md5": "6e02193e16356d8f5a11adbee63928fc"
     },
     "ids_not_in_entities": 0
   },
