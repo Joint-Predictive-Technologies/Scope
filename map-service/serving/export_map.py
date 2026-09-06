@@ -96,6 +96,17 @@ import routability
 # ⚠️ WHAT THIS DOES AND DOES NOT CATCH.  It catches a county key the page cannot
 # draw.  It does NOT catch a key that draws in the WRONG PLACE — geometry whose
 # id matches but whose boundary is stale is invisible to a set comparison.
+#
+# 🔴 AND THERE IS A LIVE INSTANCE OF EXACTLY THAT, FOUND BY A VERIFIER AND LEFT
+# OPEN ON PURPOSE: the export carries **02261 Valdez-Cordova, AK**, which the
+# Census RETIRED in 2019 and split into 02063 Chugach and 02066 Copper River.
+# It draws today only because `us-atlas@3` is stale in the SAME direction, so
+# the two vintages agree by coincidence and this guard sees nothing.  The export
+# is therefore MIXED-VINTAGE — Connecticut 2022, Alaska pre-2019 — and upgrading
+# the page's geometry, the other direction the goal file offered, would break
+# Alaska the way the old geometry broke Connecticut.  Fixing it means re-keying
+# an Alaska signal across a real boundary split; that is a data decision, not a
+# geometry one, and it is not being taken here.
 GEOMETRY_IDS_FILE = "map_geometry_ids.txt"
 
 
@@ -115,6 +126,11 @@ def geometry_refusal(county_keys):
     except FileNotFoundError:
         return (f"{GEOMETRY_IDS_FILE} is missing, so it cannot be shown that the "
                 f"page can draw these counties")
+    # 🔴 AN EMPTY EXPORT IS NOT A PASSING EXPORT.  `all(x in known for x in [])`
+    # is vacuously true, so without this an export that wrote no counties at all
+    # would clear the guard rather than trip it.
+    if not county_keys:
+        return "the export names no counties at all, so nothing was checked"
     orphans = sorted(k for k in county_keys if k not in known)
     if not orphans:
         return None
@@ -1460,7 +1476,16 @@ def main():
     # rule as the routability census one line up, applied to places instead of
     # types: the export does not get to exist on disk asserting coverage the
     # surface will render as its opposite.
-    why = geometry_refusal(set(data["counties"]))
+    # 🔴 EVERY KEY THAT REACHES A FILE, NOT JUST THE HAS-SIGNAL ONES.  This read
+    # `data["counties"]` — the has-signal map — while `county/<SS>.json` is written
+    # from `state_counties`, which also carries `no-signal` rows.  An undrawable
+    # `no-signal` county would have been written and passed.  Latent today (that
+    # population is one county, 38097 Traill ND, and it is drawable) but the
+    # no-signal family is new and designed to grow, so the guard reads the same
+    # set the writer below iterates.
+    written_keys = {f for fipses in data["state_counties"].values() for f in fipses
+                    if f in data["no_signal"] or f in data["counties"]}
+    why = geometry_refusal(written_keys)
     if why:
         print(f"🔴 EXPORT REFUSED — {why}")
         print(f"   the page's drawable set is serving/{GEOMETRY_IDS_FILE}")

@@ -2222,11 +2222,18 @@ Promise.all([
      tore the internal borders (14 of 214 vertices stayed shared, against 187 of
      272 now), which a shared-vertex census with a sabotage control caught.
 
-     ⚠️ TIGERweb county-equivalents INCLUDE territorial water and us-atlas is
-     land-clipped, so Connecticut's southern edge extends ~0.034 deg into Long
-     Island Sound relative to its neighbours.  Measured, disclosed, and NOT
-     silently clipped — clipping it correctly needs a polygon intersection this
-     page has no library for, and an approximate clip would move a real border.
+     ⚠️ TWO MEASURED IMPRECISIONS, DISCLOSED RATHER THAN SILENTLY CLIPPED.
+     (1) TIGERweb county-equivalents INCLUDE territorial water and us-atlas is
+     land-clipped, so Connecticut's southern edge extends 0.0339 deg into Long
+     Island Sound — about 1,427 km2, all of it water; it stops short of Long
+     Island, so there is no seam over New York's shore.  (2) The arc
+     simplification (RDP eps 3e-3 deg, ~330 m) also overdraws about 19 km2 of
+     HAIRLINE onto neighbours where us-atlas draws the same border differently:
+     Westchester 4.3, Dutchess 4.0, Hampden 2.8, Putnam 2.5, Washington RI 2.0,
+     Providence 1.6, Worcester 1.2, Berkshire 0.8 km2.  Sub-pixel at national
+     zoom, a visible hairline at maximum zoom.  Clipping either correctly needs a
+     polygon intersection this page has no library for, and an approximate clip
+     would move a real border.
 
      ⚠️ `serving/map_geometry_ids.txt` is the machine-readable version of what
      this page can draw, and `export_map.py` refuses to write an export whose

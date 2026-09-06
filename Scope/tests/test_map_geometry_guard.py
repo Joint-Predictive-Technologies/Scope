@@ -108,3 +108,82 @@ def test_missing_drawable_file_refuses_rather_than_passes(em, county_keys, monke
     monkeypatch.setattr(em, "renderable_county_ids", boom)
     why = em.geometry_refusal(county_keys)
     assert why is not None and "missing" in why.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔴 THE THREE TESTS ABOVE ALL CALL `geometry_refusal` DIRECTLY, AND A VERIFIER
+# SHOWED THAT IS NOT ENOUGH: two mutants survived the whole suite.
+#
+#   Mutant B  delete the call from `main()`  ->  24 passed, export ships unguarded
+#   Mutant D  drop a region from the page's splice and refresh the manifest md5
+#             ->  24 passed, and Electric Boat's county draws as `no-coverage`
+#                 again — the exact defect this guard exists to prevent
+#
+# A guard whose WIRING is untested is a guard that can be removed in two lines
+# without a single test going red.  These pin the wiring and the binding.
+# ─────────────────────────────────────────────────────────────────────────────
+
+PAGE = REPO / "map-service" / "static" / "osint_map.html"
+SNAPSHOT = pathlib.Path.home() / "scope-backups" / "2026-09-03-serving-snapshot" / "osint-map-serving.db"
+
+
+def _splice_ids():
+    """The FIPS the PAGE actually splices in, parsed from the shipped bytes."""
+    import re
+    src = PAGE.read_text()
+    m = re.search(r"var CT_PLANNING_REGIONS=(\{.*?\});\n", src, re.S)
+    assert m, "the page no longer carries a CT_PLANNING_REGIONS splice"
+    return {f["id"] for f in json.loads(m.group(1))["features"]}
+
+
+def test_drawable_set_is_bound_to_what_the_page_splices(em):
+    """MUTANT D. Drop a region from the page and this must go red.
+
+    `map_geometry_ids.txt` is an assertion ABOUT the page. Nothing else compares
+    the two, so without this the file can keep promising a region the page no
+    longer draws — and the guard would keep passing while a county went dark."""
+    page_ct = _splice_ids()
+    file_ct = {i for i in em.renderable_county_ids() if i.startswith("09")}
+    assert page_ct == file_ct, (
+        f"the page splices {sorted(page_ct)} but the drawable set claims "
+        f"{sorted(file_ct)} — regenerate serving/{em.GEOMETRY_IDS_FILE}")
+
+
+def test_the_export_actually_carries_the_signal_counties(em):
+    """The three Connecticut counties that were dark must be in the page's splice
+    — not merely in the file that describes it."""
+    assert {"09110", "09120", "09180"} <= _splice_ids()
+
+
+def test_empty_key_set_refuses_rather_than_passing_vacuously(em):
+    assert em.geometry_refusal(set()) is not None
+
+
+@pytest.mark.skipif(not SNAPSHOT.exists(), reason=f"serving snapshot absent: {SNAPSHOT}")
+def test_MUTANT_B_main_actually_calls_the_guard(tmp_path, monkeypatch):
+    """MUTANT B. Run `main()` end to end against a drawable set that omits
+    Connecticut; it must exit 2 and write NOTHING.
+
+    Calling `geometry_refusal` in a unit test proves the function works. It does
+    not prove `main()` asks it. Deleting that one line left every other test in
+    this file green."""
+    import subprocess, sys as _s, textwrap
+    out = tmp_path / "out"
+    prog = textwrap.dedent(f"""
+        import sys, importlib.util
+        sys.path.insert(0, {str(SERVING)!r})
+        spec = importlib.util.spec_from_file_location("em", {str(SERVING / 'export_map.py')!r})
+        em = importlib.util.module_from_spec(spec); spec.loader.exec_module(em)
+        real = em.renderable_county_ids
+        em.renderable_county_ids = lambda: {{i for i in real() if not i.startswith("09")}}
+        sys.argv = ["export_map.py", "--db", {str(SNAPSHOT)!r}, "--out", {str(out)!r},
+                    "--frontend", {str(PAGE)!r}]
+        em.main()
+    """)
+    r = subprocess.run([_s.executable, "-c", prog], capture_output=True, text=True, timeout=600)
+    assert r.returncode == 2, (
+        "main() did not refuse an export the page cannot draw — the guard is not "
+        f"wired in.\nstdout tail:\n{r.stdout[-1500:]}\nstderr tail:\n{r.stderr[-800:]}")
+    assert "EXPORT REFUSED" in r.stdout
+    written = list(out.rglob("*.json")) if out.exists() else []
+    assert not written, f"refused, but still wrote {written[:5]}"
