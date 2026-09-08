@@ -111,11 +111,24 @@
   if (seen()) return;
 
   var next = w.location.pathname + w.location.search + w.location.hash;
+
+  /* ⚠️ MARK THE DOCUMENT AS ABANDONED BEFORE REDIRECTING. `location.replace`
+     from <head> does not stop the current document parsing — the rest of this
+     file, and every other script on the page, still runs against a DOM that has
+     no <body> yet. The nav renderer below then handed a null target to
+     `markFocusable` and threw "Cannot read properties of null (reading
+     'hasAttribute')" on every single first visit. An attribute is used rather
+     than a global so the state is inspectable and cannot collide. */
+  d.documentElement.setAttribute("data-scope-redirecting", "1");
   w.location.replace(PATH + "?welcome=1&next=" + encodeURIComponent(next));
 })(window, document);
 
 (function (root) {
   "use strict";
+
+  /* This document is on its way out (see the first-run block above); touching a
+     half-parsed DOM here only produces errors nobody will ever see the fix for. */
+  if (document.documentElement.getAttribute("data-scope-redirecting") === "1") return;
 
   /* The two primaries. Everything else lives behind MORE. */
   var PRIMARY = [
