@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Scope — the filings are public, the pattern is not</title>
+<meta name="description" content="Scope reads congressional disclosures, SEC filings, federal contracts and more, and tells you when three unrelated sources land on the same company inside fourteen days." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,200;9..144,300;9..144,400;9..144,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="/theme.js"></script>
+<script src="/nav.js"></script>
+<link rel="stylesheet" href="/tokens.css" />
+<style>
+/* ============================================================================
+   /learn — the introduction surface, in the PRODUCT register.
+
+   ── DELIBERATE DEVIATIONS FROM tokens.css, AND WHY ───────────────────────────
+   tokens.css governs the terminal pages: dense, all-sans, serif scoped to the
+   brief, "no gradients, glass, glow or drop shadows", and a type scale that
+   stops at 52px. This page is the one surface a person meets BEFORE they know
+   what a convergence is, and it has to hold them. So it deviates on:
+
+     · TYPE SCALE — display sizes above --text-4xl, in Fraunces. The tokens'
+       ceiling exists so a terminal page cannot shout; an introduction may.
+     · AMBIENT MOTION — a canvas field in the hero and a scroll-pinned product
+       tour. Both decorative, which the terminal register forbids by design and
+       an introduction needs.
+
+   It does NOT deviate on colour. Every value is a token, so the light theme
+   works with no page-level rule, and the "no gradient / no glow" discipline is
+   kept for all UI chrome — the only soft light on the page is painted into a
+   <canvas> as illustration, never behind a control. That restraint is what
+   keeps it looking expensive instead of loud.
+
+   ── MOTION IS GATED TWICE ────────────────────────────────────────────────────
+   `body.motion` is added by JS only when prefers-reduced-motion is NOT set, and
+   every animated rule hangs off it. Every animated component has a static
+   fallback that is fully readable: the pinned tour becomes a plain stacked
+   list, the canvas never starts, reveals resolve to visible. A reveal done only
+   in CSS leaves elements at opacity:0 forever when animation is suppressed.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; scroll-padding-top: 124px; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+body {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-prose);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ── app nav, matched to every other page ────────────────────────────────── */
+nav {
+  position: sticky; top: 0; z-index: 200;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-nav); backdrop-filter: blur(12px);
+  padding: 0 2rem; display: flex; align-items: center; gap: 1rem; height: 56px;
+}
+.nav-brand { font-family: var(--font-sans); font-weight: 900; font-size: 1.2rem;
+  color: var(--accent); letter-spacing: 0.05em; text-decoration: none; }
+.nav-links { display: flex; gap: 1.4rem; align-items: center; flex: 1; flex-wrap: wrap; }
+.nav-links a { font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-secondary);
+  text-decoration: none; letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.nav-links a:hover { color: var(--accent); }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+a.skip { position: absolute; left: -9999px; top: 0; z-index: 400;
+  background: var(--surface-2); color: var(--text-primary);
+  padding: var(--space-3) var(--space-4); border: 1px solid var(--accent);
+  border-radius: var(--radius-sm); font-size: var(--text-sm); }
+a.skip:focus { left: var(--space-4); top: var(--space-4); }
+
+/* ── layout ──────────────────────────────────────────────────────────────── */
+.wrap  { max-width: 820px;  margin: 0 auto; padding: 0 var(--space-6); }
+.wrapw { max-width: 1180px; margin: 0 auto; padding: 0 var(--space-6); }
+
+section.chapter { padding: clamp(72px, 11vh, 128px) 0; position: relative; scroll-margin-top: 124px; }
+section.chapter + section.chapter { border-top: 1px solid var(--border-subtle); }
+
+.eyebrow { font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase;
+  color: var(--accent); margin-bottom: var(--space-5);
+  display: flex; align-items: center; gap: var(--space-3); }
+.eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--border-subtle); }
+
+/* display type — the deviation, used sparingly */
+.display {
+  font-family: var(--font-serif); font-weight: 200;
+  font-size: clamp(40px, 7.2vw, 84px); line-height: 1.03;
+  letter-spacing: -0.035em; text-wrap: balance; color: var(--text-primary);
+}
+h2.ch {
+  font-family: var(--font-serif); font-weight: 300;
+  font-size: clamp(30px, 4.4vw, 48px); line-height: 1.1;
+  letter-spacing: -0.03em; text-wrap: balance;
+  margin-bottom: var(--space-5); color: var(--text-primary);
+}
+h3.sub { font-family: var(--font-sans); font-weight: var(--weight-semibold);
+  font-size: var(--text-lg); letter-spacing: var(--tracking-tight);
+  margin: var(--space-12) 0 var(--space-4); }
+p.lede { font-size: clamp(16px, 1.5vw, 20px); color: var(--text-primary); line-height: 1.5; }
+p { color: var(--text-secondary); margin-bottom: var(--space-4); max-width: 66ch; }
+p strong, li strong { color: var(--text-primary); font-weight: var(--weight-semibold); }
+em { color: var(--text-primary); font-style: italic; }
+code { font-family: var(--font-mono); font-size: 0.88em; color: var(--accent);
+  background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-icon); padding: 1px 5px; }
+
+/* ── reveal ──────────────────────────────────────────────────────────────── */
+.rv { opacity: 0; transform: translateY(16px); }
+body.motion .rv { transition: opacity 700ms var(--ease-out), transform 700ms var(--ease-out); }
+.rv.in { opacity: 1; transform: none; }
+body:not(.motion) .rv { opacity: 1; transform: none; }
+
+/* ── reading rail ────────────────────────────────────────────────────────────
+   An <aside>, NOT a <nav>: as a second <nav> it inherited this page's own
+   top-bar rule and painted a 56px dark bar across the article, and `nav.js`
+   claims the page nav with querySelector("nav"). `left` is clamped against the
+   content column so the labels can never reach the text. */
+#rail {
+  position: fixed; top: 50%; transform: translateY(-50%);
+  left: max(var(--space-4), calc((100vw - 1180px) / 2 - 190px));
+  z-index: 150; display: none; flex-direction: column; gap: var(--space-3);
+  background: none; border: 0; height: auto; padding: 0; width: 170px;
+}
+@media (min-width: 1580px) { #rail { display: flex; } }
+#rail a { display: flex; align-items: center; gap: var(--space-3); text-decoration: none;
+  color: var(--text-tertiary); font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; }
+#rail .dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid var(--border-default); background: transparent;
+  transition: background var(--dur-mid) var(--ease-out), border-color var(--dur-mid) var(--ease-out); }
+#rail .lbl { opacity: 0; transform: translateX(-4px); white-space: nowrap;
+  transition: opacity var(--dur-mid), transform var(--dur-mid); }
+#rail a:hover .lbl, #rail a[aria-current="true"] .lbl { opacity: 1; transform: none; }
+#rail a[aria-current="true"] { color: var(--accent); }
+#rail a[aria-current="true"] .dot { background: var(--accent); border-color: var(--accent); }
+#rail a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+
+/* ── level switch ────────────────────────────────────────────────────────── */
+#levelbar { position: sticky; top: 56px; z-index: 180;
+  background: var(--surface-nav); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-subtle); }
+#levelbar .inner { max-width: 1180px; margin: 0 auto; padding: var(--space-3) var(--space-6);
+  display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
+#levelbar .cap { font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-tertiary); }
+.switch { display: inline-flex; border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-1); }
+.switch button { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.04em;
+  padding: var(--space-2) var(--space-4); background: transparent; color: var(--text-secondary);
+  border: 0; cursor: pointer; transition: background var(--dur-fast), color var(--dur-fast); }
+.switch button + button { border-left: 1px solid var(--border-default); }
+.switch button:hover { color: var(--text-primary); }
+.switch button[aria-pressed="true"] { background: var(--accent); color: var(--text-inverse);
+  font-weight: var(--weight-medium); }
+.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+[data-lv] { display: none; }
+body[data-level="new"] [data-lv="new"], body[data-level="pro"] [data-lv="pro"] { display: block; }
+body[data-level="new"] span[data-lv="new"], body[data-level="pro"] span[data-lv="pro"] { display: inline; }
+body.motion [data-lv] { animation: lv-in 320ms var(--ease-out); }
+@keyframes lv-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* ── buttons ─────────────────────────────────────────────────────────────── */
+.btn { display: inline-flex; align-items: center; gap: var(--space-2);
+  font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.04em;
+  text-transform: uppercase; text-decoration: none; cursor: pointer;
+  padding: var(--space-4) var(--space-6); border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default); color: var(--text-primary);
+  background: var(--surface-1);
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast); }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+body.motion .btn:hover { transform: translateY(-1px); }
+.btn.primary { background: var(--accent); color: var(--text-inverse); border-color: var(--accent);
+  font-weight: var(--weight-medium); }
+.btn.primary:hover { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--text-inverse); }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.sm { padding: var(--space-3) var(--space-4); }
+
+/* ══ HERO ══════════════════════════════════════════════════════════════════ */
+#hero { min-height: calc(100vh - 112px); display: flex; align-items: center;
+  position: relative; overflow: hidden; padding: var(--space-16) 0 var(--space-12); }
+#herocanvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+#hero .wrapw { position: relative; z-index: 1; }
+#hero .kicker { font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--text-tertiary); margin-bottom: var(--space-6);
+  display: flex; align-items: center; gap: var(--space-3); }
+#hero .kicker .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+body.motion #hero .kicker .pip { animation: livepip 2.6s var(--ease-out) infinite; }
+@keyframes livepip { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+#hero h1 { max-width: 15ch; margin-bottom: var(--space-6); }
+#hero h1 .hl { color: var(--accent); font-weight: 300; font-style: italic; }
+#hero .sub { font-size: clamp(16px, 1.6vw, 20px); max-width: 54ch; color: var(--text-secondary); }
+.cta-row { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-8); }
+
+/* live figures strip */
+.figs { display: flex; flex-wrap: wrap; gap: var(--space-8) var(--space-12);
+  margin-top: var(--space-16); padding-top: var(--space-8);
+  border-top: 1px solid var(--border-subtle); }
+.fig .n { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: clamp(22px, 2.8vw, 32px); color: var(--text-primary); line-height: 1; }
+.fig .k { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--text-tertiary); margin-top: var(--space-2); }
+.figs .src { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  align-self: flex-end; margin-left: auto; max-width: 24ch; line-height: 1.5; }
+
+.scrollcue { position: absolute; bottom: var(--space-6); left: 50%; transform: translateX(-50%);
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--text-tertiary); text-decoration: none; z-index: 2; }
+.scrollcue span { display: block; text-align: center; margin-top: var(--space-2); }
+body.motion .scrollcue span { animation: nudge 2.4s var(--ease-out) infinite; }
+@keyframes nudge { 0%,100% { transform: translateY(0); opacity: .5; } 50% { transform: translateY(5px); opacity: 1; } }
+
+/* ══ STATEMENT — one sentence, given the whole width ══════════════════════ */
+.statement { padding: clamp(72px, 13vh, 150px) 0; text-align: center; }
+.statement .display { max-width: 19ch; margin: 0 auto; }
+.statement .display .dim { color: var(--text-tertiary); }
+.statement .after { max-width: 54ch; margin: var(--space-8) auto 0; }
+
+/* ══ PINNED PRODUCT TOUR ══════════════════════════════════════════════════ */
+.showcase { padding: 0; }
+.showcase .stick { padding: var(--space-16) 0; }
+.sc-steps { position: relative; width: 100%; }
+.sc-step { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: var(--space-12); align-items: center; }
+.sc-step + .sc-step { margin-top: var(--space-16); }
+
+/* The pinned behaviour is DESKTOP-ONLY and motion-only. On one column a sticky
+   100vh frame cannot hold a headline, a paragraph and a tall screenshot, and a
+   440vh scroll on a phone is a hostage situation — below 900px, and under
+   reduced motion, it degrades to a plain stacked list that says the same thing. */
+@media (min-width: 901px) {
+  body.motion .showcase { min-height: 440vh; }
+  body.motion .showcase .stick { position: sticky; top: 56px; height: calc(100vh - 56px);
+    display: flex; align-items: center; padding: 0; }
+  /* ⚠️ The sticky container is a flex row and every step inside is absolutely
+     positioned, so with nothing left in flow the wrapper shrank to zero width and
+     the tour rendered as a 150px column of text with no screenshot at all. It
+     needs an explicit width; `max-width` still holds the measure. */
+  body.motion .showcase .stick > .wrapw { width: 100%; }
+  body.motion .sc-steps { min-height: 62vh; }
+  /* the captures are tall pages; unbounded they overflow the pinned viewport */
+  body.motion .sc-fig img { max-height: 64vh; object-fit: cover; object-position: top center; }
+  body.motion .sc-step { position: absolute; inset: 0; opacity: 0; pointer-events: none;
+    transform: translateY(18px); margin-top: 0;
+    transition: opacity 520ms var(--ease-out), transform 520ms var(--ease-out); }
+  body.motion .sc-step.active { opacity: 1; pointer-events: auto; transform: none; }
+}
+@media (max-width: 900px) { .sc-step { grid-template-columns: 1fr; gap: var(--space-6); } }
+.sc-step .n { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--accent);
+  letter-spacing: var(--tracking-label); margin-bottom: var(--space-4); display: block; }
+.sc-step h3 { font-family: var(--font-serif); font-weight: 300;
+  font-size: clamp(26px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -0.03em;
+  margin-bottom: var(--space-4); color: var(--text-primary); }
+.sc-fig { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--surface-1); }
+.sc-fig img { display: block; width: 100%; height: auto; }
+.sc-prog { display: flex; gap: var(--space-2); margin-top: var(--space-8); }
+.sc-prog { display: none; }
+@media (min-width: 901px) { body.motion .sc-prog { display: flex; } }
+.sc-prog i { width: 26px; height: 2px; background: var(--border-default); border-radius: 1px;
+  transition: background var(--dur-mid) var(--ease-out); }
+.sc-prog i.on { background: var(--accent); }
+
+/* ══ PANELS ═══════════════════════════════════════════════════════════════ */
+.panel { background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); padding: var(--space-6); }
+.panel.accent { border-left: 3px solid var(--accent); }
+.panel.warn { border-left: 3px solid var(--severity-high); }
+.panel h4, .panel h3 { font-size: var(--text-base); font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-3); color: var(--text-primary); }
+.panel p:last-child { margin-bottom: 0; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+@media (max-width: 820px) { .grid3 { grid-template-columns: 1fr; } }
+.microlabel { font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-tertiary); }
+
+/* ── inline definitions ──────────────────────────────────────────────────── */
+.term { border-bottom: 1px dashed var(--border-emphasis); cursor: help;
+  color: var(--text-primary); font-weight: var(--weight-medium); position: relative; }
+.term:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.term::after { content: attr(data-def); position: absolute; left: 0; bottom: calc(100% + 8px);
+  width: max-content; max-width: 300px; z-index: 120;
+  background: var(--surface-3); color: var(--text-primary);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4); font-size: var(--text-sm);
+  font-weight: var(--weight-normal); line-height: 1.45; font-family: var(--font-sans);
+  opacity: 0; pointer-events: none; transform: translateY(3px);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.term:hover::after, .term:focus::after, .term:focus-visible::after { opacity: 1; transform: none; }
+
+/* ══ THE CONFIGURATOR ═════════════════════════════════════════════════════ */
+.sim { display: grid; grid-template-columns: 1fr 340px; gap: var(--space-8); align-items: start; }
+@media (max-width: 980px) {
+  /* On one column the gauge would sit BELOW the chips, so a tap moved a counter
+     the reader could not see — the one thing this section exists to show. */
+  .sim { grid-template-columns: 1fr; }
+  .sim .gauge { order: -1; position: sticky; top: 104px; z-index: 120; }
+  .sim .gauge .ledger { display: none; }
+}
+.chipgrid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+@media (max-width: 560px) { .chipgrid { grid-template-columns: 1fr; } }
+.sigchip { text-align: left; cursor: pointer; font-family: var(--font-sans);
+  background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--border-default); border-radius: var(--radius-sm);
+  padding: var(--space-4); color: var(--text-secondary);
+  transition: border-color var(--dur-fast), background var(--dur-fast), transform var(--dur-fast); }
+.sigchip:hover { background: var(--surface-2); border-left-color: var(--text-tertiary); }
+body.motion .sigchip:hover { transform: translateY(-1px); }
+.sigchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sigchip .nm { display: block; font-size: var(--text-base); color: var(--text-primary);
+  font-weight: var(--weight-medium); margin-bottom: 3px; }
+.sigchip .src { display: block; font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: 0.04em; color: var(--text-tertiary); }
+.sigchip[aria-pressed="true"] { background: var(--surface-2); border-left-color: var(--accent); }
+.sigchip[aria-pressed="true"] .nm { color: var(--accent); }
+.sigchip.excluded[aria-pressed="true"] { border-left-color: var(--severity-high); }
+.sigchip.excluded[aria-pressed="true"] .nm { color: var(--severity-high); }
+body.motion .sigchip[aria-pressed="true"] { animation: badge-pulse var(--dur-slow) var(--ease-out) 1; }
+
+.gauge { background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); padding: var(--space-5); position: sticky; top: 130px; }
+.slots { display: flex; gap: var(--space-2); margin: var(--space-4) 0 var(--space-3); }
+.slot { flex: 1; height: 10px; border-radius: 2px; border: 1px dashed var(--border-default);
+  background: transparent;
+  transition: background var(--dur-mid) var(--ease-out), border-color var(--dur-mid) var(--ease-out); }
+.slot.on { background: var(--accent); border: 1px solid var(--accent); }
+.gauge .count { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--text-2xl); color: var(--text-primary); line-height: 1; }
+.gauge .count .of { font-size: var(--text-lg); color: var(--text-tertiary); }
+.verdict { margin-top: var(--space-4); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm); border: 1px solid var(--border-subtle);
+  background: var(--surface-2); font-size: var(--text-sm); color: var(--text-secondary); }
+.verdict.fired { border-color: var(--accent); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+body.motion .verdict.fired { animation: badge-pulse var(--dur-slow) var(--ease-out) 1; }
+.ledger { margin-top: var(--space-4); border-top: 1px solid var(--border-subtle); padding-top: var(--space-3); }
+.ledger div { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  margin-bottom: var(--space-2); line-height: 1.5; }
+.ledger .ok { color: var(--direction-buy); }
+.ledger .no { color: var(--severity-high); }
+.simnote { margin-top: var(--space-4); font-size: var(--text-sm); color: var(--text-secondary);
+  min-height: 3.4em; border-left: 2px solid var(--border-default); padding-left: var(--space-4); }
+.simnote strong { color: var(--accent); }
+.modelsrc { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  margin-top: var(--space-5); line-height: 1.7; max-width: none; }
+.modelsrc b { color: var(--direction-buy); font-weight: var(--weight-normal); }
+.modelsrc b.stale { color: var(--severity-high); }
+
+/* ══ SPEC SHEET ═══════════════════════════════════════════════════════════ */
+.spec { border-top: 1px solid var(--border-default); }
+.specrow { display: grid; grid-template-columns: 250px 1fr; gap: var(--space-6);
+  padding: var(--space-5) 0; border-bottom: 1px solid var(--border-subtle); align-items: baseline; }
+@media (max-width: 700px) { .specrow { grid-template-columns: 1fr; gap: var(--space-2); } }
+.specrow dt { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--text-tertiary); }
+.specrow dd { font-size: var(--text-md); color: var(--text-primary); }
+.specrow dd .v { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--text-xl); color: var(--accent); margin-right: var(--space-3); }
+.specrow dd small { display: block; color: var(--text-tertiary); font-size: var(--text-sm);
+  margin-top: var(--space-2); max-width: 62ch; line-height: 1.6; }
+
+/* ══ ANATOMY ══════════════════════════════════════════════════════════════ */
+.shot { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  overflow: hidden; background: var(--surface-1); display: block; width: 100%; }
+.shot img { display: block; width: 100%; height: auto; }
+.shotcap { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  letter-spacing: 0.03em; margin-top: var(--space-3); }
+.anatomy { position: relative; }
+.pinlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3); margin-top: var(--space-5); }
+.pin { text-align: left; cursor: pointer; background: var(--surface-1);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4); color: var(--text-secondary); font-family: var(--font-sans);
+  transition: border-color var(--dur-fast), background var(--dur-fast); }
+.pin:hover, .pin[aria-expanded="true"] { border-color: var(--accent); background: var(--surface-2); }
+.pin:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pin .n { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--accent);
+  display: block; margin-bottom: 2px; letter-spacing: 0.06em; }
+.pin .t { font-size: var(--text-sm); color: var(--text-primary); font-weight: var(--weight-medium); }
+.pinbody { margin-top: var(--space-5); border-left: 2px solid var(--accent); padding-left: var(--space-4);
+  font-size: var(--text-base); color: var(--text-secondary); min-height: 4.5em; }
+.pinbody h3 { font-size: var(--text-base); color: var(--text-primary); margin-bottom: var(--space-2);
+  font-weight: var(--weight-semibold); }
+.marker { position: absolute; border: 2px solid var(--accent); border-radius: var(--radius-sm);
+  pointer-events: none; opacity: 0; transition: opacity var(--dur-mid) var(--ease-out); }
+.marker.on { opacity: 1; }
+
+/* ══ SCORE EXPLORER ═══════════════════════════════════════════════════════ */
+.axes { display: grid; grid-template-columns: minmax(0, 430px) minmax(0, 1fr);
+  gap: var(--space-10); align-items: start; }
+@media (max-width: 980px) { .axes { grid-template-columns: 1fr; } }
+.plot { position: relative; aspect-ratio: 1; width: 100%; max-width: 430px;
+  background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); margin-bottom: var(--space-8); }
+.plot .q { position: absolute; width: 50%; height: 50%; padding: var(--space-3);
+  font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  letter-spacing: 0.04em; line-height: 1.5; }
+.plot .q b { display: block; color: var(--text-secondary); font-weight: var(--weight-medium); margin-bottom: 3px; }
+.plot .axl { position: absolute; font-family: var(--font-mono); font-size: var(--text-2xs);
+  color: var(--text-tertiary); letter-spacing: var(--tracking-label); text-transform: uppercase; }
+.plot .cross { position: absolute; background: var(--border-subtle); }
+.dotp { position: absolute; width: 16px; height: 16px; border-radius: 50%; background: var(--accent);
+  transform: translate(-50%, 50%); border: 2px solid var(--surface-canvas);
+  transition: left var(--dur-slow) var(--ease-out), bottom var(--dur-slow) var(--ease-out); }
+.sliderrow { margin-bottom: var(--space-5); }
+.sliderrow label { display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--text-tertiary); margin-bottom: var(--space-2); }
+.sliderrow label b { color: var(--accent); font-size: var(--text-sm); }
+input[type=range] { width: 100%; accent-color: var(--accent); background: transparent; }
+input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.formula { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary);
+  background: var(--surface-2); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm);
+  padding: var(--space-4); line-height: 1.8; margin-top: var(--space-4); overflow-x: auto; }
+.formula b { color: var(--accent); font-weight: var(--weight-medium); }
+
+/* ══ GALLERY ══════════════════════════════════════════════════════════════ */
+.surfaces { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--space-5); }
+.surface { background: var(--surface-1); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); overflow: hidden; display: flex; flex-direction: column;
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.surface:hover { border-color: var(--border-emphasis); }
+body.motion .surface:hover { transform: translateY(-3px); }
+.surface .thumb { position: relative; cursor: zoom-in; border: 0; padding: 0;
+  background: var(--surface-2); display: block; width: 100%; overflow: hidden; max-height: 190px; }
+.surface .thumb img { display: block; width: 100%; height: auto; }
+.surface .thumb::after { content: "Enlarge"; position: absolute; right: var(--space-3); bottom: var(--space-3);
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-label);
+  text-transform: uppercase; color: var(--text-primary); background: var(--surface-overlay);
+  border: 1px solid var(--border-default); border-radius: var(--radius-icon); padding: 3px 7px;
+  opacity: 0; transition: opacity var(--dur-fast); }
+.surface .thumb:hover::after, .surface .thumb:focus-visible::after { opacity: 1; }
+.surface .thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.surface .body { padding: var(--space-5); flex: 1; display: flex; flex-direction: column; }
+.surface .body h3 { font-size: var(--text-md); font-weight: var(--weight-semibold);
+  color: var(--text-primary); margin-bottom: var(--space-1); }
+.surface .body .route { font-family: var(--font-mono); font-size: var(--text-2xs);
+  color: var(--accent); letter-spacing: 0.04em; margin-bottom: var(--space-3); }
+.surface .body p { font-size: var(--text-sm); margin-bottom: var(--space-4); flex: 1; }
+.surface .go { font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; color: var(--text-secondary);
+  text-decoration: none; align-self: flex-start; }
+.surface .go:hover { color: var(--accent); }
+
+#lb { position: fixed; inset: 0; z-index: 300; background: var(--surface-overlay);
+  display: none; align-items: center; justify-content: center; padding: var(--space-8); }
+#lb.open { display: flex; }
+#lb .box { max-width: 1180px; max-height: 100%; overflow: auto;
+  border: 1px solid var(--border-default); border-radius: var(--radius-lg); background: var(--surface-1); }
+#lb img { display: block; width: 100%; height: auto; }
+#lb .cls { position: absolute; top: var(--space-6); right: var(--space-6);
+  font-family: var(--font-mono); font-size: var(--text-xs); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--text-primary); background: var(--surface-2);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4); cursor: pointer; }
+#lb .cls:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ══ STEPS ════════════════════════════════════════════════════════════════ */
+.steps { counter-reset: st; }
+.step { display: grid; grid-template-columns: 56px 1fr; gap: var(--space-5);
+  padding: var(--space-6) 0; border-top: 1px solid var(--border-subtle); }
+.step:first-child { border-top: 0; }
+.step .num { counter-increment: st; font-family: var(--font-mono); font-size: var(--text-lg); color: var(--accent); }
+.step .num::before { content: counter(st, decimal-leading-zero); }
+.step h3 { font-size: var(--text-lg); font-weight: var(--weight-semibold);
+  color: var(--text-primary); margin-bottom: var(--space-2); letter-spacing: var(--tracking-tight); }
+.step .kb { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  border: 1px solid var(--border-default); border-radius: var(--radius-icon); padding: 1px 6px; }
+
+/* ══ LIMITS ═══════════════════════════════════════════════════════════════ */
+.limits { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); overflow: hidden; }
+.limit { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border-subtle); }
+.limit:first-child { border-top: 0; }
+@media (max-width: 760px) { .limit { grid-template-columns: 1fr; } }
+.limit > div { padding: var(--space-5); }
+.limit .does { background: var(--surface-1); border-right: 1px solid var(--border-subtle); }
+.limit .doesnt { background: var(--surface-canvas); }
+@media (max-width: 760px) { .limit .does { border-right: 0; border-bottom: 1px solid var(--border-subtle); } }
+.limit .tag { font-family: var(--font-mono); font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label); text-transform: uppercase; margin-bottom: var(--space-2); display: block; }
+.limit .does .tag { color: var(--direction-buy); }
+.limit .doesnt .tag { color: var(--severity-critical); }
+.limit p { font-size: var(--text-sm); margin: 0; }
+
+/* ══ GLOSSARY ═════════════════════════════════════════════════════════════ */
+#gsearch { width: 100%; background: var(--surface-1); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  color: var(--text-primary); font-family: var(--font-mono); font-size: var(--text-sm);
+  margin-bottom: var(--space-5); }
+#gsearch:focus { outline: none; border-color: var(--accent); }
+#gsearch::placeholder { color: var(--text-tertiary); }
+.gitem { border-top: 1px solid var(--border-subtle); padding: var(--space-4) 0;
+  display: grid; grid-template-columns: 230px 1fr; gap: var(--space-5); }
+@media (max-width: 760px) { .gitem { grid-template-columns: 1fr; gap: var(--space-2); } }
+.gitem dt { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--accent); }
+.gitem dd { font-size: var(--text-sm); color: var(--text-secondary); }
+.gitem.hide { display: none; }
+#gempty { color: var(--text-tertiary); font-family: var(--font-mono); font-size: var(--text-sm);
+  padding: var(--space-6) 0; display: none; }
+
+/* ══ CLOSE ════════════════════════════════════════════════════════════════ */
+#end { text-align: center; padding: clamp(90px, 16vh, 176px) 0; }
+#end .display { max-width: 16ch; margin: 0 auto var(--space-6); }
+#end p { margin: 0 auto var(--space-8); max-width: 48ch; }
+#end .cta-row { justify-content: center; }
+.endmark { width: 110px; margin: 0 auto var(--space-10); display: block; }
+.endmark .leg { fill: none; stroke: var(--accent); stroke-width: 2.6; stroke-linecap: round; }
+.endmark .srcnode { fill: var(--surface-3); stroke: var(--border-emphasis); stroke-width: 1.2; }
+.endmark .core { fill: var(--accent); }
+
+footer { border-top: 1px solid var(--border-subtle); padding: var(--space-16) 0 var(--space-20);
+  background: var(--surface-1); }
+footer .cols { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: var(--space-10); }
+@media (max-width: 820px) { footer .cols { grid-template-columns: 1fr; } }
+footer h2 { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: var(--tracking-label); color: var(--text-tertiary); margin-bottom: var(--space-4); }
+footer a { display: block; color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); margin-bottom: var(--space-2); }
+footer a:hover { color: var(--accent); }
+footer .fine { font-size: var(--text-sm); color: var(--text-tertiary); max-width: 52ch; }
+</style>
+</head>
+<body data-level="new">
+<a class="skip" href="#main">Skip to content</a>
+
+<nav>
+  <a href="/" class="nav-brand">SCOPE</a>
+  <div class="nav-links">
+    <a href="/">Brief</a><a href="/feed">Feed</a><a href="/signals">Signal System</a><a href="/learn">Learn</a>
+  </div>
+</nav>
+
+<div id="levelbar">
+  <div class="inner">
+    <span class="cap">Reading level</span>
+    <div class="switch" role="group" aria-label="Reading level">
+      <button type="button" id="lv-new" aria-pressed="true">New to this</button>
+      <button type="button" id="lv-pro" aria-pressed="false">I know the vocabulary</button>
+    </div>
+    <span class="cap" id="lvhint">Every explanation on this page rewrites itself.</span>
+  </div>
+</div>
+
+<noscript>
+  <div class="wrap" style="padding-top:var(--space-6)">
+    <div class="panel warn">
+      <h3>JavaScript is off</h3>
+      <p style="margin:0">All the prose is here and readable. The interactive parts — the convergence
+      configurator, the annotated alert, the score explorer, the tour and the glossary — are built in the
+      browser and will be empty. The rest of Scope is client-rendered the same way.</p>
+    </div>
+  </div>
+</noscript>
+
+<aside id="rail" role="navigation" aria-label="Sections"></aside>
+
+<main id="main">
+
+<!-- ══ HERO ═══════════════════════════════════════════════════════════════ -->
+<section id="hero" class="chapter" data-rail="Start" data-vo="hero">
+  <canvas id="herocanvas" aria-hidden="true"></canvas>
+  <div class="wrapw">
+    <div class="kicker rv"><span class="pip" aria-hidden="true"></span> Scope — political &amp; market intelligence</div>
+    <h1 class="display rv">The filings are public.<br />The <span class="hl">pattern</span> is not.</h1>
+    <p class="sub rv" data-lv="new">Congressional trade disclosures. SEC filings by company executives. Federal contract awards. All free, all scattered, all published weeks apart — and almost nobody reads them together. Scope does, and tells you the moment three unrelated sources land on the same company.</p>
+    <p class="sub rv" data-lv="pro">Congressional disclosures, Form 4s, USASpending awards, 13F holdings and more — ingested, scored at write time, and joined by a gate that fires only when <strong>three distinct instruments</strong> converge on one ticker inside a fourteen-day window.</p>
+    <div class="cta-row rv">
+      <a class="btn primary" href="#convergence">See how it decides</a>
+      <a class="btn" href="#showcase">Take the tour</a>
+    </div>
+
+    <div class="figs rv" id="figs" hidden>
+      <div class="fig"><div class="n" data-fig="ticker_count">—</div><div class="k">Tickers with signal history</div></div>
+      <div class="fig"><div class="n" data-fig="member_count">—</div><div class="k">Members of Congress tracked</div></div>
+      <div class="fig"><div class="n" data-fig="week_tickers">—</div><div class="k">Names touched this week</div></div>
+      <div class="fig"><div class="n" data-fig="alert_count">—</div><div class="k">High+ alerts, last 24h</div></div>
+      <div class="src" id="figsrc"></div>
+    </div>
+  </div>
+  <a class="scrollcue" href="#why">Read on<span>↓</span></a>
+</section>
+
+<!-- ══ THE PROBLEM ════════════════════════════════════════════════════════ -->
+<section id="why" class="chapter" data-rail="The problem" data-vo="why">
+  <div class="wrap statement">
+    <h2 class="display rv">Any one filing<br /><span class="dim">can be explained away.</span></h2>
+    <p class="after lede rv" data-lv="new">A senator bought an airline stock — maybe their advisor did it. An executive sold shares — maybe they are buying a house. A small company won a contract — maybe it was routine.</p>
+    <p class="after lede rv" data-lv="pro">Every input is a commodity, and individually each has an innocent reading that is usually correct. A rule firing on one of them is an event counter, not a signal.</p>
+  </div>
+
+  <div class="wrap">
+    <div data-lv="new" class="rv">
+      <p class="lede">What is much harder to explain away is the same company turning up in several of those records at once, filed by people with no reason to be coordinating.</p>
+      <p>That is the only thing Scope treats as a real finding — which means most of what the system does is <em>refuse</em> to call things findings.</p>
+    </div>
+    <div data-lv="pro" class="rv">
+      <p class="lede">The value lives in the join: independent instruments, not sharing a source or a filer, landing on one ticker inside a bounded window. That is falsifiable, and it is what the gate tests.</p>
+      <p>Two consequences run through the whole product: <strong>more of the same source is not more evidence</strong>, and <strong>a source whose ticker was guessed rather than named cannot corroborate anything</strong>. Both are enforced in code.</p>
+    </div>
+
+    <div class="grid3 rv" style="margin-top:var(--space-10)">
+      <div class="panel">
+        <div class="microlabel" style="margin-bottom:var(--space-3)">Disclosure lag</div>
+        <h3>30–45 days</h3>
+        <p style="font-size:var(--text-sm);margin:0">Congressional trades surface weeks after they happen. Scope reads the disclosure, and says so — it never pretends to see the trade live.</p>
+      </div>
+      <div class="panel">
+        <div class="microlabel" style="margin-bottom:var(--space-3)">Convergence window</div>
+        <h3><span data-spec="window_days">14</span> days</h3>
+        <p style="font-size:var(--text-sm);margin:0">How close together independent signals must land to be treated as related rather than coincidental.</p>
+      </div>
+      <div class="panel">
+        <div class="microlabel" style="margin-bottom:var(--space-3)">Coverage</div>
+        <h3>US &amp; Canada</h3>
+        <p style="font-size:var(--text-sm);margin:0">The tickers Scope currently covers. <a href="/universe" style="color:var(--link)">/universe</a> states what is watched and what is not.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ PINNED TOUR ════════════════════════════════════════════════════════ -->
+<section id="showcase" class="chapter showcase" data-rail="The tour" data-vo="showcase">
+  <div class="stick">
+    <div class="wrapw">
+      <h2 class="sr-only">A tour of the product</h2>
+      <div class="sc-steps" id="scsteps">
+
+        <article class="sc-step active" data-i="0">
+          <div>
+            <span class="n">01 — The feed</span>
+            <h3>It arrives as a feed.</h3>
+            <p data-lv="new">Everything Scope detects, newest and loudest first. One line each: how serious, what kind of record, which company, where it came from, how fresh it is.</p>
+            <p data-lv="pro">Opens at HIGH+ over 7 days, sorted by opportunity. Severity, rule, ticker, market-cap band and window are all URL state, so any view you build is a link you can keep.</p>
+            <div class="sc-prog" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+          <figure class="sc-fig"><img loading="lazy" src="/learn-shots/feed.webp" alt="The Scope feed: rows of alerts with severity, rule, ticker, source and score." /></figure>
+        </article>
+
+        <article class="sc-step" data-i="1">
+          <div>
+            <span class="n">02 — The company</span>
+            <h3>Every symbol opens a dossier.</h3>
+            <p data-lv="new">Click a ticker and you get that company's entire history in one page — every signal that ever fired on it, plus honest context on its size, its cash, and whether a position could realistically be bought and sold.</p>
+            <p data-lv="pro">All-time signal history, materiality context stamped with the filing date each figure came from, liquidity at a stated 10% participation assumption, the signal timeline, and the relationship graph.</p>
+            <div class="sc-prog" aria-hidden="true"><i></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <figure class="sc-fig"><img loading="lazy" src="/learn-shots/ticker.webp" alt="A ticker page for NVDA showing the stat bar, materiality context, liquidity table and signal timeline." /></figure>
+        </article>
+
+        <article class="sc-step" data-i="2">
+          <div>
+            <span class="n">03 — The agreement</span>
+            <h3>You can see who agrees — and who is only colour.</h3>
+            <p data-lv="new">Solid nodes are sources that count toward a convergence. Dotted ones are shown for context and can never complete one. The picture tells you which is which before you read a word.</p>
+            <p data-lv="pro">The graph is handed a server-computed eligibility flag rather than re-implementing the gate in JavaScript — so an exclusion change can never leave the drawing claiming a leg the engine refused.</p>
+            <div class="sc-prog" aria-hidden="true"><i></i><i></i><i class="on"></i><i></i></div>
+          </div>
+          <figure class="sc-fig"><img loading="lazy" src="/learn-shots/crop-graph.webp" alt="Signal relationship graph: solid corroborating instruments and dotted context-only nodes around a central ticker." /></figure>
+        </article>
+
+        <article class="sc-step" data-i="3">
+          <div>
+            <span class="n">04 — The scoreboard</span>
+            <h3>Then you check whether any of it worked.</h3>
+            <p data-lv="new">Per-rule performance, with the failures in the denominator. This page exists so the rest of the product can be doubted properly.</p>
+            <p data-lv="pro">Signal volume, severity mix, and how often each rule's signals were later corroborated, plus live system health. The accountability surface, and the one to read first if you are sceptical.</p>
+            <div class="sc-prog" aria-hidden="true"><i></i><i></i><i></i><i class="on"></i></div>
+          </div>
+          <figure class="sc-fig"><img loading="lazy" src="/learn-shots/performance.webp" alt="The rule performance page: per-rule signal volume, severity mix and corroboration rate." /></figure>
+        </article>
+
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ THE CONFIGURATOR ═══════════════════════════════════════════════════ -->
+<section id="convergence" class="chapter" data-rail="Convergence" data-vo="convergence">
+  <div class="wrapw">
+    <div class="eyebrow rv">The core idea</div>
+    <h2 class="ch rv" style="max-width:18ch">Build a convergence with your own hands.</h2>
+
+    <div class="wrap" style="padding:0;margin:0 0 var(--space-8)">
+      <p class="lede rv" data-lv="new">This is not a diagram of the rule. It <em>is</em> the rule, wired to the engine's own settings.</p>
+      <p class="rv" data-lv="new">Add signals to an imaginary company and watch the counter. You need three independent kinds of source before anything fires — and some clicks will not move it at all. That is the most important thing on this page.</p>
+      <p class="lede rv" data-lv="pro">A faithful model of <code>rule10_is_valid</code>, with its threshold, window and instrument map fetched live from <code>/api/rule-model</code> rather than copied into this file.</p>
+      <p class="rv" data-lv="pro">The ledger shows how each signal is counted, collapsed or refused, and why.</p>
+    </div>
+
+    <div class="sim rv">
+      <div>
+        <div class="microlabel" style="margin-bottom:var(--space-3)">Signals available on this ticker</div>
+        <div class="chipgrid" id="chips"></div>
+        <div class="simnote" id="simnote">Pick a signal to begin.</div>
+        <div style="margin-top:var(--space-5);display:flex;gap:var(--space-3);flex-wrap:wrap">
+          <button class="btn sm" type="button" id="sim-reset">Reset</button>
+          <button class="btn sm" type="button" id="sim-demo">Show me a convergence</button>
+        </div>
+        <p class="modelsrc" id="modelsrc"></p>
+      </div>
+
+      <div class="gauge" aria-live="polite">
+        <div class="microlabel">Distinct instruments</div>
+        <div class="count"><span id="cnt">0</span><span class="of"> / <span id="need">3</span></span></div>
+        <div class="slots" id="slots" aria-hidden="true"></div>
+        <div class="verdict" id="verdict">Below the gate — a <em>forming</em> convergence, not a signal.</div>
+        <div class="ledger" id="ledger"></div>
+      </div>
+    </div>
+
+    <div class="wrap" style="padding:0;margin-top:var(--space-16)">
+      <h3 class="sub rv">The three refusals that make it worth trusting</h3>
+      <div class="grid3 rv">
+        <div class="panel accent">
+          <h4>Instruments, not headlines</h4>
+          <p data-lv="new" style="font-size:var(--text-sm);margin:0">Four different alerts can all be reading one congressional disclosure feed. Together they still count as <strong>one</strong>. Otherwise you could manufacture a convergence out of a single filing.</p>
+          <p data-lv="pro" style="font-size:var(--text-sm);margin:0"><code>RULE_01</code>, <code>RULE_01B</code>, <code>RULE_02</code> and <code>RULE_CLUSTER</code> collapse to one instrument. The test is <em>same document population</em>, not same endpoint — <code>RULE_06</code> (Form 4) and <code>RULE_15</code> (8-K) share the EDGAR host and stay separate.</p>
+        </div>
+        <div class="panel accent">
+          <h4>Noise cannot vote</h4>
+          <p data-lv="new" style="font-size:var(--text-sm);margin:0">Reddit chatter, prediction-market odds and attention spikes are shown to you and never allowed to complete a convergence. Crowds react to news; they are not independent of it.</p>
+          <p data-lv="pro" style="font-size:var(--text-sm);margin:0"><code>RULE_07</code>, <code>RULE_REDDIT</code>, <code>RULE_OSINT</code> and <code>RULE_ANOMALY</code> are excluded from the eligible set. They still emit, display and score — they simply cannot be a leg.</p>
+        </div>
+        <div class="panel accent">
+          <h4>A guessed ticker is not evidence</h4>
+          <p data-lv="new" style="font-size:var(--text-sm);margin:0">Some sources describe an <em>industry</em>, not a company. Attaching those to a list of related stocks would invent a connection that was never in the document, so they are context only.</p>
+          <p data-lv="pro" style="font-size:var(--text-sm);margin:0">The basket-keyed class — <code>RULE_08</code>, <code>RULE_ADSB</code>, <code>RULE_TELEGRAM_OSINT</code> — derives its ticker from a keyword→symbol lookup. Excluded by <em>shape</em>, not by a name list. <code>RULE_08</code> was live and counting until 2026-07-29; removing it took a real leg away, forward-only.</p>
+        </div>
+      </div>
+
+      <div class="panel warn rv" style="margin-top:var(--space-6)">
+        <h3>And one more, easy to miss: direction has to agree</h3>
+        <p data-lv="new" style="margin:0">An executive <em>selling</em> their own stock is a real, interesting signal. It is not evidence <em>for</em> the idea that the company is about to do well. Scope checks which way an insider signal points before letting it count toward a bullish convergence — and when it refuses one, it says so on the alert rather than hiding it.</p>
+        <p data-lv="pro" style="margin:0">Per-alert signed legs, scoped today to <code>RULE_06</code> alone. The bar is a genuine open-market buy: code <code>P</code>, acquired, non-derivative, non-10b5-1. It <em>fails closed</em> — an unknown verdict does not corroborate — and a rejected leg is disclosed in <code>tags.non_corroborating</code>. A rule may only be signed once its attribution is repaired, which is why <code>RULE_01B</code> and <code>RULE_15</code> are deliberately still unsigned.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ SPEC SHEET ═════════════════════════════════════════════════════════ -->
+<section id="spec" class="chapter" data-rail="Specification" data-vo="spec">
+  <div class="wrap">
+    <div class="eyebrow rv">Specification</div>
+    <h2 class="ch rv">The numbers that define it</h2>
+    <p class="rv" data-lv="new">Not marketing figures. These are the settings the engine is actually running, read from it as this page loaded.</p>
+    <p class="rv" data-lv="pro">Read live from <code>/api/rule-model</code>, which derives every value from the same objects the gate itself uses.</p>
+    <dl class="spec rv" id="specsheet"></dl>
+  </div>
+</section>
+
+<!-- ══ ANATOMY ════════════════════════════════════════════════════════════ -->
+<section id="anatomy" class="chapter" data-rail="An alert" data-vo="anatomy">
+  <div class="wrapw">
+    <div class="eyebrow rv">Reading the screen</div>
+    <h2 class="ch rv">Seven things, one line</h2>
+    <div class="wrap" style="padding:0;margin:0 0 var(--space-8)">
+      <p class="lede rv" data-lv="new">A real row from the feed, unretouched. Click each part.</p>
+      <p class="lede rv" data-lv="pro">A real feed row. Every element is emitted at detection time and frozen there.</p>
+    </div>
+
+    <div class="anatomy rv" id="anat">
+      <div class="shot" style="position:relative">
+        <img src="/learn-shots/crop-alert-0.webp" id="anatimg"
+             alt="A Scope alert row: CRITICAL severity, Insider trades, ticker CAI, source SEC EDGAR, an opportunity score, 22 hours old, headlined 'President of CAI sold $14.8M (1554.9x their historical avg)'." />
+        <div class="marker" id="mk"></div>
+      </div>
+      <div class="shotcap">Live row from <code>/feed</code> · captured 2026-09-08</div>
+      <div class="pinlist" id="pins"></div>
+      <div class="pinbody" id="pinbody"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ SCORES ═════════════════════════════════════════════════════════════ -->
+<section id="scores" class="chapter" data-rail="The scores" data-vo="scores">
+  <div class="wrapw">
+    <div class="eyebrow rv">The two numbers</div>
+    <h2 class="ch rv">Two scores. Never added together.</h2>
+
+    <div class="wrap" style="padding:0;margin:0 0 var(--space-8)">
+      <div data-lv="new" class="rv">
+        <p class="lede">Scope asks two separate questions about every alert and refuses to merge them into one rating.</p>
+        <p><strong>How well-supported is this?</strong> — <span class="term" data-def="Evidence Confidence: how many independent instruments back this alert. Rises in steps as instruments are added.">evidence confidence</span>. And <strong>how much of the move is probably left?</strong> — <span class="term" data-def="Opportunity Score: whether the signal is fresh and whether the market has already reacted to it.">opportunity</span>.</p>
+        <p>They pull in opposite directions on purpose. A story everyone knows can be beautifully evidenced and useless to you. A brand-new signal can be thin and still worth a look. One blended number would hide exactly that difference.</p>
+      </div>
+      <div data-lv="pro" class="rv">
+        <p class="lede">Two independent axes, computed at write time and immutable thereafter.</p>
+        <p><code>evidence_confidence</code> steps on the instrument count in the gate's own units: <strong>≥3 → 40, ≥4 → 60, ≥5 → 75</strong>, plus a source-quality term; a minimum three-instrument fire persists <strong>46.0</strong>. <code>opportunity_score</code> is the freshness-and-absorption axis, clamped 0–100 before the liquidity multiplier.</p>
+        <p>Scores are <strong>forward-only</strong>: re-enriching historical alerts would recompute novelty against today's population and destroy the detection-time values that outcome calibration depends on.</p>
+      </div>
+    </div>
+
+    <div class="axes rv">
+      <div>
+        <div class="plot" id="plot">
+          <div class="q" style="left:0;top:0"><b>Well-evidenced, already priced</b>Real, and probably late. Useful as context.</div>
+          <div class="q" style="right:0;top:0;text-align:right"><b>What Scope is built for</b>Corroborated and still fresh.</div>
+          <div class="q" style="left:0;bottom:0"><b>Thin and stale</b>Little to see here.</div>
+          <div class="q" style="right:0;bottom:0;text-align:right"><b>Fresh but unconfirmed</b>Interesting. Not yet evidence. This is <a href="/forming" style="color:var(--link)">/forming</a>.</div>
+          <div class="cross" style="left:0;right:0;top:50%;height:1px"></div>
+          <div class="cross" style="top:0;bottom:0;left:50%;width:1px"></div>
+          <div class="dotp" id="dot" style="left:20%;bottom:20%"></div>
+          <div class="axl" style="left:50%;bottom:-26px;transform:translateX(-50%)">Opportunity →</div>
+          <div class="axl" style="left:-30px;top:50%;transform:rotate(-90deg) translateX(50%);transform-origin:left center">Evidence →</div>
+        </div>
+      </div>
+      <div>
+        <div class="sliderrow">
+          <label for="s-inst">Distinct instruments <b id="v-inst">1</b></label>
+          <input type="range" id="s-inst" min="1" max="6" value="1" />
+        </div>
+        <div class="sliderrow">
+          <label for="s-nov">Novelty <b id="v-nov">1.00</b></label>
+          <input type="range" id="s-nov" min="10" max="100" value="100" />
+        </div>
+        <div class="sliderrow">
+          <label for="s-abs">Already priced in <b id="v-abs">0%</b></label>
+          <input type="range" id="s-abs" min="0" max="100" value="0" />
+        </div>
+        <div class="sliderrow">
+          <label for="s-hz">Time horizon <b id="v-hz">Short</b></label>
+          <input type="range" id="s-hz" min="0" max="3" value="2" />
+        </div>
+        <div class="formula" id="fx"></div>
+        <p style="font-size:var(--text-sm);margin-top:var(--space-4);color:var(--text-tertiary)" data-lv="pro">
+          The <code>win_rate</code> term is real in the formula but currently a fixed <strong>0.5 placeholder</strong> — a flat +5 on every alert — reserved for a per-rule realized win rate once <code>alert_outcomes</code> can calibrate it. Shown here as what it is.</p>
+        <p style="font-size:var(--text-sm);margin-top:var(--space-4);color:var(--text-tertiary)" data-lv="new">
+          One part of this formula is a placeholder: the "has this kind of signal been right before?" term is a fixed value for every alert today, because Scope does not yet have enough resolved history to answer it honestly. It is left visible rather than quietly dropped.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ GALLERY ════════════════════════════════════════════════════════════ -->
+<section id="surfaces" class="chapter" data-rail="Surfaces" data-vo="surfaces">
+  <div class="wrapw">
+    <div class="eyebrow rv">The whole product</div>
+    <h2 class="ch rv">Every surface, and what it is for</h2>
+    <div class="wrap" style="padding:0;margin:0 0 var(--space-10)">
+      <p class="lede rv">Real captures, not mock-ups. Click any to enlarge.</p>
+      <p class="rv" style="font-size:var(--text-sm);color:var(--text-tertiary)">Taken 2026-09-08 from a running instance. <em>How much</em> data each page shows is whatever that instance held — a thin page is a thin database, not a thin product, and one or two are showing their empty state on purpose.</p>
+    </div>
+    <div class="surfaces rv" id="surfacegrid"></div>
+  </div>
+</section>
+
+<!-- ══ FIRST RUN ══════════════════════════════════════════════════════════ -->
+<section id="firstrun" class="chapter" data-rail="First run" data-vo="firstrun">
+  <div class="wrap">
+    <div class="eyebrow rv">A path through it</div>
+    <h2 class="ch rv">Your first ten minutes</h2>
+    <div class="steps rv">
+      <div class="step"><div class="num"></div><div>
+        <h3>Open the brief, not the feed</h3>
+        <p data-lv="new">The front page is a written summary of what happened since yesterday. It is the only surface that decides what matters <em>for</em> you. The raw feed will still be there afterwards.</p>
+        <p data-lv="pro"><code>/</code> serves the cached deterministic morning brief and never generates on page load — a missing brief falls back to yesterday's with a notice, then the feed with a notice. <code>/brief</code> is a different page on a different table: the LLM-written one, with a regenerate control.</p>
+      </div></div>
+      <div class="step"><div class="num"></div><div>
+        <h3>Sort the feed by score, then narrow it</h3>
+        <p data-lv="new">It opens at the loudest severity so you are not buried. Widen it once you know what you are looking at — by company, by window, by how big the company is.</p>
+        <p data-lv="pro">HIGH+ over 7 days by opportunity. Every filter is URL state, so a view you build is a link you can keep.</p>
+      </div></div>
+      <div class="step"><div class="num"></div><div>
+        <h3>Open one ticker and read its history</h3>
+        <p data-lv="new">Click any symbol. You get every signal that ever fired on it, a timeline, a map of which sources agree, and honest context on whether a position that size is realistic.</p>
+        <p data-lv="pro"><code>/ticker/{sym}</code>: all-time history, materiality context dated per filing, liquidity at a stated participation rate, the timeline, and the corroborating-versus-context graph.</p>
+      </div></div>
+      <div class="step"><div class="num"></div><div>
+        <h3>Check what is <em>almost</em> there</h3>
+        <p data-lv="new">The forming page lists companies one source short of firing. These are explicitly <strong>not</strong> signals, and the page says so at the top.</p>
+        <p data-lv="pro"><code>/forming</code> renders near-misses with a slot meter — a count rendered as a count, never a percentage, which the page's own tests enforce.</p>
+      </div></div>
+      <div class="step"><div class="num"></div><div>
+        <h3>Ask whether any of it has worked</h3>
+        <p data-lv="new">Before trusting any of this, go and look at the scoreboard. It is built to include the failures, because a track record that forgets its losses is worse than none.</p>
+        <p data-lv="pro"><code>/performance</code> is the denominator page. <code>/status</code> is the operational one: which rules ran, when, what they emitted, and whether anything failed silently.</p>
+      </div></div>
+      <div class="step"><div class="num"></div><div>
+        <h3>Learn one keyboard shortcut</h3>
+        <p><span class="kb">⌘K</span> from anywhere searches tickers, members of Congress and signal headlines. It is a search box, not a page menu — everything else lives behind <span class="kb">MORE</span> in the top bar.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ LIMITS ═════════════════════════════════════════════════════════════ -->
+<section id="limits" class="chapter" data-rail="Limits" data-vo="limits">
+  <div class="wrap statement" style="padding-bottom:var(--space-10)">
+    <h2 class="display rv">A tool that only tells you<br /><span class="dim">its strengths is not a tool.</span></h2>
+  </div>
+  <div class="wrap">
+    <p class="lede rv" data-lv="new">These limits are deliberate, and several are enforced in the code rather than promised in the copy.</p>
+    <p class="lede rv" data-lv="pro">Design constraints, held on purpose. Most are enforced by tests; where something is a known limitation rather than a resolved one, it says so.</p>
+
+    <div class="limits rv" style="margin-top:var(--space-8)">
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>Describe a signal, its provenance, and what that kind of signal has meant historically.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Tell you to buy or sell anything. The analyst-AI stays on the descriptive side of that line by design, from day one.</p></div>
+      </div>
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>Show you a single striking signal — a well-known member of Congress buying something — and let you decide what it is worth.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Hide it behind the convergence threshold. The gate decides what Scope calls corroborated; it does not gate your judgement.</p></div>
+      </div>
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>Publish outcomes with the losses in the denominator.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Report a win rate over "signals still visible today". Decay, deduplication and fading remove signals for reasons unrelated to whether they were right.</p></div>
+      </div>
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>Label forming convergences as watch items in the page's own headline.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Count them as signals, or express them as a percentage that would make a near-miss look like a probability.</p></div>
+      </div>
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>Show industry-level sources — lobbying, regulatory notices, geopolitical events — as context.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Let them complete a convergence when their ticker came from a keyword list rather than the document itself.</p></div>
+      </div>
+      <div class="limit">
+        <div class="does"><span class="tag">It does</span><p>State plainly when a number is a placeholder or a known limitation.</p></div>
+        <div class="doesnt"><span class="tag">It does not</span><p>Dress one up as a measurement. The win-rate term is a fixed placeholder today, and the top evidence tier saturates at five instruments — both documented, not hidden.</p></div>
+      </div>
+    </div>
+
+    <div class="panel warn rv" style="margin-top:var(--space-8)">
+      <h3>And the plainest one</h3>
+      <p style="margin:0" data-lv="new">Scope reads disclosures, and disclosures arrive late — often a month or more after the trade they describe. It is a research instrument for finding things worth investigating. It is not market data, it is not advice, and nothing in it is a prediction.</p>
+      <p style="margin:0" data-lv="pro">Every congressional instrument is disclosure-lagged 30–45 days, and 13F is stale by law at roughly 45. Neither is an early-warning instrument and neither is sold as one. Scope surfaces and explains; it does not instruct.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ══ GLOSSARY ═══════════════════════════════════════════════════════════ -->
+<section id="glossary" class="chapter" data-rail="Glossary" data-vo="glossary">
+  <div class="wrap">
+    <div class="eyebrow rv">Vocabulary</div>
+    <h2 class="ch rv">Glossary</h2>
+    <p class="rv" data-lv="new">Everything on this page in one list, plus the terms you will meet elsewhere in the product.</p>
+    <p class="rv" data-lv="pro">Terms as the product uses them, including the ones that mean something narrower here than in general use.</p>
+    <input type="search" id="gsearch" placeholder="Filter terms — e.g. corroboration, Form 4, absorption" aria-label="Filter glossary terms" />
+    <dl id="glist" class="rv"></dl>
+    <div id="gempty">No term matches that.</div>
+  </div>
+</section>
+
+<!-- ══ CLOSE ══════════════════════════════════════════════════════════════ -->
+<section id="end" class="chapter" data-vo="end">
+  <div class="wrap">
+    <svg class="endmark rv" viewBox="0 0 200 176" role="img" aria-label="Three sources converging on one point.">
+      <circle class="srcnode" cx="100" cy="26" r="8" /><circle class="srcnode" cx="35.9" cy="137" r="8" /><circle class="srcnode" cx="164.1" cy="137" r="8" />
+      <path class="leg" d="M100 36 L100 88" /><path class="leg" d="M44.6 132 L87 108" /><path class="leg" d="M155.4 132 L113 108" />
+      <circle class="core" cx="100" cy="100" r="7" />
+    </svg>
+    <h2 class="display rv">Go and look at<br />today's brief.</h2>
+    <p class="lede rv">It is the one page that decides what matters since yesterday. Everything else here is for when you want to argue with it.</p>
+    <div class="cta-row rv">
+      <a class="btn primary" href="/">Open the brief</a>
+      <a class="btn" href="/feed">Straight to the feed</a>
+      <a class="btn" href="/performance">Check the record first</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrapw">
+    <div class="cols">
+      <div>
+        <h2>Scope</h2>
+        <p class="fine">A configurable research interface for finding anything investment-relevant across public records. Descriptive by design — it surfaces and explains, it does not instruct.</p>
+      </div>
+      <div>
+        <h2>Start here</h2>
+        <a href="/">Morning brief</a><a href="/feed">Signal feed</a><a href="/forming">Forming convergences</a><a href="/intelligence">Theses</a>
+      </div>
+      <div>
+        <h2>Check the work</h2>
+        <a href="/performance">Performance</a><a href="/status">System status</a><a href="/universe">Coverage</a><a href="/docs">API docs</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<div id="lb" role="dialog" aria-modal="true" aria-label="Enlarged screenshot">
+  <button class="cls" type="button" id="lbclose">Close ✕</button>
+  <div class="box"><img id="lbimg" alt="" /></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduced) document.body.classList.add("motion");
+
+  /* ══ READING LEVEL ═════════════════════════════════════════════════════ */
+  var LKEY = "scope-learn-level";
+  var bNew = document.getElementById("lv-new"), bPro = document.getElementById("lv-pro");
+  function setLevel(v, persist) {
+    document.body.setAttribute("data-level", v);
+    bNew.setAttribute("aria-pressed", String(v === "new"));
+    bPro.setAttribute("aria-pressed", String(v === "pro"));
+    document.getElementById("lvhint").textContent = v === "new"
+      ? "Every explanation on this page rewrites itself."
+      : "Denser copy, with the rule ids and the mechanism.";
+    if (persist) { try { localStorage.setItem(LKEY, v); } catch (e) {} }
+  }
+  try { var st = localStorage.getItem(LKEY); if (st === "pro" || st === "new") setLevel(st, false); } catch (e) {}
+  bNew.addEventListener("click", function () { setLevel("new", true); });
+  bPro.addEventListener("click", function () { setLevel("pro", true); });
+
+  /* the inline definitions are hover-only in CSS, which leaves keyboard and
+     screen-reader users a dotted underline with nothing behind it */
+  [].slice.call(document.querySelectorAll(".term")).forEach(function (t) {
+    t.setAttribute("tabindex", "0");
+    t.setAttribute("role", "note");
+    t.setAttribute("aria-label", t.textContent + " — " + t.getAttribute("data-def"));
+  });
+
+  /* ══ REVEAL ════════════════════════════════════════════════════════════ */
+  var rvs = [].slice.call(document.querySelectorAll(".rv"));
+  if (!reduced && "IntersectionObserver" in window) {
+    var ro = new IntersectionObserver(function (es) {
+      es.forEach(function (e, i) {
+        if (e.isIntersecting) { setTimeout(function () { e.target.classList.add("in"); }, i * 70); ro.unobserve(e.target); }
+      });
+    }, { rootMargin: "0px 0px -10% 0px", threshold: 0.06 });
+    rvs.forEach(function (el) { ro.observe(el); });
+  } else { rvs.forEach(function (el) { el.classList.add("in"); }); }
+
+  /* ══ RAIL ══════════════════════════════════════════════════════════════ */
+  var chapters = [].slice.call(document.querySelectorAll("section.chapter[data-rail]"));
+  var rail = document.getElementById("rail");
+  rail.innerHTML = chapters.map(function (c) {
+    return '<a href="#' + c.id + '" data-for="' + c.id + '"><span class="dot"></span><span class="lbl">' +
+           c.getAttribute("data-rail") + "</span></a>";
+  }).join("");
+  var railLinks = {};
+  [].slice.call(rail.querySelectorAll("a")).forEach(function (a) { railLinks[a.getAttribute("data-for")] = a; });
+  if ("IntersectionObserver" in window) {
+    var ro2 = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        var a = railLinks[e.target.id];
+        if (a) a.setAttribute("aria-current", e.isIntersecting && e.intersectionRatio > 0.2 ? "true" : "false");
+      });
+    }, { threshold: [0.2, 0.5] });
+    chapters.forEach(function (c) { ro2.observe(c); });
+  }
+
+  /* ══ HERO FIELD ════════════════════════════════════════════════════════
+     Drifting signal points; every few seconds three are chosen, lines travel
+     inward to a shared node, it pulses, and they are released — the product's
+     one claim, running quietly in the background. Purely decorative: it never
+     starts under reduced motion, and it stops when scrolled out of view rather
+     than burning a core behind the rest of the page. */
+  (function heroField() {
+    if (reduced) return;
+    var cv = document.getElementById("herocanvas");
+    var ctx = cv && cv.getContext && cv.getContext("2d");
+    if (!ctx) return;
+    var W = 0, H = 0, dpr = Math.min(window.devicePixelRatio || 1, 2), pts = [], t = 0, running = false, raf = 0;
+    var cs = getComputedStyle(document.documentElement);
+    var accent = (cs.getPropertyValue("--accent") || "#c89664").trim();
+    var idle = (cs.getPropertyValue("--border-default") || "#3a3a42").trim();
+
+    function size() {
+      W = cv.clientWidth; H = cv.clientHeight;
+      if (!W || !H) return;
+      cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var n = Math.max(20, Math.min(58, Math.round(W * H / 26000)));
+      pts = [];
+      for (var i = 0; i < n; i++) {
+        pts.push({ x: Math.random() * W, y: Math.random() * H,
+                   vx: (Math.random() - 0.5) * 0.15, vy: (Math.random() - 0.5) * 0.15,
+                   r: 1 + Math.random() * 1.5 });
+      }
+    }
+
+    var ev = null;
+    function newEvent() {
+      if (pts.length < 6) return;
+      var idx = [], guard = 0;
+      while (idx.length < 3 && guard++ < 60) {
+        var k = Math.floor(Math.random() * pts.length);
+        if (idx.indexOf(k) === -1) idx.push(k);
+      }
+      if (idx.length < 3) return;
+      var cx = 0, cy = 0;
+      idx.forEach(function (i) { cx += pts[i].x; cy += pts[i].y; });
+      ev = { idx: idx, cx: cx / 3, cy: cy / 3, age: 0, life: 260 };
+    }
+
+    function frame() {
+      if (!running) return;
+      t++;
+      ctx.clearRect(0, 0, W, H);
+      for (var i = 0; i < pts.length; i++) {
+        var p = pts[i];
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < -20) p.x = W + 20; if (p.x > W + 20) p.x = -20;
+        if (p.y < -20) p.y = H + 20; if (p.y > H + 20) p.y = -20;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.2832);
+        ctx.globalAlpha = 0.62; ctx.fillStyle = idle; ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      if (!ev && t % 185 === 0) newEvent();
+      if (ev) {
+        ev.age++;
+        var prog = Math.min(1, ev.age / 90);
+        var fade = ev.age > ev.life - 60 ? Math.max(0, (ev.life - ev.age) / 60) : 1;
+        ctx.strokeStyle = accent; ctx.lineWidth = 1;
+        ev.idx.forEach(function (i) {
+          var p = pts[i];
+          ctx.globalAlpha = 0.45 * fade;
+          ctx.beginPath(); ctx.moveTo(p.x, p.y);
+          ctx.lineTo(p.x + (ev.cx - p.x) * prog, p.y + (ev.cy - p.y) * prog);
+          ctx.stroke();
+          ctx.globalAlpha = 0.85 * fade;
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 1.4, 0, 6.2832); ctx.fillStyle = accent; ctx.fill();
+        });
+        if (prog >= 1) {
+          var pulse = (ev.age - 90) / 40;
+          if (pulse < 1) {
+            ctx.globalAlpha = (1 - pulse) * 0.5 * fade;
+            ctx.beginPath(); ctx.arc(ev.cx, ev.cy, 6 + pulse * 26, 0, 6.2832);
+            ctx.strokeStyle = accent; ctx.stroke();
+          }
+          ctx.globalAlpha = 0.9 * fade;
+          ctx.beginPath(); ctx.arc(ev.cx, ev.cy, 3.4, 0, 6.2832); ctx.fillStyle = accent; ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        if (ev.age > ev.life) ev = null;
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    function start() { if (!running) { running = true; frame(); } }
+    function stop() { running = false; cancelAnimationFrame(raf); }
+
+    size();
+    window.addEventListener("resize", function () { size(); });
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (es) {
+        es.forEach(function (e) { e.isIntersecting ? start() : stop(); });
+      }, { threshold: 0 }).observe(cv);
+    } else { start(); }
+    start();
+  })();
+
+  /* ══ PINNED TOUR ═══════════════════════════════════════════════════════ */
+  (function tour() {
+    var sec = document.getElementById("showcase");
+    var steps = [].slice.call(document.querySelectorAll("#scsteps .sc-step"));
+    var pinned = function () { return !reduced && window.matchMedia("(min-width: 901px)").matches; };
+    if (!steps.length || reduced) return;      /* otherwise it is a plain stacked list */
+    var cur = -1;
+    function tick() {
+      if (!pinned()) {                          /* stacked list: every step shows itself */
+        if (cur !== -1) { cur = -1; steps.forEach(function (s) { s.classList.remove("active"); }); }
+        return;
+      }
+      var r = sec.getBoundingClientRect();
+      var total = r.height - window.innerHeight;
+      if (total <= 0) return;
+      var prog = Math.min(0.9999, Math.max(0, -r.top / total));
+      var i = Math.floor(prog * steps.length);
+      if (i !== cur) {
+        cur = i;
+        steps.forEach(function (s, j) { s.classList.toggle("active", j === i); });
+      }
+    }
+    window.addEventListener("scroll", tick, { passive: true });
+    window.addEventListener("resize", tick);
+    tick();
+  })();
+
+  /* ══ LIVE FIGURES ══════════════════════════════════════════════════════
+     Real numbers or none. A failed fetch leaves the strip hidden rather than
+     rendering zeros, which would read as "nothing is happening" instead of
+     "unknown". Each label states exactly what its number counts. */
+  (function figures() {
+    fetch("/api/stats").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      if (!d || typeof d.ticker_count !== "number") return;
+      var strip = document.getElementById("figs");
+      strip.hidden = false;
+      [].slice.call(strip.querySelectorAll("[data-fig]")).forEach(function (el) {
+        var target = d[el.getAttribute("data-fig")];
+        if (typeof target !== "number") { el.textContent = "—"; return; }
+        if (reduced) { el.textContent = target.toLocaleString(); return; }
+        var t0 = performance.now(), dur = 1100;
+        (function step(now) {
+          var k = Math.min(1, (now - t0) / dur);
+          el.textContent = Math.round(target * (1 - Math.pow(1 - k, 3))).toLocaleString();
+          if (k < 1) requestAnimationFrame(step);
+        })(t0);
+      });
+      document.getElementById("figsrc").textContent =
+        "Live from this instance · data through " + String(d.data_through || "").slice(0, 16);
+    }).catch(function () { /* strip stays hidden */ });
+  })();
+
+  /* ══ THE CONFIGURATOR ══════════════════════════════════════════════════
+     The cards are page copy; WHICH INSTRUMENT each maps to, whether it is
+     excluded, the threshold and the window all come from /api/rule-model — the
+     endpoint that derives them from the same objects the gate itself uses. So
+     this page cannot drift from the engine the way a hardcoded copy does, and
+     that matters: a first draft of this page asserted lobbying counts as its
+     own instrument, which the live model says is false.
+
+     FALLBACK is a snapshot for when the fetch fails, and when it is in use the
+     page says so rather than presenting stale values as live. */
+  var FALLBACK = {
+    min_instruments: 3, window_days: 14,
+    instrument_of: { RULE_01: "congressional", RULE_01B: "congressional", RULE_02: "congressional",
+                     RULE_CLUSTER: "congressional", RULE_06: "insider", RULE_11: "contracts",
+                     RULE_15: "earnings", RULE_16: "institutional" },
+    excluded: ["RULE_07", "RULE_08", "RULE_09", "RULE_12", "RULE_13", "RULE_14", "RULE_ADSB",
+               "RULE_ANOMALY", "RULE_COLLECTOR", "RULE_DISCOVERY", "RULE_OSINT", "RULE_REDDIT",
+               "RULE_TELEGRAM_OSINT"],
+    instruments: ["congressional", "contracts", "earnings", "insider", "institutional"]
+  };
+
+  var SIGNALS = [
+    { id: "c1",  rule: "RULE_01B",     nm: "Member of Congress opened a position", src: "House / Senate disclosure",
+      why: "Counts. The congressional disclosure feed is one instrument." },
+    { id: "c2",  rule: "RULE_CLUSTER", nm: "Three members traded it in 72 hours",  src: "House / Senate disclosure",
+      why: "Same source as the first position, so it does <strong>not</strong> add a second leg. More of one instrument is louder, not broader." },
+    { id: "f4b", rule: "RULE_06",      nm: "Executive bought their own stock",     src: "SEC Form 4",
+      why: "Counts. A genuine open-market buy — code P, acquired, non-derivative, not a scheduled 10b5-1 sale." },
+    { id: "f4s", rule: "RULE_06",      nm: "Executive sold their own stock",       src: "SEC Form 4", signed: "sell",
+      why: "Present, and shown to you — but it does <strong>not</strong> corroborate a bullish thesis. The rejection is disclosed on the alert, never hidden." },
+    { id: "ct",  rule: "RULE_11",      nm: "Won a federal contract",               src: "USASpending award",
+      why: "Counts. The award names the company; the ticker is not guessed." },
+    { id: "e15", rule: "RULE_15",      nm: "Language shift on the earnings call",  src: "SEC 8-K",
+      why: "Counts. Shares the EDGAR host with Form 4 but is a different document population, so it is a separate instrument." },
+    { id: "i16", rule: "RULE_16",      nm: "Institution disclosed a new position",  src: "13F holdings",
+      why: "Counts — but 13F is stale by law, roughly 45 days. Confirmation, not early warning." },
+    { id: "lda", rule: "RULE_09",      nm: "Lobbying spend spiked",                src: "Senate LDA",
+      why: "Context, not a leg. Lobbying measures influence on <em>government</em>, not on a ticker — fanning it onto symbols would be the basket problem wearing a suit." },
+    { id: "rd",  rule: "RULE_REDDIT",  nm: "Reddit is suddenly talking about it",  src: "social chatter",
+      why: "Excluded. Crowds react to news; they are not independent of it. Displayed, never counted." },
+    { id: "pm",  rule: "RULE_07",      nm: "Prediction-market odds moved",         src: "Polymarket",
+      why: "Excluded as noise, for the same reason as chatter." },
+    { id: "fr",  rule: "RULE_08",      nm: "A regulation naming the industry",     src: "Federal Register",
+      why: "Excluded by <strong>shape</strong>: its ticker comes from a keyword→symbol lookup, not from the document. It was live and counting until 2026-07-29." },
+    { id: "an",  rule: "RULE_ANOMALY", nm: "Unusual attention spike",              src: "derived",
+      why: "Excluded. An attention spike describes a crowd, not an independent source." }
+  ];
+
+  var MODEL = FALLBACK, MODEL_LIVE = false, picked = {};
+  var chipsEl = document.getElementById("chips");
+
+  function instrumentFor(sig) {
+    if (sig.signed === "sell") return null;                    /* signed leg: fails closed */
+    return (MODEL.instrument_of && MODEL.instrument_of[sig.rule]) || null;
+  }
+  function isExcluded(sig) { return !(MODEL.instrument_of && MODEL.instrument_of[sig.rule]); }
+
+  function renderChips() {
+    chipsEl.innerHTML = SIGNALS.map(function (s) {
+      return '<button type="button" class="sigchip' + (isExcluded(s) ? " excluded" : "") +
+        '" data-id="' + s.id + '" aria-pressed="' + (picked[s.id] ? "true" : "false") + '">' +
+        '<span class="nm">' + s.nm + '</span><span class="src">' + s.rule + " · " + s.src +
+        (isExcluded(s) ? " · excluded" : "") + "</span></button>";
+    }).join("");
+    var need = MODEL.min_instruments;
+    document.getElementById("need").textContent = need;
+    var slots = "";
+    for (var i = 0; i < need; i++) slots += '<span class="slot"></span>';
+    document.getElementById("slots").innerHTML = slots;
+  }
+
+  function instrumentsOf() {
+    var set = {};
+    SIGNALS.forEach(function (s) {
+      if (!picked[s.id]) return;
+      var inst = instrumentFor(s);
+      if (inst) set[inst] = true;
+    });
+    return Object.keys(set);
+  }
+
+  function renderSim(lastId) {
+    var n = instrumentsOf().length, need = MODEL.min_instruments;
+    document.getElementById("cnt").textContent = n;
+    var slots = document.getElementById("slots").children;
+    for (var i = 0; i < slots.length; i++) slots[i].className = "slot" + (i < Math.min(n, need) ? " on" : "");
+
+    var v = document.getElementById("verdict");
+    if (n >= need) {
+      v.className = "verdict fired";
+      v.innerHTML = "<strong>Corroboration fires.</strong> " + n + " distinct instruments inside " +
+        MODEL.window_days + " days. Evidence confidence steps to " +
+        (n >= 5 ? "75" : n >= 4 ? "60" : "40") + " in the gate's units, and a market thesis is opened.";
+    } else {
+      v.className = "verdict";
+      v.innerHTML = n === 0 ? "Nothing counted yet."
+        : "Below the gate — " + n + " of " + need + ". A <em>forming</em> convergence, not a signal.";
+    }
+
+    var counted = [], collapsed = [], refused = [], seen = {};
+    SIGNALS.forEach(function (s) {
+      if (!picked[s.id]) return;
+      if (s.signed === "sell") { refused.push(s.nm + " — present, does not corroborate"); return; }
+      var inst = instrumentFor(s);
+      if (!inst) { refused.push(s.nm + " — excluded from the gate"); return; }
+      if (seen[inst]) { collapsed.push(s.nm + " — same instrument (" + inst + ")"); return; }
+      seen[inst] = true; counted.push(s.nm + " — " + inst);
+    });
+    document.getElementById("ledger").innerHTML =
+      (counted.map(function (x) { return '<div class="ok">✓ ' + x + "</div>"; }).join("") +
+       collapsed.map(function (x) { return "<div>= " + x + "</div>"; }).join("") +
+       refused.map(function (x) { return '<div class="no">✕ ' + x + "</div>"; }).join("")) ||
+      "<div>No signals selected.</div>";
+
+    var note = document.getElementById("simnote");
+    if (lastId) {
+      var s2 = SIGNALS.filter(function (x) { return x.id === lastId; })[0];
+      note.innerHTML = picked[lastId] ? s2.why : "Removed — " + s2.nm.toLowerCase() + ".";
+    } else if (n >= need) {
+      note.innerHTML = "<strong>That is the whole product.</strong> Three independent instruments, one ticker, fourteen days.";
+    }
+  }
+
+  chipsEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".sigchip"); if (!b) return;
+    var id = b.getAttribute("data-id");
+    picked[id] = !picked[id];
+    b.setAttribute("aria-pressed", String(!!picked[id]));
+    renderSim(id);
+  });
+  function clearAll() {
+    picked = {};
+    [].slice.call(chipsEl.querySelectorAll(".sigchip")).forEach(function (b) { b.setAttribute("aria-pressed", "false"); });
+  }
+  document.getElementById("sim-reset").addEventListener("click", function () {
+    clearAll(); document.getElementById("simnote").textContent = "Pick a signal to begin."; renderSim(null);
+  });
+  document.getElementById("sim-demo").addEventListener("click", function () {
+    clearAll(); renderSim(null);
+    ["c1", "c2", "f4b", "ct"].forEach(function (id, i) {   /* deliberately includes the collapse */
+      setTimeout(function () {
+        picked[id] = true;
+        var b = chipsEl.querySelector('[data-id="' + id + '"]');
+        if (b) b.setAttribute("aria-pressed", "true");
+        renderSim(id);
+      }, reduced ? 0 : i * 900);
+    });
+  });
+
+  function paintModelSource() {
+    document.getElementById("modelsrc").innerHTML = MODEL_LIVE
+      ? 'The threshold, the window and every rule-to-instrument mapping above are <b>read live</b> from <code>/api/rule-model</code> — from the engine, not from this page.'
+      : 'Could not reach <code>/api/rule-model</code>, so this is running on a <b class="stale">stored snapshot</b> and may be out of date. The live engine is the authority.';
+  }
+
+  function paintSpec() {
+    var eligible = Object.keys(MODEL.instrument_of || {}).length;
+    var rows = [
+      ["Gate threshold", MODEL.min_instruments, "distinct instruments",
+       "Not three alerts — three independent <em>sources</em>. Several rules reading one feed count once between them."],
+      ["Convergence window", MODEL.window_days, "days",
+       "Measured on ingestion time, the same clock an alert's age is shown in."],
+      ["Instruments that can corroborate", (MODEL.instruments || []).length, "",
+       (MODEL.instruments || []).join(" · ")],
+      ["Rules mapped to an instrument", eligible, "",
+       "Every other rule still runs, still emits and still displays — it simply cannot complete a convergence."],
+      ["Rules excluded from the gate", (MODEL.excluded || []).length, "",
+       "Noise, retired, coverage-only and basket-keyed, kept as four separate categories on purpose: " + (MODEL.excluded || []).join(" · ")],
+      ["Evidence confidence tiers", "40 / 60 / 75", "",
+       "At ≥3, ≥4 and ≥5 instruments, plus a source-quality term. The first tier <em>is</em> the gate threshold; they move together. Known limitation: the top tier saturates at five."],
+      ["Scores per alert", 2, "never merged",
+       "Evidence confidence and opportunity, computed at write time and immutable afterwards."]
+    ];
+    document.getElementById("specsheet").innerHTML = rows.map(function (r) {
+      return '<div class="specrow"><dt>' + r[0] + '</dt><dd><span class="v">' + r[1] + "</span>" +
+             (r[2] ? '<span style="color:var(--text-tertiary)">' + r[2] + "</span>" : "") +
+             "<small>" + r[3] + "</small></dd></div>";
+    }).join("");
+    [].slice.call(document.querySelectorAll("[data-spec]")).forEach(function (el) {
+      var v = MODEL[el.getAttribute("data-spec")];
+      if (v !== undefined && v !== null) el.textContent = v;
+    });
+  }
+
+  renderChips(); renderSim(null); paintModelSource(); paintSpec();
+  fetch("/api/rule-model")
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (m) {
+      if (!m || !m.instrument_of || typeof m.min_instruments !== "number") return;
+      MODEL = m; MODEL_LIVE = true;
+      renderChips(); renderSim(null); paintModelSource(); paintSpec();
+    })
+    .catch(function () { /* the fallback is already painted, and it says so */ });
+
+  /* ══ ALERT ANATOMY ═════════════════════════════════════════════════════
+     `box` is [left%, top%, width%, height%] of the screenshot, MEASURED off the
+     live DOM (each element's rect over the card's rect) rather than eyeballed —
+     an eyeballed box lands on empty space and teaches the wrong thing with full
+     confidence. Percentages, so they track the image at every width. */
+  var PINS = [
+    { n: "01", t: "Severity", box: [2.5, 22.1, 7.7, 20.9],
+      newh: "How loud this is. Critical, high, medium or low — set when the alert is created and never edited afterwards.",
+      proh: "Set at detection and immutable. For an insider alert it is driven by size relative to that filer's own history; for a cluster, by member count." },
+    { n: "02", t: "Which instrument", box: [11.4, 22.1, 12.0, 20.9],
+      newh: "The kind of record this came from. Here, an SEC filing made by a company executive about their own shares.",
+      proh: "The display name for the rule id. Ids like <code>RULE_06</code> are the contract between rules, gate and API; the human label is presentation only and is never written back into the data." },
+    { n: "03", t: "The company", box: [24.6, 21.5, 3.9, 22.0],
+      newh: "The ticker symbol. Click it anywhere in Scope and you land on that company's full signal history.",
+      proh: "Normalized at write time, which is what makes downstream corroboration work — a ticker varying by case or suffix would fail to join." },
+    { n: "04", t: "Provenance", box: [29.7, 22.6, 13.4, 19.8],
+      newh: "Where it came from. Every alert names its source, and where a source document exists you can open the filing itself.",
+      proh: "Source label plus, where the rule can produce one, a link to the actual document. A source link is a real document or it is nothing — never a search page standing in for a filing." },
+    { n: "05", t: "Opportunity score", box: [44.3, 22.1, 5.5, 20.9],
+      newh: "Roughly: is this fresh, or has everyone already reacted to it? Higher means more of the move is probably still ahead.",
+      proh: "<code>novelty×40 − absorption×30 + horizon×20 + win_rate×10</code>, then × liquidity. Frozen at detection. Independent of evidence confidence and never averaged with it." },
+    { n: "06", t: "Age", box: [66.6, 25.4, 4.5, 14.3],
+      newh: "How long ago it fired. Freshness matters: the same fact is worth less once the market has had a week with it.",
+      proh: "Time since <code>created_at</code> — ingestion time, UTC-naive, the same clock the convergence window is measured on. Not the event date." },
+    { n: "07", t: "The claim itself", box: [2.5, 56.9, 95, 21.6],
+      newh: "One sentence, and it has to be checkable. Not <em>“unusual insider activity”</em> — a named role, a dollar amount, and how far outside this person's own normal that sits.",
+      proh: "Generated from the parsed filing, and for <code>RULE_06</code> it is also the <strong>dedup key</strong> — <code>alert_exists</code> matches on (rule, ticker, headline), so changing its wording silently re-emits the entire corpus." }
+  ];
+  var pinsEl = document.getElementById("pins"), mk = document.getElementById("mk"),
+      pinbody = document.getElementById("pinbody");
+  pinsEl.innerHTML = PINS.map(function (p, i) {
+    return '<button type="button" class="pin" data-i="' + i + '" aria-expanded="false">' +
+      '<span class="n">' + p.n + '</span><span class="t">' + p.t + "</span></button>";
+  }).join("");
+  function showPin(i) {
+    var p = PINS[i];
+    [].slice.call(pinsEl.children).forEach(function (b, j) { b.setAttribute("aria-expanded", String(j === i)); });
+    mk.style.left = p.box[0] + "%"; mk.style.top = p.box[1] + "%";
+    mk.style.width = p.box[2] + "%"; mk.style.height = p.box[3] + "%";
+    mk.classList.add("on");
+    pinbody.innerHTML = "<h3>" + p.t + '</h3><span data-lv="new">' + p.newh + '</span><span data-lv="pro">' + p.proh + "</span>";
+  }
+  pinsEl.addEventListener("click", function (e) {
+    var b = e.target.closest(".pin"); if (!b) return;
+    showPin(parseInt(b.getAttribute("data-i"), 10));
+  });
+  showPin(0);
+
+  /* ══ SCORE EXPLORER ════════════════════════════════════════════════════ */
+  var HZ = [["Long", 5], ["Medium", 10], ["Short", 15], ["Immediate", 20]];
+  function evidenceOf(n) { return n >= 5 ? 75 : n >= 4 ? 60 : n >= 3 ? 40 : n === 2 ? 20 : 6; }
+  function updScores() {
+    var n = +document.getElementById("s-inst").value,
+        nov = +document.getElementById("s-nov").value / 100,
+        abs = +document.getElementById("s-abs").value,
+        hz = HZ[+document.getElementById("s-hz").value];
+    document.getElementById("v-inst").textContent = n;
+    document.getElementById("v-nov").textContent = nov.toFixed(2);
+    document.getElementById("v-abs").textContent = abs + "%";
+    document.getElementById("v-hz").textContent = hz[0];
+
+    var opp = Math.max(0, Math.min(100, nov * 40 - (abs / 100) * 30 + hz[1] + 0.5 * 10));
+    var ev = evidenceOf(n);
+    document.getElementById("dot").style.left = (6 + opp * 0.88) + "%";
+    document.getElementById("dot").style.bottom = (6 + ev * 0.88) + "%";
+    document.getElementById("fx").innerHTML =
+      "opportunity = novelty×40 − absorption×30 + horizon×20 + win_rate×10<br>" +
+      "&nbsp;&nbsp;= " + (nov * 40).toFixed(1) + " − " + ((abs / 100) * 30).toFixed(1) +
+      " + " + hz[1] + " + 5 &nbsp;=&nbsp; <b>" + opp.toFixed(1) + "</b><br>" +
+      "evidence&nbsp;&nbsp;&nbsp;&nbsp;= tier(" + n + " instrument" + (n === 1 ? "" : "s") + ") &nbsp;=&nbsp; <b>" + ev + "</b>" +
+      (n >= 5 ? '<br><span style="color:var(--severity-high)">top tier saturates at 5 — a 6- or 9-instrument fire scores the same</span>' : "") +
+      (n < 3 ? '<br><span style="color:var(--text-tertiary)">below the gate: no corroboration, no thesis</span>' : "");
+  }
+  ["s-inst", "s-nov", "s-abs", "s-hz"].forEach(function (id) {
+    document.getElementById(id).addEventListener("input", updScores);
+  });
+  updScores();
+
+  /* ══ GALLERY ═══════════════════════════════════════════════════════════ */
+  var SURFACES = [
+    { img: "feed", h: "The feed", r: "/feed",
+      p: "Every alert, newest and loudest first, with filters for severity, source, company size and window. The raw material." },
+    { img: "ticker", h: "A company page", r: "/ticker/{symbol}",
+      p: "One company's entire signal history: timeline, which instruments agree, size and liquidity context, and every alert that ever fired on it." },
+    { img: "forming", h: "Forming", r: "/forming",
+      p: "Names sitting below the gate — one or two instruments short. Explicitly watch items, not signals, and the page leads with that." },
+    { img: "congress", h: "Congressional trading", r: "/congress",
+      p: "Disclosed trades under the STOCK Act, filterable by chamber and party, with the disclosure delay shown per filing." },
+    { img: "insiders", h: "Corporate insiders", r: "/insiders",
+      p: "SEC Form 4 filings flagged for unusual size relative to that filer's own history — the instrument the signed-leg check applies to." },
+    { img: "performance", h: "Performance", r: "/performance",
+      p: "How each rule is actually doing: volume, severity mix, and how often its signals were later corroborated." },
+    { img: "status", h: "System status", r: "/status",
+      p: "Which rules ran, when, what they scanned and emitted, and whether anything failed. If a rule stops quietly, this is where it shows." },
+    { img: "universe", h: "Coverage", r: "/universe",
+      p: "What Scope watches and — just as important — what it does not. Coverage is a list of names, never a signal in itself." },
+    { img: "signals", h: "Signal system", r: "/signals",
+      p: "A live view of alerts moving through the system: one event bus, three visualisations, all fed from real alerts." },
+    { img: "home", h: "Dashboard", r: "/home",
+      p: "The overview: an activity strip of what fired recently and hero cards for the strongest current convergences." }
+  ];
+  document.getElementById("surfacegrid").innerHTML = SURFACES.map(function (s) {
+    return '<div class="surface">' +
+      '<button class="thumb" type="button" aria-label="Enlarge the ' + s.h + ' screenshot" ' +
+      'data-img="/learn-shots/' + s.img + '.webp" data-alt="Screenshot of ' + s.h + '">' +
+      '<img loading="lazy" src="/learn-shots/' + s.img + '.webp" alt="Screenshot of the ' + s.h + ' page" /></button>' +
+      '<div class="body"><h3>' + s.h + '</h3><div class="route">' + s.r + "</div><p>" + s.p + "</p>" +
+      '<a class="go" href="' + (s.r.indexOf("{") > -1 ? "/ticker/NVDA" : s.r) + '">Open →</a></div></div>';
+  }).join("");
+
+  var lb = document.getElementById("lb"), lbimg = document.getElementById("lbimg"), lastFocus = null;
+  document.getElementById("surfacegrid").addEventListener("click", function (e) {
+    var b = e.target.closest(".thumb"); if (!b) return;
+    lastFocus = b;
+    lbimg.src = b.getAttribute("data-img");
+    lbimg.alt = b.getAttribute("data-alt");
+    lb.classList.add("open");
+    /* without this, Tab walks out of the dialog and into the page behind it */
+    document.getElementById("main").inert = true;
+    document.querySelector("footer").inert = true;
+    document.getElementById("lbclose").focus();
+  });
+  function closeLb() {
+    lb.classList.remove("open"); lbimg.removeAttribute("src");
+    document.getElementById("main").inert = false;
+    document.querySelector("footer").inert = false;
+    if (lastFocus) lastFocus.focus();
+  }
+  document.getElementById("lbclose").addEventListener("click", closeLb);
+  lb.addEventListener("click", function (e) { if (e.target === lb) closeLb(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && lb.classList.contains("open")) closeLb(); });
+
+  /* ══ GLOSSARY ══════════════════════════════════════════════════════════ */
+  var GLOSSARY = [
+    ["Alert", "One detected event: a rule fired on a company at a moment in time. The atom of the whole system."],
+    ["Signal", "An alert, used loosely. In Scope's stricter sense, the things that can corroborate — excluding chatter and coverage-only rules."],
+    ["Instrument", "A distinct underlying source of evidence. Several rules can read one instrument: all the congressional rules read one disclosure feed and count once between them."],
+    ["Corroboration", "The event that fires when three or more distinct instruments land on the same ticker within 14 days. Scope's central claim."],
+    ["The gate", "The code that decides whether a set of signals is a corroboration. It answers <em>if</em>; scoring answers <em>how loud</em>."],
+    ["Forming", "A ticker below the gate — one or two instruments short. A watch item, deliberately never described as a signal."],
+    ["Thesis", "A living record opened when a corroboration fires, gathering the evidence for one idea as it accumulates."],
+    ["Evidence confidence", "How well-supported an alert is, stepping on the instrument count in the gate's own units: ≥3 → 40, ≥4 → 60, ≥5 → 75, plus a source-quality term."],
+    ["Opportunity score", "How much of the move is plausibly left: novelty and horizon push it up, absorption pulls it down. Clamped 0–100, then scaled by liquidity."],
+    ["Novelty", "Whether this is the first time this pattern has appeared, or the twentieth. Decays with recurrence over 30 days."],
+    ["Absorption", "How much the market has already reacted. High absorption means the news is in the price."],
+    ["Time horizon", "How fast a signal type tends to matter: immediate, short, medium or long. An insider buy is short; a 13F is slow."],
+    ["Severity", "Critical, high, medium or low — how loud a single alert is. Independent of how well-evidenced it is."],
+    ["Signed leg", "A per-alert check on which way a signal points. An insider sale is real, and displayed, but does not corroborate a bullish thesis."],
+    ["Excluded rule", "A source that is shown but can never complete a convergence — chatter and prediction markets as noise, lobbying as context, and any rule whose ticker comes from a keyword list."],
+    ["Basket-keyed", "A rule that gets its ticker from a keyword→symbol lookup instead of from the document. Excluded by shape, because the connection was invented rather than found."],
+    ["Form 4", "The SEC filing an officer, director or 10% owner submits after trading their own company's stock."],
+    ["PTR", "Periodic Transaction Report — the disclosure a member of Congress files after a trade, typically 30–45 days later."],
+    ["13F", "A quarterly disclosure of large institutional holdings. Stale by law at roughly 45 days: confirmation, never early warning."],
+    ["8-K", "The SEC filing companies use to announce material events, including earnings materials."],
+    ["LDA filing", "A Senate Lobbying Disclosure Act filing: who paid a lobbying firm, and what for. Context in Scope, not a gate leg."],
+    ["STOCK Act", "The law requiring members of Congress to disclose their trades."],
+    ["10b5-1", "A pre-scheduled trading plan. A sale under one is planned in advance, so it says much less about what the executive currently thinks."],
+    ["Cluster", "Several people moving on one company at once — three or more members of Congress inside 72 hours, or several officers of one company."],
+    ["Market cap", "The company's total share value. Used for context and weighting: the same contract is far bigger news for a small company."],
+    ["Liquidity", "Whether a position that size could realistically be bought and sold. Context only; it never affects severity or corroboration."],
+    ["Denominator", "The full set of outcomes, losses included. A win rate computed over survivors only is not a track record."]
+  ];
+  var glist = document.getElementById("glist");
+  glist.innerHTML = GLOSSARY.map(function (g) {
+    return '<div class="gitem"><dt>' + g[0] + "</dt><dd>" + g[1] + "</dd></div>";
+  }).join("");
+  var gs = document.getElementById("gsearch"), gempty = document.getElementById("gempty");
+  gs.addEventListener("input", function () {
+    var q = gs.value.trim().toLowerCase(), shown = 0;
+    [].slice.call(glist.children).forEach(function (row) {
+      var hit = !q || row.textContent.toLowerCase().indexOf(q) > -1;
+      row.classList.toggle("hide", !hit);
+      if (hit) shown++;
+    });
+    gempty.style.display = shown ? "none" : "block";
+  });
+})();
+</script>
+</body>
+</html>

@@ -1203,6 +1203,35 @@ def clusters_page():
 def forming_page():
     return FileResponse(STATIC_DIR / "forming.html")
 
+@app.get("/learn", response_class=HTMLResponse, include_in_schema=False)
+def learn_page():
+    """The introduction surface — what a signal is, what the gate does, how to
+    read every other page. Written for someone who has never seen Scope."""
+    return FileResponse(STATIC_DIR / "learn.html")
+
+
+@app.get("/learn-shots/{name}", include_in_schema=False)
+def learn_shot(name: str):
+    """Screenshots for `/learn`.
+
+    There is no `StaticFiles` mount in this app (see `/theme.js` and friends), so
+    the images need a route of their own. `name` is user-controlled, so it is
+    matched against a strict pattern and the resolved path is re-checked against
+    the directory — a prefix check alone would accept `learn-shots-evil/x.webp`,
+    and the pattern alone would be the only thing standing between a future
+    refactor and a traversal."""
+    import re
+    from fastapi import HTTPException
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}\.webp", name):
+        raise HTTPException(status_code=404, detail="not found")
+    root = (STATIC_DIR / "learn-shots").resolve()
+    path = (root / name).resolve()
+    if path.parent != root or not path.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    return FileResponse(path, media_type="image/webp",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.get("/cluster/{fingerprint}", response_class=HTMLResponse, include_in_schema=False)
 def cluster_page(fingerprint: str):
     return FileResponse(STATIC_DIR / "cluster.html")

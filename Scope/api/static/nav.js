@@ -114,7 +114,11 @@
     ]},
     { name: "Tools", items: [
       { href: "/ask",          label: "Ask Scope",   desc: "Ask questions of the corpus in plain language" },
-      { href: "/docs",         label: "API docs",    desc: "The public JSON API" }
+      { href: "/docs",         label: "API docs",    desc: "The public JSON API" },
+      /* The introduction. Listed here rather than in a group of its own because
+         it is a destination like any other — and it is the one page that assumes
+         the reader has never seen any of the others. */
+      { href: "/learn",        label: "How to use Scope", desc: "Start here: what a signal is, what convergence means, and how to read every surface" }
     ]},
     /* ⚠️ ITS OWN GROUP, ON PURPOSE. `/osint-preview` describes OSINT-Graph, which
        is IN DEVELOPMENT and has no live surface — putting it in "Sources" beside
