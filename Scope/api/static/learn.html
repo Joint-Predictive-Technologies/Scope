@@ -164,6 +164,18 @@ body:not(.motion) .rv { opacity: 1; transform: none; }
   font-weight: var(--weight-medium); }
 .switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
+/* The skip control lives IN the sticky level bar rather than in a banner of its
+   own: it is then reachable from any scroll position without adding a second
+   fixed strip, and it costs no vertical space when the visitor is not new. */
+#skipintro { margin-left: auto; }
+#welcomenote {
+  border-left: 3px solid var(--accent); background: var(--surface-1);
+  border-radius: var(--radius-sm); padding: var(--space-4) var(--space-5);
+  margin-bottom: var(--space-8); max-width: 62ch;
+}
+#welcomenote b { color: var(--accent); font-weight: var(--weight-medium); }
+#welcomenote p { margin: 0; font-size: var(--text-sm); }
+
 [data-lv] { display: none; }
 body[data-level="new"] [data-lv="new"], body[data-level="pro"] [data-lv="pro"] { display: block; }
 body[data-level="new"] span[data-lv="new"], body[data-level="pro"] span[data-lv="pro"] { display: inline; }
@@ -547,6 +559,7 @@ footer .fine { font-size: var(--text-sm); color: var(--text-tertiary); max-width
       <button type="button" id="lv-pro" aria-pressed="false">I know the vocabulary</button>
     </div>
     <span class="cap" id="lvhint">Every explanation on this page rewrites itself.</span>
+    <a class="btn sm" id="skipintro" href="/" hidden>Skip intro →</a>
   </div>
 </div>
 
@@ -569,6 +582,10 @@ footer .fine { font-size: var(--text-sm); color: var(--text-tertiary); max-width
 <section id="hero" class="chapter" data-rail="Start" data-vo="hero">
   <canvas id="herocanvas" aria-hidden="true"></canvas>
   <div class="wrapw">
+    <div id="welcomenote" hidden>
+      <p><b>First time here.</b> This is the introduction — the whole thing takes about five minutes,
+      and it will not greet you again. Skip it whenever you like; it stays at <code>/learn</code>.</p>
+    </div>
     <div class="kicker rv"><span class="pip" aria-hidden="true"></span> Scope — political &amp; market intelligence</div>
     <h1 class="display rv">The filings are public.<br />The <span class="hl">pattern</span> is not.</h1>
     <p class="sub rv" data-lv="new">Congressional trade disclosures. SEC filings by company executives. Federal contract awards. All free, all scattered, all published weeks apart — and almost nobody reads them together. Scope does, and tells you the moment three unrelated sources land on the same company.</p>
@@ -1015,6 +1032,31 @@ footer .fine { font-size: var(--text-sm); color: var(--text-tertiary); max-width
   try { var st = localStorage.getItem(LKEY); if (st === "pro" || st === "new") setLevel(st, false); } catch (e) {}
   bNew.addEventListener("click", function () { setLevel("new", true); });
   bPro.addEventListener("click", function () { setLevel("pro", true); });
+
+  /* ══ FIRST-RUN GREETING ════════════════════════════════════════════════
+     nav.js has already marked the intro seen (any visit to /learn counts), so
+     this only paints the greeting and wires the skip target.
+
+     ⚠️ `next` ARRIVES IN THE URL, so it is an open-redirect vector and is
+     validated as one: a single leading slash, and no scheme, host or
+     backslash. `//evil.com` and `/\evil.com` are both browser-legal
+     protocol-relative URLs, which is why the second character is checked
+     rather than just the first. Anything that fails falls back to `/`. */
+  (function firstRun() {
+    var q = new URLSearchParams(location.search);
+    if (q.get("welcome") !== "1") return;
+    var note = document.getElementById("welcomenote");
+    var skip = document.getElementById("skipintro");
+    if (note) note.hidden = false;
+    var next = q.get("next") || "/";
+    if (!/^\/(?![\/\\])/.test(next)) next = "/";
+    if (skip) { skip.hidden = false; skip.setAttribute("href", next); }
+    var end = document.querySelector("#end .btn.primary");
+    if (end && next !== "/") {
+      end.setAttribute("href", next);
+      end.textContent = "Back to where you were";
+    }
+  })();
 
   /* the inline definitions are hover-only in CSS, which leaves keyboard and
      screen-reader users a dotted underline with nothing behind it */

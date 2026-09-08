@@ -46,6 +46,74 @@
    element is kept and its CONTENTS are replaced — no page's own markup is
    deleted, and nothing outside <nav> is touched.
    ============================================================================ */
+
+/* ============================================================================
+   FIRST-RUN GREETING — a first-time visitor is sent to `/learn` once.
+
+   ── WHY IT LIVES IN nav.js, WHICH IS OTHERWISE A NAVIGATION FILE ────────────
+   It is a separate concern and it is kept separate in code (its own IIFE, its
+   own state, nothing shared with the nav below). It lives in this FILE because
+   this is the only file every page loads **synchronously in <head>** — the
+   generated landing `/` included — and a pre-paint hook is exactly what a
+   redirect needs: `defer` here would paint the feed for a frame and then yank
+   it away. The alternative was a `<script>` line hand-copied into 33 pages,
+   which is the precise failure this file was created to end.
+
+   ── WHY NOT SERVER-SIDE ─────────────────────────────────────────────────────
+   `/` is load-bearing: it resolves today's brief, falls back to yesterday's
+   with a notice, then to the feed with a notice, and `tests/test_landing.py`
+   asserts all three by status code and body. A cookie gate at the top of that
+   route turns every one of those assertions into a 302. The behaviour is
+   per-browser anyway — Scope has no accounts — so per-browser storage is the
+   honest mechanism, not a lesser one.
+
+   ── THE RULES IT FOLLOWS ────────────────────────────────────────────────────
+   · FAILS CLOSED. If storage throws (private mode, blocked site data) it treats
+     the intro as already seen. A visitor who cannot persist the flag must never
+     be trapped in a greeting they are unable to dismiss.
+   · NEVER redirects away from `/learn` itself, and marks the intro seen on any
+     visit to it — arriving by the nav counts, so nobody is ambushed later.
+   · NEVER redirects inside an iframe, so the `/embeds/*` widgets are untouched.
+   · Uses `location.replace`, not `assign`: `assign` leaves the original page in
+     history, so Back would bounce the visitor straight back into the redirect.
+   · Carries the page they were actually heading for in `next`, so Skip returns
+     them there instead of dumping them on the front page.
+   ============================================================================ */
+(function (w, d) {
+  "use strict";
+
+  var KEY  = "scope-intro-seen";
+  var PATH = "/learn";
+
+  /* Both sides fail CLOSED — an unreadable store reads as "already seen". */
+  function seen() {
+    try { return w.localStorage.getItem(KEY) === "1"; } catch (e) { return true; }
+  }
+  function markSeen() {
+    try { w.localStorage.setItem(KEY, "1"); } catch (e) { /* nothing to do */ }
+  }
+
+  var here = w.location.pathname.replace(/\/+$/, "") || "/";
+
+  if (here === PATH) { markSeen(); return; }   /* the intro itself, and the loop guard */
+
+  /* An embed is not a visit. `window.top !== window.self` throws on a
+     cross-origin parent, and a throw means framed, so that also means skip. */
+  var framed;
+  try { framed = w.top !== w.self; } catch (e) { framed = true; }
+  if (framed) return;
+
+  /* Surfaces that are not a person arriving: embeds and the machine-readable
+     API docs. Everything else — including a deep link to a ticker — greets, and
+     `next` puts the visitor back on it in one click. */
+  if (/^\/(embeds|api|docs|api-docs|health|widget)(\/|$)/.test(here)) return;
+
+  if (seen()) return;
+
+  var next = w.location.pathname + w.location.search + w.location.hash;
+  w.location.replace(PATH + "?welcome=1&next=" + encodeURIComponent(next));
+})(window, document);
+
 (function (root) {
   "use strict";
 
