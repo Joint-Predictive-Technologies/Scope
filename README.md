@@ -1,8 +1,12 @@
-# Scope — Political-Market Intelligence Terminal
+<div align="center">
+
+# Scope
+
+**Political-Market Intelligence Terminal**
 
 A research terminal that watches the machinery of government and money —
 congressional trades, insider filings, lobbying, federal contracts, campaign
-finance, patents, foreign-agent registrations, prediction markets, and open-source
+finance, patents, foreign-agent registrations, prediction markets and open-source
 intelligence — and surfaces **non-obvious, structurally-meaningful convergences**
 the market has not yet priced.
 
@@ -13,10 +17,27 @@ happened next.
 
 **You keep the judgment. Scope keeps the watch.**
 
+[![status](https://img.shields.io/badge/status-live%20in%20production-2E7D4F?style=flat-square)](#current-status)
+[![rules](https://img.shields.io/badge/detection%20rules-~20%20live-C8963E?style=flat-square)](#the-rules--live)
+[![stack](https://img.shields.io/badge/FastAPI%20%2B%20SQLite-Railway-0E75C7?style=flat-square)](#architecture-at-a-glance)
+[![outcomes](https://img.shields.io/badge/outcome%20tracking-accumulating-5A3FC0?style=flat-square)](#what-scope-does-today)
+
+</div>
+
+![Active Alerts — the live signal feed, each alert carrying its severity, the rule that fired it, its source and its score](shots/audit/03-feed.png)
+
+<div align="center"><sub>The live signal feed. Every alert carries the rule that
+fired it, the source it came from, and a score you can sort on.</sub></div>
+
 > **Not investment advice.** Scope is an information-aggregation and research tool
 > built on public filings and open sources. See [Legal](#legal).
 
----
+## A few of the screens
+
+|  |  |
+| :-- | :-- |
+| [<img src="shots/audit/12-brief.png" alt="What Changed Overnight — the daily intelligence brief">](shots/audit/12-brief.png)<br>**The Morning Brief** — seven sections, scheduled 06:30 UTC. An LLM writes the narrative; the underlying signals are all linked. | [<img src="shots/audit/30-clusters.png" alt="Congressional Clusters — 3+ members trading the same ticker in 72h">](shots/audit/30-clusters.png)<br>**Congressional Clusters** — three or more members trading the same ticker inside a rolling 72-hour window, with consensus direction. |
+| [<img src="shots/audit/20-osint.png" alt="OSINT Globe — geopolitical events mapped to affected tickers">](shots/audit/20-osint.png)<br>**OSINT Globe** — GDELT geopolitical events placed on the map and mapped through to the tickers they touch. | [<img src="shots/audit/22-performance.png" alt="Rule Performance — per-rule volume, severity mix and corroboration rate">](shots/audit/22-performance.png)<br>**Rule Performance** — every rule's volume, severity mix, corroboration rate and last-fired time. The system reports on itself. |
 
 ## What Scope does today
 
