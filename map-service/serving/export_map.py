@@ -75,7 +75,74 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from map_sources import SOURCES, NO_SOURCE_SWEEPS, BY_SYSTEM, FAMILY, NODE_TYPES
+from map_sources import (SOURCES, NO_SOURCE_SWEEPS, BY_SYSTEM, FAMILY, NODE_TYPES,
+                         SWEEP_SCOPES)
+import routability
+
+
+# ── the geometry guard ────────────────────────────────────────────────────────
+# 🔴 WRITTEN BECAUSE THE EXPORT AND THE PAGE DISAGREED ABOUT WHAT A COUNTY IS,
+# AND NOTHING NOTICED.  Connecticut's county-equivalents became nine PLANNING
+# REGIONS in 2022 (FIPS 09110-09190); the export keyed on those because that is
+# what the contract data reports, while the page's geometry
+# (`us-atlas@3/counties-10m`) still carried the pre-2022 counties 09001-09015.
+# The intersection was EMPTY, so three counties carrying five real signals —
+# RTX, Sikorsky, Electric Boat — rendered as "no source reached this county".
+#
+# ⭐ A false negative presented as a coverage fact is worse than a crash, because
+# it looks like an answer.  This refuses at export time, the same way the
+# routability census does, rather than letting the disagreement reach a browser.
+#
+# ⚠️ WHAT THIS DOES AND DOES NOT CATCH.  It catches a county key the page cannot
+# draw.  It does NOT catch a key that draws in the WRONG PLACE — geometry whose
+# id matches but whose boundary is stale is invisible to a set comparison.
+#
+# 🔴 AND THERE IS A LIVE INSTANCE OF EXACTLY THAT, FOUND BY A VERIFIER AND LEFT
+# OPEN ON PURPOSE: the export carries **02261 Valdez-Cordova, AK**, which the
+# Census RETIRED in 2019 and split into 02063 Chugach and 02066 Copper River.
+# It draws today only because `us-atlas@3` is stale in the SAME direction, so
+# the two vintages agree by coincidence and this guard sees nothing.  The export
+# is therefore MIXED-VINTAGE — Connecticut 2022, Alaska pre-2019 — and upgrading
+# the page's geometry, the other direction the goal file offered, would break
+# Alaska the way the old geometry broke Connecticut.  Fixing it means re-keying
+# an Alaska signal across a real boundary split; that is a data decision, not a
+# geometry one, and it is not being taken here.
+GEOMETRY_IDS_FILE = "map_geometry_ids.txt"
+
+
+def renderable_county_ids():
+    """The county-equivalent FIPS the page can actually draw, from disk."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        GEOMETRY_IDS_FILE)
+    with open(path) as f:
+        return {ln.strip() for ln in f
+                if ln.strip() and not ln.startswith("#")}
+
+
+def geometry_refusal(county_keys):
+    """Reason to refuse, or None. `county_keys` is every FIPS the export writes."""
+    try:
+        known = renderable_county_ids()
+    except FileNotFoundError:
+        return (f"{GEOMETRY_IDS_FILE} is missing, so it cannot be shown that the "
+                f"page can draw these counties")
+    # 🔴 AN EMPTY EXPORT IS NOT A PASSING EXPORT.  `all(x in known for x in [])`
+    # is vacuously true, so without this an export that wrote no counties at all
+    # would clear the guard rather than trip it.
+    if not county_keys:
+        return "the export names no counties at all, so nothing was checked"
+    orphans = sorted(k for k in county_keys if k not in known)
+    if not orphans:
+        return None
+    by_state = {}
+    for o in orphans:
+        by_state.setdefault(o[:2], []).append(o)
+    parts = ", ".join(f"state {st}: {', '.join(v[:6])}"
+                      + (f" (+{len(v)-6} more)" if len(v) > 6 else "")
+                      for st, v in sorted(by_state.items()))
+    return (f"{len(orphans)} county key(s) have no geometry in the page "
+            f"({parts}). They would render as 'no source reached this county' — "
+            f"a false negative presented as a coverage fact.")
 
 # the loader package of this same repo — one definition of the rule, shared
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "loader"))
@@ -296,6 +363,11 @@ def contract_signals(con, counties, canon):
             "verification": SOURCES["contract"].verification,
             "seed": top,
             "detail": d["awards"][:12],
+            # 🔴 THE REMAINDER SHIPS TOO, SO THE PANEL CAN PAGE THROUGH IT WITHOUT A
+            # GRAPH REQUEST.  `detail` stays the 12-row cap the panel opens on;
+            # `detail_rest` is everything after it in the same order and shape.
+            # Additive: no reader of `detail`/`detail_total` changes meaning.
+            "detail_rest": d["awards"][12:],
             "detail_total": len(d["awards"]),
         }
     return out
@@ -372,6 +444,8 @@ def patent_signals(con, counties, city2county, canon):
             "roles": dict(by_role[fips]),
             "detail": [{"entity_id": e, "name": names.get(e, e), "patents": len(p)}
                        for e, p in hs[:12]],
+            "detail_rest": [{"entity_id": e, "name": names.get(e, e), "patents": len(p)}
+                            for e, p in hs[12:]],
             "detail_total": len(hs),
         }
     return out, dropped_county_tier, {f: dict(v) for f, v in seats.items()}
@@ -463,6 +537,7 @@ def demand_signals(con, counties, city2county, canon, contract_locs, patent_seat
             "verification": SOURCES["demand"].verification,
             "seed": top,
             "detail": detail[:12],
+            "detail_rest": detail[12:],
             "detail_total": len(detail),
         }
     return out
@@ -622,6 +697,15 @@ def commodity_signals(con, counties, states, canon):
                 "why": "its location entity is neither a county nor a state in this graph",
             })
 
+    def _site_row(st):
+        return {
+            "entity_id": st["entity_id"], "name": st["name"],
+            "anchor": st["anchor"], "status": st["notes"],
+            "precision": st["precision"], "lat": st["lat"], "lng": st["lng"],
+            "date": st["date"], "commodities": st["commodities"],
+            "holders": sorted(st["holders"], key=lambda h: (h["name"], h["rel"])),
+        }
+
     def _sig(source, group):
         # 🔴 MIN, never mean — the same rule the contract layer already holds.  A
         # county's commodity evidence is only as good as its weakest site
@@ -667,13 +751,8 @@ def commodity_signals(con, counties, states, canon):
             # reason: anything downstream that wants "which companies are here"
             # must not read it out of a truncated panel list.
             "holders": [h[0] for h in holders],
-            "detail": [{
-                "entity_id": st["entity_id"], "name": st["name"],
-                "anchor": st["anchor"], "status": st["notes"],
-                "precision": st["precision"], "lat": st["lat"], "lng": st["lng"],
-                "date": st["date"], "commodities": st["commodities"],
-                "holders": sorted(st["holders"], key=lambda h: (h["name"], h["rel"])),
-            } for st in group[:12]],
+            "detail": [_site_row(st) for st in group[:12]],
+            "detail_rest": [_site_row(st) for st in group[12:]],
             "detail_total": len(group),
         }
 
@@ -701,6 +780,315 @@ def commodity_signals(con, counties, states, canon):
         "sites_with_no_registered_source": len(unregistered),
     }
     return counties_out, states_out, unmappable, unregistered, stats
+
+
+# 🔴 NORTH DAKOTA SHIPS 100x MORE ROWS THAN THE COMMODITY LAYER, AND THE LEDGER'S
+# "ship every remaining row in `detail_rest`" PATTERN DOES NOT SURVIVE THAT.
+# Measured before choosing: one well row in the ledger's own shape is ~480 bytes,
+# so McKenzie County's 9,205 wells alone would be 4.4 MB in a single county file
+# and all of North Dakota 17.7 MB — against California's existing 1.7 MB, already
+# the file this campaign flagged as too heavy.  So oil/gas ships a BOUNDED rest
+# and the page states the remainder: `ledgerModel()` already computes
+# `unshipped = detail_total - (detail + detail_rest)` and renders it through
+# `hiddenNote()`, so a bounded rest is disclosed, not hidden.  `detail_total`
+# stays the TRUE well count.
+# ⚠️ THIS CAP IS NOT APPLIED TO ANY OTHER LAYER.  Contract, patent, demand and
+# commodity keep shipping their whole remainder, because their remainders are
+# small enough to; a global cap would have silently truncated them too.
+OILGAS_REST_CAP = 48
+
+
+def site_points(con) -> dict:
+    """Every commodity/oil-gas site that carries a REAL coordinate, for the canvas.
+
+    🔴 A SEPARATE PAYLOAD, AND SEPARATE ON PURPOSE.  The county ledger answers
+    "what is here"; the canvas layer answers "where is it", and 37,230 points
+    cannot ride inside the county files — measured, the ledger's own row shape
+    would put 4.4 MB in McKenzie alone.  This file is fetched ONLY when the
+    commodity layer is switched on, so a reader who never opens it pays nothing.
+
+    🔴 COLUMNAR INTEGERS, NOT OBJECTS.  `{"lat":..,"lng":..}` per point is ~83
+    bytes and 3.09 MB total; four parallel integer arrays are ~0.8 MB for the
+    same 37,230 points, which is the difference between a toggle that feels
+    instant and one that stalls.
+
+    ⚠️ COORDINATES ARE ROUNDED TO 4 DECIMAL PLACES (~11 m) AND THAT IS A CLAIM.
+    It is stated in the payload rather than left for a reader to discover: these
+    are map dots, not survey positions, and 11 m is far finer than the 3-7 px a
+    dot occupies at any zoom this map offers.  The ledger rows keep the full
+    precision the graph holds — nothing is lost, only this rendering payload is
+    coarsened.
+
+    🔴 ONLY `coordinate` PRECISION IS EMITTED.  A county-tier or state-tier site
+    has no point and is NOT given a centroid — the same refusal the commodity
+    layer already makes.  6,954 ND wells carry no coordinate at all and are
+    absent here by the same rule; the manifest counts them.
+    """
+    rows = con.execute("""
+        SELECT e.source_system AS ssys, ev.latitude AS lat, ev.longitude AS lng,
+               e.entity_id AS eid
+          FROM events ev
+          JOIN entities e ON e.entity_id = ev.subject_entity_id
+         WHERE ev.latitude IS NOT NULL AND ev.longitude IS NOT NULL
+           AND ev.geospatial_precision = 'coordinate'
+           AND e.source_system IN ('ndic','msha','eia')
+      ORDER BY e.source_system, e.entity_id
+    """).fetchall()
+
+    com_by_site = defaultdict(set)
+    for r in con.execute("""
+        SELECT a.site_entity_id AS sid, a.commodity_id AS cid
+          FROM site_commodity_assertion a
+          JOIN entities e ON e.entity_id = a.site_entity_id
+         WHERE e.source_system IN ('ndic','msha','eia')
+    """):
+        com_by_site[r["sid"]].add(r["cid"])
+
+    # the commodity index is a CENSUS of what these sites actually assert, in a
+    # stable order — never a hand-authored list, the same rule `node_types` holds
+    com_index = sorted({c for cs in com_by_site.values() for c in cs})
+    com_bit = {c: i for i, c in enumerate(com_index)}
+    names = {r[0]: r[1] for r in con.execute(
+        "SELECT commodity_id, display_name FROM commodity")}
+
+    fam_index = ["commodity", "oil_gas"]
+    fam_of = {"msha": 0, "eia": 0, "ndic": 1}
+
+    lat, lng, fam, com = [], [], [], []
+    for r in rows:
+        lat.append(round(r["lat"] * 10000))
+        lng.append(round(r["lng"] * 10000))
+        fam.append(fam_of[r["ssys"]])
+        mask = 0
+        for c in com_by_site.get(r["eid"], ()):
+            mask |= 1 << com_bit[c]
+        com.append(mask)
+    return {
+        "schema": "columnar-int4",
+        "note": "lat/lng are degrees x 10000 (4 dp, ~11 m); `com` is a bitmask "
+                "over `commodities`; `fam` indexes `families`.",
+        "count": len(lat),
+        "families": fam_index,
+        "commodities": com_index,
+        "commodity_names": {c: names.get(c, c) for c in com_index},
+        "lat": lat, "lng": lng, "fam": fam, "com": com,
+    }
+
+
+def swept_county_universe(state_fips: str) -> dict[str, str]:
+    """Every county FIPS in a state, from Census 2020 — the county universe a
+    `no-signal` claim needs and `entities` cannot supply.
+
+    🔴 THE UNIVERSE MUST NOT COME FROM THE SOURCE BEING SWEPT.  NDIC's registry
+    names 52 counties; Traill is absent from it BECAUSE it holds no wells, so
+    asking the registry for the denominator would make the one county that
+    matters invisible and the sweep unfalsifiable.  Census 2020 is independent of
+    NDIC and is the same authority the ND loader validated its 52 derivations
+    against (52/52 by name, a mismatch REFUSING the load).
+    ⚠️ AND IT MUST NOT COME FROM `entities` EITHER — that is the map's own
+    county-universe gap, 1,469 of ~3,144, and it does not hold Traill at all.
+    Vendored beside this file so the export stays deterministic and offline.
+    """
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "national_county2020.txt")
+    out = {}
+    with open(path, encoding="latin-1") as f:
+        next(f)
+        for line in f:
+            parts = line.rstrip("\n").split("|")
+            if len(parts) > 4 and parts[1] == state_fips:
+                out[parts[1] + parts[2]] = parts[4]
+    if not out:
+        raise SystemExit(f"no Census counties for state {state_fips!r}; a sweep "
+                         f"scope with no universe cannot emit `no-signal`")
+    return out
+
+
+def oilgas_signals(con, counties, canon):
+    """North Dakota oil and gas wells, as ONE signal per county.
+
+    🔴 A THIRD FAMILY, NEVER MERGED WITH `commodity`.  A well is not a metal mine
+    seen from another angle; MSHA/EIA are one family because they describe the
+    SAME physical sites under two anchors, and nothing about NDIC's registry
+    overlaps either.  `FAMILY` says so explicitly rather than by parsing the id.
+
+    ── precision, read from the graph rather than assumed ────────────────────
+    ND publishes NO coordinate-precision field at all (the load session records
+    `raw_payload.location_precision_source` as explicitly null), so precision
+    here is the EVENT's `geospatial_precision`, which the loader set from the
+    presence of a real lat/lng.  Measured on the live graph: 36,917 `coordinate`
+    and nothing else.  There is no county-tier or state-tier well, so the
+    state-tier-facility pattern the EIA layer needed is not exercised — and that
+    is stated rather than silently unimplemented.
+
+    🔴 6,954 WELLS ARE LOADED AND NOT LOCATED, AND THEY ARE NOT IN THIS LAYER.
+    They carry no `events` row because ND publishes exactly one date and they
+    have none, so the graph holds no coordinate and no county for them.  They are
+    counted and returned, never quietly dropped, and never given a centroid.
+    """
+    src = SOURCES["oil_gas_nd"]
+
+    # one pass over the located wells: county, coordinate, status, operator
+    rows = con.execute("""
+        SELECT w.entity_id AS wid, w.display_name AS wname, w.entity_type AS wtype,
+               w.canonical_anchor_value AS api,
+               ev.latitude AS lat, ev.longitude AS lng,
+               ev.geospatial_precision AS prec,
+               substr(ev.event_timestamp,1,10) AS spud,
+               loc.canonical_anchor_value AS fips
+          FROM entities w
+          JOIN events ev ON ev.subject_entity_id = w.entity_id
+                        AND ev.event_type = 'drilling_activity'
+          JOIN entities loc ON loc.entity_id = ev.location_entity_id
+         WHERE w.source_system = 'ndic'
+      ORDER BY loc.canonical_anchor_value, w.display_name, w.entity_id
+    """).fetchall()
+
+    # commodity assertions, MIN confidence and worst tier per well
+    assertions = defaultdict(list)
+    for r in con.execute("""
+        SELECT a.site_entity_id AS sid, a.commodity_id AS cid, c.display_name AS cname,
+               a.commodity_role AS role, a.confidence_score AS conf,
+               a.source_reliability_tier AS tier, a.direct_or_inferred AS di
+          FROM site_commodity_assertion a
+          JOIN entities e ON e.entity_id = a.site_entity_id
+          JOIN commodity c ON c.commodity_id = a.commodity_id
+         WHERE e.source_system = 'ndic'
+    """):
+        assertions[r["sid"]].append(dict(r))
+
+    # the operator edge: well -> company, `contractor`, entity_a is the well
+    operators = {}
+    for r in con.execute("""
+        SELECT ed.entity_a_id AS wid, eb.entity_id AS oid, eb.display_name AS oname,
+               eb.resolution_status AS res, ed.relationship_type AS rel
+          FROM edges ed
+          JOIN entities ea ON ea.entity_id = ed.entity_a_id
+          JOIN entities eb ON eb.entity_id = ed.entity_b_id
+         WHERE ea.source_system = 'ndic'
+    """):
+        operators[r["wid"]] = dict(r)
+
+    per_county = defaultdict(list)
+    for r in rows:
+        fips = r["fips"]
+        if not fips or len(fips) != 5:
+            continue
+        per_county[fips].append(dict(r))
+
+    def _well_row(w):
+        a = assertions.get(w["wid"], [])
+        op = operators.get(w["wid"])
+        row = {
+            "entity_id": w["wid"], "name": w["wname"],
+            "anchor": w["api"], "status": w["wtype"],
+            "precision": w["prec"], "lat": w["lat"], "lng": w["lng"],
+            "date": w["spud"],
+            "commodities": [{"commodity_id": x["cid"], "name": x["cname"],
+                             "role": x["role"], "confidence": x["conf"]} for x in a],
+            # the operator rides in `holders` so the panel's existing
+            # mineral-site row shape renders it with no new branch
+            "holders": ([{"entity_id": op["oid"], "name": op["oname"],
+                          "rel": op["rel"], "resolution": op["res"]}] if op else []),
+        }
+        return row
+
+    def _rest_with_min(wells, assertions):
+        """The bounded remainder — plus, always, the well that DECIDES the county's
+        confidence.
+
+        🔴 A PANEL MUST BE ABLE TO JUSTIFY ITS OWN NUMBER.  Measured on this
+        export: 2 of 52 counties (38075 Renville, 38089 Stark) take their MIN from
+        a permit-backed 0.5 assertion, and under a straight positional cap the
+        deciding well fell outside the 60 shipped rows — so the county read
+        "conf 0.50" while every row a reader could open read 1.00.  The aggregate
+        was disclosed and the reason was not.  The lowest-confidence well is
+        therefore always shipped, even when the cap would have cut it.
+        """
+        rest = list(wells[12:12 + OILGAS_REST_CAP])
+        shipped = {w["wid"] for w in wells[:12]} | {w["wid"] for w in rest}
+        def _minconf(w):
+            cs = [x["conf"] for x in assertions.get(w["wid"], []) if x["conf"] is not None]
+            return min(cs) if cs else None
+        scored = [(c, w) for w in wells for c in (_minconf(w),) if c is not None]
+        if scored:
+            lo = min(scored, key=lambda t: (t[0], t[1]["wid"]))[1]
+            if lo["wid"] not in shipped:
+                rest.append(lo)
+        return rest
+
+    counties_out, stats_prec, stats_status = {}, defaultdict(int), defaultdict(int)
+    for fips, wells in per_county.items():
+        confs = [x["conf"] for w in wells for x in assertions.get(w["wid"], [])
+                 if x["conf"] is not None]
+        tiers = [x["tier"] for w in wells for x in assertions.get(w["wid"], [])
+                 if x["tier"] is not None]
+        commodity_n, commodity_names, prec_n = defaultdict(int), {}, defaultdict(int)
+        for w in wells:
+            prec_n[w["prec"]] += 1
+            stats_prec[w["prec"]] += 1
+            stats_status[w["wtype"]] += 1
+            for x in assertions.get(w["wid"], []):
+                commodity_n[x["cid"]] += 1
+                commodity_names[x["cid"]] = x["cname"]
+        holders = sorted({(operators[w["wid"]]["oid"], operators[w["wid"]]["oname"])
+                          for w in wells if w["wid"] in operators})
+        counties_out[fips] = {
+            "source": "oil_gas_nd",
+            "shape": src.label,
+            # 🔴 MIN, never mean — the same rule the commodity layer holds, and
+            # unlike that layer it is NOT latent here.  ND's assertions genuinely
+            # disagree (1.0 `direct` on a drilled well, 0.5 `inferred` on a permit
+            # where the loader itself says no hole was made).
+            # ⚠️ MEASURED, NOT ASSERTED: it bites on 2 of the 52 counties —
+            # 38075 Renville and 38089 Stark — and nowhere else.  "The rule is
+            # exercised" is a claim worth exactly the two counties that exercise
+            # it, and the commodity layer's own note about a latent rule is why
+            # this one is counted rather than described.
+            "confidence": round(min(confs), 3) if confs else None,
+            "events": len(wells),
+            "tier": max(tiers) if tiers else src.tier,
+            "ev": src.evidence,
+            "verification": src.verification,
+            "seed": wells[0]["wid"],
+            "commodities": dict(sorted(commodity_n.items())),
+            "commodity_names": commodity_names,
+            "precision": dict(sorted(prec_n.items())),
+            "holders": [h[0] for h in holders],
+            "detail": [_well_row(w) for w in wells[:12]],
+            "detail_rest": [_well_row(w) for w in _rest_with_min(wells, assertions)],
+            # the TRUE count; the page derives `unshipped` from it and says so
+            "detail_total": len(wells),
+        }
+
+    # wells the graph holds and cannot place — counted, never dropped.
+    # 🔴 DERIVED, NOT RE-QUERIED.  The obvious `NOT EXISTS (SELECT 1 FROM events
+    # ...)` is a CORRELATED SUBQUERY and `events` carries no index on
+    # `subject_entity_id`, so it degrades to a full scan of 225,803 events for
+    # each of 43,871 wells — measured: it did not finish in 2 minutes and hung
+    # the whole export.  Total minus the located set is the same number, exact,
+    # and costs one already-planned COUNT.
+    total_wells = con.execute(
+        "SELECT COUNT(*) FROM entities WHERE source_system='ndic' "
+        "AND entity_type IN ('asset','permit')").fetchone()[0]
+    located_ids = {r["wid"] for r in rows}
+    unlocated = total_wells - len(located_ids)
+
+    stats = {
+        "wells_total": total_wells,
+        "wells_located": len(located_ids),
+        "wells_unlocated": unlocated,
+        "counties": len(counties_out),
+        "wells_by_precision": dict(sorted(stats_prec.items())),
+        "wells_by_entity_type": dict(sorted(stats_status.items())),
+        "wells_with_an_operator_edge": sum(1 for r in rows if r["wid"] in operators),
+        "rest_cap": OILGAS_REST_CAP,
+        "rows_shipped": sum(len(v["detail"]) + len(v["detail_rest"])
+                            for v in counties_out.values()),
+        "rows_unshipped": sum(v["detail_total"] - len(v["detail"]) - len(v["detail_rest"])
+                              for v in counties_out.values()),
+    }
+    return counties_out, stats
 
 
 def scan_commodity_defects(con) -> dict:
@@ -740,13 +1128,26 @@ def scan_commodity_defects(con) -> dict:
              WHERE ev.event_type = 'mineral_resource_identified'
                AND ev.dedup_key IS NULL GROUP BY 1""").fetchall())
 
-    # 2. a site with no commodity assertion is a dot the map cannot label.  Zero
-    #    today — and the query is what proves that, not this comment.
+    # 2. a site with no commodity assertion is a dot the map cannot label.
+    # 🔴 AND IT IS A DEFECT ONLY FOR THE MINERAL FAMILY.  This check was written
+    # when every `asset` in the graph was a mine, where "no commodity" means the
+    # loader failed to record why the site is worked.  North Dakota broke that
+    # assumption HONESTLY: SESSION-2026-09-03-nd-oilgas-load §5 records 17 well
+    # types that carry NO assertion DELIBERATELY — 1,068 salt-water disposal, 850
+    # water injection, 183 stratigraphic test, and the rest injection, storage and
+    # monitoring wells — because "injection, disposal, water, storage and
+    # monitoring wells do not produce a commodity; asserting one as the reason the
+    # site is worked would be false."
+    # Counting those as defects converts a deliberate under-claim into an error
+    # report, which is the precise inversion of what this scan exists to do.  They
+    # are counted SEPARATELY below, as a fact, and named in the manifest.
     add("sites_without_a_commodity",
-        "asset entities carrying no site_commodity_assertion row at all",
+        "mineral-family asset entities carrying no site_commodity_assertion row at "
+        "all; oil/gas well types that assert none by design are counted apart",
         con.execute("""
             SELECT en.source_system, COUNT(*) FROM entities en
              WHERE en.entity_type = 'asset'
+               AND en.source_system NOT IN ('ndic','kgs')
                AND NOT EXISTS (SELECT 1 FROM site_commodity_assertion s
                                 WHERE s.site_entity_id = en.entity_id)
              GROUP BY 1""").fetchall())
@@ -765,11 +1166,29 @@ def scan_commodity_defects(con) -> dict:
                                     WHERE l.entity_id = ev.location_entity_id))
              GROUP BY 1""").fetchall())
 
+    # the same population, counted and NAMED rather than dropped: an oil/gas site
+    # asserting no commodity is a decision the loader made on the source's own
+    # vocabulary, and a reader is owed the number either way.
+    oilgas_no_commodity = con.execute("""
+        SELECT COUNT(*) FROM entities en
+         WHERE en.entity_type IN ('asset','permit')
+           AND en.source_system IN ('ndic','kgs')
+           AND NOT EXISTS (SELECT 1 FROM site_commodity_assertion s
+                            WHERE s.site_entity_id = en.entity_id)""").fetchone()[0]
+
     by_source: dict[str, int] = {}
     for c in classes.values():
         for k, v in c["by_source"].items():
             by_source[k] = by_source.get(k, 0) + v
     return {"classes": classes, "by_source": by_source,
+            "oilgas_sites_asserting_no_commodity": {
+                "count": oilgas_no_commodity,
+                "why": "NOT a defect. 17 ND well types (salt-water disposal, water "
+                       "injection, stratigraphic test, CO2/air/gas injection, storage "
+                       "and monitoring) assert no commodity BY DESIGN — see "
+                       "SESSION-2026-09-03-nd-oilgas-load §5. Asserting one would be "
+                       "false. Counted so the number is visible without being "
+                       "reported as an error."},
             "total": sum(c["total"] for c in classes.values()),
             "counts": "rows in each named class — a different denominator from the "
                       "encoding scan's display-name total, and never summed with it"}
@@ -779,7 +1198,41 @@ def scan_commodity_defects(con) -> dict:
 # assembly
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build(db_path: str):
+def stamp_entity_types(con, signals) -> int:
+    """Every row the panel can open carries the entity's type twice: `raw_type`
+    is `entities.entity_type` verbatim — the value `graph_api.node()` looks up
+    and the one the census is keyed on — and `type` is the graph's vocabulary
+    name (`NODE_TYPES`) where it has one, the raw value where it does not, for a
+    reader.  Returns the number of ids the database does not hold at all, which
+    are dead clicks by definition (and land in the census as untyped)."""
+    refs, seeds = [], []
+    for s in signals:
+        if s.get("seed"):
+            seeds.append(s)
+        for r in routability.entity_refs({k: v for k, v in s.items() if k != "seed"}):
+            if r.get("entity_id"):
+                refs.append(r)
+    want = sorted({r["entity_id"] for r in refs} | {s["seed"] for s in seeds})
+    raw = {}
+    for i in range(0, len(want), 500):
+        chunk = want[i:i + 500]
+        raw.update(con.execute(
+            f"SELECT entity_id, entity_type FROM entities WHERE entity_id IN "
+            f"({','.join('?' * len(chunk))})", chunk).fetchall())
+    for r in refs:
+        t = raw.get(r["entity_id"])
+        if t is not None:
+            r["raw_type"] = t
+            r["type"] = NODE_TYPES.get(t, t)
+    for s in seeds:
+        t = raw.get(s["seed"])
+        if t is not None:
+            s["seed_raw_type"] = t
+            s["seed_type"] = NODE_TYPES.get(t, t)
+    return len(want) - len(raw)
+
+
+def build(db_path: str, frontend: str | None = None):
     con = connect(db_path)
     counties, states, city2county = load_geography(con)
     canon = canonical_map(con)
@@ -819,6 +1272,7 @@ def build(db_path: str):
     dem_sig = demand_signals(con, counties, city2county, canon, con_sig, seats)
     com_county, com_state, unmappable, unregistered, com_stats = commodity_signals(
         con, counties, states, canon)
+    oil_county, oil_stats = oilgas_signals(con, counties, canon)
 
     county_signals = defaultdict(list)
     for layer in (con_sig, pat_sig, dem_sig):
@@ -831,6 +1285,11 @@ def build(db_path: str):
     for fips, by_source in com_county.items():
         for sig in by_source.values():
             county_signals[fips].append(sig)
+    # 🔴 A THIRD FAMILY JOINS THE SAME ARRAY, ADDITIVELY.  Nothing merges with the
+    # commodity layer and nothing is displaced; a North Dakota county already
+    # carrying a patent signal gains an oil/gas one beside it.
+    for fips, sig in oil_county.items():
+        county_signals[fips].append(sig)
     # a stable, meaningful order: hardened before pending, then by confidence
     # hardened-and-clean first, then by confidence — so the panel never leads
     # with the layer that carries a live defect
@@ -854,6 +1313,46 @@ def build(db_path: str):
     for sigs in county_signals.values():
         sigs.sort(key=_order)
 
+    # ── `no-signal`, and the first time this export has ever emitted it ───────
+    # 🔴 CHECKED-AND-EMPTY IS A DIFFERENT CLAIM FROM NEVER-CHECKED, and until now
+    # this export could make neither honestly.  A source with a `sweep_scope` HAS
+    # enumerated the places inside it, so a county in that scope carrying no
+    # signal from that source is `no-signal` FOR THAT SOURCE — measured, not
+    # assumed, and confined to the jurisdiction the sweeper actually regulates.
+    # ⚠️ IT IS NOT A WHOLE-CORPUS CLAIM.  Traill was checked by NDIC and by
+    # NOBODY ELSE; the other four sources never reached it.  So the row carries
+    # `swept_by` and the page renders "checked here, none found" for those
+    # families and "did not reach" for the rest — the distinction the NOT REACHED
+    # section already exists to hold.  Calling the county flatly "no-signal"
+    # without naming who checked would be the overclaim this whole surface
+    # refuses.
+    no_signal = {}
+    for sid, scope in sorted(SWEEP_SCOPES.items()):
+        for st in scope:
+            # 🔴 A SWEEP IS ONLY CLAIMABLE IF THE SOURCE IS ACTUALLY LOADED.
+            # Caught by the fixture, not by reading: `sweep_scope` is a property of
+            # the SOURCE, so the first version emitted `no-signal` for all 53 North
+            # Dakota counties against any database — including one where the NDIC
+            # load had never run and `oil_gas_nd` contributed nothing at all.  That
+            # is the worst claim on this surface: "checked here, found none" on the
+            # authority of a registry that was never read.  A declared scope is a
+            # statement of what the source COULD sweep; the data present is what it
+            # DID.  Both are required, and the weaker one wins.
+            present = any(fips[:2] == st and any(x["source"] == sid for x in sigs)
+                          for fips, sigs in county_signals.items())
+            if not present:
+                continue
+            universe = swept_county_universe(st)
+            for fips, nm in sorted(universe.items()):
+                if fips in county_signals:
+                    continue
+                row = no_signal.setdefault(
+                    fips, {"name": nm, "swept_by": [], "swept_families": []})
+                row["swept_by"].append(sid)
+                fam = FAMILY[sid]
+                if fam not in row["swept_families"]:
+                    row["swept_families"].append(fam)
+
     # ── states ────────────────────────────────────────────────────────────────
     # 🔴 A STATE'S STATUS IS ITS COUNTIES', NOT AN INDEPENDENT MEASUREMENT.  The
     # prototype's `countyData()` already inherits downward ("a state never checked
@@ -861,6 +1360,11 @@ def build(db_path: str):
     # the only direction real data supports — nothing checks a state as such.
     state_counties = defaultdict(list)
     for fips in county_signals:
+        state_counties[fips[:2]].append(fips)
+    # a `no-signal` county is still a county this export has something to say
+    # about, so its state file must carry it — otherwise the page falls back to
+    # `no-coverage` and the sweep changes nothing a reader can see.
+    for fips in no_signal:
         state_counties[fips[:2]].append(fips)
 
     # 🔴 EVERY SIGNAL, ON EVERY PLANE.  The first version set this on the county
@@ -873,13 +1377,30 @@ def build(db_path: str):
         for sig in sigs:
             sig["clean"] = sig["source"] in clean
 
+    # ── the routability census: read both ends, refuse rather than assume ─────
+    # 🔴 EVERY ROW THE PANEL CAN OPEN GETS ITS TYPE, then the set of types is
+    # checked against what the graph API returns AND what the shipped page draws.
+    # `main()` refuses to write an export that fails this; see routability.py for
+    # the two silent failures that made this a gate rather than a note.
+    all_sigs = [s for sigs in county_signals.values() for s in sigs] + \
+               [s for by in com_state.values() for s in by.values()]
+    unknown_ids = stamp_entity_types(con, all_sigs)
+    page = routability.resolve_frontend(frontend, os.path.dirname(os.path.abspath(__file__)))
+    with open(page, encoding="utf-8") as f:
+        table = routability.route_table(f.read())
+    rcensus = routability.census(routability.referenced(all_sigs), table, NODE_TYPES)
+    rcensus["frontend"] = {"file": os.path.basename(page), "md5": routability.md5_of(page)}
+    rcensus["ids_not_in_entities"] = unknown_ids
+
     return {
+        "routability": rcensus,
         "clean": sorted(clean),
         "contra": contra,
         "node_types": dict(sorted(node_types.items())),
         "defects": defects,
         "commodity_defects": com_defects,
         "counties": dict(county_signals),
+        "no_signal": no_signal,
         # 🔴 STATE-TIER SIGNALS ARE A SEPARATE KEY, NOT SMUGGLED INTO `counties`.
         # The prototype's rule — "a state's status is its counties'" — holds for
         # every county-derived fact and is not being repealed.  These three EIA
@@ -890,6 +1411,8 @@ def build(db_path: str):
         "unmappable": unmappable,
         "unregistered_sites": unregistered,
         "commodity_stats": com_stats,
+        "oilgas_stats": oil_stats,
+        "site_points": site_points(con),
         "state_counties": dict(state_counties),
         "county_names": {v[0]: v[1] for v in counties.values()},
         "county_kind": {v[0]: v[2] for v in counties.values()},
@@ -914,6 +1437,9 @@ def build(db_path: str):
                 1 for s in county_signals.values()
                 if len({FAMILY[x["source"]] for x in s}) > 1),
             "counties_commodity": com_stats["counties"],
+            # named explicitly rather than folded into `counties_with_signal`, so
+            # the delta this work order adds is legible instead of absorbed
+            "counties_oilgas": oil_stats["counties"],
             "patent_mentions_county_tier_dropped": dropped,
             "canonical_links": len(canon),
             "entity_names_with_encoding_defect": defects["total"],
@@ -927,9 +1453,47 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=DEFAULT_DB)
     ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "out", "map-v1"))
+    ap.add_argument("--frontend", default=None,
+                    help="the page this export will be served with; its SYM/SRC_TAG tables "
+                         "are the route table the census checks (default: the sibling page)")
     args = ap.parse_args()
 
-    data, con = build(args.db)
+    data, con = build(args.db, args.frontend)
+    # 🔴 REFUSED BEFORE A SINGLE FILE IS WRITTEN.  An export carrying a type the
+    # page cannot open is the Block 11 `asset` failure again; it does not get to
+    # exist on disk where a deploy could pick it up.  The way through is a route
+    # in the page, or an entry in `routability.ALLOWLIST` with a reason.
+    why = routability.refusal(data["routability"])
+    if why:
+        rt = data["routability"]
+        print(f"🔴 EXPORT REFUSED — {why}")
+        print(f"   route table (graph_api ∩ page {rt['frontend']['file']}): {rt['node_route_table']}")
+        print(f"   types referenced: {rt['types_referenced']}")
+        print(f"   nothing written to {args.out}")
+        sys.exit(2)
+
+    # 🔴 AND REFUSED IF THE PAGE CANNOT DRAW A COUNTY THIS EXPORT NAMES.  Same
+    # rule as the routability census one line up, applied to places instead of
+    # types: the export does not get to exist on disk asserting coverage the
+    # surface will render as its opposite.
+    # 🔴 EVERY KEY THAT REACHES A FILE, NOT JUST THE HAS-SIGNAL ONES.  This read
+    # `data["counties"]` — the has-signal map — while `county/<SS>.json` is written
+    # from `state_counties`, which also carries `no-signal` rows.  An undrawable
+    # `no-signal` county would have been written and passed.  Latent today (that
+    # population is one county, 38097 Traill ND, and it is drawable) but the
+    # no-signal family is new and designed to grow, so the guard reads the same
+    # set the writer below iterates.
+    written_keys = {f for fipses in data["state_counties"].values() for f in fipses
+                    if f in data["no_signal"] or f in data["counties"]}
+    why = geometry_refusal(written_keys)
+    if why:
+        print(f"🔴 EXPORT REFUSED — {why}")
+        print(f"   the page's drawable set is serving/{GEOMETRY_IDS_FILE}")
+        print(f"   fix the geometry the page loads, or re-key the export; do NOT")
+        print(f"   invent a mapping between vintages.")
+        print(f"   nothing written to {args.out}")
+        sys.exit(2)
+
     os.makedirs(os.path.join(args.out, "county"), exist_ok=True)
 
     # ── national.json ─────────────────────────────────────────────────────────
@@ -941,14 +1505,22 @@ def main():
     national = {}
     for st, fipses in data["state_counties"].items():
         sigs = []
-        for f in fipses:
+        # 🔴 `state_counties` NOW CARRIES `no-signal` COUNTIES TOO, and they have no
+        # signal array to roll up.  Counting them here would have made
+        # `counties_with_signal` include a county whose whole point is that it has
+        # none — the status bar's own headline, inflated by the honesty feature.
+        with_signal = [f for f in fipses if f in data["counties"]]
+        for f in with_signal:
             for sig in data["counties"][f]:
                 row = {k: sig[k] for k in KEEP if k in sig}
                 row["fips"] = f
                 sigs.append(row)
         national[st] = {
-            "status": "has-signal",
-            "counties_with_signal": len(fipses),
+            # a state holding only `no-signal` counties is still a state this
+            # export has checked; it is not `has-signal` and it is not dark
+            "status": "has-signal" if with_signal else "no-signal",
+            "counties_with_signal": len(with_signal),
+            "counties_no_signal": len(fipses) - len(with_signal),
             "signals": sigs,
         }
     for st in data["state_names"]:
@@ -974,6 +1546,12 @@ def main():
             row["precision_tier"] = "state"
             row["fips"] = None
             row["detail"] = sig["detail"]
+            row["detail_rest"] = sig.get("detail_rest", [])
+            # the seed's type ships with the seed: these three rows are the only
+            # national-plane signals that carry openable detail, so they are in
+            # the census and must be censusable from what actually ships
+            row["seed_type"] = sig.get("seed_type")
+            row["seed_raw_type"] = sig.get("seed_raw_type")
             row["detail_total"] = sig["detail_total"]
             rows.append(row)
         entry = national.setdefault(
@@ -988,8 +1566,26 @@ def main():
     for st, fipses in data["state_counties"].items():
         payload = {}
         for f in fipses:
+            ns = data["no_signal"].get(f)
+            if ns is not None:
+                # 🔴 A ROW THAT SAYS WHO CHECKED.  `no-signal` with no attribution
+                # would read as "the whole corpus checked here", which is false —
+                # exactly one family did.  The page renders the rest as "did not
+                # reach" from its own NOT REACHED census.
+                payload[f] = {"status": "no-signal", "fips": f,
+                              "name": data["county_names"].get(f, ns["name"]),
+                              "kind": data["county_kind"].get(f),
+                              "signals": [],
+                              "swept_by": ns["swept_by"],
+                              "swept_families": ns["swept_families"]}
+                continue
             nm = data["county_names"].get(f, f)
-            row = {"status": "has-signal", "name": nm,
+            # 🔴 THE COUNTY CARRIES ITS OWN FIPS.  The payload is keyed by it, but
+            # the ROW did not hold it, and the page needs it to ask whether this
+            # county sits inside a source's `sweep_scope` — "checked and empty"
+            # and "never looked" are different sentences and only the FIPS says
+            # which one this county has earned.
+            row = {"status": "has-signal", "fips": f, "name": nm,
                    "kind": data["county_kind"].get(f),
                    "signals": data["counties"][f]}
             # 🔴 SHOWN, NOT REPAIRED.  Quietly writing the corrected name here
@@ -1004,6 +1600,23 @@ def main():
         with open(os.path.join(args.out, "county", f"{st}.json"), "w") as f:
             json.dump({"state": st, "counties": payload}, f, separators=(",", ":"))
 
+    # ── sites-v1.json is NO LONGER WRITTEN ─────────────────────────────────────
+    # 🔴 THE NATIONAL SITE PAYLOAD EXISTED ONLY TO FEED A CANVAS LAYER THAT IS
+    # REJECTED.  It shipped 37,230 site coordinates (951 KB) so every commodity
+    # site could be drawn nationally at once; the corrected design routes
+    # commodity sites through the place-first ledger, where a site is a ledger
+    # row and becomes a marker ONLY inside a coordinate-tier drill-in. A national
+    # coordinate dump is exactly the "100,000 dots" that design rejects, and
+    # serving it invites the layer to be rebuilt.
+    #
+    # ⚠️ `site_points()` IS STILL COMPUTED AND STILL TESTED — it is the WRITE that
+    # is removed, not the function. The coordinate-tier spider will need per-site
+    # coordinates, just scoped to one drilled-in place rather than the whole
+    # country, and two tests in test_map_export.py pin its precision filter and
+    # its 4dp rounding against `data["site_points"]`. Deleting it would drop that
+    # coverage and force a re-derivation of measurements already made. So it stays
+    # in `data`, reaches no file, and is the shape the spider narrows.
+
     # ── manifest.json ─────────────────────────────────────────────────────────
     manifest = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1012,7 +1625,27 @@ def main():
                "change_counter": change_counter(args.db)},
         "coverage": {
             "states_emitted": ["has-signal", "no-coverage"],
-            "no_signal_emitted": False,
+            # 🔴 COUNTY STATES ARE NOT STATE STATES, AND `no-signal` NOW OCCURS.
+            # Until `oil_gas_nd` this export emitted two of the grammar's three
+            # county states and `no-signal` was unreachable — recorded here as a
+            # fact about the corpus, not a rendering choice.  It is reachable now,
+            # inside a declared jurisdiction and nowhere else.
+            # 🔴 DERIVED, NOT DECLARED — and the first version of these two lines
+            # were literals (`["has-signal","no-signal","no-coverage"]` and `True`),
+            # which is the hand-authored-claim failure this module has a whole
+            # docstring about.  A fixture with no swept source present made them
+            # false immediately: it emits no `no-signal` county at all.
+            "counties_emitted": (["has-signal", "no-signal", "no-coverage"]
+                                 if data["no_signal"] else
+                                 ["has-signal", "no-coverage"]),
+            "no_signal_emitted": bool(data["no_signal"]),
+            "no_signal_counties": len(data["no_signal"]),
+            # which source swept where.  The PAGE needs this per county: a family
+            # absent from a county INSIDE a scope was checked and found nothing;
+            # the same family absent OUTSIDE it simply never looked, and the two
+            # must not render the same sentence.
+            "sweep_scopes": {k: list(v) for k, v in sorted(SWEEP_SCOPES.items())},
+            "swept_families": sorted({FAMILY[k] for k in SWEEP_SCOPES}),
             # 🔴 THIS SENTENCE SHIPS TO A USER, AND IT WAS FALSE FOR THE LENGTH OF
             # THIS WORK ORDER.  It read "None of the three sources this map reads
             # enumerates places" — wrong on the count once there were five, and
@@ -1039,6 +1672,12 @@ def main():
                    "statement": CONTRA_STATEMENT, "census": data["contra"]},
         "clean_sources": data["clean"],
         "node_types": data["node_types"],
+        # 🔴 THE ROUTABILITY CENSUS, DISCLOSED.  `unroutable_types` is empty in any
+        # export that exists, because main() refuses to write one where it is not;
+        # the field is here so that fact is checkable from the manifest alone, and
+        # so a test can re-derive it against the shipped page and the shipped rows.
+        "unroutable_types": data["routability"]["unroutable_types"],
+        "routability": data["routability"],
         # 🔴 THE FRONTEND NEEDS THIS TO COUNT CONVERGENCE HONESTLY.  Its
         # `Min converging sources` control and its inspector header both count
         # DISTINCT SOURCES, which was the same thing as distinct observers until
@@ -1065,6 +1704,30 @@ def main():
                 "so they are emitted as separate signals, never combined into one "
                 "confidence, and `counties_convergent_independent` collapses them "
                 "before counting convergence."),
+        },
+        # 🔴 THE BOUNDED REMAINDER, DECLARED WHERE A TEST CAN READ IT.  Oil/gas is
+        # the ONLY layer whose `detail_rest` is capped, because McKenzie County
+        # alone would otherwise ship 4.4 MB of well rows.  The cap was real in the
+        # export and absent from the manifest, so the invariant every other layer
+        # keeps — "rest ships the whole remainder" — could only be checked by
+        # knowing a constant that lives in this file, and the census test that
+        # enforces it failed with no way to tell a deliberate bound from a bug.
+        # It is a disclosure now: a test asserts the DECLARED cap instead of
+        # assuming completeness, and `rows_unshipped` is the same number the page
+        # states through `unshipped`/`hiddenNote()`.
+        "oil_gas": {
+            "stats": data["oilgas_stats"],
+            "rest_is_capped": True,
+            "families": {k: v for k, v in FAMILY.items() if v == "oil_gas"},
+            "bounded_rest": (
+                "`detail_rest` for oil/gas ships at most `rest_cap` rows plus, always, "
+                "the lowest-confidence well in the county — the well that DECIDES the "
+                "county's MIN, which a straight positional cap dropped for 2 of 52 "
+                "counties, leaving a panel that could not justify its own number. "
+                "Every other layer ships its whole remainder. `detail_total` stays the "
+                "true well count, and the page renders `detail_total - (detail + "
+                "detail_rest)` as an explicit sentence rather than implying the list "
+                "is the whole population."),
         },
         "sources": {k: {"label": s.label, "frame": s.frame,
                         "sweeps_geography": s.sweeps_geography,
@@ -1098,6 +1761,14 @@ def main():
           f"{cs['sites_with_a_cik_resolved_holder']} with a CIK-resolved holder")
     for k, v in sorted(cd["classes"].items()):
         print(f"    🔴 {k}: {v['total']}  ({', '.join(f'{a}={b}' for a, b in sorted(v['by_source'].items())) or 'unattributed'})")
+    rt = data["routability"]
+    print(f"\nroutability: {len(rt['types_referenced'])} entity types referenced "
+          f"{sorted(rt['types_referenced'])}, route table {rt['node_route_table']}, "
+          f"unroutable {rt['unroutable_types']}, allow-listed {list(rt['allowlisted'])}, "
+          f"untyped rows {rt['untyped_rows']}, nameless rows {rt['nameless_rows']}, "
+          f"idless rows {rt['idless_rows']}, "
+          f"ids not in entities {rt['ids_not_in_entities']}"
+          f" — page {rt['frontend']['file']} md5 {rt['frontend']['md5']}")
     print(f"\nwrote {args.out}")
 
 

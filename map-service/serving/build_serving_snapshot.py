@@ -57,7 +57,14 @@ SERVING_TABLES = (
     "site_commodity_assertion", "commodity", "demand_relevance", "demand_signal",
 )
 # `events` is kept but PRUNED: these are the only two types either module reads.
-EVENT_TYPES = ("government_contract_awarded", "mineral_resource_identified")
+# 🔴 `drilling_activity` JOINED THIS LIST OR THE SERVING PATH GOES BLIND TO ND.
+# `entities` and `edges` are not pruned, so an ND well would still RESOLVE as a
+# node — but the site->place relation is derived from `events`, and without this
+# every one of 36,917 wells would open with its operator edge and no county, and
+# a county could not answer "wells here".  That is the `asset` silent-drop shape
+# one layer over: the ledger asserts a relation the graph plane cannot traverse.
+EVENT_TYPES = ("government_contract_awarded", "mineral_resource_identified",
+               "drilling_activity")
 
 
 def change_counter(path: str) -> int:
@@ -131,6 +138,21 @@ def build(src_path: str, out_path: str) -> dict:
             " (patent_entity_id, location_entity_id)",
             "CREATE INDEX idx_srv_patloc_rev ON patent_location"
             " (location_entity_id, patent_entity_id)",
+            # 🔴 THE SITE->PLACE RELATION CARRIES NO CONFIDENCE OF ITS OWN, so
+            # `_event_rows` asks the SITE'S OWN ASSERTIONS for it — two correlated
+            # subqueries per event row, both filtering `site_entity_id`, a column
+            # this table indexes nowhere.  At 338 mineral sites that was invisible.
+            # At 37,230 sites it is not: McKenzie County's 9,205 wells cost
+            # 9,205 x 2 x 81,203 row reads and the neighbourhood took **224
+            # seconds** — measured, on a public endpoint, for the single most
+            # obvious county to click in the whole oil/gas layer.
+            # With this index the same request returns **0.08s** and byte-identical
+            # output (degree 9,206, capped at 40, same rel_census).
+            # ⚠️ Same defect shape as the export's `NOT EXISTS` hang earlier in this
+            # work order: a correlated subquery on an unindexed column, fine at the
+            # old scale and catastrophic at the new one.
+            "CREATE INDEX idx_srv_sca_site ON site_commodity_assertion"
+            " (site_entity_id, confidence_score, source_reliability_tier)",
     ):
         dst.execute(sql)
     for tbl, sql in trg:
@@ -138,6 +160,22 @@ def build(src_path: str, out_path: str) -> dict:
             dst.execute(sql)
     dst.commit()
     dst.execute("DETACH DATABASE s")
+
+    # 🔴 THE PRECOMPUTED CENSUS, AND WHY IT BELONGS IN THE BUILD AND NOWHERE ELSE.
+    # `graph_api._census_live` is O(degree) by nature and was 88.5% of a request's
+    # time on the ten highest-degree entities — 37.1 ms of `Apple Inc.`'s 38.7 ms.
+    # It is asked once here, for every canonical entity at once, and a request
+    # becomes a single primary-key seek.
+    #
+    # ⚠️ THIS IS THE ONE THING IN THE SNAPSHOT THAT IS DERIVED RATHER THAN COPIED,
+    # so it is the one thing that can be WRONG rather than merely absent — and the
+    # numbers it carries (`degree`, `rel_census`) are the ones the UI DISCLOSES.
+    # It is sealed with the row counts of every table it is derived from,
+    # `graph_api` re-counts them before trusting it, and `--verify` re-derives a
+    # sample against the live query.  Nothing about it is taken on faith.
+    sys.path.insert(0, HERE)
+    import graph_api                          # noqa: E402
+    census = graph_api.build_census(dst)
 
     # 🔴 THE FILE SAYS WHAT IT IS, INSIDE ITSELF.  A README beside it can be lost
     # in a copy; a table cannot.  Anyone who opens this database and runs
@@ -157,6 +195,9 @@ def build(src_path: str, out_path: str) -> dict:
         "source_path": os.path.abspath(src_path),
         "source_bytes": os.path.getsize(src_path),
         "source_change_counter": change_counter(src_path),
+        "entity_census": f"{census['rows']} canonical entities, precomputed from "
+                         f"{census['pairs']} relation endpoints in {census['seconds']}s "
+                         f"— see graph_api.build_census() and entity_census_seal",
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "builder": "serving/build_serving_snapshot.py",
     }
@@ -169,6 +210,8 @@ def build(src_path: str, out_path: str) -> dict:
     dst.close()
     manifest["snapshot_bytes"] = os.path.getsize(out_path)
     manifest["build_seconds"] = round(time.time() - t0, 1)
+    manifest["census_seconds"] = census["seconds"]
+    manifest["census_rows"] = census["rows"]
     return manifest
 
 
@@ -213,7 +256,23 @@ def verify(src_path: str, out_path: str) -> bool:
         "SELECT entity_id FROM locations WHERE location_type IN ('county','city') LIMIT 60")]
     bad = sum(1 for e in sample if full.neighborhood(e) != snap.neighborhood(e))
     print(f"  neighbourhoods compared: {len(sample)}, differing: {bad}")
-    return ok and bad == 0
+
+    # 🔴 AND THE PRECOMPUTED CENSUS AGAINST THE LIVE QUERY IT REPLACES, directly.
+    # The comparison above is end-to-end and would catch a divergence that reaches
+    # the payload; this one catches a divergence in a number that the round-robin
+    # or the cap happens to hide.  `degree` and `rel_census` are DISCLOSED, so
+    # "the neighbours came out the same" is not sufficient evidence about them.
+    if not snap._census_tbl:
+        print("  🔴 the snapshot's entity_census was REJECTED by its own seal")
+        return False
+    cbad = 0
+    for e in sample:
+        ids = snap.group(snap.canonical(e))
+        if snap._census(ids) != snap._census_live(ids):
+            cbad += 1
+            print(f"  🔴 census differs for {e}")
+    print(f"  census entries re-derived: {len(sample)}, differing: {cbad}")
+    return ok and bad == 0 and cbad == 0
 
 
 def main():

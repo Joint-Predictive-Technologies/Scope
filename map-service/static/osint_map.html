@@ -40,6 +40,21 @@
   --sys:#FFC46B;         /* system chrome, selection, cursor — paler amber, kept
                             distinct from --signal by value, not hue */
 
+  /* 🔴 THE COMMODITY RAMP — COOL, DESATURATED, AND NEVER AMBER.
+     map-visual-design.md §2: "if a gold deposit and a convergence signal render
+     the same colour, the map's core claim collapses."  Geology is terrain;
+     convergence is the finding.  So these are generated on a RULE rather than
+     picked: hue swept 188°->278° (cyan -> violet) at fixed S/L, which puts every
+     tone at least 118° from `--signal` (35.8°) and `--sys` (36.1°) and makes the
+     ramp read as one family instead of eight decisions.
+     ⚠️ TONE ENCODES COMMODITY, ASSIGNED BY CENSUS not by taxonomy: the seven
+     commodities with the most coordinate-bearing sites get a tone each and
+     everything else shares the last one, with the legend naming the count.
+     Inventing eight geological "categories" would be this file asserting a
+     classification no source in the corpus makes. */
+  --com-0:#6DA7B0; --com-1:#6D99B0; --com-2:#6D8BB0; --com-3:#6D7CB0;
+  --com-4:#6D6EB0; --com-5:#7B6DB0; --com-6:#896DB0; --com-7:#986DB0;
+
   --mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
   --sans:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,sans-serif;
 }
@@ -150,8 +165,10 @@ body{overflow:hidden;}
 
 /* ============ left rail ============ */
 .rail{
-  position:absolute;top:54px;left:14px;bottom:38px;width:210px;z-index:55;
-  padding:14px 13px;overflow-y:auto;
+  position:absolute;top:78px;left:14px;bottom:38px;width:210px;z-index:55;
+  /* 🔴 top padding clears #rail-x, the 30px toggle pinned to this panel's own
+     top-left corner — it was covering the first 16px of the "Base layer" heading. */
+  padding:36px 13px 14px;overflow-y:auto;
   transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
 }
 .rail.hidden{transform:translateX(-238px);opacity:0;pointer-events:none;}
@@ -188,7 +205,7 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 
 /* ============ breadcrumb + status ============ */
 .crumb{
-  position:absolute;top:54px;left:50%;transform:translateX(-50%);z-index:55;
+  position:absolute;top:78px;left:50%;transform:translateX(-50%);z-index:55;
   padding:6px 13px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-faint);
   display:flex;gap:8px;align-items:center;
 }
@@ -196,6 +213,10 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .crumb a{color:var(--ink-dim);cursor:pointer;text-decoration:none;}
 .crumb a:hover{color:var(--ink);}
 
+/* 🔴 Leaflet's attribution sits bottom-right of the map pane and this bar spans the
+   full width at bottom:0 — the two shared a 13px band and the attribution link sat on
+   the status text.  The control is lifted by exactly this bar's height. */
+.leaflet-bottom{bottom:26px;}
 .statusbar{
   position:absolute;bottom:0;left:0;right:0;height:26px;z-index:56;
   display:flex;align-items:center;gap:20px;padding:0 14px;
@@ -207,7 +228,30 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .statusbar .v{color:var(--ink);}
 .statusbar .warn{color:var(--signal);}
 
-.zoomctl{position:absolute;bottom:40px;right:14px;z-index:55;display:flex;flex-direction:column;gap:5px;}
+/* 🔴 §6.2: Leaflet's default 0.25s zoom transition has a long decelerating tail, and
+   that tail is precisely the window in which fixed-radius dots are the wrong size.
+   0.18s on a gentler curve shortens the window the pop is visible in. */
+.leaflet-zoom-anim .leaflet-zoom-animated{transition:transform 0.18s cubic-bezier(.25,.1,.25,1);}
+/* the commodity canvas rides in Leaflet's own overlay pane so it inherits the
+   pane's zoom transform — a plain absolutely-positioned canvas would sit still
+   through the zoom animation and then jump, which is the marker-pop artifact
+   §6.2 spent five rounds on, reproduced in a new place. */
+.commodity-canvas{position:absolute;left:0;top:0;pointer-events:none;}
+.zoomctl{position:absolute;bottom:40px;right:14px;z-index:55;display:flex;flex-direction:column;gap:5px;
+  transition:right 0.34s cubic-bezier(.4,0,.2,1);}
+/* 🔴 the zoom controls and the inspector were both anchored `right:14px` at the same
+   z-index, so the buttons sat ON the inspector's text.  272px panel + its 14px gutter
+   + the same 14px gutter again = 300px, the existing spacing rhythm, not a new one. */
+#inspector.open ~ .zoomctl{right:300px;}
+/* 🔴 THE SAME COLLISION EXISTS IN THE GRAPH PLANE, and the sibling combinator cannot
+   see it: `#g-profile` is nested inside `#graph-plane`, not a sibling of `.zoomctl`.
+   Measured with the real service running: #zo and #zh sat on the profile's own
+   figures ("462", "373", "40 (cap 40)") — 4 ink overlaps.  Its panel is 280px at the
+   same right:14px gutter, so the same 300px offset clears it.
+   ⚠️ DELIBERATELY A SEPARATE RULE, not a comma list with the one above: an invalid
+   `:has()` in a selector list would drop the WHOLE rule and silently take the
+   inspector fix down with it. */
+#root:has(#g-profile.open) .zoomctl{right:300px;}
 
 /* ============ tooltip ============ */
 #tip{
@@ -220,11 +264,13 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 
 /* ============ inspector (map plane) ============ */
 .inspector{
-  position:absolute;top:54px;right:14px;width:272px;z-index:55;padding:14px 14px 15px;
+  position:absolute;top:78px;right:14px;width:272px;z-index:55;padding:14px 14px 15px;
   transform:translateX(310px);opacity:0;transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
 }
 .inspector.open{transform:none;opacity:1;}
-.inspector{max-height:calc(100vh - 100px);overflow-y:auto;}
+/* 78px top offset + the lifted attribution control (26px bar + its own ~20px)
+   — the panel stops above it rather than scrolling its rows underneath it. */
+.inspector{max-height:calc(100vh - 148px);overflow-y:auto;}
 .ins-x{position:absolute;top:9px;right:11px;background:none;border:none;color:var(--ink-faint);
   cursor:pointer;font-size:13px;font-family:var(--mono);}
 .ins-x:hover{color:var(--ink);}
@@ -263,9 +309,25 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
   padding:1px 4px;}
 .pick-row .pnote{font-family:var(--mono);font-size:8.5px;letter-spacing:0.6px;color:var(--ink-faint);}
 
+/* ---- the place ledger: one section per family.  Same tokens as the picker —
+   mono readouts, the hairline rule, the existing badge — only laid out. ---- */
+.led-sec{margin-top:4px;}
+.led-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.led-h .led-t{white-space:nowrap;}
+.led-h .c{color:var(--ink-dim);letter-spacing:0.8px;text-transform:none;text-align:right;white-space:normal;}
+.led-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;margin:6px 0 2px;
+  font-family:var(--mono);font-size:8px;letter-spacing:0.6px;color:var(--ink-faint);}
+.led-meta .badge{margin-left:0;vertical-align:0;}
+.led-meta .led-src{flex-basis:100%;font-family:var(--sans);font-size:9px;color:var(--ink-dim);
+  letter-spacing:0.1px;margin-bottom:2px;}
+.led-nr{font-family:var(--mono);font-size:8.5px;letter-spacing:0.6px;color:var(--ink-dim);
+  padding:6px 0;border-bottom:1px solid var(--hair);line-height:1.5;}
+.led-nr b{font-weight:400;color:var(--ink-faint);letter-spacing:1.2px;}
+.gbtn.led-more{margin-top:9px;}
+
 /* ============ graph HUD ============ */
 .g-hud{position:absolute;z-index:20;}
-#g-head{top:54px;left:14px;padding:11px 13px;width:250px;}
+#g-head{top:78px;left:14px;padding:11px 13px;width:250px;}
 #g-head .ttl{font-size:8.5px;letter-spacing:1.9px;text-transform:uppercase;color:var(--ink-faint);margin-bottom:5px;}
 #g-head .seed{font-size:12px;letter-spacing:0.8px;color:var(--sys);line-height:1.4;word-break:break-word;}
 #g-head .hint{font-size:9px;color:var(--ink-faint);line-height:1.65;margin-top:9px;font-family:var(--sans);letter-spacing:0.1px;}
@@ -277,9 +339,12 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
   text-transform:uppercase;color:var(--ink-dim);}
 
 #g-profile{
-  top:54px;right:14px;width:280px;padding:14px 14px 15px;
+  top:78px;right:14px;width:280px;padding:14px 14px 15px;
   transform:translateX(320px);opacity:0;transition:transform 0.34s cubic-bezier(.4,0,.2,1),opacity 0.3s;
-  max-height:calc(100vh - 100px);overflow-y:auto;
+  /* 🔴 the SAME second half `.inspector` needed: this panel took the 54→78 move but
+     kept `100vh - 100px`, which put its floor 4px inside the status bar (it had been
+     20px clear).  Latent, not yet observed — the tallest profile measured is ~162px. */
+  max-height:calc(100vh - 148px);overflow-y:auto;
 }
 #g-profile.open{transform:none;opacity:1;}
 .p-type{font-size:8.5px;letter-spacing:1.9px;text-transform:uppercase;color:var(--sys);margin-bottom:6px;}
@@ -351,6 +416,14 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
 .sig-d{font-size:9px;color:var(--ink-dim);font-family:var(--sans);line-height:1.55;
   letter-spacing:0.1px;margin-top:4px;}
 .sig-d div{margin-bottom:2px;}
+/* the source-row disclosure: the `.pick-h` label voice, nothing new */
+.sig-more{margin-top:4px;}
+.sig-more>summary{list-style:none;cursor:pointer;font-family:var(--mono);font-size:8.5px;
+  letter-spacing:1.5px;text-transform:uppercase;color:var(--ink-faint);padding:2px 0;}
+.sig-more>summary::-webkit-details-marker{display:none;}
+.sig-more>summary::before{content:'\25B8\00a0';}
+.sig-more[open]>summary::before{content:'\25BE\00a0';}
+.sig-more>summary:hover{color:var(--ink-dim);}
 .ins-note{font-size:8.5px;color:var(--ink-faint);font-family:var(--sans);line-height:1.6;
   margin-top:11px;padding-top:9px;border-top:1px solid var(--hair);letter-spacing:0.1px;}
 #fail{display:none;position:fixed;inset:0;z-index:950;background:var(--void);
@@ -425,7 +498,7 @@ input[type=range]{width:100%;accent-color:var(--signal);height:2px;}
     </div>
   </div>
 
-  <button class="ibtn" id="rail-x" style="position:absolute;top:54px;left:14px;z-index:56;">&#9776;</button>
+  <button class="ibtn" id="rail-x" style="position:absolute;top:78px;left:14px;z-index:56;">&#9776;</button>
 
   <div class="rail bracket" id="rail">
     <div class="rail-sec">
@@ -828,8 +901,15 @@ function renderCounties(fips){
       onEachFeature:function(f,l){
         l.on('mouseover',function(e){
           var c=cd[f.id], nm=(c&&c.name)||(f.properties&&f.properties.name)||'county';
-          showTip(e, nm, c? (c.signals.length+' signal'+(c.signals.length===1?'':'s'))
-                         : 'no source reached this county');
+          /* 🔴 THREE STATES, THREE SENTENCES.  A `no-signal` county is not "0
+             signals" — that phrasing reads as an empty result from everybody,
+             when exactly one family checked and the rest never looked. */
+          var tip;
+          if(!c) tip='no source reached this county';
+          else if(c.status==='no-signal')
+            tip=(c.swept_families||[]).join(' + ').toUpperCase()+' checked here — none found';
+          else tip=c.signals.length+' signal'+(c.signals.length===1?'':'s');
+          showTip(e, nm, tip);
         });
         l.on('mouseout',hideTip);
         l.on('click',function(){ var c=cd[f.id];
@@ -970,7 +1050,7 @@ function updateStatus(){
         ? ' <span class="k">('+MANIFEST.stats.counties_convergent+' by signal count)</span>' : '')+
       '</span>'+
     '<span><span class="k">Mode</span> <span class="v">'+mode.toUpperCase()+'</span></span>'+
-    '<span><span class="k">Corpus</span> <span class="v">'+live.join(' + ').toUpperCase()+'</span></span>'+
+        '<span><span class="k">Corpus</span> <span class="v">'+live.join(' + ').toUpperCase()+'</span></span>'+
     (pend.length? '<span><span class="k">Layer with open defect</span> <span class="warn">'+
        pend.join(' + ').toUpperCase()+
        /* 🔴 BOTH SCANS, EACH WITH ITS OWN DENOMINATOR.  This used to show only
@@ -1036,14 +1116,19 @@ function openInspector(county, loc){
 
 /* ---------- who can this dot actually reach ---------- */
 var SRC_TAG={contract:'CONTRACT', patent:'PATENT', demand:'DEMAND',
-             commodity_msha:'MSHA', commodity_eia:'EIA'};
+             commodity_msha:'MSHA', commodity_eia:'EIA',
+             /* a third family — never merged with the two commodity sources */
+             oil_gas_nd:'NDIC'};
 
-/* Distinct entities behind one county dot, in the order the sources themselves
-   rank them (signal order, then each source's own detail order — patents by
-   patent count, contracts by award, mines by site).  Insertion order IS the
-   ranking; nothing is re-sorted here, because this panel is not the place to
-   invent a cross-source importance the data does not assert. */
-function dotEntities(county){
+/* ---------- the dedup index behind the ledger ---------- */
+/* `add` is the ONLY way a row is created, so the label / note / awarded-as
+   rules hold identically for the first 12 rows a source ships and for every
+   row paged in afterwards from `detail_rest`.  Insertion order IS the ranking
+   (signal order, then each source's own detail order — patents by patent
+   count, contracts by award, mines by site); nothing is re-sorted here,
+   because this panel is not the place to invent a cross-source importance the
+   data does not assert. */
+function entityIndex(){
   var out=[], seen={};
   function add(id, name, src, note, sited){
     if(!id || !name) return;              /* never render a bare uid as a name */
@@ -1058,19 +1143,22 @@ function dotEntities(county){
          rows in those same three dots were already carrying, and the row asserted
          a subsidiary's identity for a click that opens the parent.  Every other
          source names the node itself, so a non-contract name wins and the awarded
-         name is kept and shown rather than dropped.
-
-         ⚠️ "every other source names the node itself" is an OBSERVATION about
-         today's export, not an invariant it guarantees — `demand_signals` has the
-         identical stray-name shape and is masked only by an unrelated
-         `match_type <> 'geography'` filter.  So no name is discarded here:
-         whichever one loses the label is kept in `alts` and rendered.  Every
-         conflict branch degrades to showing BOTH names rather than to silently
-         asserting one. */
+         name is kept and shown rather than dropped. */
+      /* ⚠️ PORTED FORWARD, AND IT WAS A REAL GAP.  The branches above keep a
+         contract name (`awardedAs`) and nothing else, so a THIRD differing name —
+         two non-contract sources disagreeing about one node — fell through both
+         and was SILENTLY DROPPED.  Proven on a fixture: patent says "ACME PATENTS
+         LLC", demand says "ACME CORPORATION", and the second name vanished.
+         `demand_signals` carries the identical stray-name shape and is masked
+         only by an unrelated `match_type <> 'geography'` filter, so this is not
+         hypothetical.  Every conflict branch now degrades to SHOWING BOTH names
+         rather than to silently asserting one. */
       if(name && name!==seen[id].name){
         if(seen[id].nameSrc==='contract' && src!=='contract'){
-          seen[id].alts.push({name:seen[id].name, src:seen[id].nameSrc});
+          seen[id].awardedAs=seen[id].name;
           seen[id].name=name; seen[id].nameSrc=src;
+        } else if(src==='contract' && !seen[id].awardedAs){
+          seen[id].awardedAs=name;
         } else if(!seen[id].alts.some(function(a){ return a.name===name; })){
           seen[id].alts.push({name:name, src:src});
         }
@@ -1081,14 +1169,15 @@ function dotEntities(county){
          patents here would silently lose its patent count */
       if(!seen[id].note && note) seen[id].note=note;
       if(sited) seen[id].sited=true;
-      return;
+      return false;
     }
     seen[id]={uid:id, name:name, nameSrc:src, sources:[src], note:note||'',
               alts:[], sited:!!sited};
     out.push(seen[id]);
+    return true;
   }
-  county.signals.forEach(function(s){
-    (s.detail||[]).forEach(function(d){
+  function ingest(s, rows){
+    (rows||[]).forEach(function(d){
       if(s.source==='contract'){
         add(d.entity_id, d.name, s.source, money(d.amount));
       } else if(s.source==='patent'){
@@ -1097,7 +1186,22 @@ function dotEntities(county){
         /* a mineral site is itself an entity (type `asset`), and the companies
            working it are separate entities hanging off it.  Both are real graph
            nodes and both open; collapsing them would hide the operator. */
-        add(d.entity_id, d.name, s.source, 'mineral site · '+(d.precision||'precision unstated'),
+        /* ⚠️ THE PRECISION IS PASSED AS A DATUM, NOT LEFT TO BE RE-READ OFF THE
+           NOTE.  The footer used to decide "does any row carry its own position"
+           by regexing `note` for "· coordinate" — which couples it to
+           first-note-wins: a site some OTHER source names first keeps that
+           source's note, loses its precision from the display, and drops out of
+           the test.  Proven on a fixture: a coordinate site named first by patent
+           made the footer claim every row shares a county. */
+        /* 🔴 THE ROW MUST NAME WHAT THE THING IS, AND THE FAMILIES ARE NEVER
+           MERGED.  Both branches arrive here because both carry `holders`, so an
+           oil/gas WELL was reading "mineral site · coordinate" — MSHA's noun on
+           an NDIC row. The export keeps these as three separate families on
+           purpose; the ledger must not quietly rejoin them in its own prose. The
+           noun comes from the family, not from the branch that happens to match. */
+        add(d.entity_id, d.name, s.source,
+            (famOf(s.source)==='oil_gas' ? 'well' : 'mineral site')+
+            ' · '+(d.precision||'precision unstated'),
             d.precision==='coordinate');
         (d.holders||[]).forEach(function(h){
           add(h.entity_id, h.name, s.source, 'holder — '+(h.rel||'')); });
@@ -1105,14 +1209,16 @@ function dotEntities(county){
         add(d.entity_id, d.name, s.source, '');
       }
     });
-  });
-  return out;
+  }
+  return {out:out, seen:seen, add:add, ingest:ingest};
+}
+/* Distinct entities behind one county dot — the 12-row cap of every source. */
+function dotEntities(county){
+  var ix=entityIndex();
+  county.signals.forEach(function(s){ ix.ingest(s, s.detail); });
+  return ix.out;
 }
 
-/* What the export left out.  `detail` is capped at 12 per source while
-   `detail_total` is the real count, so 285 of 1,469 dots can list only part of
-   what they stand on.  The panel says the number rather than implying the list
-   is the whole population. */
 function dotHidden(county){
   var n=0;
   county.signals.forEach(function(s){
@@ -1120,11 +1226,6 @@ function dotHidden(county){
   return n;
 }
 
-/* 🔴 An honest dead end, not a fabricated one.  10 dots resolve to no entity at
-   all: their patents are placed by an INVENTOR'S home address and carry no
-   `patent_ownership` edge, so there is no company behind the dot to open.  The
-   rule for this surface is that such a dot says so — it does not get a seed
-   invented for it. */
 function noEntityNote(county){
   var ev=0, roles={}, allPatent=true;
   county.signals.forEach(function(s){
@@ -1150,74 +1251,326 @@ function noEntityNote(county){
     ' that no source attributes to a named entity in the graph.';
 }
 
+/* ================================================================
+   THE PLACE LEDGER — one section per family that reached this dot, then
+   the families that did not.
+   ================================================================ */
+/* families the export loaded, in the exporter's own declared order */
+function loadedFamilies(){
+  var f=(MANIFEST&&MANIFEST.source_families)||{}, out=[];
+  Object.keys(f).forEach(function(k){ if(out.indexOf(f[k])<0) out.push(f[k]); });
+  return out;
+}
+/* 🔴 WHICH FAMILIES ACTUALLY CHECKED *THIS* COUNTY.
+   A sweep is not a property of the map, it is a property of a source INSIDE a
+   jurisdiction.  NDIC enumerated every place in North Dakota and nothing at all
+   in Texas, so the same absent family means "checked here, found none" in
+   Mountrail and "never looked" in Dallas.  Reading one global boolean for both —
+   which is what `any_source_sweeps_geography` alone would do — would tell a
+   Dallas reader that absence can no longer be read as "not reached", which is
+   false for every county outside FIPS 38. */
+function sweptFamilies(fips){
+  var cov=(MANIFEST&&MANIFEST.coverage)||{}, scopes=cov.sweep_scopes||{};
+  var fams={}, st=String(fips||'').slice(0,2);
+  if(!st) return fams;
+  Object.keys(scopes).forEach(function(sid){
+    if((scopes[sid]||[]).indexOf(st)>=0) fams[famOf(sid)]=1;
+  });
+  return fams;
+}
+function familySourceLabels(fam){
+  var f=(MANIFEST&&MANIFEST.source_families)||{};
+  return Object.keys(f).filter(function(k){ return f[k]===fam; }).map(function(k){
+    return ((MANIFEST.sources||{})[k]||{}).label||k; });
+}
+/* 🔴 READ, NEVER RE-DERIVED.  `clean` and `verification` are the exporter's own
+   split (map_sources.py declares the pass, export_map.build measures the
+   defects and computes `clean`), and the counts are the two scans' by_source
+   figures — different denominators, never summed, the same rule updateStatus
+   already follows. */
+function sourceBadge(s){
+  if(s.clean===true) return {text:'clean', open:false};
+  if(s.verification==='pending') return {text:'unverified', open:true};
+  var d=(MANIFEST.defects&&MANIFEST.defects.by_source)||{};
+  var c=(MANIFEST.commodity_defects&&MANIFEST.commodity_defects.by_source)||{};
+  var bits=[];
+  if(d[s.source]) bits.push(d[s.source]+' name'+(d[s.source]===1?'':'s'));
+  if(c[s.source]) bits.push(c[s.source]+' commodity row'+(c[s.source]===1?'':'s'));
+  return {text:'open defect'+(bits.length?' · '+bits.join(' · '):''), open:true};
+}
+/* MIN across the family's signals at this dot, never a mean.  ⚠️ The export
+   carries no family-level figure: each SIGNAL's confidence is already the
+   exporter's MIN over its own rows, and a family holds one signal everywhere
+   except the counties where MSHA and EIA both reach — so this is a min over
+   one or two precomputed minima, not a recomputation from row data.  A null is
+   unknown, not zero: it is left out and counted. */
+function familyConfidence(sigs){
+  var vals=[]; sigs.forEach(function(s){ if(s.confidence!=null) vals.push(s.confidence); });
+  return {min: vals.length? Math.min.apply(null, vals) : null, unmeasured: sigs.length-vals.length};
+}
+/* what a source's rows actually are — the verifier's units caveat: demand ships
+   MATCH rows that repeat an entity, commodity ships SITES */
+function restNoun(fam){
+  return {contract:'award rows', patent:'patent holders', demand:'demand match rows',
+          commodity:'site rows'}[fam]||'rows';
+}
+/* entities this family also names that are listed under an earlier family */
+function namedElsewhere(model, sec){
+  var mine={}; sec.signals.forEach(function(s){ mine[s.source]=1; });
+  return model.entities.filter(function(e){
+    return famOf(e.sources[0])!==sec.family && e.sources.some(function(x){ return mine[x]; }); });
+}
+function ledgerModel(county){
+  var ix=entityIndex();
+  county.signals.forEach(function(s){ ix.ingest(s, s.detail); });
+  /* sections in the exporter's own rank: the order families first appear in
+     the signals array, which export_map.build sorted (clean first, then by
+     confidence).  Nothing is re-ranked here. */
+  var present=[], byFam={};
+  county.signals.forEach(function(s){
+    var f=famOf(s.source);
+    if(!byFam[f]){ byFam[f]={family:f, signals:[], rows:[]}; present.push(f); }
+    byFam[f].signals.push(s);
+  });
+  /* an entity is listed ONCE, under the first family that names it; a family
+     that also names it gets a pointer, not a duplicate row — so the row total
+     stays the distinct-entity total */
+  ix.out.forEach(function(e){ byFam[famOf(e.sources[0])].rows.push(e); });
+  var sections=present.map(function(f){
+    var sec=byFam[f];
+    sec.label=String(f).toUpperCase();
+    sec.badges=sec.signals.map(function(s){
+      var b=sourceBadge(s); b.source=s.source; b.tag=SRC_TAG[s.source]||s.source;
+      b.confidence=s.confidence; b.label=((MANIFEST.sources||{})[s.source]||{}).label||s.source;
+      return b; });
+    sec.confidence=familyConfidence(sec.signals);
+    /* 🔴 THE SINGLE BUTTON BELONGS TO THE SECTION THAT HOLDS THE ENTITY, not to
+       every section.  A verifier found 7 dots holding ONE entity named by TWO
+       families (Lewis County KY: demand + patent) rendering a trace button in
+       each section — one of them under a header reading "PATENT · 0 entities".
+       The decision lives here, in the model, so a sweep can count it. */
+    sec.trace = ix.out.length===1 && sec.rows.length===1;
+    /* the shipped remainder beyond the cap, per signal, in shipped order; and
+       whatever the export reports but did NOT ship, which stays a sentence */
+    sec.rest=[]; sec.restCursor=0; sec.unshipped=0;
+    sec.signals.forEach(function(s){
+      var shipped=(s.detail||[]).length+(s.detail_rest||[]).length;
+      if(s.detail_total!=null) sec.unshipped+=Math.max(0, s.detail_total-shipped);
+      (s.detail_rest||[]).forEach(function(d){ sec.rest.push({sig:s, row:d}); });
+    });
+    return sec;
+  });
+  var loaded=loadedFamilies();
+  return {index:ix, sections:sections, loaded:loaded,
+          absent:loaded.filter(function(f){ return !byFam[f]; }),
+          entities:ix.out, hidden:dotHidden(county)};
+}
+/* page through a section's shipped remainder: up to n NEW rows per call.  A
+   rest row naming an entity already listed (under this or an earlier family)
+   creates nothing and is counted, rather than shown twice. */
+function pageSection(model, sec, n){
+  var made=[], already=0;
+  while(sec.restCursor<sec.rest.length && made.length<n){
+    var r=sec.rest[sec.restCursor++];
+    var before=model.index.out.length;
+    model.index.ingest(r.sig, [r.row]);
+    var created=model.index.out.slice(before);
+    if(!created.length) already++;
+    created.forEach(function(e){ sec.rows.push(e); made.push(e); });
+  }
+  return {made:made, already:already, left:sec.rest.length-sec.restCursor};
+}
+
+/* ---------- rendering ---------- */
+function rowEl(e){
+  var row=document.createElement('button');
+  row.className='pick-row';
+  row.innerHTML='<span class="pn">'+esc(e.name)+'</span>'+
+    '<span class="pm">'+e.sources.map(function(x){
+      return '<span class="ptag">'+esc(SRC_TAG[x]||x)+'</span>'; }).join('')+
+    (e.note?'<span class="pnote">'+esc(e.note)+'</span>':'')+
+    (e.awardedAs?'<span class="pnote">awarded as '+esc(e.awardedAs)+'</span>':'')+
+    /* a name the label lost is SHOWN, not merely retained in the model */
+    (e.alts||[]).map(function(a){
+      return '<span class="pnote">also listed as '+esc(a.name)+'</span>'; }).join('')+
+    '</span>';
+  row.onclick=function(){ enterGraph(e.uid); };
+  return row;
+}
+function noteEl(text, signal){
+  var d=document.createElement('div'); d.className='ins-note';
+  if(signal) d.style.color='var(--signal)';
+  d.textContent=text; return d;
+}
+
 function tracePanel(county){
   var wrap=document.createElement('div');
-  var ents=dotEntities(county), hidden=dotHidden(county);
-
-  if(!ents.length){
-    wrap.innerHTML='<div class="ins-note" style="color:var(--signal)">'+
-      'No entity resolved at this location.<br><br>'+esc(noEntityNote(county))+'</div>';
-    return wrap;
-  }
-
-  if(ents.length===1){
-    /* the common case, byte-for-byte the behaviour that already worked */
-    var btn=document.createElement('button');
-    btn.className='trace-btn'; btn.textContent='Trace entity web →';
-    btn.onclick=function(){ enterGraph(ents[0].uid); };
-    wrap.appendChild(btn);
-    if(hidden) wrap.appendChild(hiddenNote(hidden));
-    return wrap;
-  }
-
-  var h='<div class="pick-h">'+ents.length+' entities at this dot &mdash; choose one</div>';
-  wrap.innerHTML=h;
-  ents.forEach(function(e){
-    var row=document.createElement('button');
-    row.className='pick-row';
-    row.innerHTML='<span class="pn">'+esc(e.name)+'</span>'+
-      '<span class="pm">'+e.sources.map(function(x){
-        return '<span class="ptag">'+esc(SRC_TAG[x]||x)+'</span>'; }).join('')+
-      (e.note?'<span class="pnote">'+esc(e.note)+'</span>':'')+
-      e.alts.map(function(a){
-        return '<span class="pnote">'+
-          (a.src==='contract'?'awarded as ':'also listed as ')+esc(a.name)+'</span>'; }).join('')+
-      '</span>';
-    row.onclick=function(){ enterGraph(e.uid); };
-    wrap.appendChild(row);
-  });
-  /* 🔴 the radius is the county, and it is named as such.  The export carries no
-     per-entity coordinate for contract, patent or demand rows — the dot is a
-     county centroid — so "at this dot" can only honestly mean "somewhere in this
-     county", which is up to ~2,300 km² in Dallas's case.  Mineral sites DO carry
-     a coordinate and say so in their own row. */
-  var f=document.createElement('div');
-  f.className='ins-note';
-  /* 🔴 read the DATUM, not the rendered string.  Deciding this by regex on
-     `note` coupled the footer to first-note-wins: a site entity that some other
-     source names first keeps that source's note, loses its precision from the
-     display, and would drop out of the test. */
-  f.textContent = ents.some(function(e){ return e.sited; })
+  var model=ledgerModel(county);
+  model.sections.forEach(function(sec){ wrap.appendChild(sectionEl(model, sec, county)); });
+  if(model.entities.length>1){
+    /* 🔴 the radius is the county, and it is named as such.  The export carries no
+       per-entity coordinate for contract, patent or demand rows — the dot is a
+       county centroid — so "at this dot" can only honestly mean "somewhere in this
+       county", which is up to ~2,300 km² in Dallas's case.  Mineral sites DO carry
+       a coordinate and say so in their own row. */
+    var f=document.createElement('div');
+    f.className='ins-note';
+  f.textContent = model.entities.some(function(e){ return e.sited; })
     ? 'Grouped by county — the unit the export positions on. Rows marked '+
       '"coordinate" carry their own position; the rest share a county, not a '+
       'street address.'
     : 'Grouped by county — the unit the export positions on. These share '+
       'a county, not a street address.';
-  wrap.appendChild(f);
-  if(hidden) wrap.appendChild(hiddenNote(hidden));
+    wrap.appendChild(f);
+  }
+  wrap.appendChild(notReachedEl(model, county));
   return wrap;
+}
+
+function sectionEl(model, sec, county){
+  var el=document.createElement('div'); el.className='led-sec';
+  var h=document.createElement('div'); h.className='pick-h led-h';
+  var conf=sec.confidence;
+  var confText = conf.min==null ? 'conf —' : 'min conf '+conf.min.toFixed(2);
+  if(conf.unmeasured) confText+=' · '+conf.unmeasured+' unmeasured';
+  h.innerHTML='<span class="led-t"></span><span class="c">'+esc(confText)+'</span>';
+  el.appendChild(h);
+  var meta=document.createElement('div'); meta.className='led-meta';
+  meta.innerHTML=sec.badges.map(function(b){
+    return '<span class="ptag">'+esc(b.tag)+'</span>'+
+      '<span class="badge'+(b.open?' pending':'')+'">'+esc(b.text)+'</span>'+
+      '<span class="led-src">'+esc(b.label)+
+        (b.confidence==null?' · conf —':' · conf '+b.confidence.toFixed(2))+'</span>';
+  }).join('');
+  el.appendChild(meta);
+  var body=document.createElement('div'); el.appendChild(body);
+  var ctl=document.createElement('div'); el.appendChild(ctl);
+  function title(){
+    var n=sec.rows.length;
+    h.querySelector('.led-t').textContent=sec.label+' · '+n+' entit'+(n===1?'y':'ies');
+  }
+  title();
+  if(!model.entities.length){
+    /* 🔴 An honest dead end, not a fabricated one.  The family reached this dot
+       and resolves no entity to open; its section says so, in the same
+       structural slot every other family's rows occupy — not a note bolted on
+       beside the ledger. */
+    body.appendChild(noteEl('No entity resolved at this location. '+noEntityNote(county), true));
+  } else if(model.entities.length===1){
+    /* the common case, byte-for-byte the button that already worked — in the
+       one section that holds the entity; a second family naming it gets the
+       pointer line below, not a second button */
+    if(sec.trace){
+      var btn=document.createElement('button');
+      btn.className='trace-btn'; btn.textContent='Trace entity web →';
+      btn.onclick=function(){ enterGraph(model.entities[0].uid); };
+      body.appendChild(btn);
+    }
+  } else {
+    sec.rows.forEach(function(e){ body.appendChild(rowEl(e)); });
+  }
+  function elsewhereNote(){
+    var old=ctl.querySelector('.led-else'); if(old) old.remove();
+    var els=namedElsewhere(model, sec);
+    if(!els.length) return;
+    var fams=[]; els.forEach(function(e){
+      var f=famOf(e.sources[0]).toUpperCase(); if(fams.indexOf(f)<0) fams.push(f); });
+    var d=noteEl((sec.rows.length?'+':'')+els.length+' entit'+(els.length===1?'y':'ies')+
+      ' this family also names '+(els.length===1?'is':'are')+' listed under '+
+      fams.join(' and ')+' above.');
+    d.className+=' led-else'; ctl.appendChild(d);
+  }
+  elsewhereNote();
+  /* paged disclosure of the shipped remainder — the rows are already in the
+     county file, so paging fires no request of any kind */
+  if(sec.rest.length){
+    var more=document.createElement('button'); more.className='gbtn led-more';
+    var stat=noteEl(''); stat.className='ins-note led-stat';
+    var alreadyTotal=0;
+    function label(){
+      var left=sec.rest.length-sec.restCursor;
+      more.textContent='Show next '+Math.min(12,left)+' · '+left.toLocaleString()+' '+
+        restNoun(sec.family)+' shipped beyond the cap, not yet paged';
+    }
+    label();
+    more.onclick=function(){
+      var r=pageSection(model, sec, 12);
+      r.made.forEach(function(e){ body.appendChild(rowEl(e)); });
+      title(); elsewhereNote();
+      alreadyTotal+=r.already;
+      if(alreadyTotal){
+        stat.textContent=alreadyTotal+' paged row'+(alreadyTotal===1?' names an entity':'s name entities')+
+          ' already listed above and '+(alreadyTotal===1?'was':'were')+' not repeated.';
+        if(!stat.parentNode) ctl.insertBefore(stat, more);
+      }
+      if(r.left<=0){
+        more.remove();
+        ctl.appendChild(noteEl('All '+sec.rest.length.toLocaleString()+' '+restNoun(sec.family)+
+          ' shipped beyond the cap are paged.'));
+      } else label();
+    };
+    ctl.appendChild(more);
+  }
+  if(sec.unshipped) ctl.appendChild(hiddenNote(sec.unshipped));
+  return el;
+}
+
+/* 🔴 PRESENT ON EVERY DOT, INCLUDING THE ONES EVERY FAMILY REACHED.  Which
+   loaded families did NOT reach this place is a fact the ledger owes the reader
+   as much as which did, and it is stated as "did not reach" — never as "checked
+   and found nothing" — because that is the only claim the corpus supports: no
+   loaded source sweeps geography (MANIFEST.coverage.any_source_sweeps_geography
+   is read, not assumed, and the sentence changes if it ever flips).  This is
+   the same rule `no-signal`'s refusal already enforces one layer up. */
+function notReachedEl(model, county){
+  var el=document.createElement('div'); el.className='led-sec';
+  /* 🔴 AN ABSENT FAMILY IS NOW TWO DIFFERENT FACTS, AND THEY GET DIFFERENT WORDS.
+     Split by whether that family SWEPT this county's state. */
+  var swept=sweptFamilies(county&&county.fips);
+  var checked=model.absent.filter(function(f){ return swept[f]; });
+  var never  =model.absent.filter(function(f){ return !swept[f]; });
+  var n=model.loaded.length, reached=n-model.absent.length;
+  var h=document.createElement('div'); h.className='pick-h led-h';
+  h.innerHTML='<span class="led-t">'+(checked.length?'Not here':'Not reached')+
+    '</span><span class="c">'+
+    esc(reached+' of '+n+' loaded famil'+(n===1?'y':'ies')+' reached')+'</span>';
+  el.appendChild(h);
+  checked.forEach(function(f){
+    var d=document.createElement('div'); d.className='led-nr';
+    /* 🔴 THE ONLY PLACE THIS MAP SAYS "CHECKED AND EMPTY", and it says it only
+       where a source enumerated the places inside its own jurisdiction. */
+    d.innerHTML='<b>'+esc(String(f).toUpperCase())+'</b> · '+
+      esc(familySourceLabels(f).join(' · '))+
+      ' — <b>checked this county and found none</b>';
+    el.appendChild(d);
+  });
+  never.forEach(function(f){
+    var d=document.createElement('div'); d.className='led-nr';
+    d.innerHTML='<b>'+esc(String(f).toUpperCase())+'</b> · '+
+      esc(familySourceLabels(f).join(' · '))+' — did not reach this county';
+    el.appendChild(d);
+  });
+  if(!model.absent.length){
+    var d0=document.createElement('div'); d0.className='led-nr';
+    d0.textContent='Every loaded family reached this county; none is absent here.';
+    el.appendChild(d0);
+  }
+  el.appendChild(noteEl(checked.length
+    ? 'One loaded family enumerates every place inside this state, so its absence '+
+      'here is a finding — "checked and empty," not "not reached." Every other '+
+      'absence above still means only that the source never looked.'
+    : 'Source absence is "not reached," never "checked and empty," because no loaded '+
+      'source sweeps this county\u2019s state.'));
+  return el;
 }
 
 function hiddenNote(n){
   var d=document.createElement('div');
   d.className='ins-note';
   d.style.color='var(--signal)';
-  /* the cap was written as "top 12 per source" — a constant this file does not
-     own.  `export_map.py` in the graph repo already carries an uncommitted change
-     that would falsify it, so the sentence states the RANKING, which is stable,
-     and not the number, which is not. */
-  d.textContent=n.toLocaleString()+' further '+(n===1?'entity is':'entities are')+
-    ' reported here and not listed: the export lists only the highest-ranked per source.';
+  d.textContent=n.toLocaleString()+' further row'+(n===1?' is':'s are')+
+    ' reported by the export and not shipped to this page, so '+(n===1?'it':'they')+
+    ' cannot be listed here.';
   return d;
 }
 function sigBlock(s){
@@ -1246,6 +1599,16 @@ function sigBlock(s){
      finer one. */
   if(s.precision) h+=kv('Position known to', Object.keys(s.precision).map(function(pk){
       return pk+' '+s.precision[pk]; }).join(' · '));
+  var nrows=(s.detail||[]).length;
+  /* 🔴 A DISCLOSURE, NOT A DELETION.  Every row below is byte-identical to what
+     this block always rendered — the award year and description, the mine status,
+     commodities and holder list, and the "+N more" tail.  It starts CLOSED because
+     the `.led-sec` sections underneath already list these same entities as rows a
+     click can open: measured 13-42 duplicated names per dot (Yukon-Koyukuk 42,
+     Pima 26, Eureka 20 — a first-token count said 12/17/12 because a mineral site
+     prints its HOLDERS inline, after a <br>, inside the site's own row).  The inert copy is
+     the one that yields, and it is one keystroke away, not gone. */
+  if(nrows) h+='<details class="sig-more"><summary>'+nrows+' source row'+(nrows===1?'':'s')+'</summary>';
   h+='<div class="sig-d">';
   (s.detail||[]).forEach(function(d){
     if(s.source==='contract'){
@@ -1276,6 +1639,9 @@ function sigBlock(s){
   if(s.detail_total>(s.detail||[]).length)
     h+='<div style="color:var(--ink-faint)">+'+(s.detail_total-s.detail.length)+' more</div>';
   h+='</div>';
+  if(nrows) h+='</details>';
+  /* the verification note is NOT inside the disclosure: an open defect on a source
+     is exactly the thing that must not need a click to be seen. */
   if(pend) h+='<div class="sig-d" style="color:var(--signal);opacity:0.8">'+esc(src.verification_note||'')+'</div>';
   return h+'</div>';
 }
@@ -1295,10 +1661,25 @@ document.getElementById('ins-x').onclick=closeInspector;
    time.  A type with zero rows cannot get an entry and a type that gains rows
    gets one with no code change — the same derived-not-declared rule the defect
    scan already follows.  `asset` (338 mineral sites) arrived exactly that way. */
+/* 🔴 A CUSTOM SYMBOL, BECAUSE d3'S SEVEN ARE ALL SPOKEN FOR — and because the
+   right glyph for a permit is not an eighth arbitrary shape.  Four corner
+   brackets: the motif already carried by panel corners, graph reticles, pin
+   markers and the facility glyph.  An outline that marks a place out without
+   filling it is exactly what a permit IS — ND's own status guide separates
+   `LOC`/`PNC`/`EXP`/`PNS` from every drilled status because NO HOLE WAS MADE,
+   and drawing those 6,944 wells with the same star as a producing asset would
+   assert a hole the registry says is not there. */
+var symbolBracket={draw:function(c,size){
+  var r=Math.sqrt(size)/2, a=r*0.62;
+  c.moveTo(-r,-r+a); c.lineTo(-r,-r); c.lineTo(-r+a,-r);
+  c.moveTo(r-a,-r);  c.lineTo(r,-r);  c.lineTo(r,-r+a);
+  c.moveTo(r,r-a);   c.lineTo(r,r);   c.lineTo(r-a,r);
+  c.moveTo(-r+a,r);  c.lineTo(-r,r);  c.lineTo(-r,r-a);
+}};
 var SYM={ person:d3.symbolCircle, company:d3.symbolSquare, patent:d3.symbolDiamond,
   agency:d3.symbolTriangle, location:d3.symbolCross, research:d3.symbolWye,
-  asset:d3.symbolStar };
-var TYPE_ORDER=['person','company','patent','agency','location','research','asset'];
+  asset:d3.symbolStar, permit:symbolBracket };
+var TYPE_ORDER=['person','company','patent','agency','location','research','asset','permit'];
 
 function keyLegend(){
   var g=document.getElementById('kgrid');
@@ -1663,10 +2044,74 @@ function updateGraphStatus(){
 }
 
 /* ================================================================
+   COMMODITY LAYER — the first on-canvas geology this map has drawn
+   ================================================================
+   🔴 A CANVAS, NOT MARKERS.  37,230 coordinate-bearing sites is 88x the SVG
+   marker count the convergence layer draws (419 in a big state), and the SVG
+   path-per-dot approach that suits 419 does not survive 37,230 — measured in
+   the frame bisect recorded in this session's note, not assumed.
+
+   🔴 AND THE TUNING IS RE-MEASURED, NOT INHERITED.  map-visual-design.md §5.3-5.4
+   settled `threshold 600` and `sprite peak alpha 0.09` against 5,200 SYNTHETIC
+   points.  Real scale here is 7.2x that.  Both constants below carry the number
+   they were re-derived at; copying 600/0.09 forward unmeasured is exactly what
+   this work order was told not to do. */
+var COM_TONES=['--com-0','--com-1','--com-2','--com-3','--com-4','--com-5','--com-6','--com-7'];
+
+/* 🔴 KEPT DELIBERATELY THROUGH THE CANVAS-LAYER REMOVAL.  The cool ramp is the
+   one part of the rejected national density layer that the corrected Stage 3
+   still wants: map-visual-design.md's palette, reserved from `--signal` amber,
+   scoped to the coordinate-tier spider markers instead of a whole-map layer.
+   `--com-0..7` and this accessor are all that remain of it; the index that used
+   to rank commodities by national site count went with the payload that fed it,
+   and will be rebuilt from whatever the drilled-in place carries. */
+function comTone(i){
+  return getComputedStyle(document.documentElement).getPropertyValue(COM_TONES[i]).trim()||'#6D99B0';
+}
+/* 🔴 THE DIAGNOSTIC SURFACE, RETAINED — map-visual-design.md §6.4 lesson 4:
+   "The diagnostic harness is retained in the build and should be kept."
+
+   The previous version of this hook existed to measure the national commodity
+   CANVAS LAYER and was removed with it. That removal took the harness with the
+   feature, which is exactly what §6.4 warns against: the page is an IIFE, so
+   without a hook nothing outside it can reach `drill`, `ledgerModel` or
+   `pageSection`, and the ledger's paging behaviour at real scale becomes
+   unmeasurable from a browser. McKenzie County could not be opened for its own
+   stress test without this.
+
+   ⚠️ READ/DRIVE ONLY, AND LAYER-AGNOSTIC. It exposes what already exists and
+   asserts nothing. Nothing here draws, and nothing here is a commodity dot. */
+window.__mapdiag={
+  drill:function(fips){ return drill(fips); },
+  open:function(county, loc){ return openInspector(county, loc); },
+  model:function(county){ return ledgerModel(county); },
+  page:function(model, sec, n){ return pageSection(model, sec, n); },
+  get countyCache(){ return countyCache; },
+  get manifest(){ return MANIFEST; }
+};
+
+/* ================================================================
    WIRING
    ================================================================ */
-map=L.map('map',{zoomControl:false,attributionControl:true,minZoom:3,maxZoom:13,
-  zoomSnap:0.25,wheelPxPerZoomLevel:110}).setView([39.5,-98.5],4);
+/* 🔴 THE CONFIG map-visual-design.md §6.2 SETTLED ON, which this page never received.
+   It shipped `zoomSnap:0.25` + `wheelPxPerZoomLevel:110` — §6.2's own words for that
+   pair are "scrolling banked with no response, then lurched a quarter-level, then
+   snapped", and that is exactly what was measured here: 840px of scroll produced
+   3-4 discrete lurches over ~1.22s, each popping the dots 18.7%.  `zoomDelta` was
+   never set at all, so the on-screen +/- buttons fired a FULL zoom level — a 98.9%
+   marker oversize, the worst case in the whole table.
+   Continuous zoom (snap 0) removes the quantised lurch; 58px restores the wheel gain
+   the 110 had halved; 18ms debounce cuts the banking delay. */
+/* 🔴 attributionControl:false because the page adds its OWN attribution control on
+   the next line (`prefix:false`).  Both were being created, so two controls stacked
+   in `.leaflet-bottom.leaflet-right` and the redundant one's "Leaflet" prefix link
+   reached down into the status bar — the last measured ink overlap at 900px.  The
+   REQUIRED tile attribution is unaffected: the explicit control still collects
+   "Esri, HERE, Garmin, © OpenStreetMap contributors" from the layers themselves,
+   and that is asserted below, not assumed. */
+map=L.map('map',{zoomControl:false,attributionControl:false,minZoom:3,maxZoom:13,
+  zoomSnap:0,zoomDelta:0.35,wheelPxPerZoomLevel:58,wheelDebounceTime:18
+  }).setView([39.5,-98.5],4);
 L.control.attribution({position:'bottomright',prefix:false}).addTo(map);
 /* ⚠️ NOT A DESIGN CHANGE — AN UPSTREAM ONE.  The baseline's CARTO dark_nolabels
    endpoint now returns a tile stamped "API KEY REQUIRED" across every frame for
@@ -1749,6 +2194,54 @@ Promise.all([
   var us=res[2];
   statesFeatures=topojson.feature(us,us.objects.states).features;
   countiesFeatures=topojson.feature(us,us.objects.counties).features;
+
+  /* 🔴 CONNECTICUT IS NOT IN THE GEOMETRY THE REST OF THE MAP USES, AND WITHOUT
+     THIS EVERY CONNECTICUT COUNTY READS AS "no source reached this county".
+
+     Connecticut abolished its county governments' statistical role: since 2022
+     the Census county-equivalents for FIPS 09 are NINE PLANNING REGIONS
+     (09110-09190), and the export keys its rows on those, because that is what
+     the contract data reports.  `us-atlas@3/counties-10m` — the only vintage
+     published, and its 3.0.1 release predates the change in content — still
+     carries the pre-2022 counties 09001-09015.  The intersection of the two
+     sets is EMPTY, so `renderCounties` read `cd[f.id]` as undefined for all
+     eight polygons, drew them as `no-coverage` hatching, and `countyMarkers`
+     created zero markers.
+
+     🔴 THAT IS A FALSE NEGATIVE PRESENTED AS A COVERAGE FACT — the one thing
+     this map's coverage grammar exists to prevent.  It hid RTX (Capitol),
+     Sikorsky (Greater Bridgeport) and Electric Boat (Southeastern Connecticut):
+     five real signals across three counties, rendered as "never checked", and
+     silently — the status bar's "1 dark" is American Samoa, not Connecticut.
+
+     The nine regions are spliced in and the eight obsolete counties dropped, so
+     the swap is scoped to FIPS 09 by construction and no other state's geometry
+     is touched.  Source: Census TIGERweb State_County, the authority for current
+     FIPS.  Simplified by quantisation plus RDP applied PER SHARED ARC rather
+     than per polygon — a first attempt simplified each region independently and
+     tore the internal borders (14 of 214 vertices stayed shared, against 187 of
+     272 now), which a shared-vertex census with a sabotage control caught.
+
+     ⚠️ TWO MEASURED IMPRECISIONS, DISCLOSED RATHER THAN SILENTLY CLIPPED.
+     (1) TIGERweb county-equivalents INCLUDE territorial water and us-atlas is
+     land-clipped, so Connecticut's southern edge extends 0.0339 deg into Long
+     Island Sound — about 1,427 km2, all of it water; it stops short of Long
+     Island, so there is no seam over New York's shore.  (2) The arc
+     simplification (RDP eps 3e-3 deg, ~330 m) also overdraws about 19 km2 of
+     HAIRLINE onto neighbours where us-atlas draws the same border differently:
+     Westchester 4.3, Dutchess 4.0, Hampden 2.8, Putnam 2.5, Washington RI 2.0,
+     Providence 1.6, Worcester 1.2, Berkshire 0.8 km2.  Sub-pixel at national
+     zoom, a visible hairline at maximum zoom.  Clipping either correctly needs a
+     polygon intersection this page has no library for, and an approximate clip
+     would move a real border.
+
+     ⚠️ `serving/map_geometry_ids.txt` is the machine-readable version of what
+     this page can draw, and `export_map.py` refuses to write an export whose
+     county keys are not in it.  If this splice changes, regenerate that file. */
+  var CT_PLANNING_REGIONS={"type":"FeatureCollection","features":[{"type":"Feature","id":"09110","properties":{"name":"Capitol"},"geometry":{"type":"Polygon","coordinates":[[[-72.1563,41.7535],[-72.1567,41.7537],[-72.1645,41.8349],[-72.2177,41.8352],[-72.217,41.9582],[-72.2349,41.9576],[-72.2149,42.0001],[-72.2051,42.0311],[-72.2109,42.0311],[-72.5315,42.0346],[-72.5728,42.0302],[-72.5824,42.0247],[-72.6072,42.0251],[-72.608,42.0311],[-72.7553,42.0364],[-72.7573,42.0334],[-72.7521,42.029],[-72.7573,42.021],[-72.7653,42.0224],[-72.759,42.0154],[-72.7667,42.0033],[-72.8171,41.9977],[-72.8138,42.0367],[-72.8636,42.0375],[-72.9153,41.8968],[-72.9406,41.8952],[-72.9536,41.8541],[-72.9518,41.8429],[-72.9363,41.8398],[-72.949,41.8064],[-72.9208,41.8065],[-72.9282,41.8025],[-72.925,41.7879],[-72.919,41.7783],[-72.9085,41.776],[-72.8983,41.7232],[-72.8982,41.7227],[-72.8834,41.6495],[-72.9239,41.6455],[-72.922,41.6411],[-72.9278,41.6407],[-72.9286,41.6455],[-72.9385,41.6443],[-72.9336,41.6078],[-72.9463,41.5568],[-72.8839,41.5638],[-72.8741,41.5593],[-72.8678,41.549],[-72.8531,41.5464],[-72.8527,41.5463],[-72.8443,41.5447],[-72.8485,41.5673],[-72.8276,41.571],[-72.8296,41.5624],[-72.8257,41.5643],[-72.8261,41.5559],[-72.8191,41.5543],[-72.8012,41.5731],[-72.7522,41.5789],[-72.7521,41.5789],[-72.7529,41.5925],[-72.7317,41.5958],[-72.7299,41.6015],[-72.7145,41.6043],[-72.7111,41.618],[-72.7139,41.6277],[-72.6281,41.6402],[-72.6302,41.6333],[-72.5055,41.647],[-72.4667,41.5839],[-72.4641,41.5842],[-72.4172,41.5906],[-72.4104,41.6026],[-72.3841,41.5887],[-72.3752,41.6014],[-72.3559,41.5976],[-72.3282,41.6054],[-72.3245,41.6186],[-72.3342,41.6436],[-72.3036,41.654],[-72.2787,41.672],[-72.2684,41.6711],[-72.2661,41.6773],[-72.2743,41.6926],[-72.2663,41.6907],[-72.2608,41.6986],[-72.2502,41.6993],[-72.2512,41.7033],[-72.244,41.7057],[-72.2478,41.708],[-72.245,41.7139],[-72.2396,41.7142],[-72.2526,41.7282],[-72.198,41.7282],[-72.1984,41.7318],[-72.1909,41.7316],[-72.1956,41.7396],[-72.1857,41.7519],[-72.1877,41.7552],[-72.1779,41.7554],[-72.1716,41.7485],[-72.1563,41.7535]]]}},{"type":"Feature","id":"09120","properties":{"name":"Greater Bridgeport"},"geometry":{"type":"Polygon","coordinates":[[[-73.1833,41.3917],[-73.1835,41.3916],[-73.1954,41.3881],[-73.205,41.3704],[-73.221,41.364],[-73.2281,41.3651],[-73.2291,41.3703],[-73.3253,41.3225],[-73.3048,41.2978],[-73.3688,41.275],[-73.3259,41.2274],[-73.3257,41.2162],[-73.3385,41.1945],[-73.2981,41.1437],[-73.2914,41.0179],[-73.2882,41.0185],[-72.9995,41.0871],[-73.1215,41.1776],[-73.1214,41.1875],[-73.1095,41.2026],[-73.11,41.2294],[-73.0868,41.2546],[-73.087,41.2547],[-73.103,41.2595],[-73.1083,41.2686],[-73.1469,41.2554],[-73.1553,41.2691],[-73.1739,41.2686],[-73.2048,41.2994],[-73.1768,41.3376],[-73.1707,41.3579],[-73.1571,41.3767],[-73.158,41.383],[-73.1734,41.3836],[-73.1833,41.3917]]]}},{"type":"Feature","id":"09130","properties":{"name":"Lower Connecticut River Valley"},"geometry":{"type":"Polygon","coordinates":[[[-72.4667,41.5839],[-72.4672,41.5846],[-72.5055,41.647],[-72.6302,41.6333],[-72.6281,41.6402],[-72.7139,41.6277],[-72.7111,41.618],[-72.7145,41.6043],[-72.7299,41.6015],[-72.7317,41.5958],[-72.7529,41.5925],[-72.7522,41.5789],[-72.7519,41.576],[-72.7433,41.4831],[-72.7339,41.4854],[-72.7391,41.4383],[-72.7461,41.4233],[-72.6542,41.4383],[-72.6484,41.4351],[-72.6495,41.4309],[-72.6423,41.4292],[-72.6494,41.4175],[-72.632,41.4121],[-72.6303,41.4027],[-72.6123,41.3862],[-72.6081,41.3674],[-72.6126,41.3605],[-72.6143,41.3296],[-72.5859,41.324],[-72.5896,41.3153],[-72.5849,41.314],[-72.5886,41.3117],[-72.5856,41.3073],[-72.5558,41.281],[-72.5461,41.2804],[-72.5473,41.2626],[-72.5279,41.2501],[-72.5279,41.1778],[-72.5176,41.1797],[-72.2485,41.2307],[-72.2487,41.2996],[-72.2583,41.3217],[-72.2564,41.3259],[-72.2745,41.3561],[-72.2822,41.4059],[-72.2766,41.4404],[-72.3049,41.4327],[-72.3234,41.5342],[-72.4308,41.5246],[-72.4667,41.5839]]]}},{"type":"Feature","id":"09140","properties":{"name":"Naugatuck Valley"},"geometry":{"type":"Polygon","coordinates":[[[-72.8531,41.5464],[-72.8537,41.5465],[-72.8678,41.549],[-72.8741,41.5593],[-72.8839,41.5638],[-72.9463,41.5568],[-72.9336,41.6078],[-72.9385,41.6443],[-72.9286,41.6455],[-72.9278,41.6407],[-72.922,41.6411],[-72.9239,41.6455],[-72.8834,41.6495],[-72.8983,41.7232],[-72.8996,41.723],[-73.0684,41.7071],[-73.142,41.6723],[-73.2614,41.6646],[-73.2535,41.6044],[-73.2673,41.6026],[-73.2523,41.5121],[-73.3189,41.5052],[-73.3194,41.5051],[-73.3271,41.4845],[-73.3128,41.4699],[-73.2996,41.4701],[-73.2983,41.4487],[-73.2739,41.4517],[-73.2637,41.4345],[-73.2453,41.4399],[-73.2384,41.4263],[-73.2182,41.4291],[-73.1982,41.4119],[-73.1865,41.4085],[-73.1882,41.3982],[-73.1833,41.3917],[-73.1816,41.39],[-73.1734,41.3836],[-73.1587,41.3834],[-73.1571,41.3767],[-73.1707,41.3579],[-73.1768,41.3376],[-73.2048,41.2994],[-73.1739,41.2686],[-73.1553,41.2691],[-73.1469,41.2554],[-73.1083,41.2686],[-73.103,41.2595],[-73.0868,41.2546],[-73.0872,41.2568],[-73.0869,41.2766],[-73.0688,41.2892],[-73.065,41.3061],[-73.0579,41.3121],[-73.0407,41.3139],[-73.0389,41.328],[-73.0463,41.3461],[-73.0485,41.3888],[-73.0417,41.4209],[-73.0295,41.4195],[-73.0258,41.4596],[-73.0033,41.4627],[-73.0013,41.4711],[-72.9172,41.4598],[-72.8867,41.448],[-72.8463,41.5028],[-72.8531,41.5249],[-72.8612,41.5281],[-72.858,41.5345],[-72.8536,41.5335],[-72.8531,41.5464]]]}},{"type":"Feature","id":"09150","properties":{"name":"Northeastern Connecticut"},"geometry":{"type":"Polygon","coordinates":[[[-72.1563,41.7535],[-72.156,41.7534],[-72.112,41.7459],[-72.1225,41.7128],[-72.1198,41.6618],[-71.952,41.6343],[-71.8844,41.6412],[-71.8634,41.5149],[-71.7931,41.5057],[-71.7872,41.6561],[-71.8007,42.0235],[-72.2051,42.0311],[-72.2349,41.9576],[-72.217,41.9582],[-72.2177,41.8352],[-72.1645,41.8349],[-72.1563,41.7535]]]}},{"type":"Feature","id":"09160","properties":{"name":"Northwest Hills"},"geometry":{"type":"Polygon","coordinates":[[[-72.8983,41.7232],[-72.8993,41.729],[-72.9085,41.776],[-72.919,41.7783],[-72.925,41.7879],[-72.9282,41.8025],[-72.9208,41.8065],[-72.949,41.8064],[-72.9363,41.8398],[-72.9518,41.8429],[-72.9536,41.8541],[-72.9406,41.8952],[-72.9153,41.8968],[-72.8651,42.0375],[-73.4873,42.0495],[-73.5181,41.6667],[-73.3821,41.6833],[-73.3779,41.659],[-73.3591,41.6465],[-73.3303,41.5044],[-73.3189,41.5052],[-73.3179,41.5053],[-73.2523,41.5121],[-73.2673,41.6026],[-73.2535,41.6044],[-73.2614,41.6646],[-73.142,41.6723],[-73.0684,41.7071],[-72.8983,41.7232]]]}},{"type":"Feature","id":"09170","properties":{"name":"South Central Connecticut"},"geometry":{"type":"Polygon","coordinates":[[[-73.0868,41.2546],[-73.0869,41.2538],[-73.11,41.2294],[-73.1095,41.2026],[-73.1214,41.1875],[-73.1215,41.1776],[-72.9955,41.0879],[-72.5279,41.1778],[-72.5279,41.2501],[-72.5473,41.2626],[-72.5461,41.2804],[-72.5558,41.281],[-72.5856,41.3073],[-72.5886,41.3117],[-72.5848,41.3138],[-72.5896,41.3153],[-72.5859,41.324],[-72.6143,41.3296],[-72.6126,41.3605],[-72.6081,41.3674],[-72.6123,41.3862],[-72.6303,41.4027],[-72.632,41.4121],[-72.6494,41.4175],[-72.6423,41.4292],[-72.6495,41.4309],[-72.6484,41.4351],[-72.6542,41.4383],[-72.7461,41.4233],[-72.7391,41.4383],[-72.7339,41.4854],[-72.7433,41.4831],[-72.7522,41.5789],[-72.7553,41.5786],[-72.8012,41.5731],[-72.8191,41.5543],[-72.8261,41.5559],[-72.8257,41.5643],[-72.8296,41.5624],[-72.8276,41.571],[-72.8485,41.5673],[-72.8443,41.5447],[-72.8531,41.5464],[-72.8531,41.5463],[-72.8536,41.5335],[-72.858,41.5345],[-72.8612,41.5281],[-72.8531,41.5249],[-72.8463,41.5028],[-72.8867,41.448],[-72.9172,41.4598],[-73.0013,41.4711],[-73.0033,41.4627],[-73.0258,41.4596],[-73.0295,41.4195],[-73.0417,41.4209],[-73.0485,41.3888],[-73.0463,41.3461],[-73.0389,41.328],[-73.0407,41.3139],[-73.0579,41.3121],[-73.065,41.3061],[-73.0688,41.2892],[-73.0869,41.2766],[-73.0868,41.2546]]]}},{"type":"Feature","id":"09180","properties":{"name":"Southeastern Connecticut"},"geometry":{"type":"Polygon","coordinates":[[[-71.7932,41.5057],[-71.8634,41.5149],[-71.8844,41.6412],[-71.952,41.6343],[-72.1198,41.6618],[-72.1225,41.7128],[-72.112,41.7459],[-72.1563,41.7535],[-72.1575,41.7519],[-72.1716,41.7485],[-72.1779,41.7554],[-72.1877,41.7552],[-72.1857,41.7519],[-72.1956,41.7396],[-72.1909,41.7316],[-72.1984,41.7318],[-72.198,41.7282],[-72.2526,41.7282],[-72.2396,41.7142],[-72.245,41.7139],[-72.2478,41.708],[-72.244,41.7057],[-72.2512,41.7033],[-72.2502,41.6993],[-72.2608,41.6986],[-72.2663,41.6907],[-72.2743,41.6926],[-72.2661,41.6773],[-72.2684,41.6711],[-72.2787,41.672],[-72.3036,41.654],[-72.3342,41.6436],[-72.3245,41.6186],[-72.3282,41.6054],[-72.3559,41.5976],[-72.3752,41.6014],[-72.3841,41.5887],[-72.4104,41.6026],[-72.4172,41.5906],[-72.4667,41.5839],[-72.4663,41.583],[-72.4308,41.5246],[-72.3234,41.5342],[-72.3049,41.4327],[-72.2766,41.4404],[-72.2822,41.4059],[-72.277,41.368],[-72.2488,41.3],[-72.2485,41.2307],[-72.2429,41.2317],[-72.0818,41.2622],[-71.9995,41.2958],[-71.9295,41.3104],[-71.9072,41.3045],[-71.8921,41.3301],[-71.8665,41.3192],[-71.8575,41.3208],[-71.8294,41.3424],[-71.8379,41.3601],[-71.8306,41.3788],[-71.8331,41.3878],[-71.8422,41.3954],[-71.8424,41.4103],[-71.8181,41.4199],[-71.7977,41.4167],[-71.7932,41.5057]]]}},{"type":"Feature","id":"09190","properties":{"name":"Western Connecticut"},"geometry":{"type":"Polygon","coordinates":[[[-73.1833,41.3917],[-73.1834,41.3919],[-73.1882,41.3982],[-73.1865,41.4085],[-73.1982,41.4119],[-73.2182,41.4291],[-73.2384,41.4263],[-73.2453,41.4399],[-73.2637,41.4345],[-73.2739,41.4517],[-73.2983,41.4487],[-73.2996,41.4701],[-73.3128,41.4699],[-73.3271,41.4845],[-73.3189,41.5052],[-73.3193,41.5052],[-73.3303,41.5044],[-73.3591,41.6465],[-73.3779,41.659],[-73.3821,41.6833],[-73.5181,41.6666],[-73.551,41.2954],[-73.4827,41.2128],[-73.7278,41.1007],[-73.6553,41.0123],[-73.6597,40.9879],[-73.6129,40.9509],[-73.2914,41.0179],[-73.2981,41.1437],[-73.3385,41.1945],[-73.3257,41.2162],[-73.3259,41.2274],[-73.3688,41.275],[-73.3048,41.2978],[-73.3253,41.3225],[-73.2291,41.3703],[-73.2281,41.3651],[-73.221,41.364],[-73.205,41.3704],[-73.1954,41.3881],[-73.1833,41.3917]]]}}]};
+  countiesFeatures=countiesFeatures.filter(function(f){
+      return String(f.id).padStart(5,'0').slice(0,2)!=='09';
+    }).concat(CT_PLANNING_REGIONS.features);
 
   /* the legend is a census of the manifest, so it cannot be built before the
      manifest exists — it used to be an IIFE over a hardcoded list */
